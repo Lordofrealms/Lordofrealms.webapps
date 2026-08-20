@@ -7,12 +7,12 @@
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' blob: https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' https://geocoding.geo.census.gov https://basemap.nationalmap.gov https://imagery.nationalmap.gov https://carto.nationalmap.gov https://tiles.openfreemap.org https://raw.githubusercontent.com; img-src 'self' data: blob: https://basemap.nationalmap.gov https://imagery.nationalmap.gov https://carto.nationalmap.gov https://tiles.openfreemap.org; worker-src 'self' blob:; child-src 'self' blob:; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none';">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.16.0/dist/maplibre-gl.css">
-<script src="privacy.js?v=20260820-2"></script>
+<script src="privacy.js?v=20260820-3"></script>
 <script src="https://unpkg.com/maplibre-gl@5.16.0/dist/maplibre-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.4.0/turf.min.js"></script>
 <title>Tractor Field Planner & Guidance</title>
 
-<link rel="stylesheet" href="style.css?v=20260820-2">
+<link rel="stylesheet" href="style.css?v=20260820-3">
 
 </head>
 <body class="planMode">
@@ -63,7 +63,6 @@
       <div class="gbox"><b id="planHeading">—</b><span>plan heading</span></div>
     </div>
   </div>
-
 
   <div class="card driveOnly">
     <div class="driveHeader">
@@ -214,7 +213,6 @@
     </div>
   </div>
 
-
   <div class="card" id="securityNote" style="display:none"><div class="info" id="securityText"></div></div>
 </div>
 
@@ -223,9 +221,6 @@
   <button id="sessionsBottom">Drive Sessions</button>
   <button id="fitBottom">Fit Path</button>
 </div>
-
-
-
 
 <dialog id="storageDlg">
  <div class="modal">
@@ -259,7 +254,7 @@
 <dialog id="pathingsDlg">
  <div class="modal">
   <h2>Saved Paths</h2>
-  <div class="small">Saved route geometry is stored separately from lightweight app/session metadata. Large paths load after the map/property UI in chunks. Legacy all-in-one paths are migrated lazily only when you actually load them—not while the database is opening.</div>
+  <div class="small">Saved route geometry is stored separately from lightweight app/session metadata. Large paths load after the map/property UI in chunks.</div>
   <label style="display:block;margin-top:10px">Path name
     <input id="pathingNameInput" placeholder="e.g. North Pasture Spray 20 ft">
   </label>
@@ -308,35 +303,29 @@
   </div>
   <div class="planOnly" style="margin-top:12px">
    <div class="keyrow">
-    <label>Basemap
-      <select id="basemapChoice">
-        <option value="hybrid">USGS Hybrid — cached + high-res NAIP</option>
-        <option value="usgscached">USGS Imagery — cached / fastest</option>
-        <option value="streets">Basic street map</option>
-      </select>
-    </label>
-    <button id="applyBasemapBtn">Apply Map</button>
+     <select id="basemapChoice">
+       <option value="hybrid">USGS Hybrid — cached + high-res NAIP</option>
+       <option value="usgscached">USGS Imagery — cached / fastest</option>
+       <option value="streets">Basic street map</option>
+     </select>
+     <button id="applyBasemapBtn">Apply Basemap</button>
    </div>
-   <div class="info" style="margin-top:6px">USGS imagery is free and requires no API key. Hybrid mode keeps cached imagery underneath high-resolution NAIP so the map remains usable if the dynamic imagery is slow. Internet access is required for map imagery. The standalone map uses MapLibre GL JS 5.16.0 because v6 no longer publishes the classic browser script required by a single local HTML file. The last map center and zoom are also remembered automatically on this device. IMPORTANT: for local-file upgrades, keep this app at the same exact filename/path so the browser can reuse the same storage bucket.</div>
+   <div class="small" style="margin-top:6px">USGS imagery is free and requires no API key. Hybrid mode keeps cached imagery underneath high-resolution NAIP so the map remains usable if the dynamic imagery is slow. Internet access is required for map imagery. The standalone map uses MapLibre GL JS 5.16.0 because v6 no longer publishes the classic browser script required by a single local HTML file. The last map center and zoom are also remembered automatically on this device. IMPORTANT: for local-file upgrades, keep this app at the same exact filename/path so the browser can reuse the same storage bucket.</div>
   </div>
-  <div class="modalActions"><button id="cancelSettings">Cancel</button><button class="primary" id="applySettings">Apply & Save</button></div>
+  <div class="modalActions"><button id="closeSettings">Close</button><button id="saveSettings" class="primary">Save</button></div>
  </div>
 </dialog>
 
 <dialog id="sessionsDlg">
  <div class="modal">
-  <h2>Sessions</h2>
-  <button class="primary" id="newSessionBtn" style="width:100%">+ New Session</button>
+  <h2>Saved Sessions</h2>
+  <div class="small">In-progress sessions can be reopened after a refresh or browser restart. Export a session if you want a transferable backup.</div>
   <div id="sessionList"><div class="small" style="padding:12px 0">Loading…</div></div>
-  <div class="modalActions">
-   <button id="importSessionBtn">Import JSON</button>
-   <button id="closeSessions">Close</button>
-   <input id="importSessionFile" type="file" accept=".json,application/json" hidden>
-  </div>
+  <div class="modalActions"><button id="importBtn">Import Session</button><button id="exportSessionBtn">Export Current</button><button id="closeSessions">Close</button><input id="importFile" type="file" accept=".json,application/json" hidden></div>
  </div>
 </dialog>
 
-<script src="terms.js?v=20260820-2"></script>
-<script src="app-loader.js?v=20260820-2"></script>
+<script src="terms.js?v=20260820-3"></script>
+<script src="app-loader.js?v=20260820-3"></script>
 </body>
 </html>
