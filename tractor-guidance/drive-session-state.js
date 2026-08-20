@@ -44,7 +44,25 @@
     if(typeof startGPS==='function'){const originalStartGPS=startGPS;startGPS=async function(){if(!sessionId){const made=await createNewDrive();if(!made)return}let rec=await getSessionRecord(sessionId),b=bindingFromRecord(rec);if(!b){const pid=(typeof selectedPathingId!=='undefined')?selectedPathingId:null,pn=(typeof selectedPathingName!=='undefined')?selectedPathingName:'';if(!pid){alert('This drive has no saved path binding. Create a new drive from a saved path.');return}rec=await persistBinding(sessionId,pid,pn,rec?.createdAt);b=bindingFromRecord(rec)}if(!await getPath(b.id)){alert('This drive is broken because its saved path no longer exists.');return}await restoreBoundDrivePath();return await originalStartGPS.apply(this,arguments)}}
 
     const newBtn=document.getElementById('newSessionBtn');if(newBtn)newBtn.onclick=()=>createNewDrive().then(r=>{if(r&&typeof setAppMode==='function')setAppMode('drive')}).catch(e=>alert('Could not create drive: '+(e?.message||e)));
-    const driveBtn=document.getElementById('driveModeBtn');if(driveBtn)driveBtn.onclick=async()=>{try{if(sessionId){const ok=await restoreBoundDrivePath();if(!ok){alert('The active drive cannot be loaded because its saved path is missing.');return}}if(typeof setAppMode==='function')setAppMode('drive')}catch(e){alert('Could not open DRIVE: '+(e?.message||e))}};
+
+    // PLAN -> DRIVE intent rule:
+    // same selected path as active drive = resume; different selected path = create a new drive.
+    const driveBtn=document.getElementById('driveModeBtn');if(driveBtn)driveBtn.onclick=async()=>{
+      try{
+        const planPathId=(typeof selectedPathingId!=='undefined')?selectedPathingId:null;
+        if(!planPathId){alert('Select a saved path before entering DRIVE.');return}
+        let activeRec=(typeof sessionId!=='undefined'&&sessionId)?await getSessionRecord(sessionId):null;
+        let activeBinding=activeRec?bindingFromRecord(activeRec):null;
+        if(!activeBinding||activeBinding.id!==planPathId){
+          const made=await createNewDrive();if(!made)return;
+          track=[];currentFix=null;totalDistanceM=0;rejectedCount=0;window.__TRACTOR_WORK_ACTIVE=false;
+        }else{
+          const ok=await restoreBoundDrivePath();if(!ok){alert('The active drive cannot be loaded because its saved path is missing.');return}
+        }
+        if(typeof setAppMode==='function')setAppMode('drive');
+        try{updateAll()}catch(e){}try{updateMapData()}catch(e){}
+      }catch(e){alert('Could not open DRIVE: '+(e?.message||e))}
+    };
 
     const savePathBtn=document.getElementById('savePathingDialogBtn');if(savePathBtn&&savePathBtn.onclick){const originalSave=savePathBtn.onclick;savePathBtn.onclick=async function(ev){const input=document.getElementById('pathingNameInput'),wanted=(input?.value||'').trim();if(wanted){const paths=await getAllPaths(),dup=paths.find(p=>(p.name||p.pathingName||'').trim().toLowerCase()===wanted.toLowerCase()&&p.id!==selectedPathingId);if(dup){alert('A saved path named "'+wanted+'" already exists. Use a unique path name.');return}}const r=await originalSave.call(this,ev);setTimeout(()=>window.TractorIntegrity?.refreshPathLibrary?.(),50);return r}};
 
