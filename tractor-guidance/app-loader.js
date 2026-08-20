@@ -1,6 +1,6 @@
 (()=>{
  const PARTS=15;
- const ASSET_VERSION='20260820-9';
+ const ASSET_VERSION='20260820-10';
  const TERMS_BUILD_KEY='tractorGuidanceTermsAcceptedAppBuild';
  window.TRACTOR_ASSET_VERSION=ASSET_VERSION;
  const status=msg=>{const el=document.getElementById('modeHint');if(el)el.textContent=msg};
@@ -56,16 +56,19 @@
    }
    const binary=atob(texts.join('')); const bytes=new Uint8Array(binary.length); for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
    if(!('DecompressionStream' in window))throw new Error('This browser does not support DecompressionStream. Use a current Chrome/Edge browser.');
-   status('Starting Tractor Guidance application… 85%');
+   status('Starting Tractor Guidance application… 82%');
    const ds=new DecompressionStream('gzip'); const js=await new Response(new Blob([bytes]).stream().pipeThrough(ds)).text();
    const blobUrl=URL.createObjectURL(new Blob([js],{type:'text/javascript'})); const script=document.createElement('script'); script.src=blobUrl;
    script.onload=async()=>{
      URL.revokeObjectURL(blobUrl);
-     status('Starting GPS/work controls… 88%');
+     status('Starting PLAN controls… 86%');
+     await loadExtension('coverage-mode.js','Coverage fit controls','installTractorCoverageMode');
+     await loadExtension('plan-ui.js','PLAN layout','installTractorPlanUI');
+     status('Starting GPS/work controls… 89%');
      await loadExtension('work-mode.js','GPS/work mode','installTractorWorkMode');
-     status('Starting operational map renderer… 92%');
+     status('Starting operational map renderer… 93%');
      await loadExtension('geometry-overlay.js','Operational map renderer','installTractorGeometryOverlay');
-     status('Building Drive console… 96%');
+     status('Building Drive console… 97%');
      await loadExtension('drive-console.js','Drive console','installTractorDriveConsole');
      status('PLAN: edit regions, choose active areas, and generate the route.');
    };
