@@ -15,19 +15,14 @@
     planner.appendChild(wrap);
 
     const style=document.createElement('style');
-    style.textContent=`
-      .coverageFitControl{font-size:.68rem;color:var(--muted);align-self:end}
-      .coverageFitLabel{margin-bottom:4px}
-      .coverageFitButtons{display:grid;grid-template-columns:1fr 1fr;gap:4px}
-      .coverageFitButtons button{padding:8px 5px;font-size:.66rem}
-      .coverageFitButtons button.active{background:#173526;border-color:#75c043;color:#d5ffb8}
-      .coverageFitHelp{font-size:.58rem;line-height:1.25;margin-top:4px;color:var(--muted)}
-    `;
+    style.textContent=`.coverageFitControl{font-size:.68rem;color:var(--muted);align-self:end}.coverageFitLabel{margin-bottom:4px}.coverageFitButtons{display:grid;grid-template-columns:1fr 1fr;gap:4px}.coverageFitButtons button{padding:8px 5px;font-size:.66rem}.coverageFitButtons button.active{background:#173526;border-color:#75c043;color:#d5ffb8}.coverageFitHelp{font-size:.58rem;line-height:1.25;margin-top:4px;color:var(--muted)}`;
     document.head.appendChild(style);
 
     const full=document.getElementById('coverageFitFull');
     const noExtra=document.getElementById('coverageFitNoExtra');
     const help=document.getElementById('coverageFitHelp');
+    const pathType=document.getElementById('pathType');
+    const headingLabel=document.getElementById('headingLabel');
 
     function invalidatePlan(){
       try{
@@ -45,11 +40,13 @@
     function refresh(){
       full.classList.toggle('active',mode==='coverage');
       noExtra.classList.toggle('active',mode==='no-extra-overlap');
-      const pathType=document.getElementById('pathType')?.value;
-      const disabled=pathType&&pathType!=='parallel';
+      const type=pathType?.value;
+      const parallelLike=type==='parallel'||type==='skip-parallel';
+      const disabled=type&&!parallelLike;
       full.disabled=disabled;noExtra.disabled=disabled;
+      if(headingLabel&&type==='skip-parallel')headingLabel.style.display='';
       help.textContent=disabled
-        ?'Parallel/lawnmower paths only. Contour paths keep their configured inward spacing.'
+        ?'Parallel-style paths only. Contour paths keep their configured inward spacing.'
         :mode==='coverage'
           ?'Adds extra overlap when needed so the cross-track width is fully covered.'
           :'Keeps the requested spacing fixed; leftover width is split between the two edges and may remain unworked.';
@@ -66,8 +63,7 @@
 
     full.onclick=()=>setMode('coverage');
     noExtra.onclick=()=>setMode('no-extra-overlap');
-    const pathType=document.getElementById('pathType');
-    if(pathType)pathType.addEventListener('change',refresh);
+    if(pathType)pathType.addEventListener('change',()=>requestAnimationFrame(refresh));
 
     const originalCfg=cfg;
     cfg=function(){return{...originalCfg.apply(this,arguments),coveragePriority:mode}};
@@ -76,6 +72,7 @@
       const r=originalApplyCfg.apply(this,arguments);
       if(settings?.coveragePriority)setMode(settings.coveragePriority,{persist:true,invalidate:false});
       else refresh();
+      requestAnimationFrame(refresh);
       return r;
     };
 
