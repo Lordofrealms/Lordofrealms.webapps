@@ -9,15 +9,14 @@
 <p id="bootMsg">Loading Tractor Guidance…</p>
 <script>
 (async()=>{
-  const BUILD='20260820-15';
+  const BUILD='20260820-16';
   try{
     const r=await fetch(`index-v11.html?template=${BUILD}`,{cache:'no-store'});
     if(!r.ok)throw new Error(`HTTP ${r.status}`);
     let html=await r.text();
     html=html.replaceAll('20260820-11',BUILD);
-    // Preserve the legacy .top compatibility hook while retaining the full-width header.
     html=html.replace('class="planShellHeader planOnly"','class="planShellHeader planOnly top"');
-    // Keep a small visible build marker so deployment verification stays easy.
+    html=html.replace('<option value="parallel">Parallel / lawnmower</option>','<option value="parallel">Parallel / lawnmower</option><option value="skip-parallel">Skip-pass / alternating rows</option>');
     html=html.replace('<div class="small" id="sessionTitle">No active session</div>','<div class="small" id="sessionTitle">No active session</div><div class="small" id="buildBadge">Build '+BUILD+'</div>');
     document.open();
     document.write(html);
