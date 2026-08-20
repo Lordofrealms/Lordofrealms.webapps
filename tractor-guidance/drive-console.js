@@ -22,9 +22,11 @@
     const statusCard=document.getElementById('gpsStatus')?.closest('.card.driveOnly');
     const dashCard=document.getElementById('progressPct')?.closest('.card.driveOnly');
     const mapTools=document.querySelector('.mapTools.driveOnly');
+    const mapCard=document.querySelector('.mapWrap')?.closest('.card');
     if(statusCard)statusCard.classList.add('driveConsoleSource');
     if(dashCard)dashCard.classList.add('driveConsoleSource');
     if(mapTools)mapTools.classList.add('driveConsoleSource');
+    if(mapCard)mapCard.classList.add('driveMapCard');
 
     const style=document.createElement('style');
     style.textContent=`
@@ -32,21 +34,34 @@
       body.driveMode .privacyCard{display:none!important}
       body.driveMode .mapTools.driveOnly{display:none!important}
       body.driveMode .driveConsoleSource{display:none!important}
-      body.driveMode .wrap{padding-bottom:220px!important}
-      .driveConsole{display:block!important;padding:7px 8px calc(7px + env(safe-area-inset-bottom));max-height:46vh;overflow:auto}
+      body.driveMode .wrap{padding-bottom:var(--drive-console-height,108px)!important}
+      body.driveMode .driveMapCard{padding-bottom:0!important;margin-bottom:0!important}
+      .driveConsole{display:block!important;padding:7px 8px calc(7px + env(safe-area-inset-bottom));max-height:48vh;overflow:auto}
       .driveConsoleTop{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
       .driveConsolePath{min-width:0;flex:1}
       .driveConsolePath .drivePathName{font-size:.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .driveConsoleState{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
-      .driveConsoleStats{display:grid;grid-template-columns:repeat(8,1fr);gap:5px;margin-bottom:6px}
+      .driveConsoleStats{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:5px;margin-bottom:6px}
       .driveConsoleStats .metric{padding:5px 3px;min-width:0}
       .driveConsoleStats .metric b{font-size:.86rem}
       .driveConsoleStats .metric span{font-size:.53rem;white-space:nowrap}
-      .driveConsoleControls{display:grid;grid-template-columns:repeat(6,1fr);gap:5px}
+      .driveConsoleControls{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:5px}
       .driveConsoleControls button{min-width:0!important;padding:9px 5px;font-size:.72rem}
       .driveConsoleMeta{font-size:.60rem;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-      @media(max-width:760px){body.driveMode .wrap{padding-bottom:270px!important}.driveConsoleStats{grid-template-columns:repeat(4,1fr)}.driveConsoleControls{grid-template-columns:repeat(3,1fr)}}
-      @media(max-width:420px){body.driveMode .wrap{padding-bottom:235px!important}.driveConsoleTop{align-items:flex-start}.driveConsoleState .savePulse,.driveConsoleState #lastFix{display:none}.driveConsoleStats{grid-template-columns:repeat(4,1fr)}.driveConsoleStats .metric:nth-child(n+5){display:none}.driveConsoleControls{grid-template-columns:repeat(3,1fr)}}
+      @media(max-width:760px){
+        .driveConsoleStats{grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
+        .driveConsoleControls{grid-template-columns:repeat(3,minmax(0,1fr))}
+      }
+      @media(max-width:420px){
+        .driveConsoleTop{align-items:flex-start}
+        .driveConsoleState .savePulse,.driveConsoleState #lastFix{display:none}
+        .driveConsoleStats{grid-template-columns:repeat(4,minmax(0,1fr));gap:3px}
+        .driveConsoleStats .metric{padding:4px 2px}
+        .driveConsoleStats .metric b{font-size:.78rem}
+        .driveConsoleStats .metric span{font-size:.48rem;white-space:normal;line-height:1.05}
+        .driveConsoleControls{grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
+        .driveConsoleControls button{padding:8px 3px;font-size:.68rem}
+      }
     `;
     document.head.appendChild(style);
 
@@ -83,6 +98,23 @@
 
     for(const id of ['sessionsBtn','driveSettingsBtn']){const el=document.getElementById(id);if(el)el.style.display='none'}
     const exportBtn=document.getElementById('exportGpxBtn');if(exportBtn)exportBtn.style.display='none';
+
+    // Use the console's actual rendered height as the page spacer. This makes
+    // the maximum DRIVE scroll position land at the bottom of the map instead
+    // of leaving a guessed 200+ px dead zone that varies by phone size.
+    const syncConsoleHeight=()=>{
+      const h=Math.ceil(bottom.getBoundingClientRect().height);
+      if(h>0)document.documentElement.style.setProperty('--drive-console-height',`${h}px`);
+    };
+    syncConsoleHeight();
+    requestAnimationFrame(syncConsoleHeight);
+    if('ResizeObserver' in window){
+      const ro=new ResizeObserver(syncConsoleHeight);ro.observe(bottom);
+      window.__TRACTOR_DRIVE_CONSOLE_RESIZE_OBSERVER=ro;
+    }else{
+      window.addEventListener('resize',syncConsoleHeight,{passive:true});
+    }
+
     return true;
   }
   window.installTractorDriveConsole=installTractorDriveConsole;
