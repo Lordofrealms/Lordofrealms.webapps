@@ -90,6 +90,20 @@
       else appendPath(d,'#ff8a80','#ff5b4d',4,.22,.98);
     }
 
+    function drawPlannedPath(){
+      if(typeof plannedSegments==='undefined'||!Array.isArray(plannedSegments)||!plannedSegments.length)return;
+      const parts=[];
+      for(const seg of plannedSegments){
+        if(!seg||!Array.isArray(seg.coords)||seg.coords.length<2)continue;
+        const d=pathFromRing(seg.coords,false);
+        if(d)parts.push(d);
+      }
+      if(!parts.length)return;
+      const d=parts.join(' ');
+      appendPath(d,'#071015',null,6,0,.92);
+      appendPath(d,'#8be9ff',null,2.6,0,1);
+    }
+
     function render(){
       if(typeof mapReady==='undefined'||!mapReady||!map)return;
       const canvas=map.getCanvas?.();
@@ -102,6 +116,7 @@
       try{if(typeof boundary!=='undefined'&&boundary)drawFeature(boundary,'property')}catch(e){}
       try{if(typeof workRegions!=='undefined')for(const f of (workRegions||[]))drawFeature(f,'work')}catch(e){}
       try{if(typeof exclusions!=='undefined')for(const f of (exclusions||[]))drawFeature(f,'exclusion')}catch(e){}
+      try{drawPlannedPath()}catch(e){console.warn('Planned path overlay render failed',e)}
 
       try{
         const draft=(typeof boundaryDraft!=='undefined'&&Array.isArray(boundaryDraft))?boundaryDraft:[];
