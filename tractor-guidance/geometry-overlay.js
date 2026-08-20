@@ -24,9 +24,7 @@
 
     function hideOldOperationalLayers(){
       if(typeof mapReady==='undefined'||!mapReady||!map)return;
-      for(const id of HIDE_LAYERS){
-        try{if(map.getLayer(id))map.setLayoutProperty(id,'visibility','none')}catch(e){}
-      }
+      for(const id of HIDE_LAYERS){try{if(map.getLayer(id))map.setLayoutProperty(id,'visibility','none')}catch(e){}}
     }
 
     function project(coord){
@@ -38,12 +36,10 @@
 
     function pathFromCoords(coords,close=false){
       if(!Array.isArray(coords))return '';
-      const pts=coords.map(project).filter(Boolean);
-      if(!pts.length)return '';
+      const pts=coords.map(project).filter(Boolean);if(!pts.length)return '';
       let d=`M ${pts[0][0].toFixed(2)} ${pts[0][1].toFixed(2)}`;
       for(let i=1;i<pts.length;i++)d+=` L ${pts[i][0].toFixed(2)} ${pts[i][1].toFixed(2)}`;
-      if(close&&pts.length>=3)d+=' Z';
-      return d;
+      if(close&&pts.length>=3)d+=' Z';return d;
     }
 
     function featurePath(feature){
@@ -78,15 +74,12 @@
 
     function plannedPathD(){
       if(typeof plannedSegments==='undefined'||!Array.isArray(plannedSegments))return '';
-      const parts=[];
-      for(const seg of plannedSegments){const d=pathFromCoords(seg?.coords,false);if(d)parts.push(d)}
-      return parts.join(' ');
+      const parts=[];for(const seg of plannedSegments){const d=pathFromCoords(seg?.coords,false);if(d)parts.push(d)}return parts.join(' ');
     }
 
     function implementSwathPixels(){
       try{
-        const widthFt=Math.max(.5,Number(cfg().implementWidthFt)||.5);
-        const lat=map.getCenter()?.lat||0,zoom=map.getZoom()||0;
+        const widthFt=Math.max(.5,Number(cfg().implementWidthFt)||.5),lat=map.getCenter()?.lat||0,zoom=map.getZoom()||0;
         const metersPerPixel=156543.03392*Math.cos(lat*Math.PI/180)/Math.pow(2,zoom);
         return Math.max(1.5,Math.min(500,(widthFt*0.3048)/Math.max(.000001,metersPerPixel)));
       }catch(e){return 8}
@@ -95,11 +88,9 @@
     function completedPathD(){
       if(typeof planProgressSamples==='undefined'||!Array.isArray(planProgressSamples)||!planProgressSamples.length)return '';
       if(typeof planProgress==='undefined'||!planProgress?.covered)return '';
-      const covered=planProgress.covered;
-      const key=`${planProgressSamples.length}:${Object.keys(covered).length}`;
+      const covered=planProgress.covered,key=`${planProgressSamples.length}:${Object.keys(covered).length}`;
       if(key===completedCacheKey)return completedCacheD;
-      completedCacheKey=key;
-      const bySeg=new Map();
+      completedCacheKey=key;const bySeg=new Map();
       for(const q of planProgressSamples){let arr=bySeg.get(q.si);if(!arr){arr=[];bySeg.set(q.si,arr)}arr.push(q)}
       const parts=[];
       for(const arr of bySeg.values()){
@@ -112,90 +103,104 @@
 
     function drawPlannedAndWorked(){
       const d=plannedPathD();if(!d)return;
-      const inDrive=typeof appMode!=='undefined'&&appMode==='drive';
-      if(inDrive){
+      if(typeof appMode!=='undefined'&&appMode==='drive'){
         const sw=implementSwathPixels();
-        appendPath(d,'#5fc4d8',null,sw,0,.18);
-        const done=completedPathD();if(done)appendPath(done,'#75c043',null,sw,0,.48);
+        appendPath(d,'#5fc4d8',null,sw,0,.15);
+        const done=completedPathD();if(done)appendPath(done,'#75c043',null,sw,0,.30);
       }
-      appendPath(d,'#071015',null,6,0,.90);
-      appendPath(d,'#8be9ff',null,2.6,0,1);
+      appendPath(d,'#071015',null,6,0,.90);appendPath(d,'#8be9ff',null,2.6,0,1);
+    }
+
+    function workedTrackParts(includeLive=true){
+      if(typeof track==='undefined'||!Array.isArray(track))return [];
+      let seg=[],parts=[];
+      const flush=()=>{if(seg.length>1)parts.push(seg);seg=[]};
+      for(const p of track){
+        if(p?.breakBefore)flush();
+        if(Number.isFinite(p?.lon)&&Number.isFinite(p?.lat))seg.push([p.lon,p.lat]);
+      }
+      if(includeLive&&window.__TRACTOR_WORK_ACTIVE&&typeof currentFix!=='undefined'&&currentFix&&Number.isFinite(currentFix.lon)&&Number.isFinite(currentFix.lat)&&!breakNext){
+        if(seg.length)seg.push([currentFix.lon,currentFix.lat]);
+      }
+      flush();return parts;
+    }
+
+    function drawGpsWorkedSwath(){
+      if(typeof appMode==='undefined'||appMode!=='drive')return;
+      const sw=implementSwathPixels();
+      const parts=workedTrackParts(true).map(coords=>pathFromCoords(coords,false)).filter(Boolean);
+      if(parts.length)appendPath(parts.join(' '),'#ff9d55',null,sw,0,.38);
+
+      // Before a second work point exists, show the implement footprint at the live fix.
+      if(window.__TRACTOR_WORK_ACTIVE&&typeof currentFix!=='undefined'&&currentFix&&Number.isFinite(currentFix.lon)&&Number.isFinite(currentFix.lat)){
+        appendCircle([currentFix.lon,currentFix.lat],'#ff9d55','none',Math.max(2,sw/2),0,.28);
+      }
     }
 
     function drawTrack(){
-      if(typeof track==='undefined'||!Array.isArray(track)||track.length<2)return;
-      let seg=[];const parts=[];
-      const flush=()=>{if(seg.length>1){const d=pathFromCoords(seg,false);if(d)parts.push(d)}seg=[]};
-      for(const p of track){if(p?.breakBefore)flush();if(Number.isFinite(p?.lon)&&Number.isFinite(p?.lat))seg.push([p.lon,p.lat])}flush();
+      const parts=workedTrackParts(true).map(coords=>pathFromCoords(coords,false)).filter(Boolean);
       if(parts.length){appendPath(parts.join(' '),'#111',null,5,0,.72);appendPath(parts.join(' '),'#ff7f50',null,2.5,0,1)}
     }
 
     function drawSearch(){
+      try{const c=searchMarkerFeature?.geometry?.coordinates;if(!c)return;appendCircle(c,'#e2b84d','#111',8,2,1);appendCircle(c,'#fff','#111',2.5,1,1)}catch(e){}
+    }
+
+    function inferredHeading(){
+      if(typeof currentFix!=='undefined'&&currentFix&&Number.isFinite(Number(currentFix.headingDeg)))return Number(currentFix.headingDeg);
       try{
-        const c=searchMarkerFeature?.geometry?.coordinates;if(!c)return;
-        appendCircle(c,'#e2b84d','#111',8,2,1);
-        appendCircle(c,'#fff','#111',2.5,1,1);
+        if(typeof track!=='undefined'&&Array.isArray(track)&&track.length>1&&typeof bearing==='function')return bearing(track.at(-2),track.at(-1));
       }catch(e){}
+      return null;
     }
 
     function drawTractor(){
       if(typeof currentFix==='undefined'||!currentFix||!Number.isFinite(currentFix.lon)||!Number.isFinite(currentFix.lat))return;
-      const coord=[currentFix.lon,currentFix.lat];
-      const p=project(coord);if(!p)return;
-      appendCircle(coord,'rgba(117,192,67,.22)','#fff',13,2,1);
-      appendCircle(coord,'#75c043','#071015',7,2,1);
-      appendCircle(coord,'#fff','#071015',2.2,1,1);
-
-      let hd=Number(currentFix.headingDeg);
-      if(!Number.isFinite(hd)&&typeof track!=='undefined'&&Array.isArray(track)&&track.length>1&&typeof bearing==='function'){
-        try{hd=bearing(track.at(-2),track.at(-1))}catch(e){}
-      }
+      const coord=[currentFix.lon,currentFix.lat],p=project(coord);if(!p)return;
+      appendCircle(coord,'rgba(117,192,67,.22)','#fff',13,2,1);appendCircle(coord,'#75c043','#071015',7,2,1);appendCircle(coord,'#fff','#071015',2.2,1,1);
+      const hd=inferredHeading();
       if(Number.isFinite(hd)){
-        const mapBearing=Number(map.getBearing?.()||0);
-        const len=20,rad=(hd-mapBearing)*Math.PI/180;
+        const mapBearing=Number(map.getBearing?.()||0),len=20,rad=(hd-mapBearing)*Math.PI/180;
         const x2=p[0]+Math.sin(rad)*len,y2=p[1]-Math.cos(rad)*len;
-        const line=document.createElementNS(SVG_NS,'line');
-        line.setAttribute('x1',p[0]);line.setAttribute('y1',p[1]);line.setAttribute('x2',x2);line.setAttribute('y2',y2);
+        const line=document.createElementNS(SVG_NS,'line');line.setAttribute('x1',p[0]);line.setAttribute('y1',p[1]);line.setAttribute('x2',x2);line.setAttribute('y2',y2);
         line.setAttribute('stroke','#fff');line.setAttribute('stroke-width','3');line.setAttribute('stroke-linecap','round');svg.appendChild(line);
+
+        // Implement-width crossbar perpendicular to the known/inferred travel direction while working.
+        if(window.__TRACTOR_WORK_ACTIVE){
+          const half=implementSwathPixels()/2,perp=rad+Math.PI/2;
+          const x1=p[0]-Math.sin(perp)*half,y1=p[1]+Math.cos(perp)*half;
+          const x3=p[0]+Math.sin(perp)*half,y3=p[1]-Math.cos(perp)*half;
+          const bar=document.createElementNS(SVG_NS,'line');bar.setAttribute('x1',x1);bar.setAttribute('y1',y1);bar.setAttribute('x2',x3);bar.setAttribute('y2',y3);
+          bar.setAttribute('stroke','#ffd2a6');bar.setAttribute('stroke-width','3');bar.setAttribute('stroke-linecap','round');bar.setAttribute('opacity','.95');svg.appendChild(bar);
+        }
       }
     }
 
     function drawDraft(){
-      const draft=(typeof boundaryDraft!=='undefined'&&Array.isArray(boundaryDraft))?boundaryDraft:[];
-      const target=(typeof drawingTarget!=='undefined')?drawingTarget:'property';
+      const draft=(typeof boundaryDraft!=='undefined'&&Array.isArray(boundaryDraft))?boundaryDraft:[],target=(typeof drawingTarget!=='undefined')?drawingTarget:'property';
       const colors=target==='exclusion'?{stroke:'#ff8a80',fill:'#ff5b4d',point:'#ff6f61'}:target==='work'?{stroke:'#8be9ff',fill:'#4fc3df',point:'#4fc3df'}:{stroke:'#ffe078',fill:'#e2b84d',point:'#ffcc45'};
-      if(draft.length>=3)appendPath(pathFromCoords([...draft,draft[0]],true),colors.stroke,colors.fill,5,.20,1);
-      else if(draft.length>=2)appendPath(pathFromCoords(draft,false),colors.stroke,null,5,0,1);
+      if(draft.length>=3)appendPath(pathFromCoords([...draft,draft[0]],true),colors.stroke,colors.fill,5,.20,1);else if(draft.length>=2)appendPath(pathFromCoords(draft,false),colors.stroke,null,5,0,1);
       for(const c of draft)appendCircle(c,colors.point,'#111',7,2,1);
     }
 
     function render(){
-      if(typeof mapReady==='undefined'||!mapReady||!map)return;
-      const canvas=map.getCanvas?.();if(!canvas)return;
-      const w=canvas.clientWidth||canvas.width||1,h=canvas.clientHeight||canvas.height||1;
-      svg.setAttribute('viewBox',`0 0 ${w} ${h}`);svg.replaceChildren();hideOldOperationalLayers();
+      if(typeof mapReady==='undefined'||!mapReady||!map)return;const canvas=map.getCanvas?.();if(!canvas)return;
+      const w=canvas.clientWidth||canvas.width||1,h=canvas.clientHeight||canvas.height||1;svg.setAttribute('viewBox',`0 0 ${w} ${h}`);svg.replaceChildren();hideOldOperationalLayers();
       try{if(typeof boundary!=='undefined'&&boundary)drawFeature(boundary,'property')}catch(e){}
       try{if(typeof workRegions!=='undefined')for(const f of (workRegions||[]))drawFeature(f,'work')}catch(e){}
       try{if(typeof exclusions!=='undefined')for(const f of (exclusions||[]))drawFeature(f,'exclusion')}catch(e){}
       try{drawPlannedAndWorked()}catch(e){console.warn('Path/swath overlay failed',e)}
+      try{drawGpsWorkedSwath()}catch(e){console.warn('GPS worked-swath render failed',e)}
       try{drawTrack()}catch(e){console.warn('Track overlay failed',e)}
       try{drawSearch()}catch(e){console.warn('Search overlay failed',e)}
       try{drawTractor()}catch(e){console.warn('Tractor overlay failed',e)}
       try{drawDraft()}catch(e){console.warn('Draft overlay failed',e)}
     }
 
-    const originalUpdate=updateMapData;
-    updateMapData=function(){const r=originalUpdate.apply(this,arguments);try{render()}catch(e){console.warn('Operational overlay update failed',e)}return r};
-
+    const originalUpdate=updateMapData;updateMapData=function(){const r=originalUpdate.apply(this,arguments);try{render()}catch(e){console.warn('Operational overlay update failed',e)}return r};
     for(const evt of ['move','zoom','rotate','pitch','resize','style.load'])try{map.on(evt,()=>requestAnimationFrame(render))}catch(e){}
-
-    if(typeof ensureOverlaySources==='function'){
-      const originalEnsure=ensureOverlaySources;
-      ensureOverlaySources=function(){const r=originalEnsure.apply(this,arguments);try{hideOldOperationalLayers()}catch(e){}return r};
-    }
-
-    requestAnimationFrame(render);
-    return true;
+    if(typeof ensureOverlaySources==='function'){const originalEnsure=ensureOverlaySources;ensureOverlaySources=function(){const r=originalEnsure.apply(this,arguments);try{hideOldOperationalLayers()}catch(e){}return r}}
+    requestAnimationFrame(render);return true;
   }
 
   window.installTractorGeometryOverlay=installGeometryOverlay;
