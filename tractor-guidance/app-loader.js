@@ -1,6 +1,6 @@
 (()=>{
  const PARTS=15;
- const ASSET_VERSION='20260820-11';
+ const ASSET_VERSION='20260820-12';
  const TERMS_BUILD_KEY='tractorGuidanceTermsAcceptedAppBuild';
  window.TRACTOR_ASSET_VERSION=ASSET_VERSION;
  const status=msg=>{const el=document.getElementById('modeHint');if(el)el.textContent=msg};
@@ -63,7 +63,7 @@
      URL.revokeObjectURL(blobUrl);
      status('Starting PLAN controls… 86%');
      await loadExtension('coverage-mode.js','Coverage fit controls','installTractorCoverageMode');
-     await loadExtension('plan-ui.js','PLAN layout','installTractorPlanUI');
+     await loadExtension('stats-panel.js','PLAN statistics','installTractorStatsPanel');
      status('Starting GPS/work controls… 89%');
      await loadExtension('work-mode.js','GPS/work mode','installTractorWorkMode');
      status('Starting operational map renderer… 93%');
