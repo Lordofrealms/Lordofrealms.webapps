@@ -33,28 +33,42 @@ function subtractExclusions(work,exclusions,jobId){
   }
   return out;
 }
-function scanlineSegments(poly,headingDeg,spacingM,startOrder,currentFix,jobId){
+function scanlineSegments(poly,headingDeg,spacingM,startOrder,currentFix,jobId,coveragePriority='coverage'){
   const polygons=featurePolygons(poly); if(!polygons.length)return[];
   const o=originForPolygon(poly),th=headingDeg*Math.PI/180;
   const u={x:Math.sin(th),y:Math.cos(th)},n={x:Math.cos(th),y:-Math.sin(th)};
   const allPS=[];
   const localPolys=polygons.map(rings=>rings.map(ring=>ring.map(c=>{const q=toXY(c,o),p={t:q.x*u.x+q.y*u.y,s:q.x*n.x+q.y*n.y};allPS.push(p);return p})));
   const minS=Math.min(...allPS.map(p=>p.s)),maxS=Math.max(...allPS.map(p=>p.s)),range=Math.max(0,maxS-minS);
-  const count=Math.max(1,Math.ceil(range/spacingM)+1),actual=count===1?0:range/(count-1);
-  let sVals=Array.from({length:count},(_,i)=>count===1?(minS+maxS)/2:minS+i*actual);
+
+  let count,actual,startS;
+  if(range<=0||spacingM<=0){
+    count=1;actual=0;startS=(minS+maxS)/2;
+  }else if(coveragePriority==='no-extra-overlap'){
+    count=Math.max(1,Math.floor(range/spacingM)+1);
+    actual=spacingM;
+    const used=(count-1)*actual;
+    startS=minS+(range-used)/2;
+  }else{
+    count=Math.max(1,Math.ceil(range/spacingM)+1);
+    actual=count===1?0:range/(count-1);
+    startS=minS;
+  }
+
+  let sVals=Array.from({length:count},(_,i)=>count===1?(minS+maxS)/2:startS+i*actual);
   if(startOrder==='high')sVals.reverse();
   if(startOrder==='near'&&currentFix&&sVals.length>1){
     const q=toXY([currentFix.lon,currentFix.lat],o),sCur=q.x*n.x+q.y*n.y;
     if(Math.abs(sCur-sVals.at(-1))<Math.abs(sCur-sVals[0]))sVals.reverse();
   }
-  const out=[]; let lastPct=-1;
+  const out=[];let lastPct=-1;
   for(let row=0;row<sVals.length;row++){
-    const s0=sVals[row]; let xs=[];
+    const s0=sVals[row];let xs=[];
     for(const rings of localPolys)for(const ps of rings)for(let i=0;i<ps.length-1;i++){
       const a=ps[i],b=ps[i+1];
       if((a.s<=s0&&b.s>s0)||(b.s<=s0&&a.s>s0))xs.push(a.t+(s0-a.s)*(b.t-a.t)/(b.s-a.s));
     }
-    xs.sort((a,b)=>a-b); xs=xs.filter((v,i)=>i===0||Math.abs(v-xs[i-1])>0.01);
+    xs.sort((a,b)=>a-b);xs=xs.filter((v,i)=>i===0||Math.abs(v-xs[i-1])>0.01);
     let pairs=[];for(let i=0;i+1<xs.length;i+=2)pairs.push([xs[i],xs[i+1]]);
     if(row%2===1)pairs=pairs.reverse().map(([a,b])=>[b,a]);
     for(const [ta,tb] of pairs){
@@ -65,7 +79,7 @@ function scanlineSegments(poly,headingDeg,spacingM,startOrder,currentFix,jobId){
     const pct=Math.floor(46+45*(row+1)/Math.max(1,sVals.length));
     if(pct!==lastPct){progress(jobId,pct,'Generating parallel passes…');lastPct=pct}
   }
-  return out;
+  return {segments:out,fitInfo:{coveragePriority,count,actualSpacingM:actual,rangeM:range}};
 }
 function contourSegments(poly,spacingFt,jobId){
   const out=[];let idx=1,cur=poly;
@@ -102,12 +116,17 @@ self.onmessage=e=>{
     if(insetFt>0){progress(jobId,35,'Applying implement-edge clearance…');safe=turf.buffer(work,-insetFt,{units:'feet',steps:8})}
     if(!safe)throw new Error('No usable area remains after implement half-width and boundary margin.');
     const effWidth=Math.max(.1,settings.implementWidthFt-settings.overlapFt);
-    let segments;
-    if(settings.pathType==='parallel'){progress(jobId,45,'Generating parallel passes…');segments=scanlineSegments(safe,settings.parallelHeading,effWidth/FT_PER_M,settings.startOrder,currentFix,jobId)}
-    else{progress(jobId,45,'Generating inward contour loops…');segments=contourSegments(safe,effWidth,jobId)}
+    let segments,fitInfo=null;
+    if(settings.pathType==='parallel'){
+      progress(jobId,45,'Generating parallel passes…');
+      const result=scanlineSegments(safe,settings.parallelHeading,effWidth/FT_PER_M,settings.startOrder,currentFix,jobId,settings.coveragePriority||'coverage');
+      segments=result.segments;fitInfo=result.fitInfo;
+    }else{
+      progress(jobId,45,'Generating inward contour loops…');segments=contourSegments(safe,effWidth,jobId);
+    }
     if(!segments.length)throw new Error('No usable path could be generated.');
     progress(jobId,92,'Calculating route totals…');
     const plannedMiles=pathMiles(segments,jobId),passGroups=new Set(segments.map(s=>s.pass)).size;
-    postMessage({type:'result',jobId,segments,plannedMiles,passGroups,activeAreaAcres,planMeta:{type:settings.pathType,heading:settings.pathType==='parallel'?settings.parallelHeading:null,effectiveSpacingFt:effWidth,insetFt}});
+    postMessage({type:'result',jobId,segments,plannedMiles,passGroups,activeAreaAcres,planMeta:{type:settings.pathType,heading:settings.pathType==='parallel'?settings.parallelHeading:null,effectiveSpacingFt:effWidth,insetFt,coveragePriority:settings.coveragePriority||'coverage',actualSpacingFt:fitInfo?.actualSpacingM?fitInfo.actualSpacingM*FT_PER_M:null}});
   }catch(err){postMessage({type:'error',jobId,pct:0,message:err?.message||String(err)})}
 };
