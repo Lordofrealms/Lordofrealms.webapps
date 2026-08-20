@@ -1,0 +1,125 @@
+:root{
+  --bg:#0b0f14; --panel:#121820; --panel2:#171e27; --ink:#f3f4f6; --muted:#97a1ad;
+  --line:#2a3440; --cut:#a83a2b; --fill:#315fa8; --grade:#4f8f3a; --accent:#8fd14f;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;background:var(--bg);color:var(--ink);
+  font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+.wrap{max-width:760px;margin:0 auto;padding:14px 12px 92px}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+h1{font-size:1.25rem;margin:0}
+.small{font-size:.8rem;color:var(--muted)}
+.card{
+  background:var(--panel);border:1px solid var(--line);border-radius:15px;
+  padding:12px;margin:10px 0;
+}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+.metric{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:9px;text-align:center}
+.metric b{display:block;font-size:1rem}
+.metric span{font-size:.67rem;color:var(--muted)}
+.gridHeader{display:flex;justify-content:space-between;align-items:end;gap:12px;margin-bottom:8px}
+.gridShell{overflow:auto;border-radius:12px;border:1px solid var(--line);background:#0d1218;padding:8px}
+#grid{
+  display:grid;gap:4px;min-width:600px;
+}
+.cell{
+  aspect-ratio:1/1;min-width:54px;border-radius:8px;border:1px solid #43505f;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:3px;cursor:pointer;background:#202833;user-select:none;
+}
+.cell.cut{background:var(--cut)}
+.cell.fill{background:var(--fill)}
+.cell.grade{background:var(--grade)}
+.cell .coord{font-size:.64rem;opacity:.95;font-weight:800;line-height:1.05}
+.cell .xy{font-size:.55rem;opacity:.78;line-height:1.05;text-align:center;margin-top:2px}
+.cell .main{font-size:.82rem;font-weight:800;line-height:1.05}
+.cell .sub{font-size:.62rem;opacity:.9;line-height:1}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:.76rem;margin-top:8px;color:var(--muted)}
+.sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+.buttons{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+button{
+  border:1px solid var(--line);background:var(--panel2);color:var(--ink);border-radius:11px;
+  padding:11px 12px;font:inherit;font-weight:700;
+}
+button.primary{border-color:#5d942f;color:#b7ef83;background:#14210f}
+button.danger{color:#ff8d7c}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.activeMode{border-color:#8fd14f;background:#1d3517;color:#c9f7a4}
+.modeToggle{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.gpsCard{display:none}
+.gpsCard.show{display:block}
+.gpsStatus{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.gpsBox{padding:10px;border-radius:12px;background:var(--panel2);border:1px solid var(--line)}
+.gpsBox b{display:block;font-size:.95rem}
+.gpsBox span{font-size:.7rem;color:var(--muted)}
+.gpsTarget{margin-top:10px;padding:13px;border-radius:13px;background:#0d1218;border:1px solid var(--line);text-align:center}
+.gpsTarget .big{font-size:1.45rem;font-weight:900;color:var(--accent)}
+.gpsTarget .move{font-size:1rem;font-weight:800;margin-top:5px}
+.gpsTarget .warn{font-size:.72rem;color:#ffc27a;margin-top:7px;line-height:1.3}
+.volume{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.vol{padding:10px;border-radius:12px;background:var(--panel2);text-align:center;border:1px solid var(--line)}
+.vol b{display:block;font-size:1.08rem}
+.vol span{font-size:.69rem;color:var(--muted)}
+.note{font-size:.72rem;color:var(--muted);line-height:1.35;margin-top:8px}
+.bottom{
+  position:fixed;bottom:0;left:0;right:0;background:rgba(11,15,20,.96);
+  border-top:1px solid var(--line);padding:8px 12px calc(8px + env(safe-area-inset-bottom));
+  display:flex;justify-content:center;gap:8px;backdrop-filter:blur(8px)
+}
+.bottom button{min-width:130px}
+dialog{
+  border:1px solid var(--line);border-radius:18px;background:var(--panel);color:var(--ink);
+  width:min(92vw,430px);padding:0;box-shadow:0 24px 70px rgba(0,0,0,.55)
+}
+dialog::backdrop{background:rgba(0,0,0,.62)}
+.modal{padding:16px}
+.modal h2{margin:0 0 5px;font-size:1.2rem}
+.modal .where{color:var(--accent);font-weight:800}
+.field{margin-top:13px}
+.field label{display:block;font-size:.73rem;color:var(--muted);margin-bottom:4px}
+.field input{
+  width:100%;background:#0d1218;color:var(--ink);border:1px solid #3a4756;border-radius:11px;
+  padding:12px;font:inherit;font-size:1.3rem;text-align:center
+}
+.resultbox{
+  margin-top:13px;padding:12px;border-radius:12px;background:#0e141b;border:1px solid var(--line);
+  text-align:center;font-weight:800
+}
+.modalActions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
+.settingsGrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.settingsGrid label{font-size:.72rem;color:var(--muted)}
+.settingsGrid input{
+  width:100%;margin-top:4px;padding:9px;border-radius:9px;border:1px solid #3a4756;
+  background:#0d1218;color:var(--ink);font:inherit
+}
+.cornerPicker{
+  margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:14px;background:#0d1218;
+}
+.cornerPickerTitle{font-size:.74rem;color:var(--muted);margin-bottom:8px}
+.cornerPad{
+  position:relative;height:180px;border:2px solid #5b6673;border-radius:10px;
+  background:linear-gradient(180deg,#19212a,#111820);
+}
+.cornerBtn{
+  position:absolute;width:72px;height:44px;border-radius:10px;border:1px solid #485666;
+  background:#1a2430;color:var(--ink);font-size:.72rem;font-weight:800;padding:4px;
+}
+.cornerBtn.selected{
+  background:#23411c;border-color:#8fd14f;color:#c9f7a4;
+  box-shadow:0 0 0 2px rgba(143,209,79,.18);
+}
+.cornerBtn[data-corner="NW"]{left:8px;top:8px}
+.cornerBtn[data-corner="NE"]{right:8px;top:8px}
+.cornerBtn[data-corner="SW"]{left:8px;bottom:8px}
+.cornerBtn[data-corner="SE"]{right:8px;bottom:8px}
+.cornerCenter{
+  position:absolute;inset:50% auto auto 50%;transform:translate(-50%,-50%);
+  color:var(--muted);font-size:.78rem;text-align:center;line-height:1.25
+}
+@media(max-width:520px){
+  .metrics{grid-template-columns:repeat(2,1fr)}
+  .gpsStatus{grid-template-columns:1fr}
+  .cell{min-width:50px}
+}
