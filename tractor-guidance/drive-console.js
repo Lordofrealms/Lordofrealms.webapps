@@ -6,6 +6,14 @@
     const bottom=document.querySelector('.bottom.driveOnly');
     if(!bottom)return false;
 
+    // Capture source containers before moving their children into the console.
+    const statusCard=document.getElementById('gpsStatus')?.closest('.card.driveOnly');
+    const dashCard=document.getElementById('progressPct')?.closest('.card.driveOnly');
+    const mapTools=document.querySelector('.mapTools.driveOnly');
+    if(statusCard)statusCard.classList.add('driveConsoleSource');
+    if(dashCard)dashCard.classList.add('driveConsoleSource');
+    if(mapTools)mapTools.classList.add('driveConsoleSource');
+
     const style=document.createElement('style');
     style.textContent=`
       body.driveMode .top{display:none!important}
@@ -15,7 +23,7 @@
       body.driveMode .wrap{padding-bottom:220px!important}
       .driveConsole{display:block!important;padding:7px 8px calc(7px + env(safe-area-inset-bottom));max-height:46vh;overflow:auto}
       .driveConsoleTop{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
-      .driveConsolePath{min-width:0}
+      .driveConsolePath{min-width:0;flex:1}
       .driveConsolePath .drivePathName{font-size:.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .driveConsoleState{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
       .driveConsoleStats{display:grid;grid-template-columns:repeat(8,1fr);gap:5px;margin-bottom:6px}
@@ -31,7 +39,9 @@
         .driveConsoleControls{grid-template-columns:repeat(3,1fr)}
       }
       @media(max-width:420px){
+        body.driveMode .wrap{padding-bottom:235px!important}
         .driveConsoleTop{align-items:flex-start}
+        .driveConsoleState .savePulse,.driveConsoleState #lastFix{display:none}
         .driveConsoleStats{grid-template-columns:repeat(4,1fr)}
         .driveConsoleStats .metric:nth-child(n+5){display:none}
         .driveConsoleControls{grid-template-columns:repeat(3,1fr)}
@@ -80,20 +90,11 @@
     for(const btn of buttons)controls.appendChild(btn);
     bottom.appendChild(controls);
 
-    const statusCard=document.getElementById('gpsStatus')?.closest('.card.driveOnly');
-    if(statusCard)statusCard.classList.add('driveConsoleSource');
-    const dashCard=document.getElementById('progressPct')?.closest('.card.driveOnly');
-    if(dashCard)dashCard.classList.add('driveConsoleSource');
-    const mapTools=document.querySelector('.mapTools.driveOnly');
-    if(mapTools)mapTools.classList.add('driveConsoleSource');
-
-    // Hide duplicate top DRIVE actions. Their bottom equivalents are now the console controls.
+    // Hide duplicate top DRIVE actions. Their existing functional counterparts
+    // are the actual button nodes moved into the console above.
     for(const id of ['sessionsBtn','driveSettingsBtn']){
       const el=document.getElementById(id);if(el)el.style.display='none';
     }
-
-    // Export GPX remains available through Drive Sessions / completed-session workflow,
-    // rather than occupying the live-driving control strip.
     const exportBtn=document.getElementById('exportGpxBtn');if(exportBtn)exportBtn.style.display='none';
 
     return true;
