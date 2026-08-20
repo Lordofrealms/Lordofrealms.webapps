@@ -1,38 +1,48 @@
-# Terms of Use & Safety Notice
+# Pad Grade Mapper — Terms of Use & Safety Notice
 
 **Version:** 2026-08-19-v1
 
-These Terms of Use & Safety Notice apply to the original Tractor Field Planner & Guidance application distributed from this repository. The software source code is licensed separately under the MIT License in `LICENSE`.
+These Terms of Use & Safety Notice apply to the original **Pad Grade Mapper** application distributed from this repository. The software source code is licensed separately under the MIT License in `LICENSE`.
 
 ## 1. Open-source license
 
 The source code is licensed under the MIT License. The MIT License governs rights to copy, modify, distribute, sublicense, and use the software. These Terms do not reduce rights granted by the MIT License.
 
-## 2. Experimental guidance tool
+## 2. Experimental planning tool
 
-The application is an experimental planning and guidance aid. It is not certified precision-agriculture, surveying, navigation, chemical-application, or safety equipment. Consumer-device GPS may be inaccurate, delayed, unavailable, or affected by device hardware, sky view, multipath, browser behavior, or other conditions.
+Pad Grade Mapper is an experimental layout, grade-recording, GPS-guidance, and earthwork-planning aid. It is **not** certified surveying, engineering, excavation-control, machine-control, or safety equipment. It does not replace a licensed survey, engineered grading plan, compaction specification, drainage design, utility locate, or other professional service where one is required.
 
-## 3. Operator responsibility
+Consumer-device GPS may be inaccurate, delayed, unavailable, or affected by device hardware, satellite geometry, sky view, multipath, browser behavior, or other conditions. Rod readings, reference elevations, entered dimensions, grid locations, and other user inputs may also be incorrect.
 
-The operator is solely responsible for verifying property boundaries, exclusion zones, obstacles, hazards, implement width, application limits, and all generated routes before and during operation. Maintain control of the tractor or equipment at all times. Do not rely on the application where a position or guidance error could cause injury, property damage, crop damage, chemical misapplication, trespass, or environmental harm.
+## 3. User responsibility
 
-## 4. Spraying and regulated activities
+The user is solely responsible for verifying all measurements, benchmarks, property limits, elevations, slopes, drainage requirements, cut/fill decisions, quantities, utility locations, excavation limits, and site conditions before relying on them for construction or earthmoving.
 
-For pesticide, herbicide, fertilizer, or other regulated application, the operator is responsible for following the product label, applicable law, required setbacks and buffers, weather restrictions, licensing requirements, and any other legal or safety obligations. The application does not determine legal compliance.
+Maintain independent control of equipment and work methods. Do not rely on the application where an error could cause injury, equipment damage, structural problems, drainage problems, property damage, trespass, utility strikes, excessive excavation/fill, or other loss.
 
-## 5. Data and availability
+## 4. Earthwork estimates
 
-Saved properties, paths, and drive sessions may be stored locally in the browser or device. Browser storage can be cleared, corrupted, or lost. GPS, map imagery, external data services, and network access can fail. Export important properties, paths, or sessions when loss would matter.
+Cut, fill, net-volume, and similar calculations are planning estimates based on the entered grid and assumptions used by the application. They are not survey-grade or engineering-grade quantity calculations. Actual earthwork quantities can differ because of interpolation, topsoil stripping, compaction, shrink/swell, unsuitable material, subgrade preparation, drainage shaping, over-excavation, or other field conditions.
 
-## 6. No warranty / limitation of liability
+## 5. GPS-guided point location
 
-The software and application are provided **AS IS**, without warranty of any kind. To the maximum extent permitted by law, the authors and contributors are not liable for claims, damages, losses, injuries, or other liability arising from use of the software or application.
+GPS-guided mode is intended only to help navigate approximately between measurement points. It is not intended to establish legal boundaries, construction control, precise grade stakes, or survey monuments. Use tapes, stakes, known benchmarks, surveying equipment, or other appropriate methods whenever higher accuracy is required.
 
-## 7. Acceptance
+## 6. Data, privacy, and availability
 
-By accepting the in-application Terms screen or otherwise using the original distributed application, the user acknowledges these limitations and agrees to use the application at their own risk and with independent judgment.
+Pad Grade Mapper is designed to keep GPS coordinates and grade readings in the local browser/device and to block outbound network access from the application. Exported project or CSV files leave the device only when the user chooses to save, share, or upload them.
 
-## 8. Modified or redistributed versions
+Local browser storage can nevertheless be cleared, corrupted, or lost. Device failure, browser updates, permission changes, or other events can also make saved data unavailable. Export important projects when data loss would matter.
+
+## 7. No warranty / limitation of liability
+
+The software and application are provided **AS IS**, without warranty of any kind, express or implied, including warranties of merchantability, fitness for a particular purpose, accuracy, noninfringement, or availability. To the maximum extent permitted by law, the authors and contributors are not liable for claims, damages, losses, injuries, costs, or other liability arising from or related to use of the software or application.
+
+## 8. Acceptance
+
+By accepting the in-application Terms screen or otherwise using the original distributed Pad Grade Mapper application, the user acknowledges these limitations and agrees to use the application at their own risk and with independent judgment.
+
+## 9. Modified or redistributed versions
 
 A person who modifies or redistributes the software under the MIT License may change, remove, or replace these Terms for their own distribution, subject to the MIT License and applicable law.
 
