@@ -1,6 +1,6 @@
 (()=>{
  const PARTS=15;
- const ASSET_VERSION='20260820-7';
+ const ASSET_VERSION='20260820-8';
  const TERMS_BUILD_KEY='tractorGuidanceTermsAcceptedAppBuild';
  window.TRACTOR_ASSET_VERSION=ASSET_VERSION;
  const status=msg=>{const el=document.getElementById('modeHint');if(el)el.textContent=msg};
@@ -61,7 +61,9 @@
    const blobUrl=URL.createObjectURL(new Blob([js],{type:'text/javascript'})); const script=document.createElement('script'); script.src=blobUrl;
    script.onload=async()=>{
      URL.revokeObjectURL(blobUrl);
-     status('Starting operational map renderer… 90%');
+     status('Starting GPS/work controls… 89%');
+     await loadExtension('work-mode.js','GPS/work mode','installTractorWorkMode');
+     status('Starting operational map renderer… 92%');
      await loadExtension('geometry-overlay.js','Operational map renderer','installTractorGeometryOverlay');
      status('PLAN: edit regions, choose active areas, and generate the route.');
    };
