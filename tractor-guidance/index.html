@@ -1,13 +1,2 @@
 <!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tractor Field Planner & Guidance</title></head>
-<body><p id="bootMsg">Loading Tractor Guidance…</p>
-<script>
-(async()=>{
-  const BUILD='20260820-23';
-  try{
-    const r=await fetch(`app-template.html?template=${BUILD}`,{cache:'no-store'});if(!r.ok)throw new Error(`HTTP ${r.status}`);
-    let html=await r.text();html=html.replaceAll('20260820-11',BUILD);html=html.replace('class="planShellHeader planOnly"','class="planShellHeader planOnly top"');html=html.replace('<option value="parallel">Parallel / lawnmower</option>','<option value="parallel">Parallel / lawnmower</option><option value="skip-parallel">Skip-pass / alternating rows</option>');html=html.replace('<div class="small" id="sessionTitle">No active session</div>','<div class="small" id="sessionTitle">No active session</div><div class="small" id="buildBadge">Build '+BUILD+'</div>');document.open();document.write(html);document.close();
-  }catch(e){document.getElementById('bootMsg').textContent='Application shell failed to load: '+(e?.message||e)}
-})();
-</script></body></html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tractor Field Planner & Guidance</title></head><body><p id="bootMsg">Loading Tractor Guidance…</p><script>(async()=>{const BUILD='20260820-24';try{const r=await fetch(`app-template.html?template=${BUILD}`,{cache:'no-store'});if(!r.ok)throw new Error(`HTTP ${r.status}`);let html=await r.text();html=html.replaceAll('20260820-11',BUILD);html=html.replace('class="planShellHeader planOnly"','class="planShellHeader planOnly top"');html=html.replace('<option value="parallel">Parallel / lawnmower</option>','<option value="parallel">Parallel / lawnmower</option><option value="skip-parallel">Skip-pass / alternating rows</option>');html=html.replace('<div class="small" id="sessionTitle">No active session</div>','<div class="small" id="sessionTitle">No active session</div><div class="small" id="buildBadge">Build '+BUILD+'</div>');document.open();document.write(html);document.close()}catch(e){document.getElementById('bootMsg').textContent='Application shell failed to load: '+(e?.message||e)}})();</script></body></html>
