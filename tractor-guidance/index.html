@@ -3,10 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="refresh" content="0; url=index-v11.html?v=20260820-11">
 <title>Tractor Field Planner & Guidance</title>
 </head>
 <body>
-<p>Loading Tractor Guidance… <a href="index-v11.html?v=20260820-11">Continue</a></p>
+<p id="bootMsg">Loading Tractor Guidance…</p>
+<script>
+(async()=>{
+  const BUILD='20260820-12';
+  try{
+    const r=await fetch(`index-v11.html?template=${BUILD}`,{cache:'no-store'});
+    if(!r.ok)throw new Error(`HTTP ${r.status}`);
+    let html=await r.text();
+    html=html.replaceAll('20260820-11',BUILD);
+    document.open();
+    document.write(html);
+    document.close();
+  }catch(e){
+    document.getElementById('bootMsg').textContent='Application shell failed to load: '+(e?.message||e);
+  }
+})();
+</script>
 </body>
 </html>
