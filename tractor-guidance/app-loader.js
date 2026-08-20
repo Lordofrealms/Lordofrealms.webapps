@@ -1,6 +1,6 @@
 (()=>{
  const PARTS=15;
- const ASSET_VERSION='20260820-3';
+ const ASSET_VERSION='20260820-2';
  window.TRACTOR_ASSET_VERSION=ASSET_VERSION;
  const status=msg=>{const el=document.getElementById('modeHint');if(el)el.textContent=msg};
  const NativeWorker=window.Worker;
@@ -27,22 +27,7 @@
    status('Starting Tractor Guidance application… 85%');
    const ds=new DecompressionStream('gzip'); const js=await new Response(new Blob([bytes]).stream().pipeThrough(ds)).text();
    const blobUrl=URL.createObjectURL(new Blob([js],{type:'text/javascript'})); const script=document.createElement('script'); script.src=blobUrl;
-   script.onload=async()=>{
-    URL.revokeObjectURL(blobUrl);
-    const loadExtension=(src,label,installer)=>new Promise(resolve=>{
-     const el=document.createElement('script');
-     el.src=`${src}?v=${ASSET_VERSION}`;
-     el.onload=()=>{try{window[installer]?.()}catch(e){console.error(label+' install failed',e)}resolve()};
-     el.onerror=()=>{console.warn(label+' extension failed to load');resolve()};
-     document.body.appendChild(el);
-    });
-    try{
-     status('Repairing saved property geometry…');
-     await loadExtension('geometry-repair.js','Geometry repair','installTractorGeometryRepair');
-     await loadExtension('drive-swath.js','Drive swath','installTractorDriveSwath');
-    }catch(e){console.error(e)}
-    status('PLAN: edit regions, choose active areas, and generate the route.');
-   };
+   script.onload=async()=>{URL.revokeObjectURL(blobUrl);try{const sw=document.createElement('script');sw.src=`drive-swath.js?v=${ASSET_VERSION}`;sw.onload=()=>{try{window.installTractorDriveSwath?.()}catch(e){console.error('Drive swath install failed',e)};status('PLAN: edit regions, choose active areas, and generate the route.')};sw.onerror=()=>{console.warn('Drive swath extension failed to load');status('PLAN: edit regions, choose active areas, and generate the route.')};document.body.appendChild(sw)}catch(e){console.error(e);status('PLAN: edit regions, choose active areas, and generate the route.')}};
    script.onerror=()=>{URL.revokeObjectURL(blobUrl);throw new Error('Decompressed application script failed to execute.')};
    document.body.appendChild(script);
   }catch(err){console.error(err);status('Application load failed: '+(err?.message||err));const note=document.getElementById('securityNote'),text=document.getElementById('securityText');if(note&&text){note.style.display='block';text.textContent='Application load failed: '+(err?.message||err)}}
