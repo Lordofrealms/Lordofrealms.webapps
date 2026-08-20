@@ -1,6 +1,6 @@
 (()=>{
  const PARTS=15;
- const ASSET_VERSION='20260820-16';
+ const ASSET_VERSION='20260820-17';
  const TERMS_BUILD_KEY='tractorGuidanceTermsAcceptedAppBuild';
  window.TRACTOR_ASSET_VERSION=ASSET_VERSION;
  const status=msg=>{const el=document.getElementById('modeHint');if(el)el.textContent=msg};
