@@ -1,6 +1,6 @@
 (()=>{
  const PARTS=15;
- const ASSET_VERSION='20260820-5';
+ const ASSET_VERSION='20260820-6';
  const TERMS_BUILD_KEY='tractorGuidanceTermsAcceptedAppBuild';
  window.TRACTOR_ASSET_VERSION=ASSET_VERSION;
  const status=msg=>{const el=document.getElementById('modeHint');if(el)el.textContent=msg};
@@ -61,9 +61,8 @@
    const blobUrl=URL.createObjectURL(new Blob([js],{type:'text/javascript'})); const script=document.createElement('script'); script.src=blobUrl;
    script.onload=async()=>{
      URL.revokeObjectURL(blobUrl);
-     status('Starting map geometry renderer… 90%');
-     await loadExtension('geometry-overlay.js','Geometry overlay','installTractorGeometryOverlay');
-     await loadExtension('drive-swath.js','Drive swath','installTractorDriveSwath');
+     status('Starting operational map renderer… 90%');
+     await loadExtension('geometry-overlay.js','Operational map renderer','installTractorGeometryOverlay');
      status('PLAN: edit regions, choose active areas, and generate the route.');
    };
    script.onerror=()=>{URL.revokeObjectURL(blobUrl);throw new Error('Decompressed application script failed to execute.')};
