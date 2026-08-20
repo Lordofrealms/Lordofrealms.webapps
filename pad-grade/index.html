@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b0f14">
-<title>Pad Grade Mapper Mobile v8</title>
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; child-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none';">
+<title>Pad Grade Mapper Mobile v9</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -32,6 +34,11 @@
       <button id="manualModeBtn" class="activeMode">Manual</button>
       <button id="gpsModeBtn">GPS Guided</button>
     </div>
+  </div>
+
+  <div class="card">
+    <b>Privacy lock active</b>
+    <div class="small">GPS coordinates and grade readings stay in this browser on this device. Outbound network connections and third-party content are blocked by the app. Exported CSV/project files only leave the device if you choose to share or upload them.</div>
   </div>
 
   <div class="card gpsCard" id="gpsCard">
@@ -175,6 +182,7 @@
   </div>
 </dialog>
 
+<script src="privacy.js"></script>
 <script src="core.js"></script>
 <script src="ui.js"></script>
 <script src="init.js"></script>
