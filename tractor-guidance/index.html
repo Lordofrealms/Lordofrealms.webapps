@@ -4,7 +4,7 @@
 <body><p id="bootMsg">Loading Tractor Guidance…</p>
 <script>
 (async()=>{
-  const BUILD='20260820-21';
+  const BUILD='20260820-22';
   try{
     const r=await fetch(`index-v11.html?template=${BUILD}`,{cache:'no-store'});if(!r.ok)throw new Error(`HTTP ${r.status}`);
     let html=await r.text();
