@@ -9,6 +9,14 @@
     const planner=document.querySelector('.planner');
     if(!planner)return false;
 
+    const pathType=document.getElementById('pathType');
+    if(pathType&&!pathType.querySelector('option[value="skip-parallel"]')){
+      const opt=document.createElement('option');
+      opt.value='skip-parallel';
+      opt.textContent='Skip-pass / alternating rows';
+      pathType.appendChild(opt);
+    }
+
     const wrap=document.createElement('div');
     wrap.className='coverageFitControl';
     wrap.innerHTML=`<div class="coverageFitLabel">Residual swath fit</div><div class="coverageFitButtons"><button type="button" id="coverageFitFull">Full coverage</button><button type="button" id="coverageFitNoExtra">No extra overlap</button></div><div class="coverageFitHelp" id="coverageFitHelp"></div>`;
@@ -21,7 +29,6 @@
     const full=document.getElementById('coverageFitFull');
     const noExtra=document.getElementById('coverageFitNoExtra');
     const help=document.getElementById('coverageFitHelp');
-    const pathType=document.getElementById('pathType');
     const headingLabel=document.getElementById('headingLabel');
 
     function invalidatePlan(){
