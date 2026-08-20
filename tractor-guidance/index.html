@@ -7,12 +7,12 @@
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' blob: https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' https://geocoding.geo.census.gov https://basemap.nationalmap.gov https://imagery.nationalmap.gov https://carto.nationalmap.gov https://tiles.openfreemap.org https://raw.githubusercontent.com; img-src 'self' data: blob: https://basemap.nationalmap.gov https://imagery.nationalmap.gov https://carto.nationalmap.gov https://tiles.openfreemap.org; worker-src 'self' blob:; child-src 'self' blob:; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none';">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.16.0/dist/maplibre-gl.css">
-<script src="privacy.js?v=20260820-4"></script>
+<script src="privacy.js?v=20260820-2"></script>
 <script src="https://unpkg.com/maplibre-gl@5.16.0/dist/maplibre-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.4.0/turf.min.js"></script>
 <title>Tractor Field Planner & Guidance</title>
 
-<link rel="stylesheet" href="style.css?v=20260820-4">
+<link rel="stylesheet" href="style.css?v=20260820-2">
 
 </head>
 <body class="planMode">
@@ -63,6 +63,7 @@
       <div class="gbox"><b id="planHeading">—</b><span>plan heading</span></div>
     </div>
   </div>
+
 
   <div class="card driveOnly">
     <div class="driveHeader">
@@ -179,7 +180,9 @@
       <div class="metric"><b id="estimateAcres">—</b><span>active work acres</span></div>
       <div class="metric"><b id="estimatePasses">—</b><span>passes / loops</span></div>
     </div>
-    <div class="small" id="estimateMath" style="margin-top:6px">Generate a path to see the line-work calculation.</div>
+    <div class="small" id="estimateMath" style="margin-top:6px">
+      Generate a path to see the line-work calculation.
+    </div>
     <div class="pathStatus" id="pathStatus">
       <div>
         <div class="name" id="selectedPathName">No saved path selected</div>
@@ -206,8 +209,11 @@
       <button id="exportPlanBtn">Export Plan GeoJSON</button>
       <button id="settingsBtn">Plan / Map Settings</button>
     </div>
-    <div class="info" style="margin-top:8px">Parallel mode keeps centerlines approximately half an implement width inside the field edge (plus any margin), then evenly spaces passes at no more than implement width minus overlap. Contour mode follows successive inward offsets of the actual boundary.</div>
+    <div class="info" style="margin-top:8px">
+      Parallel mode keeps centerlines approximately half an implement width inside the field edge (plus any margin), then evenly spaces passes at no more than implement width minus overlap. Contour mode follows successive inward offsets of the actual boundary.
+    </div>
   </div>
+
 
   <div class="card" id="securityNote" style="display:none"><div class="info" id="securityText"></div></div>
 </div>
@@ -218,17 +224,119 @@
   <button id="fitBottom">Fit Path</button>
 </div>
 
-<dialog id="storageDlg"><div class="modal"><h2>Storage Diagnostics</h2><div class="info">This build intentionally uses a <b>new database namespace</b> and ignores the previous TractorGuidanceDB. Old open app copies therefore cannot block this fresh database. Keep this app at the same exact filename/folder going forward.</div><div class="diagGrid" style="margin-top:12px"><b>App file</b><span id="diagUrl">—</span><b>Database</b><span id="diagDb">—</span><b>DB version</b><span id="diagDbVersion">—</span><b>Properties</b><span id="diagProperties">—</span><b>Saved paths</b><span id="diagPathings">—</span><b>Path chunks</b><span id="diagChunks">—</span><b>Last property ID</b><span id="diagLastProperty">—</span><b>Last path ID</b><span id="diagLastPath">—</span><b>Current property</b><span id="diagCurrentProperty">—</span><b>Current path</b><span id="diagCurrentPath">—</span><b>Last storage error</b><span id="diagError">None</span></div><div class="modalActions"><button id="retryStorageBtn" class="primary">Retry Storage</button><button id="refreshStorageBtn">Refresh</button><button id="factoryResetBtn" class="danger">Factory Reset Storage</button><button id="closeStorageBtn">Close</button></div></div></dialog>
 
-<dialog id="pathingsDlg"><div class="modal"><h2>Saved Paths</h2><div class="small">A saved path is an immutable route you can select for a drive session. Regenerating a route does not overwrite a saved path until you explicitly save it.</div><label style="display:block;margin-top:10px">Path name<input id="pathingNameInput" placeholder="e.g. North Pasture Spray 20 ft"></label><div class="modalActions"><button class="primary" id="savePathingDialogBtn">Save Current Path</button><button id="closePathings">Close</button></div><div id="pathingList"><div class="small" style="padding:12px 0">Loading…</div></div><div class="modalActions"><button id="exportPathingBtn">Export Selected Path</button><button id="importPathingBtn">Import Path JSON</button><input id="importPathingFile" type="file" accept=".json,application/json" hidden></div></div></dialog>
 
-<dialog id="propertiesDlg"><div class="modal"><h2>Property Library</h2><div class="small">Save the reusable land definition separately from any spray/disc/planting session. Each property/exclusion region keeps its own name. Exclusion zones are stored as complete real-world shapes; future work plans use only the portion overlapping the area being worked.</div><label style="display:block;margin-top:10px">Property name<input id="propertyNameInput" placeholder="e.g. Home farm"></label><div class="modalActions"><button class="primary" id="savePropertyBtn">Save / Update Property</button><button id="closeProperties">Close</button></div><div id="propertyList"><div class="small" style="padding:12px 0">Loading…</div></div><div class="modalActions"><button id="exportPropertyBtn">Export Current Property</button><button id="importPropertyBtn">Import Property JSON</button><input id="importPropertyFile" type="file" accept=".json,application/json" hidden></div></div></dialog>
 
-<dialog id="settingsDlg"><div class="modal"><h2>Settings & Privacy</h2><div class="settingsGrid"><label>Session name<input id="sessionName" value="Field job"></label><label>Operation<input id="operation" value="Work"></label><label class="driveOnly">Max accepted accuracy ft<input id="maxAccuracy" type="number" min="3" step="1" value="80"></label><label class="driveOnly">Minimum point spacing ft<input id="minSpacing" type="number" min="1" step="1" value="5"></label><label class="driveOnly">Guidance tolerance ft<input id="guideTol" type="number" min="1" step="1" value="6"></label></div><div class="planOnly" style="margin-top:12px"><div class="keyrow"><label>Basemap<select id="basemapSelect"><option value="hybrid">USGS Hybrid — cached + high-res NAIP</option><option value="usgscached">USGS Cached Aerial — fastest / safest</option><option value="imagerytopo">USGS Imagery Topo — labels & roads</option><option value="osm">OpenFreeMap Streets</option></select></label><button id="applyBasemapBtn">Apply</button></div></div><div class="info" style="margin-top:12px"><b>GPS privacy:</b> GPS points, the current field boundary, generated route, and session history are stored locally in this browser using IndexedDB. They are not transmitted by this app unless you explicitly export a file yourself. USGS imagery is free and requires no API key. Hybrid mode keeps cached imagery underneath high-resolution NAIP so the map remains usable if the dynamic imagery is slow. Internet access is required for map imagery. The standalone map uses MapLibre GL JS 5.16.0 because v6 no longer publishes the classic browser script required by a single local HTML file. The last map center and zoom are also remembered automatically on this device.</div><div class="info" style="margin-top:8px"><b>Accuracy:</b> This is not RTK guidance. Browser/device GPS may drift by many feet or more. Always maintain visual awareness and normal implement overlap.</div><div id="securityNoteSettings" class="info" style="margin-top:8px"></div><div class="modalActions"><button class="primary" id="saveSettingsBtn">Save</button><button id="closeSettings">Close</button></div></div></dialog>
+<dialog id="storageDlg">
+ <div class="modal">
+  <h2>Storage Diagnostics</h2>
+  <div class="info">
+    This build intentionally uses a <b>new database namespace</b> and ignores the previous TractorGuidanceDB.
+    Old open app copies therefore cannot block this fresh database. Keep this app at the same exact filename/folder going forward.
+  </div>
+  <div class="diagGrid" style="margin-top:12px">
+    <b>App file</b><span id="diagUrl">—</span>
+    <b>Database</b><span id="diagDb">—</span>
+    <b>DB version</b><span id="diagDbVersion">—</span>
+    <b>Properties</b><span id="diagProperties">—</span>
+    <b>Saved paths</b><span id="diagPathings">—</span>
+    <b>Path chunks</b><span id="diagChunks">—</span>
+    <b>Last property ID</b><span id="diagLastProperty">—</span>
+    <b>Last path ID</b><span id="diagLastPath">—</span>
+    <b>Current property</b><span id="diagCurrentProperty">—</span>
+    <b>Current path</b><span id="diagCurrentPath">—</span>
+    <b>Last storage error</b><span id="diagError">None</span>
+  </div>
+  <div class="modalActions">
+    <button id="retryStorageBtn" class="primary">Retry Storage</button>
+    <button id="refreshStorageBtn">Refresh</button>
+    <button id="factoryResetBtn" class="danger">Factory Reset Storage</button>
+    <button id="closeStorageBtn">Close</button>
+  </div>
+ </div>
+</dialog>
 
-<dialog id="sessionsDlg"><div class="modal"><h2>Sessions</h2><div class="modalActions"><button class="primary" id="newSessionBtn">New Session</button><button id="closeSessions">Close</button></div><div id="sessionList"><div class="small" style="padding:14px 0">Loading…</div></div><div class="modalActions"><button id="exportSessionBtn">Export Current JSON</button><button id="importSessionBtn">Import Session JSON</button><input id="importSessionFile" type="file" accept=".json,application/json" hidden></div></div></dialog>
+<dialog id="pathingsDlg">
+ <div class="modal">
+  <h2>Saved Paths</h2>
+  <div class="small">Saved route geometry is stored separately from lightweight app/session metadata. Large paths load after the map/property UI in chunks. Legacy all-in-one paths are migrated lazily only when you actually load them—not while the database is opening.</div>
+  <label style="display:block;margin-top:10px">Path name
+    <input id="pathingNameInput" placeholder="e.g. North Pasture Spray 20 ft">
+  </label>
+  <div class="modalActions">
+    <button class="primary" id="savePathingDialogBtn">Save Current Path</button>
+    <button id="closePathings">Close</button>
+  </div>
+  <div id="pathingList"><div class="small" style="padding:12px 0">Loading…</div></div>
+  <div class="modalActions">
+    <button id="exportPathingBtn">Export Selected Path</button>
+    <button id="importPathingBtn">Import Path JSON</button>
+    <input id="importPathingFile" type="file" accept=".json,application/json" hidden>
+  </div>
+ </div>
+</dialog>
 
-<script src="terms.js?v=20260820-4"></script>
-<script src="app-loader.js?v=20260820-4"></script>
+<dialog id="propertiesDlg">
+ <div class="modal">
+  <h2>Saved Properties</h2>
+  <div class="small">Save the reusable land definition separately from any spray/disc/planting session. Edited vertices and exclusions are saved back to the loaded property automatically.</div>
+  <label style="display:block;margin-top:10px">Property name
+    <input id="propertyNameInput" placeholder="e.g. Home Property">
+  </label>
+  <div class="modalActions">
+    <button class="primary" id="savePropertyBtn">Save / Update Property</button>
+    <button id="exportPropertyBtn">Export Property JSON</button>
+  </div>
+  <div id="propertyList"><div class="small" style="padding:12px 0">Loading…</div></div>
+  <div class="modalActions">
+    <button id="importPropertyBtn">Import Property JSON</button>
+    <button id="closeProperties">Close</button>
+    <input id="importPropertyFile" type="file" accept=".json,application/json" hidden>
+  </div>
+ </div>
+</dialog>
+
+<dialog id="settingsDlg">
+ <div class="modal">
+  <h2>Settings</h2>
+  <div class="settingsGrid">
+   <label>Session name<input id="sessionName" value="Field Work"></label>
+   <label>Operation<select id="operation"><option>Spraying</option><option>Discing</option><option>Planting</option><option>Mowing</option><option>Cultivating</option><option>Fertilizing</option><option>Other</option></select></label>
+   <label class="driveOnly">Max accepted accuracy ft<input id="maxAccuracy" type="number" min="1" step="1" value="50"></label>
+   <label class="driveOnly">Minimum point spacing ft<input id="minSpacing" type="number" min="0" step="1" value="3"></label>
+   <label class="driveOnly">Guidance tolerance ft<input id="guideTol" type="number" min=".1" step=".1" value="1"></label>
+  </div>
+  <div class="planOnly" style="margin-top:12px">
+   <div class="keyrow">
+    <label>Basemap
+      <select id="basemapChoice">
+        <option value="hybrid">USGS Hybrid — cached + high-res NAIP</option>
+        <option value="usgscached">USGS Imagery — cached / fastest</option>
+        <option value="streets">Basic street map</option>
+      </select>
+    </label>
+    <button id="applyBasemapBtn">Apply Map</button>
+   </div>
+   <div class="info" style="margin-top:6px">USGS imagery is free and requires no API key. Hybrid mode keeps cached imagery underneath high-resolution NAIP so the map remains usable if the dynamic imagery is slow. Internet access is required for map imagery. The standalone map uses MapLibre GL JS 5.16.0 because v6 no longer publishes the classic browser script required by a single local HTML file. The last map center and zoom are also remembered automatically on this device. IMPORTANT: for local-file upgrades, keep this app at the same exact filename/path so the browser can reuse the same storage bucket.</div>
+  </div>
+  <div class="modalActions"><button id="cancelSettings">Cancel</button><button class="primary" id="applySettings">Apply & Save</button></div>
+ </div>
+</dialog>
+
+<dialog id="sessionsDlg">
+ <div class="modal">
+  <h2>Sessions</h2>
+  <button class="primary" id="newSessionBtn" style="width:100%">+ New Session</button>
+  <div id="sessionList"><div class="small" style="padding:12px 0">Loading…</div></div>
+  <div class="modalActions">
+   <button id="importSessionBtn">Import JSON</button>
+   <button id="closeSessions">Close</button>
+   <input id="importSessionFile" type="file" accept=".json,application/json" hidden>
+  </div>
+ </div>
+</dialog>
+
+<script src="terms.js?v=20260820-2"></script>
+<script src="app-loader.js?v=20260820-2"></script>
 </body>
 </html>
