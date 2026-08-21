@@ -44,6 +44,7 @@ Implemented in this branch:
 - System-GPS fallback while the PPP filter is not yet producing a solution.
 - JNI/CMake bridge that builds against pinned MRTKLIB.
 - Stable interface between the eventual PPP engine and Pad Grade.
+- Branch CI using AGP 9.3, Gradle 9.5, Android API 36, and NDK 28.2.
 
 Still required before this produces a HAS-corrected PPP position:
 
