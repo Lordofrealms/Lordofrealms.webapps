@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Basic PDF Editor</title>
+<style>
+:root{color-scheme:light dark;--bg:#f4f5f7;--panel:#fff;--text:#17191c;--muted:#667085;--line:#d0d5dd;--accent:#2563eb;--danger:#b42318}
+@media(prefers-color-scheme:dark){:root{--bg:#111318;--panel:#1b1f27;--text:#f2f4f7;--muted:#98a2b3;--line:#344054;--accent:#4f7cff;--danger:#f97066}}
+*{box-sizing:border-box}body{margin:0;font:14px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+header{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px;background:color-mix(in srgb,var(--panel) 94%,transparent);border-bottom:1px solid var(--line);backdrop-filter:blur(10px)}
+.group{display:flex;gap:6px;align-items:center}.spacer{flex:1 1 auto}.label,#status{color:var(--muted);font-size:12px}#status{white-space:nowrap}.version{font-size:12px;font-weight:700;padding:4px 7px;border:1px solid var(--line);border-radius:999px;color:var(--muted);background:var(--panel)}
+button,input{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:7px;min-height:34px}button{padding:6px 10px;cursor:pointer}button:hover:not(:disabled){border-color:var(--accent)}button:disabled{opacity:.45;cursor:not-allowed}button.primary{background:var(--accent);border-color:var(--accent);color:#fff}button.danger{color:var(--danger)}button.tool.active{outline:2px solid var(--accent);outline-offset:1px}
+input[type=number]{width:68px;padding:5px 7px}input[type=text]{width:190px;padding:5px 8px}input[type=color]{width:38px;padding:3px}.hidden{display:none!important}
+main{min-height:calc(100vh - 56px);display:grid;place-items:start center;padding:20px;overflow:auto}#empty{margin-top:12vh;text-align:center;max-width:620px;color:var(--muted)}#empty h1{color:var(--text);font-size:24px;margin-bottom:8px}
+#pageShell{position:relative;display:inline-block;line-height:0;box-shadow:0 8px 28px rgba(0,0,0,.18);background:#fff;user-select:none;touch-action:none}#pdfCanvas,#overlayCanvas{display:block}#overlayCanvas{position:absolute;inset:0;cursor:default}
+#inlineEditor{position:absolute;z-index:8;display:none;min-width:80px;padding:1px 4px;margin:0;line-height:1.15;border:2px solid var(--accent);border-radius:3px;outline:none;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif;box-shadow:0 1px 5px rgba(0,0,0,.2)}
+@media(max-width:850px){header{align-items:flex-start}.spacer{display:none}#status{width:100%}main{padding:10px}}
+</style>
+</head>
+<body>
+<header>
+<div class="group"><button id="openBtn" class="primary">Open PDF</button><input id="fileInput" class="hidden" type="file" accept="application/pdf,.pdf"><button id="saveBtn" disabled>Save</button><button id="saveAsBtn" disabled>Save As</button></div>
+<div class="group"><button id="prevBtn" disabled>◀</button><span id="pageLabel">Page — / —</span><button id="nextBtn" disabled>▶</button><button id="zoomOutBtn" disabled>−</button><span id="zoomLabel">100%</span><button id="zoomInBtn" disabled>+</button></div>
+<div class="group"><button class="tool active" data-tool="select" disabled>Select</button><button class="tool" data-tool="text" disabled>Add Text</button><button class="tool" data-tool="editPdfText" disabled>Edit PDF Text</button><button class="tool" data-tool="pen" disabled>Pen</button><button class="tool" data-tool="whiteout" disabled>Whiteout</button></div>
+<div class="group"><span class="label">Text</span><input id="textValue" type="text" placeholder="Select text to edit" disabled><span class="label">Size</span><input id="fontSize" type="number" min="6" max="96" value="16" disabled><input id="textColor" type="color" value="#000000" disabled></div>
+<div class="group"><span class="label">Pen</span><input id="penWidth" type="number" min="1" max="30" value="3" disabled><input id="penColor" type="color" value="#d11a2a" disabled></div>
+<div class="group"><button id="undoBtn" disabled>Undo</button><button id="deleteBtn" class="danger" disabled>Delete selected</button><button id="clearBtn" class="danger" disabled>Clear page</button></div>
+<div class="spacer"></div><span class="version" title="PDF editor version">v0.7.1</span><div id="status">No PDF loaded</div>
+</header>
+<main>
+<div id="empty"><h1>Basic PDF Editor</h1><p><b>Add Text</b>: click and type anywhere. <b>Edit PDF Text</b>: click selectable text already in the PDF and replace it in place. <b>Select</b>: move or edit your text later. Existing-text replacement works best on ordinary horizontal text; scanned/image-only PDFs need OCR.</p></div>
+<div id="pageShell" class="hidden"><canvas id="pdfCanvas"></canvas><canvas id="overlayCanvas"></canvas><input id="inlineEditor" type="text" autocomplete="off" spellcheck="false" aria-label="Edit PDF text"></div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script type="module">
+import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.2.108/build/pdf.mjs';
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@6.2.108/build/pdf.worker.mjs';
+const $=id=>document.getElementById(id), openBtn=$('openBtn'),fileInput=$('fileInput'),saveBtn=$('saveBtn'),saveAsBtn=$('saveAsBtn'),prevBtn=$('prevBtn'),nextBtn=$('nextBtn'),zoomOutBtn=$('zoomOutBtn'),zoomInBtn=$('zoomInBtn'),pageLabel=$('pageLabel'),zoomLabel=$('zoomLabel'),status=$('status'),empty=$('empty'),pageShell=$('pageShell'),pdfCanvas=$('pdfCanvas'),overlayCanvas=$('overlayCanvas'),inlineEditor=$('inlineEditor'),textValue=$('textValue'),fontSize=$('fontSize'),textColor=$('textColor'),penWidth=$('penWidth'),penColor=$('penColor'),undoBtn=$('undoBtn'),deleteBtn=$('deleteBtn'),clearBtn=$('clearBtn'),tools=[...document.querySelectorAll('.tool')];
+const pdfCtx=pdfCanvas.getContext('2d',{alpha:false}),ctx=overlayCanvas.getContext('2d');
+let pdfDoc=null,originalBytes=null,fileHandle=null,fileName='document.pdf',pageNo=1,zoom=1,viewport=null,tool='select',annotations=new Map(),selected=null,history=[],drawing=null,moving=null,editing=null,toolbarBefore=null,nextId=1,renderToken=0,pdfTextItems=[],dirty=false;
+const setStatus=s=>status.textContent=s;
+const ann=(n=pageNo)=>{if(!annotations.has(n))annotations.set(n,[]);return annotations.get(n)};
+const snapshot=(n=pageNo)=>structuredClone(ann(n));
+const selectedAnn=()=>selected?.page===pageNo?ann()
