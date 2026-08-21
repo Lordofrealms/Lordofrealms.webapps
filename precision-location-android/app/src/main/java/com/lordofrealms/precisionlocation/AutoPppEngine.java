@@ -52,7 +52,7 @@ public final class AutoPppEngine implements PositionEngine {
                 epoch.syncState);
 
         String mode = inventory.automaticMode();
-        String correction = hasCorrections ? "HAS corrections connected" : "Connecting to HAS corrections";
+        String correction = hasCorrections ? "HAS corrections received" : "Waiting for HAS corrections";
         String detail = inventory.summary() + "\n"
                 + correction + "\n"
                 + accepted + " GPS/Galileo satellite records accepted • " + nativeObservationInfo();
@@ -80,8 +80,8 @@ public final class AutoPppEngine implements PositionEngine {
 
     @Override public void onHasCorrections(byte[] data, int length) {
         if (!running || length <= 0) return;
-        nativeHasBytes(data, length);
-        hasCorrections = true;
+        int decodedSsr = nativeHasBytes(data, length);
+        if (decodedSsr > 0) hasCorrections = true;
     }
 
     private void emit(PppSolution.State state, String mode, String detail) {
@@ -115,5 +115,5 @@ public final class AutoPppEngine implements PositionEngine {
             int[] syncState);
     private static native String nativeObservationInfo();
     private static native void nativeNavigationMessage(int type, int svid, int messageId, int submessageId, byte[] data);
-    private static native void nativeHasBytes(byte[] data, int length);
+    private static native int nativeHasBytes(byte[] data, int length);
 }
