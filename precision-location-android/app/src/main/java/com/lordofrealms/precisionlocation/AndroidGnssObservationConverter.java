@@ -18,20 +18,35 @@ import java.util.List;
 public final class AndroidGnssObservationConverter {
     private static final double C = 299_792_458.0;
     private static final double NS_TO_S = 1e-9;
-    private static final double WEEK_NANOS = 604_800.0e9;
+    private static final long WEEK_NANOS_LONG = 604_800_000_000_000L;
+    private static final double WEEK_NANOS = (double) WEEK_NANOS_LONG;
     private static final double MIN_PSEUDORANGE_M = 1.0e6;
     private static final double MAX_PSEUDORANGE_M = 1.0e8;
 
     public RawObservationEpoch convert(GnssMeasurementsEvent event) {
         GnssClock clock = event.getClock();
         if (!clock.hasFullBiasNanos()) {
-            return RawObservationEpoch.empty(Double.NaN, clock.getHardwareClockDiscontinuityCount());
+            return RawObservationEpoch.empty(-1, Double.NaN,
+                    clock.getHardwareClockDiscontinuityCount());
         }
 
+        // Keep the ~1e18 ns absolute receiver time in integer arithmetic. Converting
+        // that value to double first would lose tens of nanoseconds of precision.
+        long wholeGpsNanos = clock.getTimeNanos() - clock.getFullBiasNanos();
+        long gpsWeekLong = Math.floorDiv(wholeGpsNanos, WEEK_NANOS_LONG);
         double biasNanos = clock.hasBiasNanos() ? clock.getBiasNanos() : 0.0;
-        double gpsTimeNanos = clock.getTimeNanos() - (clock.getFullBiasNanos() + biasNanos);
-        List<Sample> samples = new ArrayList<>();
+        double gpsTowNanos = Math.floorMod(wholeGpsNanos, WEEK_NANOS_LONG) - biasNanos;
+        if (gpsTowNanos < 0.0) {
+            gpsTowNanos += WEEK_NANOS;
+            gpsWeekLong--;
+        } else if (gpsTowNanos >= WEEK_NANOS) {
+            gpsTowNanos -= WEEK_NANOS;
+            gpsWeekLong++;
+        }
+        int gpsWeek = (int) gpsWeekLong;
+        double gpsTowSeconds = gpsTowNanos * NS_TO_S;
 
+        List<Sample> samples = new ArrayList<>();
         for (GnssMeasurement m : event.getMeasurements()) {
             int constellation = m.getConstellationType();
             if (constellation != GnssStatus.CONSTELLATION_GPS
@@ -40,7 +55,7 @@ public final class AndroidGnssObservationConverter {
             }
             if (!m.hasCarrierFrequencyHz() || !hasUsableTow(m)) continue;
 
-            double pseudorange = pseudorangeMeters(gpsTimeNanos, m);
+            double pseudorange = pseudorangeMeters(gpsTowNanos, m);
             if (!Double.isFinite(pseudorange)
                     || pseudorange < MIN_PSEUDORANGE_M
                     || pseudorange > MAX_PSEUDORANGE_M) {
@@ -105,7 +120,7 @@ public final class AndroidGnssObservationConverter {
         }
 
         return new RawObservationEpoch(
-                gpsTimeNanos,
+                gpsWeek, gpsTowSeconds,
                 clock.getHardwareClockDiscontinuityCount(),
                 constellation, svid, freq, code, pr, prSigma, adr, adrSigma,
                 rate, rateSigma, cn0, adrState, syncState);
@@ -117,9 +132,9 @@ public final class AndroidGnssObservationConverter {
                 || (state & GnssMeasurement.STATE_TOW_KNOWN) != 0;
     }
 
-    private static double pseudorangeMeters(double gpsTimeNanos, GnssMeasurement m) {
+    private static double pseudorangeMeters(double gpsTowNanos, GnssMeasurement m) {
         double receiverTowNanos = positiveModulo(
-                gpsTimeNanos + m.getTimeOffsetNanos(), WEEK_NANOS);
+                gpsTowNanos + m.getTimeOffsetNanos(), WEEK_NANOS);
         double transmitTowNanos = m.getReceivedSvTimeNanos();
         double deltaNanos = receiverTowNanos - transmitTowNanos;
 
