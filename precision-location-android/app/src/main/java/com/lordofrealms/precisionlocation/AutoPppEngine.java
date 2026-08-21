@@ -34,7 +34,8 @@ public final class AutoPppEngine implements PositionEngine {
         RawObservationEpoch epoch = observationConverter.convert(event);
         nativeObserveCapability(inventory.validAdrTotal(), inventory.hasSecondaryCarrierPhase());
         int accepted = nativeObservationEpoch(
-                epoch.gpsTimeNanos,
+                epoch.gpsWeek,
+                epoch.gpsTowSeconds,
                 epoch.hardwareClockDiscontinuityCount,
                 epoch.constellation,
                 epoch.svid,
@@ -96,7 +97,8 @@ public final class AutoPppEngine implements PositionEngine {
     private static native void nativeReset();
     private static native void nativeObserveCapability(int validAdr, boolean multiFrequency);
     private static native int nativeObservationEpoch(
-            double gpsTimeNanos,
+            int gpsWeek,
+            double gpsTowSeconds,
             int hardwareClockDiscontinuityCount,
             int[] constellation,
             int[] svid,
