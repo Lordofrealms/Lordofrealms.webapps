@@ -27,7 +27,7 @@ main{min-height:calc(100vh - 56px);display:grid;place-items:start center;padding
 <div class="group"><button class="tool active" data-tool="select" disabled>Select</button><button class="tool" data-tool="text" disabled>Add Text</button><button class="tool" data-tool="editPdfText" disabled>Edit PDF Text</button><button class="tool" data-tool="pen" disabled>Pen</button><button class="tool" data-tool="whiteout" disabled>Whiteout</button></div>
 <div class="group"><button id="formatBtn" disabled>Text Format</button><span class="label">Pen</span><input id="penWidth" type="number" min="1" max="30" value="3" disabled><input id="penColor" type="color" value="#d11a2a" disabled></div>
 <div class="group"><button id="undoBtn" disabled>Undo</button><button id="deleteBtn" class="danger" disabled>Delete selected</button><button id="clearBtn" class="danger" disabled>Clear page</button></div>
-<div class="spacer"></div><span class="version" title="PDF editor version">v0.8.0</span><div id="status">No PDF loaded</div>
+<div class="spacer"></div><span class="version" title="PDF editor version">v0.8.2</span><div id="status">No PDF loaded</div>
 </header>
 <section id="formatPanel" class="hidden" aria-label="Text formatting panel">
 <h2>Text Format</h2>
@@ -44,7 +44,7 @@ main{min-height:calc(100vh - 56px);display:grid;place-items:start center;padding
 <script type="module">
 import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.2.108/build/pdf.mjs';
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@6.2.108/build/pdf.worker.mjs';
-const APP_VERSION='0.8.0';
+const APP_VERSION='0.8.2';
 const $=id=>document.getElementById(id);
 const openBtn=$('openBtn'),fileInput=$('fileInput'),saveBtn=$('saveBtn'),saveAsBtn=$('saveAsBtn'),prevBtn=$('prevBtn'),nextBtn=$('nextBtn'),zoomOutBtn=$('zoomOutBtn'),zoomInBtn=$('zoomInBtn'),pageLabel=$('pageLabel'),zoomLabel=$('zoomLabel'),status=$('status'),empty=$('empty'),pageShell=$('pageShell'),pdfCanvas=$('pdfCanvas'),overlayCanvas=$('overlayCanvas'),inlineEditor=$('inlineEditor'),penWidth=$('penWidth'),penColor=$('penColor'),undoBtn=$('undoBtn'),deleteBtn=$('deleteBtn'),clearBtn=$('clearBtn'),formatBtn=$('formatBtn'),formatPanel=$('formatPanel'),fontFamily=$('fontFamily'),formatSize=$('formatSize'),formatColor=$('formatColor'),boldBtn=$('boldBtn'),italicBtn=$('italicBtn'),underlineBtn=$('underlineBtn'),strikeBtn=$('strikeBtn'),superBtn=$('superBtn'),subBtn=$('subBtn'),alignLeftBtn=$('alignLeftBtn'),alignCenterBtn=$('alignCenterBtn'),alignRightBtn=$('alignRightBtn'),tools=[...document.querySelectorAll('.tool')];
 const pdfCtx=pdfCanvas.getContext('2d',{alpha:false}),ctx=overlayCanvas.getContext('2d');
@@ -59,8 +59,4 @@ function runStyleEq(a,b){return a.family===b.family&&Math.abs(a.size-b.size)<.01
 function normalizeRuns(runs){const out=[];for(const r of runs||[]){if(!r.text)continue;const nr={text:r.text,...cloneStyle(r)};const p=out[out.length-1];if(p&&runStyleEq(p,nr))p.text+=nr.text;else out.push(nr)}return out.length?out:[{text:'',...cloneStyle(defaultStyle)}]}
 function annotationText(a){return(a.runs||[]).map(r=>r.text).join('')}
 function pushHistory(before,n=pageNo){history.push({page:n,before});if(history.length>100)history.shift();dirty=true;updateUI()}
-function enableEditor(on){[saveBtn,saveAsBtn,prevBtn,nextBtn,zoomOutBtn,zoomInBtn,penWidth,penColor,clearBtn,formatBtn,...tools].forEach(e=>e.disabled=!on);updateUI()}
-function updateUI(){const loaded=!!pdfDoc;saveBtn.disabled=!loaded||!dirty;saveAsBtn.disabled=!loaded;prevBtn.disabled=!loaded||pageNo<=1;nextBtn.disabled=!loaded||pageNo>=Number(pdfDoc?.numPages||1);zoomOutBtn.disabled=!loaded||zoom<=.5;zoomInBtn.disabled=!loaded||zoom>=3;undoBtn.disabled=!history.length;deleteBtn.disabled=!selected;clearBtn.disabled=!loaded||!ann().length;formatBtn.disabled=!loaded;pageLabel.textContent=loaded?`Page ${pageNo} / ${pdfDoc.numPages}`:'Page — / —';zoomLabel.textContent=`${Math.round(zoom*100)}%`;syncFormatPanel()}
-function setToggle(btn,state){btn.classList.toggle('active',state===true);btn.classList.toggle('mixed',state==='mixed')}
-function aggregateRuns(runs,key){if(!runs?.length)return null;const vals=runs.map(r=>r[key]);return vals.every(v=>v===vals[0])?vals[0]:'mixed'}
-function currentPanelRuns(){if(editing){const sr=selectedEditorRuns();if(sr.length)return sr;return editing.a.runs||[]}const a=selectedAnn();return a?.type==='text'?a.runs||[]:[]}
+function enableEditor(on){[saveBtn,saveAsBtn,prevBtn,nextBtn,zoomOutBtn,zoomInBtn,penWidth,penColor,clearBtn,formatBtn
