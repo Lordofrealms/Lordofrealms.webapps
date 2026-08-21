@@ -9,6 +9,7 @@
 #include "mrtklib/mrtk_nav.h"
 #include "mrtklib/mrtk_obs.h"
 #include "mrtklib/mrtk_ppp.h"
+#include "mrtklib/mrtk_rtcm.h"
 #include "mrtklib/mrtk_time.h"
 
 #define LOG_TAG "PrecisionLocation"
@@ -24,6 +25,7 @@
 static int g_valid_adr = 0;
 static int g_multi_frequency = 0;
 static long g_has_bytes = 0;
+static long g_ssr_messages = 0;
 static int g_last_hw_disc = -1;
 static unsigned long g_clock_resets = 0;
 static obsd_t g_epoch_obs[MAXSAT];
@@ -32,6 +34,8 @@ static int g_epoch_signals = 0;
 static int g_epoch_phase = 0;
 static int g_epoch_dropped = 0;
 static char g_obs_info[192] = "waiting for raw observations";
+static rtcm_t g_rtcm;
+static int g_rtcm_initialized = 0;
 
 static int android_to_sys(int constellation) {
     if (constellation == A_GPS) return SYS_GPS;
@@ -114,6 +118,19 @@ static int min_len(JNIEnv *env, jarray first, const jarray *others, int nothers)
     return n;
 }
 
+static void reset_rtcm_decoder(void) {
+    if (g_rtcm_initialized) {
+        free_rtcm(&g_rtcm);
+        g_rtcm_initialized = 0;
+    }
+    memset(&g_rtcm, 0, sizeof(g_rtcm));
+    if (init_rtcm(&g_rtcm)) {
+        g_rtcm_initialized = 1;
+    } else {
+        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "init_rtcm failed");
+    }
+}
+
 JNIEXPORT jstring JNICALL
 Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativeEngineInfo(
         JNIEnv *env, jclass clazz) {
@@ -128,11 +145,13 @@ Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativeReset(
     g_valid_adr = 0;
     g_multi_frequency = 0;
     g_has_bytes = 0;
+    g_ssr_messages = 0;
     g_last_hw_disc = -1;
     g_clock_resets = 0;
     g_epoch_n = g_epoch_signals = g_epoch_phase = g_epoch_dropped = 0;
     memset(g_epoch_obs, 0, sizeof(g_epoch_obs));
     reset_obsdef();
+    reset_rtcm_decoder();
     snprintf(g_obs_info, sizeof(g_obs_info), "waiting for raw observations");
 }
 
@@ -300,11 +319,26 @@ Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativeNavigationMessage(
     /* Android navigation-message -> MRTKLIB nav_t decoder bridge follows next. */
 }
 
-JNIEXPORT void JNICALL
+JNIEXPORT jint JNICALL
 Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativeHasBytes(
         JNIEnv *env, jclass clazz, jbyteArray data, jint length) {
-    (void) env; (void) clazz; (void) data;
-    if (length > 0) g_has_bytes += length;
-    /* IDD framing remains outside the estimator. The IDD stream is NOT assumed
-       to be identical to the 56-byte E6-B SIS pages expected by has_input_page(). */
+    (void)clazz;
+    if (!g_rtcm_initialized || !data || length <= 0) return 0;
+    jsize available = (*env)->GetArrayLength(env, data);
+    int n = length < available ? length : available;
+    jbyte *bytes = (*env)->GetByteArrayElements(env, data, NULL);
+    if (!bytes) return 0;
+
+    int decoded = 0;
+    int i;
+    for (i = 0; i < n; i++) {
+        int status = input_rtcm3(&g_rtcm, (uint8_t)bytes[i]);
+        if (status == 10) {
+            decoded++;
+            g_ssr_messages++;
+        }
+    }
+    g_has_bytes += n;
+    (*env)->ReleaseByteArrayElements(env, data, bytes, JNI_ABORT);
+    return decoded;
 }
