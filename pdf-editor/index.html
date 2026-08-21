@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Basic PDF Editor</title>
+<style>
+:root {
+color-scheme: light dark;
+--bg: #f4f5f7;
+--panel: #ffffff;
+--text: #17191c;
+--muted: #667085;
+--line: #d0d5dd;
+--accent: #2563eb;
+--accentText: #fff;
+--danger: #b42318;
+}
+@media (prefers-color-scheme: dark) {
+:root {
+--bg: #111318;
+--panel: #1b1f27;
+--text: #f2f4f7;
+--muted: #98a2b3;
+--line: #344054;
+--accent: #4f7cff;
+--danger: #f97066;
+}
+}
+* { box-sizing: border-box; }
+body {
+margin: 0;
+font: 14px/1.35 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+background: var(--bg);
+color: var(--text);
+min-height: 100vh;
+}
+header {
+position: sticky;
+top: 0;
+z-index: 20;
+display: flex;
+flex-wrap: wrap;
+gap: 8px;
+align-items: center;
+padding: 10px;
+background: color-mix(in srgb, var(--panel) 94%, transparent);
+border-bottom: 1px solid var(--line);
+backdrop-filter: blur(10px);
+}
+.group { display: flex; gap: 6px; align-items: center; }
+.spacer { flex: 1 1 auto; }
+button, input, select {
+font: inherit;
+color: inherit;
+background: var(--panel);
+border: 1px solid var(--line);
+border-radius: 7px;
+min-height: 34px;
+}
+button { padding: 6px 10px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accentText); }
+button.danger { color: var(--danger); }
+button.tool.active { outline: 2px solid var(--accent); outline-offset: 1px; }
+input[type="number"] { width: 68px; padding: 5px 7px; }
+input[type="text"] { width: 180px; padding: 5px 8px; }
+input[type="color"] { width: 38px; padding: 3px; }
+.hidden { display: none !important; }
+main {
+min-height: calc(100vh - 56px);
+display: grid;
+place-items: start center;
+padding: 20px;
+overflow: auto;
+}
+#emptyState {
+margin-top: 12vh;
+text-align: center;
+max-width: 520px;
+color: var(--muted);
+}
+#emptyState h1 { color: var(--text); font-size: 24px; margin-bottom: 8px; }
+#pageShell {
+position: relative;
+display: inline-block;
+line-height: 0;
+box-shadow: 0 8px 28px rgba(0,0,0,.18);
+background: white;
+user-select: none;
+touch-action: none;
+}
+#pdfCanvas, #overlayCanvas {
+display: block;
+}
+#overlayCanvas {
+position: absolute;
+inset: 0;
+cursor: crosshair;
+}
+#status {
+flex: 0 0 auto;
+color: var(--muted);
+font-size: 12px;
+white-space: nowrap;
+}
+.label { color: var(--muted); font-size: 12px; }
+@media (max-width: 800px) {
+header { align-items: flex-start; }
+.spacer { display: none; }
+#status { width: 100%; }
+main { padding: 10px; }
+}
+</style>
+</head>
+<body>
+<header>
+<div class="group">
+<button id="openBtn" class="primary">Open PDF</button>
+<input id="fileInput" class="hidden" type="file" accept="application/pdf,.pdf" />
+<button id="saveBtn" disabled>Save</button>
+<button id="saveAsBtn" disabled>Save As</button>
+</div>
+<div class="group">
+<button id="prevBtn" disabled>◀</button>
+<span id="pageLabel">Page — / —</span>
+<button id="nextBtn" disabled>▶</button>
+<button id="zoomOutBtn" disabled>−</button>
+<span id="zoomLabel">100%</span>
+<button id="zoomInBtn" disabled>+</button>
+</div>
+<div class="group" id="toolGroup">
+<button class="tool active" data-tool="select" disabled>Select</button>
+<button class="tool" data-tool="text" disabled>Text</button>
+<button class="tool" data-tool="pen" disabled>Pen</button>
+<button class="tool" data-tool="whiteout" disabled>Whiteout</button>
+</div>
+<div class="group" id="textControls">
+<span class="label">Text</span>
+<input id="textValue" type="text" value="Text" aria-label="Text to place" disabled />
+<span class="label">Size</span>
+<input id="fontSize" type="number" min="6" max="96" value="16" disabled />
+<input id="textColor" type="color" value="#000000" aria-label="Text color" disabled />
+</div>
+<div class="group" id="penControls">
+<span class="label">Pen</span>
+<input id="penWidth" type="number" min="1" max="30" value="3" disabled />
+<input id="penColor" type="color" value="#d11a2a" aria-label="Pen color" disabled />
+</div>
+<div class="group">
+<button id="undoBtn" disabled>Undo</button>
+<button id="deleteBtn" class="danger" disabled>Delete selected</button>
+<button id="clearBtn" class="danger" disabled>Clear page</button>
+</div>
+<div class="spacer"></div>
+<div id="status">No PDF loaded</div>
+</header>
+<main>
+<div id="emptyState">
+<h1>Basic PDF Editor</h1>
+<p>Open a PDF, then add text, draw freehand, or cover an area with whiteout. Select added items to move or delete them. In supported browsers, Save can write back to the opened file and Save As can create a new one.</p>
+</div>
+<div id="pageShell" class="hidden">
+<canvas id="pdfCanvas"></canvas>
+<canvas id="overlayCanvas"></canvas>
+</div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script type="module">
+import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.2.108/build/pdf.mjs';
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.2.108/build/pdf.worker.mjs';
+const $ = (id) => document.getElementById(id);
+const fileInput = $('fileInput');
+const openBtn = $('openBtn');
+const saveBtn = $('saveBtn');
+const saveAsBtn = $('saveAsBtn');
+const prevBtn = $('prevBtn');
+const nextBtn = $('nextBtn');
+const zoomOutBtn = $('zoomOutBtn');
+const zoomInBtn = $('zoomInBtn');
+const zoomLabel = $('zoomLabel');
+const pageLabel = $('pageLabel');
+const status = $('status');
+const emptyState = $('emptyState');
+const pageShell = $('pageShell');
+const pdfCanvas = $('pdfCanvas');
+const overlayCanvas = $('overlayCanvas');
+const pdfCtx = pdfCanvas.getContext('2d', { alpha: false });
+const overlayCtx = overlayCanvas.getContext('2d');
+const textValue = $('textValue');
+const fontSize = $('fontSize');
+const textColor = $('textColor');
+const penWidth = $('penWidth');
+const penColor = $('penColor');
+const undoBtn = $('undoBtn');
+const deleteBtn = $('deleteBtn');
+const clearBtn = $('clearBtn');
+const toolButtons = [...document.querySelectorAll('.tool')];
+let pdfDoc = null;
+let originalBytes = null;
+let displayName = 'document.pdf';
+let currentFileHandle = null;
+let dirty = false;
+let pageNumber = 1;
+let zoom = 1.0;
+let viewportCss = null;
+let currentTool = 'select';
+let annotations = new Map(); // pageNumber -> array
+let selected = null; // { page, id }
+let actionHistory = [];
+let drawing = null;
+let moving = null;
+let nextId = 1;
+let renderToken = 0;
+function pageAnnotations(n = pageNumber) {
+if (!annotations.has(n)) annotations.set(n, []);
+return annotations.get(n);
+}
+function enableEditor(enabled) {
+[saveBtn, saveAsBtn, prevBtn, nextBtn, zoomOutBtn, zoomInBtn, textValue, fontSize, textColor,
+penWidth, penColor, clearBtn, ...toolButtons].forEach(el => el.disabled = !enabled);
+updateButtons();
+}
+function updateButtons() {
+const loaded = !!pdfDoc;
+saveBtn.disabled = !loaded || !dirty;
+saveAsBtn.disabled = !loaded;
+prevBtn.disabled = !loaded || pageNumber <= 1;
+nextBtn.disabled = !loaded || pageNumber >= (pdfDoc?.numPages || 1);
+undoBtn.disabled = actionHistory.length === 0;
+deleteBtn.disabled = !selected;
+clearBtn.disabled = !loaded || pageAnnotations().length === 0;
+zoomOutBtn.disabled = !loaded || zoom <= .5;
+zoomInBtn.disabled = !loaded || zoom >= 3;
+pageLabel.textContent = loaded ? `Page ${pageNumber} / ${pdfDoc.numPages}` : 'Page — / —';
+zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
+}
+function setStatus(msg) { status.textContent = msg; }
+const supportsFileSystemAccess = () =>
+window.isSecureContext && 'showOpenFilePicker' in window && 'showSaveFilePicker' in window;
+openBtn.addEventListener('click', async () => {
+if (!supportsFileSystemAccess()) {
+fileInput.click();
+return;
+}
+try {
+const [handle] = await window.showOpenFilePicker({
+multiple: false,
+types: [{ description: 'PDF documents', accept: { 'application/pdf': ['.pdf'] } }]
+});
+const file = await handle.getFile();
+await loadPdfFile(file, handle);
+} catch (err) {
+if (err?.name !== 'AbortError') {
+console.error(err);
+setStatus('Could not open that PDF');
+alert('Could not open that PDF. It may be damaged, encrypted, or unsupported.');
+}
+}
+});
+fileInput.addEventListener('change', async () => {
+const file = fileInput.files?.[0];
+if (!file) return;
+try {
+await loadPdfFile(file, null);
+} catch (err) {
+console.error(err);
+setStatus('Could not open that PDF');
+alert('Could not open that PDF. It may be damaged, encrypted, or unsupported.');
+} finally {
+fileInput.value = '';
+}
+});
+async function loadPdfFile(file, handle = null) {
+setStatus('Loading PDF…');
+const bytes = new Uint8Array(await file.arrayBuffer());
+await loadPdfBytes(bytes, file.name, handle);
+}
+async function loadPdfBytes(bytes, name, handle = currentFileHandle) {
+originalBytes = bytes.slice();
+displayName = name || 'document.pdf';
+currentFileHandle = handle || null;
+pdfDoc = await pdfjsLib.getDocument({ data: bytes.slice() }).promise;
+pageNumber = 1;
+zoom = 1;
+annotations = new Map();
+selected = null;
+actionHistory = [];
+nextId = 1;
+dirty = false;
+emptyState.classList.add('hidden');
+pageShell.classList.remove('hidden');
+enableEditor(true);
+await renderPage();
+setStatus(`${displayName} • ${pdfDoc.numPages} page${pdfDoc.numPages === 1 ? '' : 's'}`);
+}
+toolButtons.forEach(btn => btn.addEventListener('click', () => {
+currentTool = btn.dataset.tool;
+toolButtons.forEach(b => b.classList.toggle('active', b === btn));
+overlayCanvas.style.cursor = currentTool === 'select' ? 'default' : 'crosshair';
+}));
+prevBtn.addEventListener('click', async () => { if (pageNumber > 1) { pageNumber--; selected = null; await renderPage(); }});
+nextBtn.addEventListener('click', async () => { if (pageNumber < pdfDoc.numPages) { pageNumber++; selected = null; await renderPage(); }});
+zoomOutBtn.addEventListener('click', async () => { zoom = Math.max(.5, +(zoom - .25).toFixed(2)); await renderPage(); });
+zoomInBtn.addEventListener('click', async () => { zoom = Math.min(3, +(zoom + .25).toFixed(2)); await renderPage(); });
+async function renderPage() {
+if (!pdfDoc) return;
+const token = ++renderToken;
+const page = await pdfDoc.getPage(pageNumber);
+if (token !== renderToken) return;
+viewportCss = page.getViewport({ scale: zoom });
+const dpr = Math.min(window.devicePixelRatio || 1, 2);
+const renderViewport = page.getViewport({ scale: zoom * dpr });
+pdfCanvas.width = Math.ceil(renderViewport.width);
+pdfCanvas.height = Math.ceil(renderViewport.height);
+pdfCanvas.style.width = `${viewportCss.width}px`;
+pdfCanvas.style.height = `${viewportCss.height}px`;
+overlayCanvas.width = Math.ceil(viewportCss.width * dpr);
+overlayCanvas.height = Math.ceil(viewportCss.height * dpr);
+overlayCanvas.style.width = `${viewportCss.width}px`;
+overlayCanvas.style.height = `${viewportCss.height}px`;
+await page.render({ canvasContext: pdfCtx, viewport: renderViewport }).promise;
+if (token !== renderToken) return;
+drawOverlay();
+updateButtons();
+}
+function canvasPoint(evt) {
+const r = overlayCanvas.getBoundingClientRect();
+return {
+x: Math.max(0, Math.min(1, (evt.clientX - r.left) / r.width)),
+y: Math.max(0, Math.min(1, (evt.clientY - r.top) / r.height))
+};
+}
+function drawOverlay() {
+if (!viewportCss) return;
+const dpr = overlayCanvas.width / viewportCss.width;
+overlayCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+overlayCtx.clearRect(0, 0, viewportCss.width, viewportCss.height);
+for (const a of pageAnnotations()) drawAnnotation(a);
+if (selected?.page === pageNumber) {
+const a = pageAnnotations().find(x => x.id === selected.id);
+if (a) drawSelection(a);
+}
+overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+}
+function drawAnnotation(a) {
+const W = viewportCss.width, H = viewportCss.height;
+overlayCtx.save();
+if (a.type === 'text') {
+const pxSize = a.size * zoom;
+overlayCtx.font = `${pxSize}px Arial, Helvetica, sans-serif`;
+overlayCtx.fillStyle = a.color;
+overlayCtx.textBaseline = 'top';
+overlayCtx.fillText(a.text, a.x * W, a.y * H);
+} else if (a.type === 'pen') {
+if (a.points.length < 2) { overlayCtx.restore(); return; }
+overlayCtx.strokeStyle = a.color;
+overlayCtx.lineWidth = a.width * zoom;
+overlayCtx.lineCap = 'round';
+overlayCtx.lineJoin = 'round';
+overlayCtx.beginPath();
+overlayCtx.moveTo(a.points[0].x * W, a.points[0].y * H);
+for (let i = 1; i < a.points.length; i++) overlayCtx.lineTo(a.points[i].x * W, a.points[i].y * H);
+overlayCtx.stroke();
+} else if (a.type === 'whiteout') {
+overlayCtx.fillStyle = '#ffffff';
+overlayCtx.fillRect(a.x * W, a.y * H, a.w * W, a.h * H);
+overlayCtx.strokeStyle = '#c7c7c7';
+overlayCtx.lineWidth = 1;
+overlayCtx.strokeRect(a.x * W, a.y * H, a.w * W, a.h * H);
+}
+overlayCtx.restore();
+}
+function bounds(a) {
+const W = viewportCss.width, H = viewportCss.height;
+if (a.type === 'text') {
+overlayCtx.save();
+overlayCtx.font = `${a.size * zoom}px Arial, Helvetica, sans-serif`;
+const wPx = overlayCtx.measureText(a.text).width;
+overlayCtx.restore();
+return { x: a.x, y: a.y, w: Math.max(wPx / W, .02), h: Math.max((a.size * zoom * 1.2) / H, .02) };
+}
+if (a.type === 'whiteout') return { x: a.x, y: a.y, w: a.w, h: a.h };
+if (a.type === 'pen') {
+const xs = a.points.map(p => p.x), ys = a.points.map(p => p.y);
+const pad = Math.max(.008, (a.width * zoom) / Math.min(W,H));
+const minX = Math.min(...xs) - pad, maxX = Math.max(...xs) + pad;
+const minY = Math.min(...ys) - pad, maxY = Math.max(...ys) + pad;
+return { x: minX, y: minY, w: maxX-minX, h: maxY-minY };
+}
+}
+function drawSelection(a) {
+const b = bounds(a), W = viewportCss.width, H = viewportCss.height;
+overlayCtx.save();
+overlayCtx.strokeStyle = '#2563eb';
+overlayCtx.lineWidth = 1.5;
+overlayCtx.setLineDash([5, 4]);
+overlayCtx.strokeRect(b.x * W - 3, b.y * H - 3, b.w * W + 6, b.h * H + 6);
+overlayCtx.restore();
+}
+function hitTest(p) {
+const arr = pageAnnotations();
+for (let i = arr.length - 1; i >= 0; i--) {
+const b = bounds(arr[i]);
+const pad = .008;
+if (p.x >= b.x-pad && p.x <= b.x+b.w+pad && p.y >= b.y-pad && p.y <= b.y+b.h+pad) return arr[i];
+}
+return null;
+}
+function snapshotPage(n = pageNumber) {
+return structuredClone(pageAnnotations(n));
+}
+function pushHistory(n, before) {
+actionHistory.push({ page: n, before });
+dirty = true;
+if (actionHistory.length > 100) actionHistory.shift();
+updateButtons();
+}
+overlayCanvas.addEventListener('pointerdown', (evt) => {
+if (!pdfDoc) return;
+overlayCanvas.setPointerCapture(evt.pointerId);
+const p = canvasPoint(evt);
+if (currentTool === 'text') {
+const txt = textValue.value;
+if (!txt) return;
+const before = snapshotPage();
+pageAnnotations().push({ id: nextId++, type: 'text', x: p.x, y: p.y, text: txt, size: +fontSize.value || 16, color: textColor.value });
+pushHistory(pageNumber, before);
+drawOverlay();
+updateButtons();
+} else if (currentTool === 'pen') {
+const before = snapshotPage();
+const a = { id: nextId++, type: 'pen', points: [p], width: +penWidth.value || 3, color: penColor.value };
+pageAnnotations().push(a);
+drawing = { kind: 'pen', annotation: a, before };
+drawOverlay();
+} else if (currentTool === 'whiteout') {
+const before = snapshotPage();
+const a = { id: nextId++, type: 'whiteout', x: p.x, y: p.y, w: 0, h: 0, startX: p.x, startY: p.y };
+pageAnnotations().push(a);
+drawing = { kind: 'whiteout', annotation: a, before };
+drawOverlay();
+} else if (currentTool === 'select') {
+const hit = hitTest(p);
+selected = hit ? { page: pageNumber, id: hit.id } : null;
+if (hit) moving = { annotation: hit, start: p, before: snapshotPage(), changed: false };
+drawOverlay();
+updateButtons();
+}
+});
+overlayCanvas.addEventListener('pointermove', (evt) => {
+if (!pdfDoc) return;
+const p = canvasPoint(evt);
+if (drawing?.kind === 'pen') {
+drawing.annotation.points.push(p);
+drawOverlay();
+} else if (drawing?.kind === 'whiteout') {
+const a = drawing.annotation;
+a.x = Math.min(a.startX, p.x);
+a.y = Math.min(a.startY, p.y);
+a.w = Math.abs(p.x - a.startX);
+a.h = Math.abs(p.y - a.startY);
+drawOverlay();
+} else if (moving) {
+const dx = p.x - moving.start.x, dy = p.y - moving.start.y;
+if (Math.abs(dx) + Math.abs(dy) < .0001) return;
+moveAnnotation(moving.annotation, dx, dy);
+moving.start = p;
+moving.changed = true;
+drawOverlay();
+}
+});
+function finishPointer() {
+if (drawing) {
+if (drawing.kind === 'whiteout') {
+delete drawing.annotation.startX;
+delete drawing.annotation.startY;
+if (drawing.annotation.w < .002 || drawing.annotation.h < .002) {
+const arr = pageAnnotations();
+arr.splice(arr.indexOf(drawing.annotation), 1);
+} else pushHistory(pageNumber, drawing.before);
+} else if (drawing.kind === 'pen') {
+pushHistory(pageNumber, drawing.before);
+}
+drawing = null;
+updateButtons();
+drawOverlay();
+}
+if (moving) {
+if (moving.changed) pushHistory(pageNumber, moving.before);
+moving = null;
+updateButtons();
+}
+}
+overlayCanvas.addEventListener('pointerup', finishPointer);
+overlayCanvas.addEventListener('pointercancel', finishPointer);
+function moveAnnotation(a, dx, dy) {
+if (a.type === 'pen') {
+const b = bounds(a);
+dx = Math.max(-b.x, Math.min(1 - (b.x+b.w), dx));
+dy = Math.max(-b.y, Math.min(1 - (b.y+b.h), dy));
+a.points.forEach(p => { p.x += dx; p.y += dy; });
+} else {
+const b = bounds(a);
+dx = Math.max(-b.x, Math.min(1 - (b.x+b.w), dx));
+dy = Math.max(-b.y, Math.min(1 - (b.y+b.h), dy));
+a.x += dx; a.y += dy;
+}
+}
+undoBtn.addEventListener('click', () => {
+const h = actionHistory.pop();
+if (!h) return;
+annotations.set(h.page, structuredClone(h.before));
+if (selected?.page === h.page) selected = null;
+dirty = actionHistory.length > 0 || [...annotations.values()].some(arr => arr.length > 0);
+if (h.page === pageNumber) drawOverlay();
+updateButtons();
+});
+deleteBtn.addEventListener('click', () => {
+if (!selected || selected.page !== pageNumber) return;
+const arr = pageAnnotations();
+const idx = arr.findIndex(a => a.id === selected.id);
+if (idx < 0) return;
+const before = snapshotPage();
+arr.splice(idx, 1);
+pushHistory(pageNumber, before);
+selected = null;
+drawOverlay();
+updateButtons();
+});
+clearBtn.addEventListener('click', () => {
+const arr = pageAnnotations();
+if (!arr.length) return;
+const before = snapshotPage();
+annotations.set(pageNumber, []);
+pushHistory(pageNumber, before);
+selected = null;
+drawOverlay();
+updateButtons();
+});
+async function buildEditedPdfBytes() {
+if (!originalBytes) throw new Error('No PDF loaded');
+const { PDFDocument, StandardFonts, rgb } = PDFLib;
+const out = await PDFDocument.load(originalBytes);
+const helvetica = await out.embedFont(StandardFonts.Helvetica);
+for (let n = 1; n <= out.getPageCount(); n++) {
+const arr = annotations.get(n) || [];
+if (!arr.length) continue;
+const page = out.getPage(n - 1);
+const { width: W, height: H } = page.getSize();
+for (const a of arr) {
+if (a.type === 'text') {
+const c = hexToRgb(a.color);
+page.drawText(a.text, {
+x: a.x * W,
+y: H - a.y * H - a.size,
+size: a.size,
+font: helvetica,
+color: rgb(c.r, c.g, c.b)
+});
+} else if (a.type === 'whiteout') {
+page.drawRectangle({
+x: a.x * W,
+y: H - (a.y + a.h) * H,
+width: a.w * W,
+height: a.h * H,
+color: rgb(1,1,1)
+});
+} else if (a.type === 'pen') {
+const c = hexToRgb(a.color);
+for (let i = 1; i < a.points.length; i++) {
+const p1 = a.points[i-1], p2 = a.points[i];
+page.drawLine({
+start: { x: p1.x * W, y: H - p1.y * H },
+end: { x: p2.x * W, y: H - p2.y * H },
+thickness: a.width,
+color: rgb(c.r, c.g, c.b)
+});
+}
+}
+}
+}
+return new Uint8Array(await out.save());
+}
+async function writeToHandle(handle, bytes) {
+const writable = await handle.createWritable();
+await writable.write(bytes);
+await writable.close();
+}
+function downloadPdf(bytes, name) {
+const blob = new Blob([bytes], { type: 'application/pdf' });
+const url = URL.createObjectURL(blob);
+const a = document.createElement('a');
+a.href = url;
+a.download = name;
+document.body.appendChild(a);
+a.click();
+a.remove();
+setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+async function adoptSavedPdf(bytes, name, handle) {
+const oldPage = pageNumber;
+originalBytes = bytes.slice();
+displayName = name || displayName;
+currentFileHandle = handle || null;
+pdfDoc = await pdfjsLib.getDocument({ data: bytes.slice() }).promise;
+annotations = new Map();
+selected = null;
+actionHistory = [];
+nextId = 1;
+dirty = false;
+pageNumber = Math.min(oldPage, pdfDoc.numPages);
+await renderPage();
+updateButtons();
+}
+async function saveCurrent() {
+if (!originalBytes) return;
+if (!currentFileHandle || !supportsFileSystemAccess()) {
+await saveAs();
+return;
+}
+try {
+saveBtn.disabled = true;
+saveAsBtn.disabled = true;
+setStatus('Saving PDF…');
+const bytes = await buildEditedPdfBytes();
+await writeToHandle(currentFileHandle, bytes);
+const name = currentFileHandle.name || displayName;
+await adoptSavedPdf(bytes, name, currentFileHandle);
+setStatus(`Saved ${name}`);
+} catch (err) {
+if (err?.name === 'AbortError') {
+setStatus('Save canceled');
+} else {
+console.error(err);
+setStatus('Save failed');
+alert('Save failed. You can try Save As instead.');
+}
+} finally {
+updateButtons();
+}
+}
+async function saveAs() {
+if (!originalBytes) return;
+try {
+saveBtn.disabled = true;
+saveAsBtn.disabled = true;
+const suggestedName = displayName.replace(/\.pdf$/i, '') + '-edited.pdf';
+let handle = null;
+if (supportsFileSystemAccess()) {
+handle = await window.showSaveFilePicker({
+suggestedName,
+types: [{ description: 'PDF documents', accept: { 'application/pdf': ['.pdf'] } }]
+});
+}
+setStatus('Building edited PDF…');
+const bytes = await buildEditedPdfBytes();
+if (handle) {
+await writeToHandle(handle, bytes);
+const name = handle.name || suggestedName;
+await adoptSavedPdf(bytes, name, handle);
+setStatus(`Saved ${name}`);
+} else {
+downloadPdf(bytes, suggestedName);
+await adoptSavedPdf(bytes, suggestedName, null);
+setStatus(`Downloaded ${suggestedName} • direct file saving is not supported by this browser`);
+}
+} catch (err) {
+if (err?.name === 'AbortError') {
+setStatus('Save As canceled');
+} else {
+console.error(err);
+setStatus('Save As failed');
+alert('Save As failed. See the browser console for details.');
+}
+} finally {
+updateButtons();
+}
+}
+saveBtn.addEventListener('click', saveCurrent);
+saveAsBtn.addEventListener('click', saveAs);
+function hexToRgb(hex) {
+const s = hex.replace('#','');
+const n = parseInt(s, 16);
+return { r: ((n >> 16) & 255) / 255, g: ((n >> 8) & 255) / 255, b: (n & 255) / 255 };
+}
+window.addEventListener('keydown', (e) => {
+const command = e.ctrlKey || e.metaKey;
+if (command && e.key.toLowerCase() === 'z') { e.preventDefault(); undoBtn.click(); return; }
+if (command && e.key.toLowerCase() === 's') {
+e.preventDefault();
+if (e.shiftKey) saveAsBtn.click(); else saveBtn.click();
+return;
+}
+if ((e.key === 'Delete' || e.key === 'Backspace') && document.activeElement?.tagName !== 'INPUT') deleteBtn.click();
+if (e.key === 'ArrowLeft' && document.activeElement?.tagName !== 'INPUT') prevBtn.click();
+if (e.key === 'ArrowRight' && document.activeElement?.tagName !== 'INPUT') nextBtn.click();
+});
+</script>
+</body>
+</html>
