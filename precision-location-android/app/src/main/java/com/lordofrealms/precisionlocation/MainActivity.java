@@ -2,11 +2,14 @@ package com.lordofrealms.precisionlocation;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.text.InputType;
 import android.view.Gravity;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -28,9 +31,14 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         buildUi();
-        engine = new AutoPppEngine(this);
+        engine = new AutoPppEngine(this, this);
         collector = new GnssCollector(this, engine, this);
         engineView.setText(AutoPppEngine.nativeEngineInfo());
+        engineView.setOnLongClickListener(v -> {
+            if (!running) showHasSetupDialog();
+            return true;
+        });
+        refreshSetupState();
     }
 
     private void buildUi() {
@@ -43,7 +51,7 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
 
         TextView title = text("Precision Location", 28, Color.WHITE, true);
         root.addView(title, matchWrap());
-        TextView subtitle = text("High-accuracy positioning with automatic GNSS/PPP selection", 14,
+        TextView subtitle = text("High-accuracy positioning that configures itself", 14,
                 Color.rgb(160, 172, 184), false);
         subtitle.setPadding(0, dp(5), 0, dp(24));
         root.addView(subtitle, matchWrap());
@@ -87,6 +95,20 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
         setContentView(root);
     }
 
+    private void refreshSetupState() {
+        if (HasAccessConfig.load(this).isConfigured()) {
+            stateView.setText("OFF");
+            stateView.setTextColor(Color.rgb(160, 172, 184));
+            detailView.setText("Tap Start. High-accuracy corrections and GNSS mode are automatic.");
+            startButton.setText("Start");
+        } else {
+            stateView.setText("SETUP REQUIRED");
+            stateView.setTextColor(Color.rgb(245, 190, 78));
+            detailView.setText("Galileo HAS access is a one-time setup. After that, just tap Start.");
+            startButton.setText("Set up HAS");
+        }
+    }
+
     private void toggle() {
         if (running) {
             collector.stop();
@@ -94,11 +116,64 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
             startButton.setText("Start");
             return;
         }
+        if (!HasAccessConfig.load(this).isConfigured()) {
+            showHasSetupDialog();
+            return;
+        }
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, LOCATION_REQUEST);
             return;
         }
         startCollector();
+    }
+
+    private void showHasSetupDialog() {
+        HasAccessConfig existing = HasAccessConfig.load(this);
+        int pad = dp(14);
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(pad, dp(4), pad, 0);
+
+        EditText url = new EditText(this);
+        url.setHint("HTTPS caster URL including mountpoint");
+        url.setSingleLine(true);
+        url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        url.setText(existing.url);
+        form.addView(url, matchWrap());
+
+        EditText username = new EditText(this);
+        username.setHint("HAS username");
+        username.setSingleLine(true);
+        username.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        username.setText(existing.username);
+        form.addView(username, matchWrap());
+
+        EditText password = new EditText(this);
+        password.setHint("HAS password");
+        password.setSingleLine(true);
+        password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        password.setText(existing.password);
+        form.addView(password, matchWrap());
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("One-time HAS access")
+                .setMessage("Enter the Galileo HAS Internet Data Distribution access issued by the Galileo Service Centre.")
+                .setView(form)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Save", null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            HasAccessConfig value = new HasAccessConfig(
+                    url.getText().toString(), username.getText().toString(), password.getText().toString());
+            if (!value.isConfigured()) {
+                url.setError("Use the full HTTPS HAS caster URL");
+                return;
+            }
+            value.save(this);
+            dialog.dismiss();
+            refreshSetupState();
+        }));
+        dialog.show();
     }
 
     private void startCollector() {
