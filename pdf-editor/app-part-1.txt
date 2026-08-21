@@ -5,17 +5,19 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Basic PDF Editor</title>
 <style>
-:root{color-scheme:light dark;--bg:#f4f5f7;--panel:#fff;--text:#17191c;--muted:#667085;--line:#d0d5dd;--accent:#2563eb;--danger:#b42318}
-@media(prefers-color-scheme:dark){:root{--bg:#111318;--panel:#1b1f27;--text:#f2f4f7;--muted:#98a2b3;--line:#344054;--accent:#4f7cff;--danger:#f97066}}
+:root{color-scheme:light dark;--bg:#f4f5f7;--panel:#fff;--text:#17191c;--muted:#667085;--line:#d0d5dd;--accent:#2563eb;--danger:#b42318;--mixed:#f59e0b}
+@media(prefers-color-scheme:dark){:root{--bg:#111318;--panel:#1b1f27;--text:#f2f4f7;--muted:#98a2b3;--line:#344054;--accent:#4f7cff;--danger:#f97066;--mixed:#fdb022}}
 *{box-sizing:border-box}body{margin:0;font:14px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-header{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px;background:color-mix(in srgb,var(--panel) 94%,transparent);border-bottom:1px solid var(--line);backdrop-filter:blur(10px)}
+header{position:sticky;top:0;z-index:30;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px;background:color-mix(in srgb,var(--panel) 94%,transparent);border-bottom:1px solid var(--line);backdrop-filter:blur(10px)}
 .group{display:flex;gap:6px;align-items:center}.spacer{flex:1 1 auto}.label,#status{color:var(--muted);font-size:12px}#status{white-space:nowrap}.version{font-size:12px;font-weight:700;padding:4px 7px;border:1px solid var(--line);border-radius:999px;color:var(--muted);background:var(--panel)}
-button,input{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:7px;min-height:34px}button{padding:6px 10px;cursor:pointer}button:hover:not(:disabled){border-color:var(--accent)}button:disabled{opacity:.45;cursor:not-allowed}button.primary{background:var(--accent);border-color:var(--accent);color:#fff}button.danger{color:var(--danger)}button.tool.active{outline:2px solid var(--accent);outline-offset:1px}
-input[type=number]{width:68px;padding:5px 7px}input[type=text]{width:190px;padding:5px 8px}input[type=color]{width:38px;padding:3px}.hidden{display:none!important}
-main{min-height:calc(100vh - 56px);display:grid;place-items:start center;padding:20px;overflow:auto}#empty{margin-top:12vh;text-align:center;max-width:620px;color:var(--muted)}#empty h1{color:var(--text);font-size:24px;margin-bottom:8px}
+button,input,select{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:7px;min-height:34px}button{padding:6px 10px;cursor:pointer}button:hover:not(:disabled){border-color:var(--accent)}button:disabled,input:disabled,select:disabled{opacity:.45;cursor:not-allowed}button.primary{background:var(--accent);border-color:var(--accent);color:#fff}button.danger{color:var(--danger)}button.tool.active,button.format.active{outline:2px solid var(--accent);outline-offset:1px}button.format.mixed{outline:2px dashed var(--mixed);outline-offset:1px}button.format{min-width:34px;font-weight:700}button#formatBtn.active{background:color-mix(in srgb,var(--accent) 16%,var(--panel))}
+input[type=number]{width:70px;padding:5px 7px}input[type=color]{width:42px;padding:3px}.hidden{display:none!important}
+main{min-height:calc(100vh - 56px);display:grid;place-items:start center;padding:20px;overflow:auto}#empty{margin-top:12vh;text-align:center;max-width:650px;color:var(--muted)}#empty h1{color:var(--text);font-size:24px;margin-bottom:8px}
 #pageShell{position:relative;display:inline-block;line-height:0;box-shadow:0 8px 28px rgba(0,0,0,.18);background:#fff;user-select:none;touch-action:none}#pdfCanvas,#overlayCanvas{display:block}#overlayCanvas{position:absolute;inset:0;cursor:default}
-#inlineEditor{position:absolute;z-index:8;display:none;min-width:80px;padding:1px 4px;margin:0;line-height:1.15;border:2px solid var(--accent);border-radius:3px;outline:none;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif;box-shadow:0 1px 5px rgba(0,0,0,.2)}
-@media(max-width:850px){header{align-items:flex-start}.spacer{display:none}#status{width:100%}main{padding:10px}}
+#inlineEditor{position:absolute;z-index:8;display:none;min-width:90px;min-height:26px;padding:2px 5px;margin:0;line-height:1.15;border:2px solid var(--accent);border-radius:3px;outline:none;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif;white-space:pre;overflow:visible;box-shadow:0 1px 5px rgba(0,0,0,.2);user-select:text;cursor:text}
+#formatPanel{position:fixed;z-index:40;right:12px;top:64px;width:min(390px,calc(100vw - 24px));padding:12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.22)}
+#formatPanel h2{font-size:14px;margin:0 0 10px}.formatRow{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:8px 0}.formatRow label{font-size:12px;color:var(--muted)}#fontFamily{min-width:130px;padding:5px 7px}#formatSize{width:72px}.panelNote{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.35}.mixedValue{border-color:var(--mixed)!important}
+@media(max-width:850px){header{align-items:flex-start}.spacer{display:none}#status{width:100%}main{padding:10px}#formatPanel{top:122px}}
 </style>
 </head>
 <body>
@@ -23,23 +25,42 @@ main{min-height:calc(100vh - 56px);display:grid;place-items:start center;padding
 <div class="group"><button id="openBtn" class="primary">Open PDF</button><input id="fileInput" class="hidden" type="file" accept="application/pdf,.pdf"><button id="saveBtn" disabled>Save</button><button id="saveAsBtn" disabled>Save As</button></div>
 <div class="group"><button id="prevBtn" disabled>◀</button><span id="pageLabel">Page — / —</span><button id="nextBtn" disabled>▶</button><button id="zoomOutBtn" disabled>−</button><span id="zoomLabel">100%</span><button id="zoomInBtn" disabled>+</button></div>
 <div class="group"><button class="tool active" data-tool="select" disabled>Select</button><button class="tool" data-tool="text" disabled>Add Text</button><button class="tool" data-tool="editPdfText" disabled>Edit PDF Text</button><button class="tool" data-tool="pen" disabled>Pen</button><button class="tool" data-tool="whiteout" disabled>Whiteout</button></div>
-<div class="group"><span class="label">Text</span><input id="textValue" type="text" placeholder="Select text to edit" disabled><span class="label">Size</span><input id="fontSize" type="number" min="6" max="96" value="16" disabled><input id="textColor" type="color" value="#000000" disabled></div>
-<div class="group"><span class="label">Pen</span><input id="penWidth" type="number" min="1" max="30" value="3" disabled><input id="penColor" type="color" value="#d11a2a" disabled></div>
+<div class="group"><button id="formatBtn" disabled>Text Format</button><span class="label">Pen</span><input id="penWidth" type="number" min="1" max="30" value="3" disabled><input id="penColor" type="color" value="#d11a2a" disabled></div>
 <div class="group"><button id="undoBtn" disabled>Undo</button><button id="deleteBtn" class="danger" disabled>Delete selected</button><button id="clearBtn" class="danger" disabled>Clear page</button></div>
-<div class="spacer"></div><span class="version" title="PDF editor version">v0.7.1</span><div id="status">No PDF loaded</div>
+<div class="spacer"></div><span class="version" title="PDF editor version">v0.8.0</span><div id="status">No PDF loaded</div>
 </header>
+<section id="formatPanel" class="hidden" aria-label="Text formatting panel">
+<h2>Text Format</h2>
+<div class="formatRow"><label for="fontFamily">Font</label><select id="fontFamily"><option value="">— Mixed —</option><option value="Helvetica">Helvetica / Arial</option><option value="Times">Times / Serif</option><option value="Courier">Courier / Mono</option></select><label for="formatSize">Size</label><input id="formatSize" type="number" min="4" max="144" step="0.5" value="16"><input id="formatColor" type="color" value="#000000" title="Text color"></div>
+<div class="formatRow"><button id="boldBtn" class="format" title="Bold">B</button><button id="italicBtn" class="format" title="Italic"><i>I</i></button><button id="underlineBtn" class="format" title="Underline"><u>U</u></button><button id="strikeBtn" class="format" title="Strikeout"><s>S</s></button><button id="superBtn" class="format" title="Superscript">X²</button><button id="subBtn" class="format" title="Subscript">X₂</button></div>
+<div class="formatRow"><span class="label">Align</span><button id="alignLeftBtn" class="format" title="Align left">≡</button><button id="alignCenterBtn" class="format" title="Align center">≡</button><button id="alignRightBtn" class="format" title="Align right">≡</button></div>
+<div class="panelNote">A line can contain multiple formatting runs. Selecting a mixed-format line does not normalize it. While editing, highlight only the characters you want to change. Existing PDF bold/italic/family are detected when PDF.js exposes usable font metadata; underline/strikeout are often separate drawing operations in PDFs and may need manual adjustment.</div>
+</section>
 <main>
-<div id="empty"><h1>Basic PDF Editor</h1><p><b>Add Text</b>: click and type anywhere. <b>Edit PDF Text</b>: click selectable text already in the PDF and replace it in place. <b>Select</b>: move or edit your text later. Existing-text replacement works best on ordinary horizontal text; scanned/image-only PDFs need OCR.</p></div>
-<div id="pageShell" class="hidden"><canvas id="pdfCanvas"></canvas><canvas id="overlayCanvas"></canvas><input id="inlineEditor" type="text" autocomplete="off" spellcheck="false" aria-label="Edit PDF text"></div>
+<div id="empty"><h1>Basic PDF Editor</h1><p><b>Add Text</b>: click and type anywhere. <b>Edit PDF Text</b>: click a selectable text line to edit it while preserving mixed font runs where possible. <b>Select</b>: move or reopen your added/replacement text. Text formatting lives in the Text Format panel.</p></div>
+<div id="pageShell" class="hidden"><canvas id="pdfCanvas"></canvas><canvas id="overlayCanvas"></canvas><div id="inlineEditor" contenteditable="true" spellcheck="false" role="textbox" aria-label="Edit text"></div></div>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 <script type="module">
 import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.2.108/build/pdf.mjs';
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@6.2.108/build/pdf.worker.mjs';
-const $=id=>document.getElementById(id), openBtn=$('openBtn'),fileInput=$('fileInput'),saveBtn=$('saveBtn'),saveAsBtn=$('saveAsBtn'),prevBtn=$('prevBtn'),nextBtn=$('nextBtn'),zoomOutBtn=$('zoomOutBtn'),zoomInBtn=$('zoomInBtn'),pageLabel=$('pageLabel'),zoomLabel=$('zoomLabel'),status=$('status'),empty=$('empty'),pageShell=$('pageShell'),pdfCanvas=$('pdfCanvas'),overlayCanvas=$('overlayCanvas'),inlineEditor=$('inlineEditor'),textValue=$('textValue'),fontSize=$('fontSize'),textColor=$('textColor'),penWidth=$('penWidth'),penColor=$('penColor'),undoBtn=$('undoBtn'),deleteBtn=$('deleteBtn'),clearBtn=$('clearBtn'),tools=[...document.querySelectorAll('.tool')];
+const APP_VERSION='0.8.0';
+const $=id=>document.getElementById(id);
+const openBtn=$('openBtn'),fileInput=$('fileInput'),saveBtn=$('saveBtn'),saveAsBtn=$('saveAsBtn'),prevBtn=$('prevBtn'),nextBtn=$('nextBtn'),zoomOutBtn=$('zoomOutBtn'),zoomInBtn=$('zoomInBtn'),pageLabel=$('pageLabel'),zoomLabel=$('zoomLabel'),status=$('status'),empty=$('empty'),pageShell=$('pageShell'),pdfCanvas=$('pdfCanvas'),overlayCanvas=$('overlayCanvas'),inlineEditor=$('inlineEditor'),penWidth=$('penWidth'),penColor=$('penColor'),undoBtn=$('undoBtn'),deleteBtn=$('deleteBtn'),clearBtn=$('clearBtn'),formatBtn=$('formatBtn'),formatPanel=$('formatPanel'),fontFamily=$('fontFamily'),formatSize=$('formatSize'),formatColor=$('formatColor'),boldBtn=$('boldBtn'),italicBtn=$('italicBtn'),underlineBtn=$('underlineBtn'),strikeBtn=$('strikeBtn'),superBtn=$('superBtn'),subBtn=$('subBtn'),alignLeftBtn=$('alignLeftBtn'),alignCenterBtn=$('alignCenterBtn'),alignRightBtn=$('alignRightBtn'),tools=[...document.querySelectorAll('.tool')];
 const pdfCtx=pdfCanvas.getContext('2d',{alpha:false}),ctx=overlayCanvas.getContext('2d');
-let pdfDoc=null,originalBytes=null,fileHandle=null,fileName='document.pdf',pageNo=1,zoom=1,viewport=null,tool='select',annotations=new Map(),selected=null,history=[],drawing=null,moving=null,editing=null,toolbarBefore=null,nextId=1,renderToken=0,pdfTextItems=[],dirty=false;
+let pdfDoc=null,originalBytes=null,fileHandle=null,fileName='document.pdf',pageNo=1,zoom=1,viewport=null,tool='select',annotations=new Map(),selected=null,history=[],drawing=null,moving=null,editing=null,nextId=1,renderToken=0,pdfTextLines=[],dirty=false;
+let defaultStyle={family:'Helvetica',size:16,bold:false,italic:false,underline:false,strike:false,script:'normal',color:'#000000'},defaultAlign='left';
 const setStatus=s=>status.textContent=s;
 const ann=(n=pageNo)=>{if(!annotations.has(n))annotations.set(n,[]);return annotations.get(n)};
 const snapshot=(n=pageNo)=>structuredClone(ann(n));
-const selectedAnn=()=>selected?.page===pageNo?ann()
+const selectedAnn=()=>selected?.page===pageNo?ann().find(a=>a.id===selected.id)||null:null;
+function cloneStyle(s){return{family:s.family||'Helvetica',size:+s.size||16,bold:!!s.bold,italic:!!s.italic,underline:!!s.underline,strike:!!s.strike,script:s.script||'normal',color:s.color||'#000000'}}
+function runStyleEq(a,b){return a.family===b.family&&Math.abs(a.size-b.size)<.01&&a.bold===b.bold&&a.italic===b.italic&&a.underline===b.underline&&a.strike===b.strike&&a.script===b.script&&a.color===b.color}
+function normalizeRuns(runs){const out=[];for(const r of runs||[]){if(!r.text)continue;const nr={text:r.text,...cloneStyle(r)};const p=out[out.length-1];if(p&&runStyleEq(p,nr))p.text+=nr.text;else out.push(nr)}return out.length?out:[{text:'',...cloneStyle(defaultStyle)}]}
+function annotationText(a){return(a.runs||[]).map(r=>r.text).join('')}
+function pushHistory(before,n=pageNo){history.push({page:n,before});if(history.length>100)history.shift();dirty=true;updateUI()}
+function enableEditor(on){[saveBtn,saveAsBtn,prevBtn,nextBtn,zoomOutBtn,zoomInBtn,penWidth,penColor,clearBtn,formatBtn,...tools].forEach(e=>e.disabled=!on);updateUI()}
+function updateUI(){const loaded=!!pdfDoc;saveBtn.disabled=!loaded||!dirty;saveAsBtn.disabled=!loaded;prevBtn.disabled=!loaded||pageNo<=1;nextBtn.disabled=!loaded||pageNo>=Number(pdfDoc?.numPages||1);zoomOutBtn.disabled=!loaded||zoom<=.5;zoomInBtn.disabled=!loaded||zoom>=3;undoBtn.disabled=!history.length;deleteBtn.disabled=!selected;clearBtn.disabled=!loaded||!ann().length;formatBtn.disabled=!loaded;pageLabel.textContent=loaded?`Page ${pageNo} / ${pdfDoc.numPages}`:'Page — / —';zoomLabel.textContent=`${Math.round(zoom*100)}%`;syncFormatPanel()}
+function setToggle(btn,state){btn.classList.toggle('active',state===true);btn.classList.toggle('mixed',state==='mixed')}
+function aggregateRuns(runs,key){if(!runs?.length)return null;const vals=runs.map(r=>r[key]);return vals.every(v=>v===vals[0])?vals[0]:'mixed'}
+function currentPanelRuns(){if(editing){const sr=selectedEditorRuns();if(sr.length)return sr;return editing.a.runs||[]}const a=selectedAnn();return a?.type==='text'?a.runs||[]:[]}
