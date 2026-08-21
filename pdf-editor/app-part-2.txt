@@ -1,0 +1,70 @@
+.find(a=>a.id===selected.id)||null:null;
+function pushHistory(before,n=pageNo){history.push({page:n,before});if(history.length>100)history.shift();dirty=true;updateUI()}
+function syncTextControls(){const a=selectedAnn();if(a?.type==='text'){textValue.disabled=false;textValue.value=a.text;fontSize.value=a.size;textColor.value=a.color;textValue.placeholder='Edit selected text'}else{textValue.disabled=true;textValue.value='';textValue.placeholder='Select text to edit'}}
+function updateUI(){const loaded=!!pdfDoc;saveBtn.disabled=!loaded||!dirty;saveAsBtn.disabled=!loaded;prevBtn.disabled=!loaded||pageNo<=1;nextBtn.disabled=!loaded||pageNo>=Number(pdfDoc?.numPages||1);zoomOutBtn.disabled=!loaded||zoom<=.5;zoomInBtn.disabled=!loaded||zoom>=3;undoBtn.disabled=!history.length;deleteBtn.disabled=!selected;clearBtn.disabled=!loaded||!ann().length;pageLabel.textContent=loaded?`Page ${pageNo} / ${pdfDoc.numPages}`:'Page — / —';zoomLabel.textContent=`${Math.round(zoom*100)}%`;syncTextControls()}
+function enableEditor(on){[saveBtn,saveAsBtn,prevBtn,nextBtn,zoomOutBtn,zoomInBtn,textValue,fontSize,textColor,penWidth,penColor,clearBtn,...tools].forEach(e=>e.disabled=!on);updateUI()}
+const fsAccess=()=>window.isSecureContext&&'showOpenFilePicker'in window&&'showSaveFilePicker'in window;
+openBtn.onclick=async()=>{if(!fsAccess()){fileInput.click();return}try{const[h]=await showOpenFilePicker({multiple:false,types:[{description:'PDF documents',accept:{'application/pdf':['.pdf']}}]});await loadFile(await h.getFile(),h)}catch(e){if(e.name!=='AbortError'){console.error(e);setStatus('Could not open PDF')}}};
+fileInput.onchange=async()=>{const f=fileInput.files?.[0];if(f)try{await loadFile(f,null)}catch(e){console.error(e);setStatus('Could not open PDF')}fileInput.value=''};
+async function loadFile(file,h){setStatus('Loading PDF…');const bytes=new Uint8Array(await file.arrayBuffer());originalBytes=bytes.slice();fileHandle=h;fileName=file.name||'document.pdf';pdfDoc=await pdfjsLib.getDocument({data:bytes.slice()}).promise;pageNo=1;zoom=1;annotations=new Map();selected=null;history=[];nextId=1;dirty=false;cancelEditor(true);empty.classList.add('hidden');pageShell.classList.remove('hidden');enableEditor(true);await render();setStatus(`${fileName} • ${pdfDoc.numPages} page${pdfDoc.numPages===1?'':'s'}`)}
+tools.forEach(b=>b.onclick=()=>{commitEditor();tool=b.dataset.tool;tools.forEach(x=>x.classList.toggle('active',x===b));overlayCanvas.style.cursor=tool==='select'?'default':tool==='editPdfText'?'text':'crosshair';if(tool==='text')setStatus('Add Text: click the page, type, then press Enter or click elsewhere');if(tool==='editPdfText')setStatus('Edit PDF Text: click existing selectable text')});
+prevBtn.onclick=async()=>{commitEditor();if(pageNo>1){pageNo--;selected=null;await render()}};nextBtn.onclick=async()=>{commitEditor();if(pageNo<pdfDoc.numPages){pageNo++;selected=null;await render()}};zoomOutBtn.onclick=async()=>{commitEditor();zoom=Math.max(.5,zoom-.25);await render()};zoomInBtn.onclick=async()=>{commitEditor();zoom=Math.min(3,zoom+.25);await render()};
+async function render(){if(!pdfDoc)return;const token=++renderToken,page=await pdfDoc.getPage(pageNo);if(token!==renderToken)return;viewport=page.getViewport({scale:zoom});const dpr=Math.min(devicePixelRatio||1,2),rv=page.getViewport({scale:zoom*dpr});pdfCanvas.width=Math.ceil(rv.width);pdfCanvas.height=Math.ceil(rv.height);pdfCanvas.style.width=`${viewport.width}px`;pdfCanvas.style.height=`${viewport.height}px`;overlayCanvas.width=Math.ceil(viewport.width*dpr);overlayCanvas.height=Math.ceil(viewport.height*dpr);overlayCanvas.style.width=`${viewport.width}px`;overlayCanvas.style.height=`${viewport.height}px`;await page.render({canvasContext:pdfCtx,viewport:rv}).promise;if(token!==renderToken)return;await extractPdfText(page);draw();updateUI()}
+async function extractPdfText(page){
+try{
+const tc=await page.getTextContent(),items=[],W=viewport.width,H=viewport.height;
+for(const it of tc.items||[]){
+if(!it?.str?.trim()||!it.transform)continue;
+const tx=pdfjsLib.Util.transform(viewport.transform,it.transform),angle=Math.atan2(tx[1],tx[0]);
+if(Math.abs(Math.sin(angle))>.12)continue;
+const cssH=Math.max(4,Math.hypot(tx[2],tx[3]));
+const cssW=Math.max(3,Math.abs((it.width||0)*viewport.scale));
+const size=Math.max(4,Math.hypot(it.transform[2],it.transform[3])||it.height||12);
+const textX=tx[4], baselineY=tx[5];
+const sidePad=Math.max(1.25,cssH*.08);
+const maskTop=baselineY-cssH*1.15;
+const maskBottom=baselineY+cssH*.40;
+const mx=Math.max(0,textX-sidePad), my=Math.max(0,maskTop);
+const mr=Math.min(W,textX+cssW+sidePad), mb=Math.min(H,maskBottom);
+const sourceKey=[it.str,Number(it.transform[4]||0).toFixed(3),Number(it.transform[5]||0).toFixed(3),Number(it.width||0).toFixed(3),Number(size||0).toFixed(3)].join('|');
+items.push({
+text:it.str,
+x:textX/W,
+y:(baselineY-cssH)/H,
+w:cssW/W,
+h:Math.max(cssH*1.18/H,.006),
+size,
+sourceKey,
+maskRect:{x:mx/W,y:my/H,w:Math.max(0,(mr-mx)/W),h:Math.max(0,(mb-my)/H)}
+});
+}
+pdfTextItems=items;
+}catch(e){console.warn(e);pdfTextItems=[]}
+}
+function maskPdfRect(r){
+const x1=r.x*viewport.width,y1=r.y*viewport.height,x2=(r.x+r.w)*viewport.width,y2=(r.y+r.h)*viewport.height;
+const pts=[viewport.convertToPdfPoint(x1,y1),viewport.convertToPdfPoint(x2,y1),viewport.convertToPdfPoint(x1,y2),viewport.convertToPdfPoint(x2,y2)];
+const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]);
+return{x:Math.min(...xs),y:Math.min(...ys),w:Math.max(...xs)-Math.min(...xs),h:Math.max(...ys)-Math.min(...ys)};
+}
+function sampleMaskColor(r){
+try{
+const sx=pdfCanvas.width/viewport.width,sy=pdfCanvas.height/viewport.height,W=viewport.width,H=viewport.height;
+const left=r.x*W,right=(r.x+r.w)*W,top=r.y*H,bottom=(r.y+r.h)*H,pad=Math.max(3,Math.min(8,(bottom-top)*.3));
+const pts=[
+[left-pad,top-pad],[(left+right)/2,top-pad],[right+pad,top-pad],
+[left-pad,bottom+pad],[(left+right)/2,bottom+pad],[right+pad,bottom+pad],
+[left-pad,(top+bottom)/2],[right+pad,(top+bottom)/2]
+];
+const vals=[];
+for(const [cx,cy] of pts){
+const px=Math.max(0,Math.min(pdfCanvas.width-1,Math.round(cx*sx))),py=Math.max(0,Math.min(pdfCanvas.height-1,Math.round(cy*sy)));
+const d=pdfCtx.getImageData(px,py,1,1).data;
+vals.push([d[0],d[1],d[2]]);
+}
+const median=i=>vals.map(v=>v[i]).sort((a,b)=>a-b)[Math.floor(vals.length/2)];
+const rgb=[median(0),median(1),median(2)];
+return '#'+rgb.map(v=>v.toString(16).padStart(2,'0')).join('');
+}catch(e){return '#ffffff'}
+}
+function point(e){const r=overlayCanvas.getBound
