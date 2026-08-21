@@ -9,6 +9,7 @@ public final class AutoPppEngine implements PositionEngine {
     static { System.loadLibrary("precision_location"); }
 
     private final Listener listener;
+    private final AndroidGnssObservationConverter observationConverter = new AndroidGnssObservationConverter();
     private volatile boolean running;
     private volatile Location fallbackLocation;
     private volatile boolean hasCorrections;
@@ -17,6 +18,7 @@ public final class AutoPppEngine implements PositionEngine {
 
     @Override public void start() {
         running = true;
+        hasCorrections = false;
         nativeReset();
         emit(PppSolution.State.STARTING, "AUTO", "Acquiring raw GNSS");
     }
@@ -28,17 +30,42 @@ public final class AutoPppEngine implements PositionEngine {
 
     @Override public void onMeasurements(GnssMeasurementsEvent event, SignalInventory inventory) {
         if (!running) return;
+
+        RawObservationEpoch epoch = observationConverter.convert(event);
         nativeObserveCapability(inventory.validAdrTotal(), inventory.hasSecondaryCarrierPhase());
+        int accepted = nativeObservationEpoch(
+                epoch.gpsTimeNanos,
+                epoch.hardwareClockDiscontinuityCount,
+                epoch.constellation,
+                epoch.svid,
+                epoch.carrierFrequencyHz,
+                epoch.codeType,
+                epoch.pseudorangeMeters,
+                epoch.pseudorangeSigmaMeters,
+                epoch.adrMeters,
+                epoch.adrSigmaMeters,
+                epoch.pseudorangeRateMetersPerSecond,
+                epoch.pseudorangeRateSigmaMetersPerSecond,
+                epoch.cn0DbHz,
+                epoch.adrState,
+                epoch.syncState);
+
         String mode = inventory.automaticMode();
-        String correction = hasCorrections ? "HAS corrections connected" : "HAS corrections not connected";
+        String correction = hasCorrections ? "HAS corrections connected" : "Connecting to HAS corrections";
+        String detail = inventory.summary() + "\n"
+                + correction + "\n"
+                + accepted + " GPS/Galileo satellite records accepted • " + nativeObservationInfo();
+
         Location f = fallbackLocation;
+        PppSolution.State state = hasCorrections && accepted >= 4
+                ? PppSolution.State.CONVERGING : PppSolution.State.STARTING;
         if (f != null) {
             listener.onSolution(new PppSolution(
-                    hasCorrections ? PppSolution.State.CONVERGING : PppSolution.State.STARTING,
+                    state,
                     f.getLatitude(), f.getLongitude(), f.getAltitude(), f.getAccuracy(),
-                    mode, inventory.summary() + "\n" + correction));
+                    mode, detail));
         } else {
-            emit(PppSolution.State.STARTING, mode, inventory.summary() + "\n" + correction);
+            emit(state, mode, detail);
         }
     }
 
@@ -52,8 +79,8 @@ public final class AutoPppEngine implements PositionEngine {
 
     @Override public void onHasCorrections(byte[] data, int length) {
         if (!running || length <= 0) return;
-        hasCorrections = true;
         nativeHasBytes(data, length);
+        hasCorrections = true;
     }
 
     private void emit(PppSolution.State state, String mode, String detail) {
@@ -68,6 +95,23 @@ public final class AutoPppEngine implements PositionEngine {
     public static native String nativeEngineInfo();
     private static native void nativeReset();
     private static native void nativeObserveCapability(int validAdr, boolean multiFrequency);
+    private static native int nativeObservationEpoch(
+            double gpsTimeNanos,
+            int hardwareClockDiscontinuityCount,
+            int[] constellation,
+            int[] svid,
+            double[] carrierFrequencyHz,
+            String[] codeType,
+            double[] pseudorangeMeters,
+            double[] pseudorangeSigmaMeters,
+            double[] adrMeters,
+            double[] adrSigmaMeters,
+            double[] pseudorangeRateMetersPerSecond,
+            double[] pseudorangeRateSigmaMetersPerSecond,
+            double[] cn0DbHz,
+            int[] adrState,
+            int[] syncState);
+    private static native String nativeObservationInfo();
     private static native void nativeNavigationMessage(int type, int svid, int messageId, int submessageId, byte[] data);
     private static native void nativeHasBytes(byte[] data, int length);
 }
