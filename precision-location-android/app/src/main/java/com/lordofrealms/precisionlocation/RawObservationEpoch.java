@@ -2,7 +2,8 @@ package com.lordofrealms.precisionlocation;
 
 /** One Android raw-GNSS epoch in solver-friendly primitive arrays. */
 public final class RawObservationEpoch {
-    public final double gpsTimeNanos;
+    public final int gpsWeek;
+    public final double gpsTowSeconds;
     public final int hardwareClockDiscontinuityCount;
     public final int[] constellation;
     public final int[] svid;
@@ -19,7 +20,8 @@ public final class RawObservationEpoch {
     public final int[] syncState;
 
     public RawObservationEpoch(
-            double gpsTimeNanos,
+            int gpsWeek,
+            double gpsTowSeconds,
             int hardwareClockDiscontinuityCount,
             int[] constellation,
             int[] svid,
@@ -34,7 +36,8 @@ public final class RawObservationEpoch {
             double[] cn0DbHz,
             int[] adrState,
             int[] syncState) {
-        this.gpsTimeNanos = gpsTimeNanos;
+        this.gpsWeek = gpsWeek;
+        this.gpsTowSeconds = gpsTowSeconds;
         this.hardwareClockDiscontinuityCount = hardwareClockDiscontinuityCount;
         this.constellation = constellation;
         this.svid = svid;
@@ -53,8 +56,8 @@ public final class RawObservationEpoch {
 
     public int size() { return svid.length; }
 
-    public static RawObservationEpoch empty(double gpsTimeNanos, int discontinuityCount) {
-        return new RawObservationEpoch(gpsTimeNanos, discontinuityCount,
+    public static RawObservationEpoch empty(int gpsWeek, double gpsTowSeconds, int discontinuityCount) {
+        return new RawObservationEpoch(gpsWeek, gpsTowSeconds, discontinuityCount,
                 new int[0], new int[0], new double[0], new String[0],
                 new double[0], new double[0], new double[0], new double[0],
                 new double[0], new double[0], new double[0], new int[0], new int[0]);
