@@ -1,16 +1,19 @@
-/* Pad Grade v0.4.4 — measured grid text with conservative 70% font safety factor. */
-(function installPadGradeV044Grid(){
+/* Pad Grade v0.4.5 — measured grid text with user-configurable fit safety factor. */
+(function installPadGradeV045Grid(){
   'use strict';
 
   const $=id=>document.getElementById(id);
   const PREF_KEY='padGradeAppPrefsV1';
   const FIT_GAP=2;
   const SCROLL_GAP=4;
-  const FONT_SAFETY=0.70;
+  const DEFAULT_FIT_SCALE=0.40;
 
   function prefs(){
-    try{return {minGridFont:2,...(JSON.parse(localStorage.getItem(PREF_KEY)||'{}')||{})};}
-    catch(e){return {minGridFont:2};}
+    try{return {minGridFont:2,gridFitScale:DEFAULT_FIT_SCALE,...(JSON.parse(localStorage.getItem(PREF_KEY)||'{}')||{})};}
+    catch(e){return {minGridFont:2,gridFitScale:DEFAULT_FIT_SCALE};}
+  }
+  function savePrefs(next){
+    localStorage.setItem(PREF_KEY,JSON.stringify({...prefs(),...next}));
   }
   function px(v){const n=parseFloat(v);return Number.isFinite(n)?n:0;}
 
@@ -60,12 +63,18 @@
     return Math.max(1,max*1.06);
   }
 
-  function renderGridV044(){
+  function fitScale(){
+    const n=Number(prefs().gridFitScale);
+    return Number.isFinite(n)?Math.max(.10,Math.min(1,n)):DEFAULT_FIT_SCALE;
+  }
+
+  function renderGridV045(){
     const s=cfg(),g=$('grid'),shell=g?.parentElement;if(!g||!shell)return;
     g.innerHTML='';
     $('v040GridMode')?.remove();
 
     const minFont=Math.max(2,Math.min(20,+prefs().minGridFont||2));
+    const scale=fitScale();
     const dx=s.width/(s.cols-1),dy=s.length/(s.rows-1),ratio=Math.max(.05,dx/dy);
     const shellStyle=getComputedStyle(shell);
     const available=Math.max(1,shell.clientWidth-px(shellStyle.paddingLeft)-px(shellStyle.paddingRight));
@@ -74,7 +83,7 @@
     const fitCellW=Math.max(1,(available-FIT_GAP*Math.max(0,s.cols-1))/s.cols);
     const fitCellH=fitCellW/ratio;
     const rawFitFont=Math.min(20,(fitCellW-chrome.x)/needEm,(fitCellH-chrome.y)/5.25);
-    const safeFitFont=rawFitFont*FONT_SAFETY;
+    const safeFitFont=rawFitFont*scale;
     const fit=Number.isFinite(safeFitFont)&&safeFitFont>=minFont;
 
     let cellW,cellH,font;
@@ -88,8 +97,8 @@
       g.style.columnGap=`${FIT_GAP}px`;
     }else{
       font=minFont;
-      const requiredW=(needEm*font/FONT_SAFETY)+chrome.x;
-      const requiredH=(5.25*font/FONT_SAFETY)+chrome.y;
+      const requiredW=(needEm*font/scale)+chrome.x;
+      const requiredH=(5.25*font/scale)+chrome.y;
       cellH=Math.max(requiredH,requiredW/ratio);
       cellW=cellH*ratio;
       shell.classList.remove('fit');
@@ -110,12 +119,31 @@
     updateStats();
   }
 
-  window.renderGrid=renderGridV044;
-  renderGridV044();
-  document.title='Pad Grade Mapper v0.4.4';
+  function installFitScaleSlider(){
+    const modal=$('settingsDlg')?.querySelector('.modal');
+    if(!modal||$('v045GridFitScale'))return;
+    const row=document.createElement('div');
+    row.className='v040-rangeRow';
+    row.innerHTML=`<div class="v040-rangeHeader"><b>Grid text fit scale</b><span id="v045GridFitScaleValue">40%</span></div><input id="v045GridFitScale" type="range" min="10" max="100" step="5" value="40"><div class="v040-rangeEnds"><span>10% • smaller</span><span>100% • calculated max</span></div>`;
+    modal.insertBefore(row,modal.querySelector('.modalActions'));
+    const pct=Math.round(fitScale()*100);
+    $('v045GridFitScale').value=pct;
+    $('v045GridFitScaleValue').textContent=`${pct}%`;
+    $('v045GridFitScale').addEventListener('input',()=>{
+      const v=Math.max(10,Math.min(100,+$('v045GridFitScale').value||40));
+      $('v045GridFitScaleValue').textContent=`${v}%`;
+      savePrefs({gridFitScale:v/100});
+      renderGridV045();
+    });
+  }
+
+  window.renderGrid=renderGridV045;
+  installFitScaleSlider();
+  renderGridV045();
+  document.title='Pad Grade Mapper v0.4.5';
 
   window.addEventListener('resize',()=>{
-    clearTimeout(window.__pg044Resize);
-    window.__pg044Resize=setTimeout(renderGridV044,120);
+    clearTimeout(window.__pg045Resize);
+    window.__pg045Resize=setTimeout(renderGridV045,120);
   });
 })();
