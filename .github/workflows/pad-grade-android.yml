@@ -41,6 +41,8 @@ jobs:
           node --check pad-grade/v051.js
           node --check pad-grade/v052.js
           node --check pad-grade/v053.js
+          node --check pad-grade/migration-core.js
+          node --check pad-grade/grid-core.js
 
       - uses: actions/setup-java@v5
         with:
@@ -80,15 +82,10 @@ jobs:
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v041.css'
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v042.js'
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v042.css'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v043.js'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v046.js'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v047.js'
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v048.js'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v049.js'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v050.js'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v051.js'
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v052.js'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v053.js'
+          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/migration-core.js'
+          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/grid-core.js'
 
       - name: Name APK
         run: cp pad-grade-android/app/build/outputs/apk/debug/app-debug.apk "$APK_NAME"
