@@ -1,1 +1,1 @@
-build 4 - full single-frequency PPP state support + Android nav
+build 5 - no-HAS preflight + IDD ephemeris + full SF PPP integration
