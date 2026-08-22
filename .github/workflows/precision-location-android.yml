@@ -1,10 +1,10 @@
 name: Precision Location Android
 
-# Deliberately quiet CI: code commits do not build automatically.
-# Bump precision-location-android/ci-build-trigger.txt when a validation build is wanted.
+# Deliberately quiet CI: normal code commits do not build automatically.
+# Validation runs only when the trigger file (or this workflow) changes on PR #13.
 on:
-  push:
-    branches: [precision-location-android]
+  pull_request:
+    branches: [main]
     paths:
       - 'precision-location-android/ci-build-trigger.txt'
       - '.github/workflows/precision-location-android.yml'
