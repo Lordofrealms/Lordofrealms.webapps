@@ -1,0 +1,45 @@
+/* Pad Grade v0.3.0 — field workflow redesign */
+.v030-sectionTitle{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.v030-sectionTitle b{font-size:.92rem}
+.v030-help{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;padding:0;font-size:.78rem;font-weight:900;color:#cbd5df;background:#171e27;border:1px solid #43505f;flex:0 0 auto}
+.v030-helpText{display:none;margin-top:8px;padding:9px 10px;border-radius:10px;background:#0d1218;border:1px solid var(--line);font-size:.72rem;line-height:1.4;color:var(--muted)}
+.v030-helpText.open{display:block}
+.v030-calibrationResult{display:none;margin-top:10px;padding:11px;border-radius:12px;background:#0d1218;border:1px solid var(--line)}
+.v030-calibrationResult.show{display:block}
+.v030-calibrationResult .headline{font-weight:900;color:var(--accent);margin-bottom:7px}
+.v030-calGrid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.v030-calMetric{padding:8px;border-radius:9px;background:#171e27;border:1px solid #33404d}
+.v030-calMetric b{display:block;font-size:.9rem}
+.v030-calMetric span{font-size:.65rem;color:var(--muted)}
+.v030-targetHeader{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:12px}
+.v030-targetAccuracy{font-size:.72rem;color:#d8f2ff;font-weight:800}
+.v030-calButtons,.v030-targetButtons{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px}
+.v030-targetButtons .primary{grid-column:1/-1}
+.v030-gpsError{margin-top:7px;font-size:.72rem;line-height:1.35;color:#ffc27a}
+.v030-northMarker{position:absolute;left:50%;top:50%;width:0;height:0;z-index:5;pointer-events:none;transform-origin:0 0}
+.v030-northMarker span{position:absolute;left:-12px;top:-88px;width:24px;text-align:center;font-size:.67rem;font-weight:900;color:#d8f2ff;text-shadow:0 1px 3px #000}
+.v030-forwardLabel{position:absolute;top:7px;left:50%;transform:translateX(-50%);font-size:.58rem;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;z-index:2}
+/* v10's arrow head had an intentional 180-degree flip for its old semantics. In
+ * v0.3.0 the arrow itself points toward the device-relative target bearing. */
+.navVisual .navArrowHead{transform:none!important}
+.v030-mapLegend{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;font-size:.64rem;color:var(--muted)}
+.v030-mapLegend span{display:inline-flex;align-items:center;gap:4px}
+.v030-dot{width:8px;height:8px;border-radius:50%;display:inline-block;border:1px solid rgba(255,255,255,.55)}
+.v030-dot.empty{background:#66717d}.v030-dot.target{background:#ffd166}.v030-dot.measured{background:#8fd14f}
+.v030-routeNote{font-size:.66rem;color:var(--muted)}
+.v030-privacy{margin-top:18px}
+.v030-hidden{display:none!important}
+.gpsCard.v030-gpsCard .gpsStatus,.gpsCard.v030-gpsCard #gpsContextDisp{display:none!important}
+.gpsCard.v030-gpsCard>.gridHeader{display:none!important}
+.gpsCard.v030-gpsCard>.buttons{display:none!important}
+.gpsCard.v030-gpsCard>.note{display:none!important}
+.gpsCard.v030-gpsCard .cornerSurvey{margin-top:0}
+.gpsCard.v030-gpsCard .gpsTarget{margin-top:8px}
+.gpsMapCard .gpsMapFoot.v030-collapsedFoot{display:none}
+.v030-jobSummary .metrics{margin-bottom:8px}
+.v030-jobSummary .volume{margin-top:8px}
+@media(max-width:520px){
+  .v030-calGrid{grid-template-columns:1fr 1fr}
+  .v030-calButtons,.v030-targetButtons{grid-template-columns:1fr 1fr}
+  .v030-northMarker span{top:-78px}
+}
