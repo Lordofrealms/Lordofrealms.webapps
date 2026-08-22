@@ -15,6 +15,7 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
 
     private final Context appContext;
     private final Listener listener;
+    private final Object nativeLock = new Object();
     private final AndroidGnssObservationConverter observationConverter = new AndroidGnssObservationConverter();
     private volatile boolean running;
     private volatile Location fallbackLocation;
@@ -33,9 +34,11 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
         hasCorrections = false;
         readyStreak = 0;
         correctionStatus = "Connecting to HAS corrections";
-        nativeReset();
-        Location f = fallbackLocation;
-        if (f != null) nativeSetApproximatePosition(f.getLatitude(), f.getLongitude(), f.getAltitude());
+        synchronized (nativeLock) {
+            nativeReset();
+            Location f = fallbackLocation;
+            if (f != null) nativeSetApproximatePosition(f.getLatitude(), f.getLongitude(), f.getAltitude());
+        }
 
         HasAccessConfig config = HasAccessConfig.load(appContext);
         if (config.isConfigured()) {
@@ -60,31 +63,37 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
         if (!running) return;
 
         RawObservationEpoch epoch = observationConverter.convert(event);
-        nativeObserveCapability(inventory.validAdrTotal(), inventory.hasSecondaryCarrierPhase());
-        int accepted = nativeObservationEpoch(
-                epoch.gpsWeek,
-                epoch.gpsTowSeconds,
-                epoch.hardwareClockDiscontinuityCount,
-                epoch.constellation,
-                epoch.svid,
-                epoch.carrierFrequencyHz,
-                epoch.codeType,
-                epoch.pseudorangeMeters,
-                epoch.pseudorangeSigmaMeters,
-                epoch.adrMeters,
-                epoch.adrSigmaMeters,
-                epoch.pseudorangeRateMetersPerSecond,
-                epoch.pseudorangeRateSigmaMetersPerSecond,
-                epoch.cn0DbHz,
-                epoch.adrState,
-                epoch.syncState);
+        final int accepted;
+        final String nativeInfo;
+        final double[] ppp;
+        synchronized (nativeLock) {
+            nativeObserveCapability(inventory.validAdrTotal(), inventory.hasSecondaryCarrierPhase());
+            accepted = nativeObservationEpoch(
+                    epoch.gpsWeek,
+                    epoch.gpsTowSeconds,
+                    epoch.hardwareClockDiscontinuityCount,
+                    epoch.constellation,
+                    epoch.svid,
+                    epoch.carrierFrequencyHz,
+                    epoch.codeType,
+                    epoch.pseudorangeMeters,
+                    epoch.pseudorangeSigmaMeters,
+                    epoch.adrMeters,
+                    epoch.adrSigmaMeters,
+                    epoch.pseudorangeRateMetersPerSecond,
+                    epoch.pseudorangeRateSigmaMetersPerSecond,
+                    epoch.cn0DbHz,
+                    epoch.adrState,
+                    epoch.syncState);
+            nativeInfo = nativeObservationInfo();
+            ppp = nativePppSolution();
+        }
 
         String mode = inventory.automaticMode();
         String detail = inventory.summary() + "\n"
                 + correctionStatus + "\n"
-                + accepted + " GPS/Galileo satellite records accepted • " + nativeObservationInfo();
+                + accepted + " GPS/Galileo satellite records accepted • " + nativeInfo;
 
-        double[] ppp = nativePppSolution();
         if (ppp != null && ppp.length >= 9
                 && (int)Math.round(ppp[0]) == SOLQ_PPP
                 && Double.isFinite(ppp[1]) && Double.isFinite(ppp[2])
@@ -117,18 +126,25 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
 
     @Override public void onNavigationMessage(GnssNavigationMessage message) {
         if (!running) return;
-        nativeNavigationMessage(message.getType(), message.getSvid(), message.getMessageId(),
-                message.getSubmessageId(), message.getData());
+        synchronized (nativeLock) {
+            nativeNavigationMessage(message.getType(), message.getSvid(), message.getMessageId(),
+                    message.getSubmessageId(), message.getStatus(), message.getData());
+        }
     }
 
     @Override public void onSystemLocation(Location location) {
         fallbackLocation = location;
-        nativeSetApproximatePosition(location.getLatitude(), location.getLongitude(), location.getAltitude());
+        synchronized (nativeLock) {
+            nativeSetApproximatePosition(location.getLatitude(), location.getLongitude(), location.getAltitude());
+        }
     }
 
     @Override public void onHasCorrections(byte[] data, int length) {
         if (!running || length <= 0) return;
-        int decodedSsr = nativeHasBytes(data, length);
+        final int decodedSsr;
+        synchronized (nativeLock) {
+            decodedSsr = nativeHasBytes(data, length);
+        }
         if (decodedSsr > 0) {
             hasCorrections = true;
             correctionStatus = "HAS corrections active";
@@ -182,6 +198,7 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
             int[] syncState);
     private static native String nativeObservationInfo();
     private static native double[] nativePppSolution();
-    private static native void nativeNavigationMessage(int type, int svid, int messageId, int submessageId, byte[] data);
+    private static native void nativeNavigationMessage(int type, int svid, int messageId, int submessageId,
+                                                        int status, byte[] data);
     private static native int nativeHasBytes(byte[] data, int length);
 }
