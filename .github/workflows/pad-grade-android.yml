@@ -39,8 +39,8 @@ jobs:
 
       - name: Verify canonical web assets packaged
         run: |
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/pad-grade/index.html'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/pad-grade/platform.js'
+          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/index.html'
+          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/platform.js'
 
       - name: Upload debug APK
         if: success()
