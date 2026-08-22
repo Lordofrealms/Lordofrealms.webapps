@@ -10,8 +10,8 @@ android {
         applicationId = "com.lordofrealms.padgrade"
         minSdk = 31
         targetSdk = 36
-        versionCode = 25
-        versionName = "0.5.6"
+        versionCode = 26
+        versionName = "0.5.7"
     }
 
     buildTypes {
