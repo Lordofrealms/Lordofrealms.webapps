@@ -24,6 +24,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 
 public final class MainActivity extends Activity {
+    private static final int LEGAL_ACCEPTANCE_REQUEST = 1000;
     private static final int LOCATION_PERMISSION_REQUEST = 1001;
     private static final int FILE_CHOOSER_REQUEST = 1002;
     private static final int SAVE_TEXT_REQUEST = 1003;
@@ -36,9 +37,21 @@ public final class MainActivity extends Activity {
     private String pendingGeoOrigin;
     private ValueCallback<Uri[]> fileChooserCallback;
     private String pendingSaveText;
+    private Bundle pendingInitialState;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        pendingInitialState = savedInstanceState;
+        if (!LegalNoticeActivity.isAccepted(this)) {
+            startActivityForResult(new Intent(this, LegalNoticeActivity.class), LEGAL_ACCEPTANCE_REQUEST);
+            return;
+        }
+        initializeWebView(savedInstanceState);
+    }
+
+    private void initializeWebView(Bundle savedInstanceState) {
+        if (webView != null) return;
+        pendingInitialState = null;
 
         webView = new WebView(this);
         setContentView(webView);
@@ -120,7 +133,7 @@ public final class MainActivity extends Activity {
 
     /** Called from the WebView JavaScript-interface thread. */
     public boolean requestSaveTextFile(String filename, String mimeType, String text) {
-        if (isFinishing() || isDestroyed()) return false;
+        if (isFinishing() || isDestroyed() || webView == null) return false;
         final String safeName = filename == null || filename.isBlank() ? "pad-grade.txt" : filename;
         final String safeMime = mimeType == null || mimeType.isBlank() ? "text/plain" : mimeType;
         final String safeText = text == null ? "" : text;
@@ -141,7 +154,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onSaveInstanceState(Bundle outState) {
-        webView.saveState(outState);
+        if (webView != null) webView.saveState(outState);
         super.onSaveInstanceState(outState);
     }
 
@@ -159,6 +172,14 @@ public final class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == LEGAL_ACCEPTANCE_REQUEST) {
+            if (resultCode == RESULT_OK && LegalNoticeActivity.isAccepted(this)) {
+                initializeWebView(pendingInitialState);
+            } else {
+                finish();
+            }
+            return;
+        }
         if (requestCode == FILE_CHOOSER_REQUEST && fileChooserCallback != null) {
             Uri[] result = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
             fileChooserCallback.onReceiveValue(result);
@@ -194,6 +215,7 @@ public final class MainActivity extends Activity {
         if (webView != null) {
             webView.removeJavascriptInterface("PadGradeNative");
             webView.destroy();
+            webView = null;
         }
         super.onDestroy();
     }
