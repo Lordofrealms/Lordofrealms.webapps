@@ -9,13 +9,27 @@ import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.graphics.drawable.Icon;
 import android.os.Binder;
+import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
+import android.os.Message;
+import android.os.Messenger;
 import android.os.PowerManager;
+import android.os.RemoteException;
 import android.os.SystemClock;
+
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 
 /**
  * Owns GNSS collection independently of the Activity so screen-off/backgrounding
  * does not terminate an active precision session.
+ *
+ * The service also exposes a deliberately tiny cross-app Messenger interface for
+ * Pad Grade. Only the Pad Grade package is allowed to subscribe, and subscribers
+ * receive solution/status data rather than GNSS configuration or raw measurements.
  */
 public final class PrecisionLocationService extends Service
         implements PositionEngine.Listener, GnssCollector.Listener, MockLocationPublisher.Listener {
@@ -27,12 +41,25 @@ public final class PrecisionLocationService extends Service
 
     public static final String ACTION_START = "com.lordofrealms.precisionlocation.START";
     public static final String ACTION_STOP = "com.lordofrealms.precisionlocation.STOP";
+    public static final String ACTION_EXTERNAL_BIND =
+            "com.lordofrealms.precisionlocation.EXTERNAL_BIND";
+
+    private static final String PAD_GRADE_PACKAGE = "com.lordofrealms.padgrade";
+    private static final int IPC_REGISTER = 1;
+    private static final int IPC_UNREGISTER = 2;
+    private static final int IPC_SOLUTION = 100;
+    private static final int IPC_ERROR = 101;
+    private static final int IPC_STOPPED = 102;
 
     private static final String CHANNEL_ID = "precision_location_active";
     private static final int NOTIFICATION_ID = 4107;
     private static final long NOTIFICATION_REFRESH_MS = 10_000L;
 
     private final LocalBinder binder = new LocalBinder();
+    private final List<Messenger> externalClients = new ArrayList<>();
+    private final Messenger externalMessenger = new Messenger(
+            new Handler(Looper.getMainLooper(), this::handleExternalMessage));
+
     private AutoPppEngine engine;
     private GnssCollector collector;
     private MockLocationPublisher phoneLocationPublisher;
@@ -64,6 +91,9 @@ public final class PrecisionLocationService extends Service
     }
 
     @Override public IBinder onBind(Intent intent) {
+        if (intent != null && ACTION_EXTERNAL_BIND.equals(intent.getAction())) {
+            return externalMessenger.getBinder();
+        }
         return binder;
     }
 
@@ -91,6 +121,42 @@ public final class PrecisionLocationService extends Service
         if (error != null && !error.isEmpty()) listener.onServiceError(error);
     }
 
+    private boolean handleExternalMessage(Message msg) {
+        if (msg == null || !isAllowedExternalCaller(msg.sendingUid)) return true;
+        if (msg.what == IPC_REGISTER && msg.replyTo != null) {
+            if (!containsClient(msg.replyTo)) externalClients.add(msg.replyTo);
+            if (lastSolution != null) sendSolution(msg.replyTo, lastSolution);
+            else if (lastError != null && !lastError.isEmpty()) sendError(msg.replyTo, lastError);
+            else if (!running) sendStopped(msg.replyTo);
+        } else if (msg.what == IPC_UNREGISTER && msg.replyTo != null) {
+            removeClient(msg.replyTo);
+        }
+        return true;
+    }
+
+    private boolean isAllowedExternalCaller(int uid) {
+        if (uid <= 0) return false;
+        String[] packages = getPackageManager().getPackagesForUid(uid);
+        if (packages == null) return false;
+        for (String packageName : packages) {
+            if (PAD_GRADE_PACKAGE.equals(packageName)) return true;
+        }
+        return false;
+    }
+
+    private boolean containsClient(Messenger candidate) {
+        IBinder target = candidate.getBinder();
+        for (Messenger client : externalClients) {
+            if (client.getBinder().equals(target)) return true;
+        }
+        return false;
+    }
+
+    private void removeClient(Messenger candidate) {
+        IBinder target = candidate.getBinder();
+        externalClients.removeIf(client -> client.getBinder().equals(target));
+    }
+
     private void startSession() {
         if (running) return;
         running = true;
@@ -113,6 +179,7 @@ public final class PrecisionLocationService extends Service
         if (phoneLocationPublisher != null) phoneLocationPublisher.stop();
         running = false;
         releaseWakeLock();
+        notifyExternalStopped();
         stopForeground(STOP_FOREGROUND_REMOVE);
         stopSelf();
     }
@@ -122,6 +189,8 @@ public final class PrecisionLocationService extends Service
         if (phoneLocationPublisher != null) phoneLocationPublisher.stop();
         running = false;
         releaseWakeLock();
+        notifyExternalStopped();
+        externalClients.clear();
         super.onDestroy();
     }
 
@@ -141,6 +210,7 @@ public final class PrecisionLocationService extends Service
 
         UiListener listener = uiListener;
         if (listener != null) listener.onServiceSolution(solution);
+        notifyExternalSolution(solution);
 
         if (running) {
             long now = SystemClock.elapsedRealtime();
@@ -160,6 +230,7 @@ public final class PrecisionLocationService extends Service
         lastError = message;
         UiListener listener = uiListener;
         if (listener != null) listener.onServiceError(message);
+        notifyExternalError(message);
         if (running) {
             NotificationManager manager = getSystemService(NotificationManager.class);
             manager.notify(NOTIFICATION_ID, buildNotification("GNSS error — open app for details"));
@@ -173,6 +244,76 @@ public final class PrecisionLocationService extends Service
             PppSolution solution = lastSolution;
             String base = solution == null ? "Precision positioning active" : notificationText(solution);
             manager.notify(NOTIFICATION_ID, buildNotification(base));
+        }
+    }
+
+    private void notifyExternalSolution(PppSolution solution) {
+        Iterator<Messenger> it = externalClients.iterator();
+        while (it.hasNext()) {
+            Messenger client = it.next();
+            if (!sendSolution(client, solution)) it.remove();
+        }
+    }
+
+    private void notifyExternalError(String message) {
+        Iterator<Messenger> it = externalClients.iterator();
+        while (it.hasNext()) {
+            Messenger client = it.next();
+            if (!sendError(client, message)) it.remove();
+        }
+    }
+
+    private void notifyExternalStopped() {
+        Iterator<Messenger> it = externalClients.iterator();
+        while (it.hasNext()) {
+            Messenger client = it.next();
+            if (!sendStopped(client)) it.remove();
+        }
+    }
+
+    private boolean sendSolution(Messenger client, PppSolution solution) {
+        Message msg = Message.obtain(null, IPC_SOLUTION);
+        Bundle b = new Bundle();
+        b.putString("solutionState", solution.state.name());
+        b.putString("solutionMode", solution.mode == null ? "Precision Location" : solution.mode);
+        b.putDouble("latitude", solution.latitudeDeg);
+        b.putDouble("longitude", solution.longitudeDeg);
+        b.putDouble("altitude", solution.altitudeMeters);
+        b.putDouble("horizontalAccuracy", solution.horizontalAccuracyMeters);
+        b.putDouble("verticalAccuracy", Double.NaN);
+        b.putDouble("speed", Double.NaN);
+        b.putDouble("bearing", Double.NaN);
+        b.putLong("timestamp", System.currentTimeMillis());
+        b.putLong("fixAgeMs", 0L);
+        msg.setData(b);
+        try {
+            client.send(msg);
+            return true;
+        } catch (RemoteException ex) {
+            return false;
+        }
+    }
+
+    private boolean sendError(Messenger client, String message) {
+        Message msg = Message.obtain(null, IPC_ERROR);
+        Bundle b = new Bundle();
+        b.putString("message", message == null ? "Precision Location error" : message);
+        msg.setData(b);
+        try {
+            client.send(msg);
+            return true;
+        } catch (RemoteException ex) {
+            return false;
+        }
+    }
+
+    private boolean sendStopped(Messenger client) {
+        Message msg = Message.obtain(null, IPC_STOPPED);
+        try {
+            client.send(msg);
+            return true;
+        } catch (RemoteException ex) {
+            return false;
         }
     }
 
