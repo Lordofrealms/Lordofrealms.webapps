@@ -1,1 +1,1 @@
-build 16 - v0.4.4 legacy-safe folder sync and 70 percent grid font safety
+build 17 - v0.4.5 live grid fit scale and durable folder index sync
