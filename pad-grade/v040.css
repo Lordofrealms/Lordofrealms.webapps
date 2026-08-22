@@ -1,0 +1,47 @@
+/* Pad Grade v0.4.0 — responsive physical grid + project manager */
+.v040-gridShell.fit{overflow:hidden}
+#grid.v040-fit{min-width:0;gap:2px;align-items:stretch;justify-items:stretch}
+#grid.v040-scroll{min-width:max-content;gap:4px}
+#grid.v040-fit .cell{min-width:0!important;width:100%;height:100%;aspect-ratio:auto!important;border-radius:5px;padding:2px;overflow:hidden}
+#grid.v040-scroll .cell{aspect-ratio:auto!important}
+#grid .cell{container-type:size}
+#grid .cell .coord,#grid .cell .xy,#grid .cell .main,#grid .cell .sub{font-size:var(--grid-font,10px)!important;line-height:1.05;white-space:nowrap}
+#grid .cell .coord{font-weight:900}
+#grid .cell .xy{font-size:calc(var(--grid-font,10px)*.82)!important}
+#grid .cell .main{font-size:calc(var(--grid-font,10px)*1.08)!important}
+#grid .cell .sub{font-size:calc(var(--grid-font,10px)*.88)!important}
+.v040-gridMode{font-size:.65rem;color:var(--muted);margin-left:auto}
+
+.v040-rangeRow{margin-top:14px;padding:10px;border:1px solid var(--line);border-radius:12px;background:#0d1218}
+.v040-rangeHeader{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:7px}
+.v040-rangeHeader b{font-size:.78rem}
+.v040-rangeHeader span{font-size:.76rem;color:var(--accent);font-weight:900;min-width:42px;text-align:right}
+.v040-rangeRow input[type=range]{width:100%;accent-color:#8fd14f}
+.v040-rangeEnds{display:flex;justify-content:space-between;font-size:.62rem;color:var(--muted)}
+
+.v040-projectButton{padding:8px 10px!important;font-size:.78rem!important}
+.v040-projectState{font-size:.66rem;color:var(--muted);margin-top:2px}
+.v040-projectState.saved{color:#a9db80}
+.v040-projectState.saving{color:#ffd08a}
+.v040-projectState.warn{color:#ffc27a}
+
+#projectsDlg{width:min(94vw,560px)}
+.v040-projectToolbar{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px}
+.v040-projectList{display:flex;flex-direction:column;gap:7px;margin-top:12px;max-height:44vh;overflow:auto}
+.v040-projectItem{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:11px;background:#0d1218}
+.v040-projectItem.current{border-color:#6d9d45;background:#14210f}
+.v040-projectItem b{display:block;font-size:.9rem}
+.v040-projectMeta{font-size:.65rem;color:var(--muted);margin-top:2px}
+.v040-projectActions{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.v040-projectActions button{padding:6px 8px;font-size:.68rem}
+.v040-folderBox{margin-top:12px;padding:10px;border:1px solid var(--line);border-radius:11px;background:#111820}
+.v040-folderRow{display:flex;gap:8px;align-items:center;justify-content:space-between}
+.v040-folderRow button{padding:7px 9px;font-size:.72rem}
+.v040-folderState{font-size:.66rem;color:var(--muted);margin-top:5px;line-height:1.3}
+.v040-projectFooter{display:flex;justify-content:flex-end;margin-top:12px}
+
+@media(max-width:520px){
+  .v040-projectToolbar{grid-template-columns:1fr 1fr}
+  .v040-projectItem{grid-template-columns:1fr}
+  .v040-projectActions{justify-content:flex-start}
+}

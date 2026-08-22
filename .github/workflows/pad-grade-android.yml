@@ -20,6 +20,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate web scripts
+        run: |
+          node --check pad-grade/capture-fix.js
+          node --check pad-grade/v030.js
+          node --check pad-grade/v031.js
+          node --check pad-grade/v040.js
+          node --check pad-grade/v040-sync.js
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -42,6 +50,9 @@ jobs:
         run: |
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/index.html'
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/platform.js'
+          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v040.js'
+          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v040-sync.js'
+          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v040.css'
 
       - name: Upload debug APK
         if: success()
