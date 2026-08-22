@@ -1,1 +1,2 @@
 publish current Android APKs: Pad Grade v0.3.1 + Precision Location v0.3.2
+verify v0.3.1 release asset
