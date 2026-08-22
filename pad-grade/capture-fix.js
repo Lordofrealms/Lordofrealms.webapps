@@ -1,6 +1,6 @@
 /* Pad Grade v0.4.3 bootstrap.
  * Keeps resilient corner capture, captures the MapLibre instance, loads the
- * v0.3.x field workflow, then applies v0.4.x projects/storage/grid behavior.
+ * v0.3.x field workflow, then applies current project/storage/grid behavior.
  */
 (function installCaptureCompletionFix(){
   'use strict';
@@ -46,7 +46,7 @@
   };
 })();
 
-(function installV052Bootstrap(){
+(function installV053Bootstrap(){
   'use strict';
 
   if(window.maplibregl && window.maplibregl.Map && !window.__padGradeMapHookInstalled){
@@ -86,7 +86,7 @@
   }
 
   function polishLoadedWorkflow(){
-    document.title='Pad Grade Mapper v0.5.2';
+    document.title='Pad Grade Mapper v0.5.3';
 
     const calibration=document.querySelector('.v030-calibration');
     const instruction=document.getElementById('gpsInstruction');
@@ -111,16 +111,16 @@
           loadScript('v041.js?v=20260822-1','padgrade-v041',()=>{
             loadScript('v041-persist.js?v=20260822-1','padgrade-v041-persist',()=>{
               loadScript('v042.js?v=20260822-1','padgrade-v042',()=>{
-                loadScript('v043.js?v=20260822-1','padgrade-v043',()=>{
-                  loadScript('v046.js?v=20260822-1','padgrade-v046',()=>{
-                    loadScript('v047.js?v=20260822-1','padgrade-v047',()=>{
-                      loadScript('v048.js?v=20260822-1','padgrade-v048',()=>{
-                        loadScript('v049.js?v=20260822-1','padgrade-v049',()=>{
-                          loadScript('v050.js?v=20260822-1','padgrade-v050',()=>{
-                            loadScript('v051.js?v=20260822-1','padgrade-v051',()=>{
-                              loadScript('v052.js?v=20260822-1','padgrade-v052');
-                            });
-                          });
+                // v043, v049 and v050 were temporary grid-font experiments.
+                // Do not execute them in production: each installs its own
+                // renderer/resize callback and can temporarily or permanently
+                // force the grid down to the old scaled font floor.
+                loadScript('v046.js?v=20260822-1','padgrade-v046',()=>{
+                  loadScript('v047.js?v=20260822-1','padgrade-v047',()=>{
+                    loadScript('v048.js?v=20260822-1','padgrade-v048',()=>{
+                      loadScript('v051.js?v=20260822-1','padgrade-v051',()=>{
+                        loadScript('v052.js?v=20260822-1','padgrade-v052',()=>{
+                          loadScript('v053.js?v=20260822-1','padgrade-v053');
                         });
                       });
                     });
