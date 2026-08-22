@@ -89,6 +89,8 @@ function showPadTerms(force=false){
 installPadTermsUI();
 showPadTerms(false);
 
+if(typeof exportProjectShared==='function') exportProject=exportProjectShared;
+
 $('readingInput').addEventListener('input',updateModalResult);
 $('savePoint').onclick=()=>{
   saveCurrent(); $('entryDlg').close();
@@ -138,7 +140,6 @@ $('settingsBtn').onclick=()=>{
 };
 $('cancelSettings').onclick=()=>$('settingsDlg').close();
 $('applySettings').onclick=()=>{
-  // Drop readings that no longer fit resized grid.
   const s=cfg(), clean={};
   for(const [key,val] of Object.entries(readings)){
     const [r,c]=key.split(',').map(Number);
