@@ -105,6 +105,12 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
             ppp = nativePppSolution();
         }
 
+        if (logger != null) {
+            long elapsed = event.getClock().hasElapsedRealtimeNanos()
+                    ? event.getClock().getElapsedRealtimeNanos() : SystemClock.elapsedRealtimeNanos();
+            logger.logEngineStatus(elapsed, accepted, nativeInfo, ppp);
+        }
+
         String mode = inventory.automaticMode();
         String detail = inventory.summary() + "\n"
                 + correctionStatus + "\n"
