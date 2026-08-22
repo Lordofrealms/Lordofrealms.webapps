@@ -1,6 +1,7 @@
-/* Pad Grade v0.4.3 durable-folder reconciliation.
- * Existing .padgrade files are imported immediately when a durable folder is
- * selected/reselected, before any local project is mirrored outward.
+/* Pad Grade v0.4.4 durable-folder reconciliation.
+ * Folder scanning is deliberately non-reloading. Legacy project files are
+ * normalized in memory, backups are expanded, and unreadable files are skipped
+ * rather than being allowed to trap the app in a refresh loop.
  */
 (function installPadGradeDurableSync(){
   'use strict';
@@ -11,85 +12,132 @@
   const native=window.PadGradeNative;
   if(!native||typeof native.listProjectFiles!=='function') return;
 
+  function nowIso(){return new Date().toISOString();}
   function getIndex(){try{const x=JSON.parse(localStorage.getItem(INDEX_KEY)||'[]');return Array.isArray(x)?x:[];}catch(e){return [];}}
   function setIndex(x){localStorage.setItem(INDEX_KEY,JSON.stringify(x));}
   function getLocal(id){try{return JSON.parse(localStorage.getItem(projectKey(id))||'null');}catch(e){return null;}}
   function putLocal(p){localStorage.setItem(projectKey(p.id),JSON.stringify(p));}
-  function modified(p){const t=Date.parse(p?.modifiedAt||p?.exportedAt||'');return Number.isFinite(t)?t:0;}
+  function modified(p){const t=Date.parse(p?.modifiedAt||p?.exportedAt||p?.createdAt||'');return Number.isFinite(t)?t:0;}
   function statusOf(p,item){return (p?.status||item?.status)==='archived'?'archived':'open';}
+  function clamp(n,a,b,d){n=Number(n);return Number.isFinite(n)?Math.max(a,Math.min(b,n)):d;}
 
-  function reconcile(reloadAfter=false){
+  function stableLegacyId(filename,raw){
+    const seed=String(filename||'legacy')+'|'+JSON.stringify(raw?.settings||raw||{});
+    let h=2166136261;
+    for(let i=0;i<seed.length;i++){h^=seed.charCodeAt(i);h=Math.imul(h,16777619);}
+    return `pg-legacy-${(h>>>0).toString(36)}`;
+  }
+
+  function normalizeOne(raw,filename){
+    if(!raw||typeof raw!=='object') return null;
+    const s=(raw.settings&&typeof raw.settings==='object')?raw.settings:raw;
+    const hasGeometry=['width','length','cols','rows'].some(k=>s[k]!==undefined);
+    const hasReadings=raw.readings&&typeof raw.readings==='object';
+    if(!hasGeometry&&!hasReadings) return null;
+
+    const id=raw.id||stableLegacyId(filename,raw);
+    const gpsRaw=(raw.gps&&typeof raw.gps==='object')?raw.gps:{};
+    const gps={...gpsRaw};
+    if(!gps.reference&&raw.gpsRef)gps.reference=raw.gpsRef;
+    if(!gps.opposite&&raw.gpsOpposite)gps.opposite=raw.gpsOpposite;
+    if(!gps.corners&&raw.gpsCorners)gps.corners=raw.gpsCorners;
+    if(gps.targetIndex==null&&Number.isInteger(raw.gpsTargetIndex))gps.targetIndex=raw.gpsTargetIndex;
+
+    const readings={};
+    for(const [key,val] of Object.entries(raw.readings||{})){const n=Number(val);if(Number.isFinite(n))readings[key]=n;}
+    const createdAt=raw.createdAt||raw.exportedAt||nowIso();
+    const modifiedAt=raw.modifiedAt||raw.exportedAt||createdAt;
+    return {
+      ...raw,
+      app:'Pad Grade Mapper Mobile',schemaVersion:5,version:5,id,
+      createdAt,modifiedAt,status:raw.status==='archived'?'archived':'open',
+      settings:{
+        width:clamp(s.width,0.1,100000,64),length:clamp(s.length,0.1,100000,76),
+        cols:Math.round(clamp(s.cols,2,200,9)),rows:Math.round(clamp(s.rows,2,200,9)),
+        target:Number.isFinite(Number(s.target))?Number(s.target):64,
+        tol:Math.max(0,Number.isFinite(Number(s.tol))?Number(s.tol):0.5),
+        refCorner:s.refCorner||'SW',name:s.name||raw.name||String(filename||'Pad').replace(/\.padgrade$/i,'')||'Pad'
+      },
+      readings,
+      readingMeta:(raw.readingMeta&&typeof raw.readingMeta==='object')?raw.readingMeta:{},
+      gps,
+      measureMode:raw.measureMode==='gps'?'gps':'manual',
+      migration:{sourceVersion:Number(raw.schemaVersion||raw.version||1),sourceFile:filename||null}
+    };
+  }
+
+  function projectsFromFile(raw,filename){
+    if(raw?.backupType==='all-projects'||Array.isArray(raw?.projects)){
+      return (raw.projects||[]).map((p,i)=>normalizeOne(p,`${filename}#${i}`)).filter(Boolean);
+    }
+    const one=normalizeOne(raw,filename);return one?[one]:[];
+  }
+
+  function reconcile(){
     let names=[];
     try{names=JSON.parse(native.listProjectFiles()||'[]');}catch(e){names=[];}
-    let idx=getIndex();
-    const byId=new Map(idx.map(x=>[x.id,x]));
-    const beforeIds=new Set(idx.map(x=>x.id));
-    let imported=false;
+    const idx=getIndex(),byId=new Map(idx.map(x=>[x.id,x]));
+    let imported=0,skipped=0;
 
     for(const name of names){
       if(typeof name!=='string'||!name.toLowerCase().endsWith('.padgrade')) continue;
-      let remote=null;
-      try{remote=JSON.parse(native.readProjectFile(name)||'null');}catch(e){}
-      if(!remote||!remote.id||!remote.settings) continue;
-      remote.status=statusOf(remote,null);
-      const local=getLocal(remote.id);
-      if(!local||modified(remote)>modified(local)){
-        putLocal(remote); imported=true;
+      let raw=null;
+      try{raw=JSON.parse(native.readProjectFile(name)||'null');}catch(e){skipped++;continue;}
+      const projects=projectsFromFile(raw,name);
+      if(!projects.length){skipped++;continue;}
+      for(const remote of projects){
+        const local=getLocal(remote.id);
+        const remoteWins=!local||modified(remote)>modified(local);
+        const best=remoteWins?remote:local;
+        if(remoteWins){putLocal(remote);imported++;}
+        byId.set(best.id,{
+          id:best.id,name:best.settings?.name||'Pad',
+          modifiedAt:best.modifiedAt||best.exportedAt||nowIso(),
+          createdAt:best.createdAt||best.exportedAt||nowIso(),
+          status:statusOf(best,byId.get(best.id))
+        });
       }
-      const best=(!local||modified(remote)>=modified(local))?remote:local;
-      byId.set(best.id,{
-        id:best.id,
-        name:best.settings?.name||'Pad',
-        modifiedAt:best.modifiedAt||best.exportedAt||new Date().toISOString(),
-        createdAt:best.createdAt||best.exportedAt||new Date().toISOString(),
-        status:statusOf(best,byId.get(best.id))
-      });
-      if(!beforeIds.has(best.id)) imported=true;
     }
 
-    idx=[...byId.values()];setIndex(idx);
-
-    // If the selected folder contains projects and the app has no meaningful
-    // open active project (common immediately after reinstall), activate the
-    // newest open project discovered in that folder.
+    const next=[...byId.values()];setIndex(next);
     const activeId=localStorage.getItem(ACTIVE_KEY);
-    const activeItem=idx.find(x=>x.id===activeId&&x.status!=='archived');
-    if(!activeItem){
-      const open=idx.filter(x=>x.status!=='archived').sort((a,b)=>String(b.modifiedAt).localeCompare(String(a.modifiedAt)));
+    const active=next.find(x=>x.id===activeId&&x.status!=='archived');
+    if(!active){
+      const open=next.filter(x=>x.status!=='archived').sort((a,b)=>String(b.modifiedAt).localeCompare(String(a.modifiedAt)));
       if(open.length)localStorage.setItem(ACTIVE_KEY,open[0].id);
     }
 
-    // Only after inbound reconciliation do we mirror every local project out.
-    for(const item of idx){
+    // Mirror only projects that already exist locally after inbound merge.
+    for(const item of next){
       const p=getLocal(item.id);if(!p)continue;
       p.status=statusOf(p,item);
       try{native.writeProjectFile(`${item.id}.padgrade`,JSON.stringify(p));}catch(e){}
     }
 
-    if(reloadAfter||imported) location.reload();
+    window.__padGradeLastFolderSync={imported,skipped,total:names.length,at:Date.now()};
+    try{window.dispatchEvent(new CustomEvent('padgrade-projects-reconciled',{detail:window.__padGradeLastFolderSync}));}catch(e){}
+    return window.__padGradeLastFolderSync;
   }
 
-  const previous=window.__padGradeProjectFolderChanged;
+  // Do NOT call the older callback here; it mirrors the pre-reconcile index and
+  // was part of the v0.4.3 refresh-loop behavior.
   window.__padGradeProjectFolderChanged=function(){
-    // Android's document provider can take a moment to expose children after
-    // returning from ACTION_OPEN_DOCUMENT_TREE. Retry briefly before giving up.
     let attempts=0;
     const run=()=>{
       attempts++;
       try{
         const names=JSON.parse(native.listProjectFiles()||'[]');
-        if(names.length||attempts>=5){reconcile(true);return;}
-      }catch(e){if(attempts>=5){try{reconcile(true);}catch(ignore){}return;}}
+        if(names.length||attempts>=5){reconcile();return;}
+      }catch(e){if(attempts>=5){try{reconcile();}catch(ignore){}return;}}
       setTimeout(run,180);
     };
     setTimeout(run,60);
-    try{previous?.();}catch(ignore){}
   };
 
   let connected=false;
   try{connected=!!native.hasProjectFolder();}catch(e){}
   if(connected){
-    setTimeout(()=>reconcile(false),250);
+    setTimeout(()=>{try{reconcile();}catch(e){}},250);
   }else if(!localStorage.getItem(PROMPT_KEY)){
     localStorage.setItem(PROMPT_KEY,'1');
     setTimeout(()=>{

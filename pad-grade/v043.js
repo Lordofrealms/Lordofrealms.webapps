@@ -1,11 +1,12 @@
-/* Pad Grade v0.4.3 — measure real rendered grid text, account for gaps/padding, hide layout telemetry. */
-(function installPadGradeV043(){
+/* Pad Grade v0.4.4 — measured grid text with conservative 70% font safety factor. */
+(function installPadGradeV044Grid(){
   'use strict';
 
   const $=id=>document.getElementById(id);
   const PREF_KEY='padGradeAppPrefsV1';
   const FIT_GAP=2;
   const SCROLL_GAP=4;
+  const FONT_SAFETY=0.70;
 
   function prefs(){
     try{return {minGridFont:2,...(JSON.parse(localStorage.getItem(PREF_KEY)||'{}')||{})};}
@@ -29,7 +30,7 @@
   }
 
   function textSamples(s){
-    const samples=[{text:'FILL 9.9″',weight:400}]; // literal nine-character minimum target
+    const samples=[{text:'FILL 9.9″',weight:400},{text:'FILL 99.9″',weight:400},{text:'CUT 99.9″',weight:400}];
     for(let rr=0;rr<s.rows;rr++)for(let c=0;c<s.cols;c++){
       const val=readings[k(rr,c)],[main,sub]=textFor(val),rc=refCoords(rr,c);
       samples.push(
@@ -43,9 +44,6 @@
     return samples;
   }
 
-  // Measure in the actual browser/WebView font instead of assuming an average
-  // character width. This makes FILL/CUT strings, smart-inch marks and bold
-  // readings part of the sizing decision.
   function requiredWidthPerPx(samples){
     const ruler=document.createElement('span');
     const family=getComputedStyle(document.body).fontFamily||'system-ui, sans-serif';
@@ -59,13 +57,13 @@
       max=Math.max(max,ruler.getBoundingClientRect().width/100);
     }
     ruler.remove();
-    return Math.max(1,max*1.06); // fractional-pixel/rendering safety margin
+    return Math.max(1,max*1.06);
   }
 
-  function renderGridV043(){
+  function renderGridV044(){
     const s=cfg(),g=$('grid'),shell=g?.parentElement;if(!g||!shell)return;
     g.innerHTML='';
-    $('v040GridMode')?.remove(); // developer telemetry does not belong in field UI
+    $('v040GridMode')?.remove();
 
     const minFont=Math.max(2,Math.min(20,+prefs().minGridFont||2));
     const dx=s.width/(s.cols-1),dy=s.length/(s.rows-1),ratio=Math.max(.05,dx/dy);
@@ -73,28 +71,25 @@
     const available=Math.max(1,shell.clientWidth-px(shellStyle.paddingLeft)-px(shellStyle.paddingRight));
     const chrome=measureCellChrome(g);
     const needEm=requiredWidthPerPx(textSamples(s));
-
-    // CSS grid gaps consume real horizontal width; v0.4.2 divided the whole
-    // content width by the column count before subtracting those gaps.
     const fitCellW=Math.max(1,(available-FIT_GAP*Math.max(0,s.cols-1))/s.cols);
     const fitCellH=fitCellW/ratio;
-    const widthFont=(fitCellW-chrome.x)/needEm;
-    const heightFont=(fitCellH-chrome.y)/5.25;
-    const fitFont=Math.min(20,widthFont,heightFont);
-    const fit=Number.isFinite(fitFont)&&fitFont>=minFont;
+    const rawFitFont=Math.min(20,(fitCellW-chrome.x)/needEm,(fitCellH-chrome.y)/5.25);
+    const safeFitFont=rawFitFont*FONT_SAFETY;
+    const fit=Number.isFinite(safeFitFont)&&safeFitFont>=minFont;
 
     let cellW,cellH,font;
     if(fit){
-      cellW=fitCellW;cellH=fitCellH;font=Math.max(minFont,fitFont);
+      cellW=fitCellW;cellH=fitCellH;font=Math.max(minFont,safeFitFont);
       shell.classList.add('fit');
       g.className='v040-fit v041-uniform v042-uniform v043-uniform';
       g.style.width='100%';
       g.style.gridTemplateColumns=`repeat(${s.cols},minmax(0,1fr))`;
       g.style.gridAutoRows=`${cellH.toFixed(2)}px`;
+      g.style.columnGap=`${FIT_GAP}px`;
     }else{
       font=minFont;
-      const requiredW=needEm*font+chrome.x;
-      const requiredH=5.25*font+chrome.y;
+      const requiredW=(needEm*font/FONT_SAFETY)+chrome.x;
+      const requiredH=(5.25*font/FONT_SAFETY)+chrome.y;
       cellH=Math.max(requiredH,requiredW/ratio);
       cellW=cellH*ratio;
       shell.classList.remove('fit');
@@ -106,10 +101,6 @@
     }
 
     g.style.setProperty('--grid-font',`${font.toFixed(2)}px`);
-    g.dataset.layoutMode=fit?'fit':'scroll';
-    g.dataset.layoutFont=font.toFixed(2);
-    g.dataset.requiredTextEm=needEm.toFixed(3);
-
     for(let rr=s.rows-1;rr>=0;rr--)for(let c=0;c<s.cols;c++){
       const val=readings[k(rr,c)],[main,sub]=textFor(val),d=document.createElement('div'),rc=refCoords(rr,c);
       d.className='cell '+classFor(val);
@@ -119,12 +110,12 @@
     updateStats();
   }
 
-  window.renderGrid=renderGridV043;
-  renderGridV043();
-  document.title='Pad Grade Mapper v0.4.3';
+  window.renderGrid=renderGridV044;
+  renderGridV044();
+  document.title='Pad Grade Mapper v0.4.4';
 
   window.addEventListener('resize',()=>{
-    clearTimeout(window.__pg043Resize);
-    window.__pg043Resize=setTimeout(renderGridV043,120);
+    clearTimeout(window.__pg044Resize);
+    window.__pg044Resize=setTimeout(renderGridV044,120);
   });
 })();
