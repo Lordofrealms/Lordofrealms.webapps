@@ -3,6 +3,7 @@ package com.lordofrealms.precisionlocation;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.Gravity;
@@ -12,7 +13,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-/** Versioned Terms/Safety acceptance plus an in-app copy of the repository MIT license. */
+/** Terms/Safety acceptance is required once for every installed app version. */
 public final class LegalNoticeActivity extends Activity {
     public static final String EXTRA_MODE = "mode";
     public static final String MODE_TERMS = "terms";
@@ -20,7 +21,8 @@ public final class LegalNoticeActivity extends Activity {
     public static final String EXTRA_REQUIRE_ACCEPTANCE = "requireAcceptance";
 
     private static final String PREFS = "precision_location_legal";
-    private static final String ACCEPTED_KEY = "accepted_terms_version";
+    private static final String ACCEPTED_VERSION_CODE_KEY = "accepted_app_version_code";
+    private static final String ACCEPTED_TERMS_VERSION_KEY = "accepted_terms_version";
     public static final String TERMS_VERSION = "2026-08-21-v1";
 
     private static final String TERMS_TEXT =
@@ -62,8 +64,32 @@ public final class LegalNoticeActivity extends Activity {
             "SOFTWARE.";
 
     public static boolean isAccepted(Context context) {
-        return TERMS_VERSION.equals(context.getSharedPreferences(PREFS, MODE_PRIVATE)
-                .getString(ACCEPTED_KEY, ""));
+        long acceptedCode = context.getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getLong(ACCEPTED_VERSION_CODE_KEY, -1L);
+        String acceptedTerms = context.getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getString(ACCEPTED_TERMS_VERSION_KEY, "");
+        return acceptedCode == currentVersionCode(context)
+                && TERMS_VERSION.equals(acceptedTerms);
+    }
+
+    private static long currentVersionCode(Context context) {
+        try {
+            PackageInfo info = context.getPackageManager()
+                    .getPackageInfo(context.getPackageName(), 0);
+            return info.getLongVersionCode();
+        } catch (Exception ex) {
+            return -1L;
+        }
+    }
+
+    private static String currentVersionName(Context context) {
+        try {
+            PackageInfo info = context.getPackageManager()
+                    .getPackageInfo(context.getPackageName(), 0);
+            return info.versionName == null ? "unknown" : info.versionName;
+        } catch (Exception ex) {
+            return "unknown";
+        }
     }
 
     public static Intent termsIntent(Context context, boolean requireAcceptance) {
@@ -102,8 +128,11 @@ public final class LegalNoticeActivity extends Activity {
         root.addView(title, matchWrap());
 
         if (!license) {
-            TextView version = text("Terms version " + TERMS_VERSION, 12,
-                    Color.rgb(130, 145, 158), false);
+            TextView version = text(
+                    "App v" + currentVersionName(this)
+                            + " • Terms " + TERMS_VERSION
+                            + " • acceptance required after every app update",
+                    12, Color.rgb(130, 145, 158), false);
             version.setPadding(0, dp(4), 0, dp(18));
             root.addView(version, matchWrap());
         }
@@ -116,7 +145,7 @@ public final class LegalNoticeActivity extends Activity {
 
         if (requireAcceptance) {
             CheckBox accept = new CheckBox(this);
-            accept.setText("I have read and accept these Terms of Use and Safety Notice.");
+            accept.setText("I have read and accept these Terms of Use and Safety Notice for this app version.");
             accept.setTextColor(Color.WHITE);
             accept.setPadding(0, dp(20), 0, dp(8));
             root.addView(accept, matchWrap());
@@ -127,8 +156,10 @@ public final class LegalNoticeActivity extends Activity {
             accept.setOnCheckedChangeListener((button, checked) ->
                     continueButton.setEnabled(checked));
             continueButton.setOnClickListener(v -> {
-                getSharedPreferences(PREFS, MODE_PRIVATE)
-                        .edit().putString(ACCEPTED_KEY, TERMS_VERSION).apply();
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                        .putLong(ACCEPTED_VERSION_CODE_KEY, currentVersionCode(this))
+                        .putString(ACCEPTED_TERMS_VERSION_KEY, TERMS_VERSION)
+                        .apply();
                 setResult(RESULT_OK);
                 finish();
             });
