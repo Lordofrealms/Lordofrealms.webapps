@@ -7,7 +7,6 @@ import android.graphics.Color;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.text.InputType;
-import android.view.Gravity;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -150,6 +149,33 @@ public final class AppSettingsActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
         clearParams.topMargin = dp(8);
         root.addView(clearButton, clearParams);
+
+        TextView legalTitle = text("Legal", 19, Color.WHITE, true);
+        legalTitle.setPadding(0, dp(30), 0, dp(8));
+        root.addView(legalTitle, matchWrap());
+
+        TextView legalHelp = text(
+                "Terms must be accepted again after every app update. You can review the current Terms and MIT License here at any time.",
+                14, Color.rgb(185, 196, 207), false);
+        root.addView(legalHelp, matchWrap());
+
+        Button termsButton = new Button(this);
+        termsButton.setText("Terms of Use & Safety");
+        termsButton.setOnClickListener(v ->
+                startActivity(LegalNoticeActivity.termsIntent(this, false)));
+        LinearLayout.LayoutParams termsParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
+        termsParams.topMargin = dp(8);
+        root.addView(termsButton, termsParams);
+
+        Button licenseButton = new Button(this);
+        licenseButton.setText("MIT License");
+        licenseButton.setOnClickListener(v ->
+                startActivity(LegalNoticeActivity.licenseIntent(this)));
+        LinearLayout.LayoutParams licenseParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
+        licenseParams.topMargin = dp(8);
+        root.addView(licenseButton, licenseParams);
 
         Button doneButton = new Button(this);
         doneButton.setText("Done");
