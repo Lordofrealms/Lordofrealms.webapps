@@ -112,6 +112,20 @@ function nextEmpty(){
   alert('All grid points have readings.');
 }
 
+function saveTextDownload(filename,mimeType,text){
+  if(window.PadGradePlatform && typeof window.PadGradePlatform.saveTextFile==='function'){
+    try{
+      if(window.PadGradePlatform.saveTextFile(filename,mimeType,text)) return;
+    }catch(e){}
+  }
+  const blob=new Blob([text],{type:mimeType});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=filename;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),0);
+}
+
 function exportProject(){
   const s=cfg();
   const payload={
@@ -124,12 +138,8 @@ function exportProject(){
     gps:{reference:gpsRef,opposite:gpsOpposite,targetIndex:gpsTargetIndex},
     measureMode:measureMode
   };
-  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download=(s.name||'pad_grade').replace(/[^\w-]+/g,'_')+'_project.json';
-  a.click();
-  URL.revokeObjectURL(a.href);
+  const filename=(s.name||'pad_grade').replace(/[^\w-]+/g,'_')+'_project.json';
+  saveTextDownload(filename,'application/json',JSON.stringify(payload,null,2));
 }
 async function importProjectFile(file){
   const raw=await file.text();
@@ -172,8 +182,6 @@ function exportCSV(){
     const m=readingMeta[k(r,c)]||{};
     rows.push([label(r,c),(c*dx).toFixed(2),(r*dy).toFixed(2),v,s.target,status,d.toFixed(2),m.lat??'',m.lon??'',Number.isFinite(m.accuracy_m)?(m.accuracy_m*FT_PER_M).toFixed(1):''].join(','));
   }
-  const blob=new Blob([rows.join('\n')],{type:'text/csv'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
-  a.download=(s.name||'pad_grade').replace(/[^\w-]+/g,'_')+'_readings.csv'; a.click();
-  URL.revokeObjectURL(a.href);
+  const filename=(s.name||'pad_grade').replace(/[^\w-]+/g,'_')+'_readings.csv';
+  saveTextDownload(filename,'text/csv',rows.join('\n'));
 }
