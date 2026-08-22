@@ -1,0 +1,84 @@
+name: Precision Location Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/precision-location-release.yml'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Precision Location branch/tag to release'
+        required: false
+        default: 'precision-location-v0.4.0'
+      version:
+        description: 'Release version'
+        required: false
+        default: '0.4.0'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || 'precision-location-v0.4.0' }}
+      VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '0.4.0' }}
+    steps:
+      - name: Check out Precision Location source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_REF }}
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK/NDK
+        run: |
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Build APK
+        run: |
+          gradle -p precision-location-android :app:assembleDebug --stacktrace
+          cp precision-location-android/app/build/outputs/apk/debug/app-debug.apk "precision-location-v${VERSION}.apk"
+          sha256sum "precision-location-v${VERSION}.apk" > "precision-location-v${VERSION}.apk.sha256"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="precision-location-v${VERSION}"
+          TARGET_SHA="$(git rev-parse HEAD)"
+          cat > release-notes.md <<EOF
+          Precision Location v${VERSION}
+
+          - Carrier-phase-smoothed pseudorange processing.
+          - TDCP-aided range-rate estimation.
+          - Smartphone uncertainty/CN0 weighting for broadcast SPP and Galileo HAS PPP.
+          - Conservative cycle-slip, reset, half-cycle, clock-discontinuity, and outlier handling.
+          - Enhanced GNSS minimum reported horizontal uncertainty floor: 0.5 m.
+          - Galileo HAS remains the only signup-based precision correction path.
+          - Replay tooling remains intentionally deferred.
+          EOF
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "precision-location-v${VERSION}.apk" "precision-location-v${VERSION}.apk.sha256" --clobber
+            gh release edit "$TAG" --title "Precision Location v${VERSION}" --notes-file release-notes.md
+          else
+            gh release create "$TAG" \
+              "precision-location-v${VERSION}.apk" \
+              "precision-location-v${VERSION}.apk.sha256" \
+              --target "$TARGET_SHA" \
+              --title "Precision Location v${VERSION}" \
+              --notes-file release-notes.md
+          fi
