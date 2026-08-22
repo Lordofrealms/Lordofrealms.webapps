@@ -1,4 +1,4 @@
-/* Pad Grade v0.4.1 bootstrap.
+/* Pad Grade v0.4.2 bootstrap.
  * Keeps resilient corner capture, captures the MapLibre instance, loads the
  * v0.3.x field workflow, then applies v0.4.x projects/storage/grid behavior.
  */
@@ -46,7 +46,7 @@
   };
 })();
 
-(function installV041Bootstrap(){
+(function installV042Bootstrap(){
   'use strict';
 
   if(window.maplibregl && window.maplibregl.Map && !window.__padGradeMapHookInstalled){
@@ -76,6 +76,7 @@
   addStyle('v031.css?v=20260822-1','padgrade-v031');
   addStyle('v040.css?v=20260822-1','padgrade-v040');
   addStyle('v041.css?v=20260822-1','padgrade-v041');
+  addStyle('v042.css?v=20260822-1','padgrade-v042');
 
   function loadScript(src,key,onload){
     if(document.querySelector(`script[data-${key}]`)){ if(onload) onload(); return; }
@@ -85,7 +86,7 @@
   }
 
   function polishLoadedWorkflow(){
-    document.title='Pad Grade Mapper v0.4.1';
+    document.title='Pad Grade Mapper v0.4.2';
 
     const calibration=document.querySelector('.v030-calibration');
     const instruction=document.getElementById('gpsInstruction');
@@ -108,7 +109,9 @@
       loadScript('v040.js?v=20260822-1','padgrade-v040',()=>{
         loadScript('v040-sync.js?v=20260822-1','padgrade-v040-sync',()=>{
           loadScript('v041.js?v=20260822-1','padgrade-v041',()=>{
-            loadScript('v041-persist.js?v=20260822-1','padgrade-v041-persist');
+            loadScript('v041-persist.js?v=20260822-1','padgrade-v041-persist',()=>{
+              loadScript('v042.js?v=20260822-1','padgrade-v042');
+            });
           });
         });
       });
