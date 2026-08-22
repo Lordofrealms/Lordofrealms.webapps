@@ -14,13 +14,19 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 import androidx.webkit.WebViewAssetLoader;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+
 public final class MainActivity extends Activity {
     private static final int LOCATION_PERMISSION_REQUEST = 1001;
     private static final int FILE_CHOOSER_REQUEST = 1002;
+    private static final int SAVE_TEXT_REQUEST = 1003;
     private static final String APP_ORIGIN = "https://appassets.androidplatform.net";
     private static final String APP_URL = APP_ORIGIN + "/assets/index.html";
 
@@ -29,6 +35,7 @@ public final class MainActivity extends Activity {
     private GeolocationPermissions.Callback pendingGeoCallback;
     private String pendingGeoOrigin;
     private ValueCallback<Uri[]> fileChooserCallback;
+    private String pendingSaveText;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -50,7 +57,7 @@ public final class MainActivity extends Activity {
         settings.setJavaScriptCanOpenWindowsAutomatically(false);
         settings.setSupportMultipleWindows(false);
 
-        nativeBridge = new PadGradeNativeBridge(webView);
+        nativeBridge = new PadGradeNativeBridge(this, webView);
         webView.addJavascriptInterface(nativeBridge, "PadGradeNative");
 
         webView.setWebViewClient(new WebViewClient() {
@@ -111,6 +118,28 @@ public final class MainActivity extends Activity {
         else webView.restoreState(savedInstanceState);
     }
 
+    /** Called from the WebView JavaScript-interface thread. */
+    public boolean requestSaveTextFile(String filename, String mimeType, String text) {
+        if (isFinishing() || isDestroyed()) return false;
+        final String safeName = filename == null || filename.isBlank() ? "pad-grade.txt" : filename;
+        final String safeMime = mimeType == null || mimeType.isBlank() ? "text/plain" : mimeType;
+        final String safeText = text == null ? "" : text;
+        runOnUiThread(() -> {
+            pendingSaveText = safeText;
+            Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                    .addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType(safeMime)
+                    .putExtra(Intent.EXTRA_TITLE, safeName);
+            try {
+                startActivityForResult(intent, SAVE_TEXT_REQUEST);
+            } catch (RuntimeException ex) {
+                pendingSaveText = null;
+                Toast.makeText(this, "No file-save provider is available.", Toast.LENGTH_LONG).show();
+            }
+        });
+        return true;
+    }
+
     @Override protected void onSaveInstanceState(Bundle outState) {
         webView.saveState(outState);
         super.onSaveInstanceState(outState);
@@ -134,6 +163,19 @@ public final class MainActivity extends Activity {
             Uri[] result = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
             fileChooserCallback.onReceiveValue(result);
             fileChooserCallback = null;
+            return;
+        }
+        if (requestCode == SAVE_TEXT_REQUEST) {
+            String text = pendingSaveText;
+            pendingSaveText = null;
+            if (resultCode != RESULT_OK || data == null || data.getData() == null || text == null) return;
+            try (OutputStream out = getContentResolver().openOutputStream(data.getData(), "w")) {
+                if (out == null) throw new IOException("No output stream");
+                out.write(text.getBytes(StandardCharsets.UTF_8));
+                out.flush();
+            } catch (IOException | RuntimeException ex) {
+                Toast.makeText(this, "Could not save file: " + ex.getMessage(), Toast.LENGTH_LONG).show();
+            }
         }
     }
 
@@ -148,6 +190,7 @@ public final class MainActivity extends Activity {
             fileChooserCallback.onReceiveValue(null);
             fileChooserCallback = null;
         }
+        pendingSaveText = null;
         if (webView != null) {
             webView.removeJavascriptInterface("PadGradeNative");
             webView.destroy();
