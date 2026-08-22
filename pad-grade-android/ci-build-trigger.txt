@@ -1,1 +1,1 @@
-build 28 - v0.5.4 single-owner grid core; stable first draw; preserve Android WebView 2 px minimum font floor
+build 29 - v0.5.5 approved Pad Grade surveying launcher artwork; no application logic changes
