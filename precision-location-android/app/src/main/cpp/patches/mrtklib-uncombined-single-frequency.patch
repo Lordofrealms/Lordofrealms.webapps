@@ -1,0 +1,21 @@
+diff --git a/src/pos/mrtk_ppp.c b/src/pos/mrtk_ppp.c
+--- a/src/pos/mrtk_ppp.c
++++ b/src/pos/mrtk_ppp.c
+@@ -739,6 +739,16 @@ static int corr_meas(const obsd_t* obs, const nav_t* nav, const double* azel, co
+         }
+     }
+     *Lc = *Pc = 0.0;
++
++    /* Uncombined PPP (IONOOPT_EST) consumes L[]/P[] directly in ppp_res().
++     * It must not require an ionosphere-free two-frequency combination here.
++     * This is essential for Android handsets exposing valid carrier phase on
++     * only L1/E1, and remains correct for dual/multi-frequency uncombined PPP. */
++    if (opt->ionoopt != IONOOPT_IFLC) {
++        for (i = 0; i < nfread && i < NFREQ; i++) {
++            if (freq[i] != 0.0 && (P[i] != 0.0 || L[i] != 0.0)) return 1;
++        }
++        return 0;
++    }
+     if (freq[0] == 0.0 || freq[i2] == 0.0) {
+         return 0;
+     }
