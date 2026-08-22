@@ -62,7 +62,7 @@
 
   <div class="card">
     <b>Privacy lock active</b>
-    <div class="small">GPS coordinates and grade readings stay in this browser on this device. When the GPS map is visible, tile requests go only to the USGS National Map service and can reveal the approximate area being viewed. No analytics or telemetry are enabled. Exported CSV/project files only leave the device if you choose to save, share, or upload them.</div>
+    <div class="small">GPS coordinates and grade readings stay in this browser on this device. The map loads pinned MapLibre display files from unpkg.com and, when visible, location-dependent tile requests from the USGS National Map service; those tile requests can reveal the approximate area being viewed. Other runtime network requests remain blocked, and no analytics or telemetry are enabled. Exported CSV/project files only leave the device if you choose to save, share, or upload them.</div>
   </div>
 
   <div class="card gpsCard" id="gpsCard">
@@ -208,7 +208,7 @@
 
 <script src="https://unpkg.com/maplibre-gl@5.16.0/dist/maplibre-gl.js"></script>
 <script src="platform.js?v=20260821-2"></script>
-<script src="privacy.js?v=20260819-1"></script>
+<script src="privacy.js?v=20260821-2"></script>
 <script src="core.js?v=20260819-1"></script>
 <script src="ui.js?v=20260819-1"></script>
 <script src="v10.js?v=20260821-1"></script>
