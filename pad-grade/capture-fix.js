@@ -73,16 +73,41 @@
   if(!document.querySelector('link[data-padgrade-v030]')){
     const link=document.createElement('link');
     link.rel='stylesheet';
-    link.href='v030.css?v=20260822-1';
+    link.href='v030.css?v=20260822-2';
     link.dataset.padgradeV030='1';
     document.head.appendChild(link);
+  }
+
+  function polishLoadedWorkflow(){
+    document.title='Pad Grade Mapper v0.3.0';
+
+    // Keep the live corner instruction visible inside the new calibration block.
+    const calibration=document.querySelector('.v030-calibration');
+    const instruction=document.getElementById('gpsInstruction');
+    const title=calibration&&calibration.querySelector('.v030-sectionTitle');
+    if(calibration&&instruction&&title){
+      title.insertAdjacentElement('afterend',instruction);
+      instruction.style.marginBottom='8px';
+    }
+
+    // The volume numbers move into Job Summary. Move their collapsed explanation
+    // with them instead of leaving an almost-empty standalone card behind.
+    const summary=document.querySelector('.v030-jobSummary');
+    const volumeHelp=document.querySelector('.v030-help[aria-label="Volume estimate information"]');
+    if(summary&&volumeHelp){
+      const helpWrap=volumeHelp.parentElement;
+      const oldCard=volumeHelp.closest('.card');
+      if(helpWrap) summary.appendChild(helpWrap);
+      if(oldCard&&oldCard!==summary) oldCard.remove();
+    }
   }
 
   function loadWorkflow(){
     if(document.querySelector('script[data-padgrade-v030]')) return;
     const script=document.createElement('script');
-    script.src='v030.js?v=20260822-1';
+    script.src='v030.js?v=20260822-2';
     script.dataset.padgradeV030='1';
+    script.onload=polishLoadedWorkflow;
     document.body.appendChild(script);
   }
 
