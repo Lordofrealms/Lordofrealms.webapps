@@ -1,1 +1,1 @@
-build 18 - v0.4.3 verified launcher artwork rebuild
+build 19 - v0.4.4 approved launcher artwork validation
