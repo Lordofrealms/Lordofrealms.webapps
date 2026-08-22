@@ -34,7 +34,6 @@ function updateStats(){
   $('cutDisp').textContent=maxCut?maxCut.toFixed(1)+'″':'—';
   $('fillDisp').textContent=maxFill?maxFill.toFixed(1)+'″':'—';
 
-  // rough tributary-area earthwork estimate
   const dx=s.width/(s.cols-1), dy=s.length/(s.rows-1);
   let cutFt3=0, fillFt3=0;
   for(let r=0;r<s.rows;r++){
@@ -126,21 +125,30 @@ function saveTextDownload(filename,mimeType,text){
   setTimeout(()=>URL.revokeObjectURL(a.href),0);
 }
 
-function exportProject(){
+function exportProjectShared(){
   const s=cfg();
+  const gpsPayload={reference:gpsRef,opposite:gpsOpposite,targetIndex:gpsTargetIndex};
+  let version=3;
+  if(typeof gpsCorners!=='undefined' && gpsCorners && typeof gpsCorners==='object'){
+    gpsPayload.corners=gpsCorners;
+    gpsPayload.captureIndex=(typeof gpsCaptureIndex==='number')?gpsCaptureIndex:Object.keys(gpsCorners).length;
+    version=4;
+  }
   const payload={
     app:"Pad Grade Mapper Mobile",
-    version:3,
+    version,
     exportedAt:new Date().toISOString(),
     settings:s,
     readings:readings,
     readingMeta:readingMeta,
-    gps:{reference:gpsRef,opposite:gpsOpposite,targetIndex:gpsTargetIndex},
+    gps:gpsPayload,
     measureMode:measureMode
   };
   const filename=(s.name||'pad_grade').replace(/[^\w-]+/g,'_')+'_project.json';
   saveTextDownload(filename,'application/json',JSON.stringify(payload,null,2));
 }
+function exportProject(){ return exportProjectShared(); }
+
 async function importProjectFile(file){
   const raw=await file.text();
   const data=JSON.parse(raw);
