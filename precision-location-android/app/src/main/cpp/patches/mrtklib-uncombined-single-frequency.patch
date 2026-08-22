@@ -19,7 +19,7 @@ diff --git a/src/pos/mrtk_ppp.c b/src/pos/mrtk_ppp.c
      if (freq[0] == 0.0 || freq[i2] == 0.0) {
          return 0;
      }
-@@ -1134,11 +1145,18 @@ static void udiono_ppp(rtk_t* rtk, const obsd_t* obs, int n, const nav_t* nav) {
+@@ -1134,13 +1145,20 @@ static void udiono_ppp(rtk_t* rtk, const obsd_t* obs, int n, const nav_t* nav) {
          slip = rtk->ssat[obs[i].sat - 1].slip;
  
          if (rtk->x[j] == 0.0) {
