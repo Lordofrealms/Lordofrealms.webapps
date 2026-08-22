@@ -1,7 +1,7 @@
 package com.lordofrealms.precisionlocation;
 
 public final class PppSolution {
-    public enum State { OFF, STARTING, CONVERGING, READY, DEGRADED, ERROR }
+    public enum State { OFF, PRECHECK, STARTING, CONVERGING, READY, DEGRADED, ERROR }
 
     public final State state;
     public final double latitudeDeg;
