@@ -5,14 +5,16 @@ import android.webkit.WebView;
 
 import org.json.JSONObject;
 
-/** Thin JavaScript bridge. The canonical Pad Grade web code remains unchanged. */
+/** Thin JavaScript bridge. Application logic remains in the canonical web code. */
 public final class PadGradeNativeBridge implements PrecisionLocationClient.Listener {
+    private final MainActivity activity;
     private final WebView webView;
     private final PrecisionLocationClient precisionClient;
 
-    public PadGradeNativeBridge(WebView webView) {
+    public PadGradeNativeBridge(MainActivity activity, WebView webView) {
+        this.activity = activity;
         this.webView = webView;
-        this.precisionClient = new PrecisionLocationClient(webView.getContext(), this);
+        this.precisionClient = new PrecisionLocationClient(activity, this);
     }
 
     @JavascriptInterface
@@ -28,6 +30,11 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
     @JavascriptInterface
     public void releasePrecisionLocation() {
         precisionClient.release();
+    }
+
+    @JavascriptInterface
+    public boolean saveTextFile(String filename, String mimeType, String text) {
+        return activity.requestSaveTextFile(filename, mimeType, text);
     }
 
     public void destroy() {
@@ -50,9 +57,7 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
 
     private void evaluate(String javascript) {
         webView.post(() -> {
-            if (webView.getHandler() != null) {
-                webView.evaluateJavascript(javascript, null);
-            }
+            if (webView.getHandler() != null) webView.evaluateJavascript(javascript, null);
         });
     }
 }
