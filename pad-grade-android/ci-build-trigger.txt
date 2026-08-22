@@ -1,1 +1,1 @@
-build 10 - v0.4.0 final validation with JS syntax and packaged asset checks
+build 11 - v0.4.0 final validation after durable storage onboarding prompt
