@@ -1,6 +1,6 @@
 # Pad Grade Mapper — Terms of Use & Safety Notice
 
-**Version:** 2026-08-19-v1
+**Version:** 2026-08-21-v2
 
 These Terms of Use & Safety Notice apply to the original **Pad Grade Mapper** application distributed from this repository. The software source code is licensed separately under the MIT License in `LICENSE`.
 
@@ -12,7 +12,7 @@ The source code is licensed under the MIT License. The MIT License governs right
 
 Pad Grade Mapper is an experimental layout, grade-recording, GPS-guidance, and earthwork-planning aid. It is **not** certified surveying, engineering, excavation-control, machine-control, or safety equipment. It does not replace a licensed survey, engineered grading plan, compaction specification, drainage design, utility locate, or other professional service where one is required.
 
-Consumer-device GPS may be inaccurate, delayed, unavailable, or affected by device hardware, satellite geometry, sky view, multipath, browser behavior, or other conditions. Rod readings, reference elevations, entered dimensions, grid locations, and other user inputs may also be incorrect.
+Consumer-device GPS may be inaccurate, delayed, unavailable, or affected by device hardware, satellite geometry, sky view, multipath, correction availability, browser/app behavior, or other conditions. Rod readings, reference elevations, entered dimensions, grid locations, and other user inputs may also be incorrect.
 
 ## 3. User responsibility
 
@@ -26,13 +26,17 @@ Cut, fill, net-volume, and similar calculations are planning estimates based on 
 
 ## 5. GPS-guided point location
 
-GPS-guided mode is intended only to help navigate approximately between measurement points. It is not intended to establish legal boundaries, construction control, precise grade stakes, or survey monuments. Use tapes, stakes, known benchmarks, surveying equipment, or other appropriate methods whenever higher accuracy is required.
+GPS-guided mode is intended only to help navigate approximately between measurement points. Displayed accuracy/error values are statistical or device/solver estimates, not guaranteed error bounds, and actual error can be larger. It is not intended to establish legal boundaries, construction control, precise grade stakes, or survey monuments. Use tapes, stakes, known benchmarks, surveying equipment, or other appropriate methods whenever higher accuracy is required.
 
-## 6. Data, privacy, and availability
+## 6. Data, privacy, map imagery, and availability
 
-Pad Grade Mapper is designed to keep GPS coordinates and grade readings in the local browser/device and to block outbound network access from the application. Exported project or CSV files leave the device only when the user chooses to save, share, or upload them.
+Pad Grade Mapper is designed to keep GPS coordinates, grade readings, and project data in local browser/device storage unless the user explicitly exports them.
 
-Local browser storage can nevertheless be cleared, corrupted, or lost. Device failure, browser updates, permission changes, or other events can also make saved data unavailable. Export important projects when data loss would matter.
+The GPS map uses a pinned MapLibre GL display library served by **unpkg.com** and hybrid aerial map tiles from the **USGS National Map** service. The static MapLibre library request is not supplied with Pad Grade project or GPS data. When the map is visible, the USGS tile URLs necessarily identify the approximate geographic area being viewed. The original distributed application blocks other runtime fetch/XHR destinations and does not include analytics or telemetry.
+
+Exported project or CSV files leave the device only when the user chooses to save, share, or upload them.
+
+Local browser/application storage can nevertheless be cleared, corrupted, or lost. Device failure, browser/app updates, permission changes, map-service availability, correction-service availability, or other events can also make saved data or features unavailable. Export important projects when data loss would matter.
 
 ## 7. No warranty / limitation of liability
 
@@ -40,7 +44,7 @@ The software and application are provided **AS IS**, without warranty of any kin
 
 ## 8. Acceptance
 
-By accepting the in-application Terms screen or otherwise using the original distributed Pad Grade Mapper application, the user acknowledges these limitations and agrees to use the application at their own risk and with independent judgment.
+By accepting the in-application Terms screen or otherwise using the original distributed Pad Grade Mapper application, the user acknowledges these limitations and agrees to use the application at their own risk and with independent judgment. The Android application requires acceptance again after each installed app update.
 
 ## 9. Modified or redistributed versions
 

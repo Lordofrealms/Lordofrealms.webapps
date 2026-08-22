@@ -5,9 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b0f14">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; child-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none';">
-<title>Pad Grade Mapper Mobile v10</title>
-<link rel="stylesheet" href="style.css?v=20260819-1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' https://basemap.nationalmap.gov; img-src 'self' data: blob: https://basemap.nationalmap.gov; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'self' blob:; child-src 'self' blob:; manifest-src 'none'; form-action 'none'; base-uri 'none';">
+<title>Pad Grade Mapper v0.2.0</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.16.0/dist/maplibre-gl.css">
+<link rel="stylesheet" href="style.css?v=20260821-2">
 <link rel="stylesheet" href="v10.css?v=20260821-1">
 </head>
 <body>
@@ -37,9 +38,31 @@
     </div>
   </div>
 
+  <div class="card gpsMapCard" id="gpsMapCard">
+    <div class="gpsMapHeader">
+      <div>
+        <b>Current Position</b>
+        <div class="gpsSourceLine">
+          <span class="gpsSourceBadge native" id="gpsSourceBadge">Native GPS</span>
+          <span class="gpsSourceState" id="gpsSourceState">WAITING</span>
+        </div>
+      </div>
+      <div class="gpsMapHeaderRight">
+        <div class="gpsMapAccuracy" id="gpsMapAccuracy">—</div>
+        <div class="small">reported horizontal error</div>
+        <button type="button" id="gpsMapRecenter">Center</button>
+      </div>
+    </div>
+    <div class="gpsMapWrap">
+      <div id="gpsMap"></div>
+      <div class="gpsMapMessage" id="gpsMapMessage">Enable GPS to show current position.</div>
+    </div>
+    <div class="gpsMapFoot">Marker = reported position • blue circle = reported horizontal uncertainty • USGS hybrid aerial imagery</div>
+  </div>
+
   <div class="card">
     <b>Privacy lock active</b>
-    <div class="small">GPS coordinates and grade readings stay in this browser on this device. Outbound network connections and third-party content are blocked by the app. Exported CSV/project files only leave the device if you choose to share or upload them.</div>
+    <div class="small">GPS coordinates and grade readings stay in this browser on this device. The map loads pinned MapLibre display files from unpkg.com and, when visible, location-dependent tile requests from the USGS National Map service; those tile requests can reveal the approximate area being viewed. Other runtime network requests remain blocked, and no analytics or telemetry are enabled. Exported CSV/project files only leave the device if you choose to save, share, or upload them.</div>
   </div>
 
   <div class="card gpsCard" id="gpsCard">
@@ -183,11 +206,13 @@
   </div>
 </dialog>
 
-<script src="platform.js?v=20260821-1"></script>
-<script src="privacy.js?v=20260819-1"></script>
+<script src="https://unpkg.com/maplibre-gl@5.16.0/dist/maplibre-gl.js"></script>
+<script src="platform.js?v=20260821-2"></script>
+<script src="privacy.js?v=20260821-2"></script>
 <script src="core.js?v=20260819-1"></script>
 <script src="ui.js?v=20260819-1"></script>
 <script src="v10.js?v=20260821-1"></script>
+<script src="map.js?v=20260821-1"></script>
 <script src="init.js?v=20260819-1"></script>
 </body>
 </html>

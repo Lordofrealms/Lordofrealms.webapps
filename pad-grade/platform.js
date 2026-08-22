@@ -22,6 +22,19 @@
   const platform={
     target:nativeBridge?'android':'web',
     nativePrecisionLocation:precisionAvailable,
+    lastLocationMeta:precisionAvailable?{
+      provider:'precision-location',
+      solutionMode:'Precision Location',
+      solutionState:'STARTING',
+      fixAgeMs:0,
+      timestamp:0
+    }:{
+      provider:'native',
+      solutionMode:'Native GPS',
+      solutionState:'UNKNOWN',
+      fixAgeMs:0,
+      timestamp:0
+    },
     saveTextFile(filename,mimeType,text){
       if(!nativeBridge || typeof nativeBridge.saveTextFile!=='function') return false;
       try{
@@ -48,7 +61,18 @@
     return {code,message:String(message||'Location unavailable')};
   }
 
+  function setPrecisionState(state,mode){
+    platform.lastLocationMeta={
+      provider:'precision-location',
+      solutionMode:mode||platform.lastLocationMeta.solutionMode||'Precision Location',
+      solutionState:state||'UNKNOWN',
+      fixAgeMs:platform.lastLocationMeta.fixAgeMs||0,
+      timestamp:platform.lastLocationMeta.timestamp||0
+    };
+  }
+
   function emitError(code,message){
+    setPrecisionState('ERROR','Precision Location');
     const err=positionError(code,message);
     for(const watcher of watchers.values()){
       try{ if(typeof watcher.error==='function') watcher.error(err); }catch(e){}
@@ -68,6 +92,14 @@
     const verticalAccuracy=Number.isFinite(+p.verticalAccuracy)?+p.verticalAccuracy:null;
     const speed=Number.isFinite(+p.speed)?+p.speed:null;
     const heading=Number.isFinite(+p.bearing)?+p.bearing:null;
+    const timestamp=Number.isFinite(+p.timestamp)?+p.timestamp:Date.now();
+    platform.lastLocationMeta={
+      provider:'precision-location',
+      solutionMode:p.solutionMode||'Precision Location',
+      solutionState:p.solutionState||'UNKNOWN',
+      fixAgeMs:Number.isFinite(+p.fixAgeMs)?+p.fixAgeMs:0,
+      timestamp
+    };
     return {
       coords:{
         latitude:+p.latitude,
@@ -77,18 +109,19 @@
         altitudeAccuracy:verticalAccuracy,
         heading,
         speed,
-        solutionMode:p.solutionMode||'Precision Location',
-        solutionState:p.solutionState||'UNKNOWN',
-        fixAgeMs:Number.isFinite(+p.fixAgeMs)?+p.fixAgeMs:0,
+        solutionMode:platform.lastLocationMeta.solutionMode,
+        solutionState:platform.lastLocationMeta.solutionState,
+        fixAgeMs:platform.lastLocationMeta.fixAgeMs,
         provider:'precision-location'
       },
-      timestamp:Number.isFinite(+p.timestamp)?+p.timestamp:Date.now()
+      timestamp
     };
   }
 
   function ensureStarted(){
     if(startRequested) return;
     startRequested=true;
+    setPrecisionState('STARTING','Precision Location');
     try{
       const result=nativeBridge.startPrecisionLocation();
       if(result===false){
@@ -121,6 +154,7 @@
       request.timer=setTimeout(()=>{
         const index=oneShots.indexOf(request);
         if(index>=0) oneShots.splice(index,1);
+        setPrecisionState('ERROR','Precision Location');
         try{ if(typeof error==='function') error(positionError(3,'Precision Location request timed out.')); }catch(e){}
         maybeReleaseSubscription();
       },timeout);
@@ -171,6 +205,7 @@
 
   window.__padGradeNativeProviderStopped=function(){
     startRequested=false;
+    setPrecisionState('STOPPED',platform.lastLocationMeta.solutionMode||'Precision Location');
   };
 
   // Navigator.geolocation is normally inherited from Navigator.prototype. An
