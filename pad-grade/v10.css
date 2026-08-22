@@ -1,5 +1,6 @@
 /* Pad Grade Mapper v10 GPS calibration/navigation */
 .gridShell{visibility:hidden}
+.gridShell:not([data-grid-booting])[style]{visibility:visible}
 .cornerSurvey{margin-top:10px;padding:11px;border:1px solid var(--line);border-radius:13px;background:#0d1218}
 .cornerSurveyTitle{font-size:.7rem;color:var(--muted);font-weight:800;letter-spacing:.05em;margin-bottom:8px}
 .cornerSurveyGrid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
