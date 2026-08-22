@@ -30,9 +30,10 @@ static uint32_t be32(const uint8_t *p) {
 }
 
 /* Android gives each GPS word in the low 30 bits of a 32-bit big-endian word.
- * decode_word() wants previous D29*/D30* in the upper two bits. For word 1,
- * those bits belong to the previous subframe and Android omits them, so try the
- * four possibilities and accept the parity-valid one with the TLM preamble. */
+ * decode_word() wants the previous word's D29-star and D30-star bits in the
+ * upper two bits. For word 1 those belong to the previous subframe and Android
+ * omits them, so try all four possibilities and accept the parity-valid one
+ * that also yields the GPS TLM preamble. */
 static int compact_gps_subframe(const uint8_t *data, int length, uint8_t out[30]) {
     uint32_t words[10];
     int i, prefix = -1;
