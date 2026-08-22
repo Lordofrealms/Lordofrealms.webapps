@@ -3,9 +3,15 @@ package com.lordofrealms.precisionlocation;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.IBinder;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -14,10 +20,11 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import java.util.ArrayList;
 import java.util.Locale;
 
-public final class MainActivity extends Activity implements PositionEngine.Listener, GnssCollector.Listener {
-    private static final int LOCATION_REQUEST = 1001;
+public final class MainActivity extends Activity implements PrecisionLocationService.UiListener {
+    private static final int PERMISSION_REQUEST = 1001;
 
     private TextView stateView;
     private TextView accuracyView;
@@ -25,32 +32,75 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
     private TextView detailView;
     private TextView engineView;
     private Button startButton;
+    private Button settingsButton;
     private boolean running;
     private boolean diagnosticsVisible;
+    private boolean bound;
     private PppSolution lastSolution;
-    private AutoPppEngine engine;
-    private GnssCollector collector;
+    private PrecisionLocationService service;
+
+    private final ServiceConnection serviceConnection = new ServiceConnection() {
+        @Override public void onServiceConnected(ComponentName name, IBinder binder) {
+            PrecisionLocationService.LocalBinder local = (PrecisionLocationService.LocalBinder)binder;
+            service = local.getService();
+            bound = true;
+            service.setUiListener(MainActivity.this);
+            running = service.isRunning();
+            if (running) {
+                startButton.setText("Stop");
+                settingsButton.setEnabled(false);
+                PppSolution solution = service.getLastSolution();
+                if (solution != null) {
+                    lastSolution = solution;
+                    renderLastSolution();
+                } else {
+                    renderStartingState();
+                }
+            } else {
+                refreshSetupState();
+            }
+        }
+
+        @Override public void onServiceDisconnected(ComponentName name) {
+            bound = false;
+            service = null;
+        }
+    };
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         buildUi();
-        engine = new AutoPppEngine(this, this);
-        collector = new GnssCollector(this, engine, this);
         engineView.setText(AutoPppEngine.nativeEngineInfo());
 
-        // Keep setup and diagnostics out of the normal workflow. Long-press the
-        // status text while stopped to edit HAS access, or while running to
-        // temporarily reveal engineering diagnostics.
+        // Long-press while running only reveals engineering diagnostics. HAS
+        // credentials now have a visible Settings button and are not hidden.
         detailView.setOnLongClickListener(v -> {
-            if (!running) {
-                showHasSetupDialog();
-            } else {
+            if (running) {
                 diagnosticsVisible = !diagnosticsVisible;
                 renderLastSolution();
+                return true;
             }
-            return true;
+            return false;
         });
         refreshSetupState();
+    }
+
+    @Override protected void onStart() {
+        super.onStart();
+        Intent intent = new Intent(this, PrecisionLocationService.class);
+        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
+    }
+
+    @Override protected void onStop() {
+        if (bound) {
+            service.setUiListener(null);
+            unbindService(serviceConnection);
+            bound = false;
+            service = null;
+        }
+        // Deliberately do NOT stop GNSS here. Screen-off/backgrounding is one
+        // of the main use cases for the foreground service.
+        super.onStop();
     }
 
     private void buildUi() {
@@ -98,6 +148,15 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(58));
         root.addView(startButton, buttonParams);
 
+        settingsButton = new Button(this);
+        settingsButton.setText("HAS Settings");
+        settingsButton.setTextSize(14);
+        settingsButton.setOnClickListener(v -> showHasSetupDialog());
+        LinearLayout.LayoutParams settingsParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(50));
+        settingsParams.topMargin = dp(10);
+        root.addView(settingsButton, settingsParams);
+
         engineView = text("", 11, Color.rgb(105, 119, 132), false);
         engineView.setGravity(Gravity.CENTER);
         engineView.setPadding(0, dp(24), 0, 0);
@@ -108,40 +167,94 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
     }
 
     private void refreshSetupState() {
+        running = false;
         diagnosticsVisible = false;
         engineView.setVisibility(View.GONE);
+        settingsButton.setEnabled(true);
         modeView.setText("AUTOMATIC");
         accuracyView.setText("—");
         if (HasAccessConfig.load(this).isConfigured()) {
             stateView.setText("OFF");
             stateView.setTextColor(Color.rgb(160, 172, 184));
-            detailView.setText("Tap Start. Everything else is automatic.");
+            detailView.setText("HAS configured. Tap Start.");
             startButton.setText("Start");
         } else {
             stateView.setText("GNSS TEST READY");
             stateView.setTextColor(Color.rgb(245, 190, 78));
-            detailView.setText("HAS is not configured yet. You can still test the phone's raw GNSS.");
+            detailView.setText("HAS is not configured yet. Test GNSS now or add credentials in HAS Settings.");
             startButton.setText("Test GNSS");
         }
     }
 
     private void toggle() {
-        if (running) {
-            collector.stop();
-            running = false;
-            lastSolution = null;
-            diagnosticsVisible = false;
+        boolean active = service != null ? service.isRunning() : running;
+        if (active) {
+            Intent stop = new Intent(this, PrecisionLocationService.class);
+            stop.setAction(PrecisionLocationService.ACTION_STOP);
+            startService(stop);
             refreshSetupState();
             return;
         }
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, LOCATION_REQUEST);
+        requestPermissionsAndStart();
+    }
+
+    private void requestPermissionsAndStart() {
+        ArrayList<String> missing = new ArrayList<>();
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            missing.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            missing.add(Manifest.permission.POST_NOTIFICATIONS);
+        }
+        if (!missing.isEmpty()) {
+            requestPermissions(missing.toArray(new String[0]), PERMISSION_REQUEST);
             return;
         }
-        startCollector();
+        startPrecisionSession();
+    }
+
+    private void startPrecisionSession() {
+        running = true;
+        diagnosticsVisible = false;
+        startButton.setText("Stop");
+        settingsButton.setEnabled(false);
+        renderStartingState();
+
+        Intent start = new Intent(this, PrecisionLocationService.class);
+        start.setAction(PrecisionLocationService.ACTION_START);
+        startForegroundService(start);
+    }
+
+    private void renderStartingState() {
+        if (HasAccessConfig.load(this).isConfigured()) {
+            stateView.setText("STARTING");
+            detailView.setText("Getting a high-accuracy position…");
+        } else {
+            stateView.setText("PRECHECK");
+            detailView.setText("Testing the phone's raw GNSS… this continues with the screen off.");
+        }
+        stateView.setTextColor(Color.rgb(245, 190, 78));
+        accuracyView.setText("—");
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != PERMISSION_REQUEST) return;
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED) {
+            // Notification permission is useful but not required for the location
+            // foreground service to function; Android still exposes active FGS state.
+            startPrecisionSession();
+        } else {
+            onServiceError("Precise location permission is required");
+        }
     }
 
     private void showHasSetupDialog() {
+        if (running) return;
         HasAccessConfig existing = HasAccessConfig.load(this);
         int pad = dp(14);
         LinearLayout form = new LinearLayout(this);
@@ -169,55 +282,95 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
         password.setText(existing.password);
         form.addView(password, matchWrap());
 
+        TextView testStatus = text("", 13, Color.rgb(160, 172, 184), false);
+        testStatus.setPadding(0, dp(8), 0, dp(4));
+        form.addView(testStatus, matchWrap());
+
+        Button testButton = new Button(this);
+        testButton.setText("Test Connection");
+        form.addView(testButton, matchWrap());
+
+        final HasNtripClient[] testClient = new HasNtripClient[1];
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("One-time HAS access")
-                .setMessage("Enter the Galileo High Accuracy Service access issued by the Galileo Service Centre. You can leave this unset and use GNSS test mode until access is available.")
+                .setTitle("HAS Settings")
+                .setMessage("Add or change Galileo HAS Internet Data Distribution access here. Changes are used the next time positioning starts.")
                 .setView(form)
+                .setNeutralButton("Clear", null)
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Save", null)
                 .create();
-        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            HasAccessConfig value = new HasAccessConfig(
+
+        Runnable stopTest = () -> {
+            HasNtripClient client = testClient[0];
+            testClient[0] = null;
+            if (client != null) client.stop();
+        };
+
+        testButton.setOnClickListener(v -> {
+            stopTest.run();
+            HasAccessConfig candidate = new HasAccessConfig(
                     url.getText().toString(), username.getText().toString(), password.getText().toString());
-            if (!value.isConfigured()) {
-                url.setError("Use the full HTTPS HAS caster URL");
+            if (!candidate.isConfigured()) {
+                testStatus.setText("Enter the HTTPS caster URL, username, and password first.");
                 return;
             }
-            value.save(this);
-            dialog.dismiss();
-            refreshSetupState();
-        }));
+            testStatus.setText("Connecting…");
+            HasNtripClient client = new HasNtripClient(candidate, new HasNtripClient.Listener() {
+                @Override public void onCorrectionBytes(byte[] data, int length) {
+                    runOnUiThread(() -> testStatus.setText("Connected — correction data received."));
+                    stopTest.run();
+                }
+                @Override public void onStatus(String status) {
+                    runOnUiThread(() -> testStatus.setText(status));
+                }
+                @Override public void onFatalError(String message) {
+                    runOnUiThread(() -> testStatus.setText(message));
+                }
+            });
+            testClient[0] = client;
+            client.start();
+        });
+
+        dialog.setOnShowListener(ignored -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                HasAccessConfig value = new HasAccessConfig(
+                        url.getText().toString(), username.getText().toString(), password.getText().toString());
+                if (!value.isConfigured()) {
+                    url.setError("Use the full HTTPS HAS caster URL and enter the issued login");
+                    return;
+                }
+                stopTest.run();
+                value.save(this);
+                dialog.dismiss();
+                refreshSetupState();
+            });
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
+                stopTest.run();
+                HasAccessConfig.clear(this);
+                dialog.dismiss();
+                refreshSetupState();
+            });
+        });
+        dialog.setOnDismissListener(ignored -> stopTest.run());
         dialog.show();
     }
 
-    private void startCollector() {
-        running = true;
-        diagnosticsVisible = false;
-        startButton.setText("Stop");
-        if (HasAccessConfig.load(this).isConfigured()) {
-            stateView.setText("STARTING");
-            detailView.setText("Getting a high-accuracy position…");
-        } else {
-            stateView.setText("PRECHECK");
-            detailView.setText("Testing the phone's raw GNSS…");
-        }
-        collector.start();
-    }
-
-    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == LOCATION_REQUEST && grantResults.length > 0
-                && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            startCollector();
-        } else {
-            onError("Precise location permission is required");
-        }
-    }
-
-    @Override public void onSolution(PppSolution solution) {
+    @Override public void onServiceSolution(PppSolution solution) {
         runOnUiThread(() -> {
+            running = solution.state != PppSolution.State.OFF;
+            settingsButton.setEnabled(!running);
+            startButton.setText(running ? "Stop" : (HasAccessConfig.load(this).isConfigured() ? "Start" : "Test GNSS"));
             lastSolution = solution;
-            renderLastSolution();
+            if (!running) refreshSetupState();
+            else renderLastSolution();
+        });
+    }
+
+    @Override public void onServiceError(String message) {
+        runOnUiThread(() -> {
+            stateView.setText("ERROR");
+            stateView.setTextColor(Color.rgb(255, 126, 108));
+            detailView.setText(message);
         });
     }
 
@@ -244,7 +397,8 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
         switch (solution.state) {
             case READY: color = Color.rgb(143, 209, 79); break;
             case PRECHECK:
-            case CONVERGING: color = Color.rgb(245, 190, 78); break;
+            case CONVERGING:
+            case STARTING: color = Color.rgb(245, 190, 78); break;
             case DEGRADED:
             case ERROR: color = Color.rgb(255, 126, 108); break;
             default: color = Color.rgb(205, 213, 221); break;
@@ -255,7 +409,7 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
     private String friendlyDetail(PppSolution.State state) {
         switch (state) {
             case PRECHECK:
-                return "Testing phone GNSS. HAS setup is still needed for high accuracy.";
+                return "Testing phone GNSS. This continues with the screen off.";
             case STARTING:
                 return "Acquiring satellites and corrections…";
             case CONVERGING:
@@ -269,30 +423,6 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
             case OFF:
             default:
                 return "Tap Start.";
-        }
-    }
-
-    @Override public void onInventory(SignalInventory inventory) { }
-
-    @Override public void onError(String message) {
-        runOnUiThread(() -> {
-            stateView.setText("ERROR");
-            stateView.setTextColor(Color.rgb(255, 126, 108));
-            detailView.setText(message);
-            if (running) {
-                running = false;
-                startButton.setText("Start");
-            }
-        });
-    }
-
-    @Override protected void onStop() {
-        super.onStop();
-        if (running) {
-            collector.stop();
-            running = false;
-            lastSolution = null;
-            refreshSetupState();
         }
     }
 
