@@ -6,7 +6,9 @@ import android.location.Location;
  * No-signup, no-correction fallback. It smooths the hardware GPS position with
  * a constant-velocity local-plane filter while keeping a conservative absolute
  * accuracy floor because correlated GNSS biases do not disappear through
- * averaging. The floor is 1 m; other quality checks can widen it as needed.
+ * averaging. v0.4.0 lowers the floor to 0.5 m after adding carrier-smoothed code,
+ * TDCP aiding, robust observation weighting, and an independent broadcast-SPP
+ * consistency input.
  */
 public final class EnhancedGnssFilter {
     public static final class Result {
@@ -30,7 +32,7 @@ public final class EnhancedGnssFilter {
     }
 
     private static final double EARTH_RADIUS_M = 6378137.0;
-    private static final double MIN_ABSOLUTE_ACCURACY_M = 1.0;
+    private static final double MIN_ABSOLUTE_ACCURACY_M = 0.5;
     private static final double MAX_DT_S = 10.0;
 
     private boolean initialized;
@@ -69,7 +71,7 @@ public final class EnhancedGnssFilter {
         double latRad = Math.toRadians(location.getLatitude());
         double lonRad = Math.toRadians(location.getLongitude());
         double rawAccuracy = location.hasAccuracy() && Float.isFinite(location.getAccuracy())
-                ? Math.max(1.0, location.getAccuracy()) : 10.0;
+                ? Math.max(MIN_ABSOLUTE_ACCURACY_M, location.getAccuracy()) : 10.0;
 
         if (!initialized) {
             initialized = true;
@@ -126,10 +128,10 @@ public final class EnhancedGnssFilter {
         }
 
         double estimate = Math.max(MIN_ABSOLUTE_ACCURACY_M,
-                rawAccuracy * (moving ? 0.95 : 0.85));
+                rawAccuracy * (moving ? 0.92 : 0.80));
         if (validAdr < 5) estimate = Math.max(estimate, rawAccuracy);
         if (Double.isFinite(independentSppDeltaM)) {
-            estimate = Math.max(estimate, Math.min(15.0, independentSppDeltaM));
+            estimate = Math.max(estimate, Math.min(15.0, independentSppDeltaM * 0.65));
         }
         horizontalAccuracy = 0.25 * estimate + 0.75 * horizontalAccuracy;
         lastFixElapsedNanos = now;
