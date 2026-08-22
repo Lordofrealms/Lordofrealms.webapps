@@ -87,7 +87,7 @@ jobs:
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/migration-core.js'
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/grid-core.js'
 
-      - name: Verify launcher icon resolves to approved raster
+      - name: Verify launcher icon resolves and WebP is intact
         run: |
           APK=pad-grade-android/app/build/outputs/apk/debug/app-debug.apk
           AAPT="$ANDROID_HOME/build-tools/36.0.0/aapt"
@@ -98,6 +98,20 @@ jobs:
             exit 1
           fi
           "$AAPT" dump badging "$APK" | grep "application-icon" | grep 'ic_launcher'
+          unzip -p "$APK" res/mipmap-nodpi-v4/ic_launcher.webp > /tmp/ic_launcher.webp
+          unzip -p "$APK" res/mipmap-nodpi-v4/ic_launcher_round.webp > /tmp/ic_launcher_round.webp
+          python3 - <<'PY'
+          from pathlib import Path
+          for name in ('/tmp/ic_launcher.webp', '/tmp/ic_launcher_round.webp'):
+              data = Path(name).read_bytes()
+              assert data[:4] == b'RIFF', f'{name}: missing RIFF header'
+              assert data[8:12] == b'WEBP', f'{name}: missing WEBP signature'
+              declared = int.from_bytes(data[4:8], 'little') + 8
+              actual = len(data)
+              assert declared == actual, f'{name}: truncated WebP: declared {declared}, actual {actual}'
+              assert actual > 4000, f'{name}: unexpectedly small launcher file: {actual}'
+              print(f'{name}: valid WebP, {actual} bytes')
+          PY
 
       - name: Name APK
         run: cp pad-grade-android/app/build/outputs/apk/debug/app-debug.apk "$APK_NAME"
