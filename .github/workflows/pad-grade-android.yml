@@ -8,11 +8,16 @@ on:
     branches: [main]
     paths:
       - 'pad-grade-android/ci-build-trigger.txt'
+      - '.github/workflows/pad-grade-android.yml'
   pull_request:
     branches: [main]
     paths:
       - 'pad-grade-android/ci-build-trigger.txt'
+      - '.github/workflows/pad-grade-android.yml'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -47,6 +52,14 @@ jobs:
         with:
           gradle-version: '9.5.0'
 
+      - name: Resolve app version
+        run: |
+          VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' pad-grade-android/app/build.gradle.kts | head -1)
+          test -n "$VERSION"
+          echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "APK_NAME=Pad-Grade-v$VERSION.apk" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=pad-grade-v$VERSION" >> "$GITHUB_ENV"
+
       - name: Build debug APK
         run: gradle -p pad-grade-android :app:assembleDebug --stacktrace
 
@@ -64,9 +77,33 @@ jobs:
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v042.css'
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v043.js'
 
-      - name: Upload debug APK
+      - name: Name APK
+        run: cp pad-grade-android/app/build/outputs/apk/debug/app-debug.apk "$APK_NAME"
+
+      - name: Upload debug APK artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: pad-grade-debug
-          path: pad-grade-android/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ env.APK_NAME }}
+
+      - name: Publish GitHub Release APK
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$APK_NAME" \
+              --target "$GITHUB_SHA" \
+              --title "Pad Grade v$APP_VERSION" \
+              --notes "Validated Pad Grade Android v$APP_VERSION build. Direct APK asset published by the same workflow that compiled and packaged the app."
+          fi
+
+      - name: Verify GitHub Release APK
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | grep -Fx "$APK_NAME"
