@@ -31,6 +31,7 @@ public final class MainActivity extends Activity {
     private static final int LOCATION_PERMISSION_REQUEST = 1001;
     private static final int FILE_CHOOSER_REQUEST = 1002;
     private static final int SAVE_TEXT_REQUEST = 1003;
+    private static final int PROJECT_FOLDER_REQUEST = 1004;
     private static final String APP_ORIGIN = "https://appassets.androidplatform.net";
     private static final String APP_URL = APP_ORIGIN + "/assets/index.html";
 
@@ -59,16 +60,11 @@ public final class MainActivity extends Activity {
         pendingInitialState = null;
 
         webView = new WebView(this);
-        // targetSdk 36 is edge-to-edge. Reserve the actual status/navigation bar
-        // and cutout regions by shrinking the WebView itself. This keeps both the
-        // top content and the fixed bottom action bar out of Android system UI.
         webView.setOnApplyWindowInsetsListener((view, windowInsets) -> {
-            Insets bars = windowInsets.getInsets(
-                    WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+            Insets bars = windowInsets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
             android.view.ViewGroup.LayoutParams raw = view.getLayoutParams();
             if (raw instanceof android.view.ViewGroup.MarginLayoutParams) {
-                android.view.ViewGroup.MarginLayoutParams margins =
-                        (android.view.ViewGroup.MarginLayoutParams) raw;
+                android.view.ViewGroup.MarginLayoutParams margins = (android.view.ViewGroup.MarginLayoutParams) raw;
                 margins.setMargins(bars.left, bars.top, bars.right, bars.bottom);
                 view.setLayoutParams(margins);
             }
@@ -78,8 +74,7 @@ public final class MainActivity extends Activity {
         webView.requestApplyInsets();
 
         final WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
-                .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
-                .build();
+                .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this)).build();
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -95,64 +90,45 @@ public final class MainActivity extends Activity {
         webView.addJavascriptInterface(nativeBridge, "PadGradeNative");
 
         webView.setWebViewClient(new WebViewClient() {
-            @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                return assetLoader.shouldInterceptRequest(request.getUrl());
-            }
-
-            @Override public WebResourceResponse shouldInterceptRequest(WebView view, String url) {
-                return assetLoader.shouldInterceptRequest(Uri.parse(url));
-            }
-
+            @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) { return assetLoader.shouldInterceptRequest(request.getUrl()); }
+            @Override public WebResourceResponse shouldInterceptRequest(WebView view, String url) { return assetLoader.shouldInterceptRequest(Uri.parse(url)); }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                Uri uri = request.getUrl();
-                return !APP_ORIGIN.equals(uri.getScheme() + "://" + uri.getAuthority());
+                Uri uri = request.getUrl(); return !APP_ORIGIN.equals(uri.getScheme() + "://" + uri.getAuthority());
             }
-
-            @Override public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                return url == null || !url.startsWith(APP_ORIGIN + "/");
-            }
+            @Override public boolean shouldOverrideUrlLoading(WebView view, String url) { return url == null || !url.startsWith(APP_ORIGIN + "/"); }
         });
 
         webView.setWebChromeClient(new WebChromeClient() {
-            @Override public void onGeolocationPermissionsShowPrompt(
-                    String origin, GeolocationPermissions.Callback callback) {
-                if (origin == null || !origin.startsWith(APP_ORIGIN)) {
-                    callback.invoke(origin, false, false);
-                    return;
-                }
-                if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
-                        == PackageManager.PERMISSION_GRANTED) {
-                    callback.invoke(origin, true, false);
-                } else {
-                    pendingGeoOrigin = origin;
-                    pendingGeoCallback = callback;
-                    requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
-                            LOCATION_PERMISSION_REQUEST);
+            @Override public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+                if (origin == null || !origin.startsWith(APP_ORIGIN)) { callback.invoke(origin, false, false); return; }
+                if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) callback.invoke(origin, true, false);
+                else {
+                    pendingGeoOrigin = origin; pendingGeoCallback = callback;
+                    requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, LOCATION_PERMISSION_REQUEST);
                 }
             }
 
-            @Override public boolean onShowFileChooser(
-                    WebView webView,
-                    ValueCallback<Uri[]> filePathCallback,
-                    FileChooserParams fileChooserParams) {
+            @Override public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
                 if (fileChooserCallback != null) fileChooserCallback.onReceiveValue(null);
                 fileChooserCallback = filePathCallback;
-                try {
-                    Intent intent = fileChooserParams.createIntent();
-                    startActivityForResult(intent, FILE_CHOOSER_REQUEST);
-                    return true;
-                } catch (RuntimeException ex) {
-                    fileChooserCallback = null;
-                    return false;
-                }
+                try { startActivityForResult(fileChooserParams.createIntent(), FILE_CHOOSER_REQUEST); return true; }
+                catch (RuntimeException ex) { fileChooserCallback = null; return false; }
             }
         });
 
-        if (savedInstanceState == null) webView.loadUrl(APP_URL);
-        else webView.restoreState(savedInstanceState);
+        if (savedInstanceState == null) webView.loadUrl(APP_URL); else webView.restoreState(savedInstanceState);
     }
 
-    /** Called from the WebView JavaScript-interface thread. */
+    public void requestProjectFolder() {
+        runOnUiThread(() -> {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+            try { startActivityForResult(intent, PROJECT_FOLDER_REQUEST); }
+            catch (RuntimeException ex) { Toast.makeText(this, "No folder picker is available.", Toast.LENGTH_LONG).show(); }
+        });
+    }
+
     public boolean requestSaveTextFile(String filename, String mimeType, String text) {
         if (isFinishing() || isDestroyed() || webView == null) return false;
         final String safeName = filename == null || filename.isBlank() ? "pad-grade.txt" : filename;
@@ -160,84 +136,59 @@ public final class MainActivity extends Activity {
         final String safeText = text == null ? "" : text;
         runOnUiThread(() -> {
             pendingSaveText = safeText;
-            Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT)
-                    .addCategory(Intent.CATEGORY_OPENABLE)
-                    .setType(safeMime)
-                    .putExtra(Intent.EXTRA_TITLE, safeName);
-            try {
-                startActivityForResult(intent, SAVE_TEXT_REQUEST);
-            } catch (RuntimeException ex) {
-                pendingSaveText = null;
-                Toast.makeText(this, "No file-save provider is available.", Toast.LENGTH_LONG).show();
-            }
+            Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(safeMime).putExtra(Intent.EXTRA_TITLE, safeName);
+            try { startActivityForResult(intent, SAVE_TEXT_REQUEST); }
+            catch (RuntimeException ex) { pendingSaveText = null; Toast.makeText(this, "No file-save provider is available.", Toast.LENGTH_LONG).show(); }
         });
         return true;
     }
 
-    @Override protected void onSaveInstanceState(Bundle outState) {
-        if (webView != null) webView.saveState(outState);
-        super.onSaveInstanceState(outState);
-    }
+    @Override protected void onSaveInstanceState(Bundle outState) { if (webView != null) webView.saveState(outState); super.onSaveInstanceState(outState); }
 
-    @Override public void onRequestPermissionsResult(
-            int requestCode, String[] permissions, int[] grantResults) {
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == LOCATION_PERMISSION_REQUEST && pendingGeoCallback != null) {
-            boolean granted = grantResults.length > 0
-                    && grantResults[0] == PackageManager.PERMISSION_GRANTED;
-            pendingGeoCallback.invoke(pendingGeoOrigin, granted, false);
-            pendingGeoCallback = null;
-            pendingGeoOrigin = null;
+            boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            pendingGeoCallback.invoke(pendingGeoOrigin, granted, false); pendingGeoCallback = null; pendingGeoOrigin = null;
         }
     }
 
     @Override protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == LEGAL_ACCEPTANCE_REQUEST) {
-            if (resultCode == RESULT_OK && LegalNoticeActivity.isAccepted(this)) {
-                initializeWebView(pendingInitialState);
-            } else {
-                finish();
+            if (resultCode == RESULT_OK && LegalNoticeActivity.isAccepted(this)) initializeWebView(pendingInitialState); else finish();
+            return;
+        }
+        if (requestCode == PROJECT_FOLDER_REQUEST) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null && nativeBridge != null) {
+                Uri uri = data.getData();
+                int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                try { getContentResolver().takePersistableUriPermission(uri, flags); }
+                catch (SecurityException ignored) {}
+                nativeBridge.onProjectFolderSelected(uri);
             }
             return;
         }
         if (requestCode == FILE_CHOOSER_REQUEST && fileChooserCallback != null) {
-            Uri[] result = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
-            fileChooserCallback.onReceiveValue(result);
-            fileChooserCallback = null;
-            return;
+            Uri[] result = WebChromeClient.FileChooserParams.parseResult(resultCode, data); fileChooserCallback.onReceiveValue(result); fileChooserCallback = null; return;
         }
         if (requestCode == SAVE_TEXT_REQUEST) {
-            String text = pendingSaveText;
-            pendingSaveText = null;
+            String text = pendingSaveText; pendingSaveText = null;
             if (resultCode != RESULT_OK || data == null || data.getData() == null || text == null) return;
             try (OutputStream out = getContentResolver().openOutputStream(data.getData(), "w")) {
                 if (out == null) throw new IOException("No output stream");
-                out.write(text.getBytes(StandardCharsets.UTF_8));
-                out.flush();
-            } catch (IOException | RuntimeException ex) {
-                Toast.makeText(this, "Could not save file: " + ex.getMessage(), Toast.LENGTH_LONG).show();
-            }
+                out.write(text.getBytes(StandardCharsets.UTF_8)); out.flush();
+            } catch (IOException | RuntimeException ex) { Toast.makeText(this, "Could not save file: " + ex.getMessage(), Toast.LENGTH_LONG).show(); }
         }
     }
 
-    @Override public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) webView.goBack();
-        else super.onBackPressed();
-    }
+    @Override public void onBackPressed() { if (webView != null && webView.canGoBack()) webView.goBack(); else super.onBackPressed(); }
 
     @Override protected void onDestroy() {
         if (nativeBridge != null) nativeBridge.destroy();
-        if (fileChooserCallback != null) {
-            fileChooserCallback.onReceiveValue(null);
-            fileChooserCallback = null;
-        }
+        if (fileChooserCallback != null) { fileChooserCallback.onReceiveValue(null); fileChooserCallback = null; }
         pendingSaveText = null;
-        if (webView != null) {
-            webView.removeJavascriptInterface("PadGradeNative");
-            webView.destroy();
-            webView = null;
-        }
+        if (webView != null) { webView.removeJavascriptInterface("PadGradeNative"); webView.destroy(); webView = null; }
         super.onDestroy();
     }
 }
