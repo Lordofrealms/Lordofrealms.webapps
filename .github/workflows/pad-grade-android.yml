@@ -1,14 +1,15 @@
 name: Pad Grade Android
 
 # Ordinary development commits are quiet. Validation runs only when the trigger
-# file changes, either directly or in a temporary PR targeting this feature branch.
+# file changes on main, when a validation PR changes that trigger file, or when
+# the workflow is started manually.
 on:
   push:
-    branches: [pad-grade-android-wrapper]
+    branches: [main]
     paths:
       - 'pad-grade-android/ci-build-trigger.txt'
   pull_request:
-    branches: [pad-grade-android-wrapper]
+    branches: [main]
     paths:
       - 'pad-grade-android/ci-build-trigger.txt'
   workflow_dispatch:
