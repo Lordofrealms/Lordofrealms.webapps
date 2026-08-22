@@ -81,6 +81,8 @@ public final class MainActivity extends Activity {
                 .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this)).build();
 
         WebSettings settings = webView.getSettings();
+        settings.setMinimumFontSize(2);
+        settings.setMinimumLogicalFontSize(2);
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setGeolocationEnabled(true);

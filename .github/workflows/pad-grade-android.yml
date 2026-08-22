@@ -37,6 +37,7 @@ jobs:
           node --check pad-grade/v047.js
           node --check pad-grade/v048.js
           node --check pad-grade/v049.js
+          node --check pad-grade/v050.js
 
       - uses: actions/setup-java@v5
         with:
@@ -81,6 +82,7 @@ jobs:
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v047.js'
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v048.js'
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v049.js'
+          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v050.js'
 
       - name: Name APK
         run: cp pad-grade-android/app/build/outputs/apk/debug/app-debug.apk "$APK_NAME"

@@ -1,1 +1,1 @@
-build 23 - v0.4.9 grid font minimum 1 px and scaler test baseline
+build 24 - v0.5.0 WebView 2 px font floor, authoritative grid scaler diagnostics, professional launcher icon
