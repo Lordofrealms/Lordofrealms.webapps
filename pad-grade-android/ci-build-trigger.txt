@@ -1,1 +1,1 @@
-build 9 - v0.4.0 responsive grid, autosave, multi-project durable storage
+build 10 - v0.4.0 final validation with JS syntax and packaged asset checks
