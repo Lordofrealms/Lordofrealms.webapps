@@ -9,6 +9,10 @@ import android.location.Location;
 public final class AutoPppEngine implements PositionEngine, HasNtripClient.Listener {
     static { System.loadLibrary("precision_location"); }
 
+    private static final int SOLQ_PPP = 6;
+    private static final double READY_HORIZONTAL_METERS = 1.0;
+    private static final int READY_STREAK_EPOCHS = 5;
+
     private final Context appContext;
     private final Listener listener;
     private final AndroidGnssObservationConverter observationConverter = new AndroidGnssObservationConverter();
@@ -17,6 +21,7 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
     private volatile boolean hasCorrections;
     private volatile String correctionStatus = "HAS not started";
     private HasNtripClient hasClient;
+    private int readyStreak;
 
     public AutoPppEngine(Context context, Listener listener) {
         this.appContext = context.getApplicationContext();
@@ -26,8 +31,12 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
     @Override public void start() {
         running = true;
         hasCorrections = false;
+        readyStreak = 0;
         correctionStatus = "Connecting to HAS corrections";
         nativeReset();
+        Location f = fallbackLocation;
+        if (f != null) nativeSetApproximatePosition(f.getLatitude(), f.getLongitude(), f.getAltitude());
+
         HasAccessConfig config = HasAccessConfig.load(appContext);
         if (config.isConfigured()) {
             hasClient = new HasNtripClient(config, this);
@@ -40,6 +49,7 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
 
     @Override public void stop() {
         running = false;
+        readyStreak = 0;
         HasNtripClient c = hasClient;
         hasClient = null;
         if (c != null) c.stop();
@@ -74,6 +84,24 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
                 + correctionStatus + "\n"
                 + accepted + " GPS/Galileo satellite records accepted • " + nativeObservationInfo();
 
+        double[] ppp = nativePppSolution();
+        if (ppp != null && ppp.length >= 9
+                && (int)Math.round(ppp[0]) == SOLQ_PPP
+                && Double.isFinite(ppp[1]) && Double.isFinite(ppp[2])
+                && Double.isFinite(ppp[4])) {
+            int ns = (int)Math.round(ppp[6]);
+            if (ppp[4] <= READY_HORIZONTAL_METERS && ns >= 5) readyStreak++;
+            else readyStreak = 0;
+            PppSolution.State state = readyStreak >= READY_STREAK_EPOCHS
+                    ? PppSolution.State.READY : PppSolution.State.CONVERGING;
+            String pppDetail = detail + "\nPPP solution: " + ns + " satellites"
+                    + (state == PppSolution.State.READY ? " • precision ready" : " • stabilizing");
+            listener.onSolution(new PppSolution(
+                    state, ppp[1], ppp[2], ppp[3], ppp[4], mode, pppDetail));
+            return;
+        }
+
+        readyStreak = 0;
         Location f = fallbackLocation;
         PppSolution.State state = hasCorrections && accepted >= 4
                 ? PppSolution.State.CONVERGING : PppSolution.State.STARTING;
@@ -81,7 +109,7 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
             listener.onSolution(new PppSolution(
                     state,
                     f.getLatitude(), f.getLongitude(), f.getAltitude(), f.getAccuracy(),
-                    mode, detail));
+                    mode, detail + "\nDisplayed accuracy is Android fallback until PPP is available."));
         } else {
             emit(state, mode, detail);
         }
@@ -93,7 +121,10 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
                 message.getSubmessageId(), message.getData());
     }
 
-    @Override public void onSystemLocation(Location location) { fallbackLocation = location; }
+    @Override public void onSystemLocation(Location location) {
+        fallbackLocation = location;
+        nativeSetApproximatePosition(location.getLatitude(), location.getLongitude(), location.getAltitude());
+    }
 
     @Override public void onHasCorrections(byte[] data, int length) {
         if (!running || length <= 0) return;
@@ -115,6 +146,7 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
     @Override public void onFatalError(String message) {
         correctionStatus = message;
         hasCorrections = false;
+        readyStreak = 0;
         if (running) emit(PppSolution.State.DEGRADED, "AUTO", message);
     }
 
@@ -129,6 +161,7 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
 
     public static native String nativeEngineInfo();
     private static native void nativeReset();
+    private static native void nativeSetApproximatePosition(double latitudeDeg, double longitudeDeg, double heightMeters);
     private static native void nativeObserveCapability(int validAdr, boolean multiFrequency);
     private static native int nativeObservationEpoch(
             int gpsWeek,
@@ -148,6 +181,7 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
             int[] adrState,
             int[] syncState);
     private static native String nativeObservationInfo();
+    private static native double[] nativePppSolution();
     private static native void nativeNavigationMessage(int type, int svid, int messageId, int submessageId, byte[] data);
     private static native int nativeHasBytes(byte[] data, int length);
 }
