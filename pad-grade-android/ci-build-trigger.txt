@@ -1,1 +1,1 @@
-build 1 - shared web assets + Precision Location IPC wrapper
+build 2 - v0.2.2 Android system-bar insets + progressive USGS NAIP imagery
