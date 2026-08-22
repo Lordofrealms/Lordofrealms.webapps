@@ -5,19 +5,30 @@ on:
     branches: [main]
     paths:
       - '.github/release-trigger.txt'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/release-trigger.txt'
   workflow_dispatch:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout main
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Resolve release targets
+        run: |
+          git fetch origin main precision-location-android
+          echo "MAIN_SHA=$(git rev-parse origin/main)" >> "$GITHUB_ENV"
+          echo "PRECISION_SHA=$(git rev-parse origin/precision-location-android)" >> "$GITHUB_ENV"
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -39,14 +50,12 @@ jobs:
 
       - name: Build Pad Grade v0.3.0
         run: |
-          gradle -p pad-grade-android :app:assembleDebug --stacktrace
-          cp pad-grade-android/app/build/outputs/apk/debug/app-debug.apk Pad-Grade-v0.3.0.apk
+          git worktree add /tmp/pad-grade "$MAIN_SHA"
+          gradle -p /tmp/pad-grade/pad-grade-android :app:assembleDebug --stacktrace
+          cp /tmp/pad-grade/pad-grade-android/app/build/outputs/apk/debug/app-debug.apk Pad-Grade-v0.3.0.apk
 
       - name: Checkout Precision Location branch
-        run: |
-          git fetch origin precision-location-android
-          git worktree add /tmp/precision-location origin/precision-location-android
-          echo "PRECISION_SHA=$(git rev-parse origin/precision-location-android)" >> "$GITHUB_ENV"
+        run: git worktree add /tmp/precision-location "$PRECISION_SHA"
 
       - name: Validate Galileo HAS fixture
         run: |
@@ -69,7 +78,7 @@ jobs:
             gh release upload pad-grade-v0.3.0 Pad-Grade-v0.3.0.apk --clobber
           else
             gh release create pad-grade-v0.3.0 Pad-Grade-v0.3.0.apk \
-              --target "$GITHUB_SHA" \
+              --target "$MAIN_SHA" \
               --title "Pad Grade v0.3.0" \
               --notes "Pad Grade v0.3.0 GPS workflow redesign. Includes the calibrated map grid/outline, unified GPS state, redesigned calibration and target guidance, expandable info panels, and Android safe-area fixes."
           fi
@@ -86,3 +95,18 @@ jobs:
               --title "Precision Location v0.3.2" \
               --notes "Precision Location v0.3.2. Enhanced GNSS/non-HAS reported horizontal accuracy floor is 1.0 m while existing uncertainty-widening logic remains active; Galileo HAS PPP behavior is unchanged."
           fi
+
+      - name: Verify published release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view pad-grade-v0.3.0 --json assets --jq '.assets[].name' | grep -Fx 'Pad-Grade-v0.3.0.apk'
+          gh release view precision-location-v0.3.2 --json assets --jq '.assets[].name' | grep -Fx 'Precision-Location-v0.3.2.apk'
+
+      - name: Confirm publishing on validation PR
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr comment "$PR_NUMBER" --body "✅ Verified GitHub Releases published successfully with direct APK assets: Pad-Grade-v0.3.0.apk and Precision-Location-v0.3.2.apk."
