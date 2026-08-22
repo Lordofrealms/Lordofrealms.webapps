@@ -1,1 +1,1 @@
-build 3 - single-frequency PPP + Android nav integration
+build 4 - full single-frequency PPP state support + Android nav
