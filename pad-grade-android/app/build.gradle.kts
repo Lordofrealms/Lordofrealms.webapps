@@ -10,8 +10,8 @@ android {
         applicationId = "com.lordofrealms.padgrade"
         minSdk = 31
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.2.2"
+        versionCode = 5
+        versionName = "0.2.3"
     }
 
     buildTypes {
@@ -21,9 +21,6 @@ android {
         }
     }
 
-    // One source tree, two targets: GitHub Pages publishes ../pad-grade and the
-    // APK packages that exact directory directly as its asset root. No copied or
-    // generated HTML/JS tree exists for Android.
     sourceSets["main"].assets.srcDir(rootProject.projectDir.resolve("../pad-grade"))
 }
 
