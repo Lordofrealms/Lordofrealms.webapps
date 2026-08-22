@@ -10,11 +10,11 @@ on:
       ref:
         description: 'Precision Location branch/tag to release'
         required: false
-        default: 'precision-location-v0.4.1'
+        default: 'precision-location-v0.4.2-fixed'
       version:
         description: 'Release version'
         required: false
-        default: '0.4.1'
+        default: '0.4.2'
 
 permissions:
   contents: write
@@ -23,8 +23,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     env:
-      RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || 'precision-location-v0.4.1' }}
-      VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '0.4.1' }}
+      RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || 'precision-location-v0.4.2-fixed' }}
+      VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '0.4.2' }}
     steps:
       - name: Check out Precision Location source
         uses: actions/checkout@v4
@@ -53,6 +53,13 @@ jobs:
           cp precision-location-android/app/build/outputs/apk/debug/app-debug.apk "precision-location-v${VERSION}.apk"
           sha256sum "precision-location-v${VERSION}.apk" > "precision-location-v${VERSION}.apk.sha256"
 
+      - name: Verify launcher artwork is packaged
+        run: |
+          unzip -l "precision-location-v${VERSION}.apk" | grep 'res/drawable-nodpi-v4/ic_launcher_foreground.webp'
+          unzip -p "precision-location-v${VERSION}.apk" res/drawable-nodpi-v4/ic_launcher_foreground.webp > /tmp/ic_launcher_foreground.webp
+          test "$(stat -c%s /tmp/ic_launcher_foreground.webp)" -gt 5000
+          file /tmp/ic_launcher_foreground.webp | grep -qi 'Web/P\|WebP'
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -62,7 +69,7 @@ jobs:
           cat > release-notes.md <<EOF
           Precision Location v${VERSION}
 
-          - Adds the finalized Precision Location launcher/adaptive icon.
+          - Fixes the launcher/adaptive icon packaging so the approved satellite + location-pin artwork is actually present in the APK.
           - Carrier-phase-smoothed pseudorange processing.
           - TDCP-aided range-rate estimation.
           - Smartphone uncertainty/CN0 weighting for broadcast SPP and Galileo HAS PPP.
