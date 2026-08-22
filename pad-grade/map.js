@@ -22,6 +22,7 @@
 
   let map=null;
   let mapReady=false;
+  let mapInitAttempted=false;
   let follow=true;
   let firstFix=true;
   let lastFixSignature='';
@@ -145,6 +146,9 @@
     const card=el('gpsMapCard');
     const visible=isGpsMode();
     if(card) card.classList.toggle('show',visible);
+
+    if(visible && !map && !mapInitAttempted) initMap();
+
     if(lastModeVisible!==visible){
       lastModeVisible=visible;
       if(visible && map) setTimeout(()=>{ try{map.resize();}catch(e){} },0);
@@ -193,6 +197,7 @@
   }
 
   function initMap(){
+    mapInitAttempted=true;
     const container=el('gpsMap');
     if(!container) return;
     if(!window.maplibregl){
@@ -247,6 +252,7 @@
           }
         });
         mapReady=true;
+        lastFixSignature='';
         updateMap();
       });
       map.on('dragstart',()=>{follow=false;});
@@ -261,6 +267,7 @@
         }
       });
     }catch(e){
+      map=null;
       const message=el('gpsMapMessage');
       if(message){
         message.textContent='Map unavailable. GPS guidance still works.';
@@ -272,7 +279,6 @@
   function boot(){
     const recenter=el('gpsMapRecenter');
     if(recenter) recenter.addEventListener('click',centerNow);
-    initMap();
     updateMap();
     pollTimer=setInterval(updateMap,UPDATE_MS);
     window.addEventListener('beforeunload',()=>{
