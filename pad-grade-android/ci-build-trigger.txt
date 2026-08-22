@@ -1,1 +1,1 @@
-build 30 - v0.5.6 fix Android launcher resource wiring to approved Pad Grade surveying raster; no application logic changes
+build 31 - v0.5.7 replace truncated launcher WebP with validated approved Pad Grade surveying raster and verify packaged RIFF length; no application logic changes
