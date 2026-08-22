@@ -1,1 +1,1 @@
-build 27 - v0.5.3 authoritative grid startup render; preserve Android WebView 2 px minimum font floor
+build 28 - v0.5.4 single-owner grid core; stable first draw; preserve Android WebView 2 px minimum font floor
