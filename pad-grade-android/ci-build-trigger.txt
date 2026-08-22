@@ -1,1 +1,1 @@
-build 14 - v0.4.2 nine-character grid, equal row spacing, explicit backup restore
+build 15 - v0.4.3 measured text fit, folder reconnect, hide grid debug telemetry
