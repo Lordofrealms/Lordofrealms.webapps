@@ -10,11 +10,11 @@ on:
       ref:
         description: 'Precision Location branch/tag to release'
         required: false
-        default: 'precision-location-v0.4.2-fixed'
+        default: 'precision-location-v0.4.3'
       version:
         description: 'Release version'
         required: false
-        default: '0.4.2'
+        default: '0.4.3'
 
 permissions:
   contents: write
@@ -23,8 +23,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     env:
-      RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || 'precision-location-v0.4.2-fixed' }}
-      VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '0.4.2' }}
+      RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || 'precision-location-v0.4.3' }}
+      VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '0.4.3' }}
     steps:
       - name: Check out Precision Location source
         uses: actions/checkout@v4
@@ -69,7 +69,8 @@ jobs:
           cat > release-notes.md <<EOF
           Precision Location v${VERSION}
 
-          - Fixes the launcher/adaptive icon packaging so the approved satellite + location-pin artwork is actually present in the APK.
+          - Revises the finalized Android launcher/adaptive icon composition so the satellite remains visible under launcher masks and the white location marker is smaller.
+          - Uses a compact launcher resource without changing the approved artwork style.
           - Carrier-phase-smoothed pseudorange processing.
           - TDCP-aided range-rate estimation.
           - Smartphone uncertainty/CN0 weighting for broadcast SPP and Galileo HAS PPP.
