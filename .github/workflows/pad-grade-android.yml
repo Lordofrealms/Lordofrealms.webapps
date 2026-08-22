@@ -87,6 +87,10 @@ jobs:
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/migration-core.js'
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/grid-core.js'
 
+      - name: Verify approved launcher artwork packaged
+        run: |
+          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'ic_pad_grade_surveying'
+
       - name: Name APK
         run: cp pad-grade-android/app/build/outputs/apk/debug/app-debug.apk "$APK_NAME"
 
