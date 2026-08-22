@@ -1,5 +1,6 @@
 package com.lordofrealms.padgrade;
 
+import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -70,13 +71,21 @@ public final class PrecisionLocationClient {
         if (!isAvailable()) return false;
 
         try {
-            // The request originates while Pad Grade is foreground/user-visible.
-            // Precision Location owns the foreground location notification and GNSS lifecycle.
+            // Android 14+ restricts creation of another app's location foreground
+            // service when that owner app is backgrounded. A PendingIntent sent by
+            // a different visible app is an explicit platform exemption. This call
+            // occurs only from Pad Grade's user-initiated GPS request while its
+            // Activity/WebView is visible.
             Intent start = new Intent()
                     .setClassName(PRECISION_PACKAGE, PRECISION_SERVICE)
                     .setAction(ACTION_START);
-            context.startForegroundService(start);
-        } catch (RuntimeException ex) {
+            PendingIntent pending = PendingIntent.getForegroundService(
+                    context,
+                    4108,
+                    start,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            pending.send();
+        } catch (PendingIntent.CanceledException | RuntimeException ex) {
             listener.onPrecisionError("Could not start Precision Location: " + safeMessage(ex));
             return false;
         }
