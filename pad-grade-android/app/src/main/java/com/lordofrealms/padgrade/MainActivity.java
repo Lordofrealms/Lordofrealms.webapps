@@ -4,8 +4,11 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.graphics.Insets;
 import android.net.Uri;
 import android.os.Bundle;
+import android.view.WindowInsets;
 import android.webkit.GeolocationPermissions;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -41,6 +44,8 @@ public final class MainActivity extends Activity {
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        getWindow().setStatusBarColor(Color.rgb(11, 15, 20));
+        getWindow().setNavigationBarColor(Color.rgb(11, 15, 20));
         pendingInitialState = savedInstanceState;
         if (!LegalNoticeActivity.isAccepted(this)) {
             startActivityForResult(new Intent(this, LegalNoticeActivity.class), LEGAL_ACCEPTANCE_REQUEST);
@@ -54,7 +59,19 @@ public final class MainActivity extends Activity {
         pendingInitialState = null;
 
         webView = new WebView(this);
+        // Android 15/16 edge-to-edge enforcement can place a targetSdk 36 WebView
+        // underneath the status bar/cutout. Apply the real system-bar insets to
+        // the WebView itself instead of guessing at a CSS status-bar height.
+        // Bottom remains unpadded here because the web UI already handles its
+        // bottom safe area for the fixed action bar.
+        webView.setOnApplyWindowInsetsListener((view, windowInsets) -> {
+            Insets bars = windowInsets.getInsets(
+                    WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+            view.setPadding(bars.left, bars.top, bars.right, 0);
+            return windowInsets;
+        });
         setContentView(webView);
+        webView.requestApplyInsets();
 
         final WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
                 .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
