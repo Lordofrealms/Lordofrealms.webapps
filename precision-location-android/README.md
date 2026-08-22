@@ -22,11 +22,13 @@ Swiping the app task away deliberately ends the session.
 
 This is the default and requires no account or correction service. It uses the
 phone's hardware GNSS as the absolute anchor, temporal/motion smoothing, raw
-GPS/Galileo carrier-phase availability as a quality signal, and the independent
-MRTKLIB broadcast solution as a consistency check.
+GPS/Galileo carrier phase, carrier-smoothed pseudorange, TDCP-aided range rate,
+smartphone-specific measurement weighting, and an independent MRTKLIB broadcast
+solution as a consistency check.
 
 Because broadcast orbit/clock and single-frequency ionosphere biases remain, this
-mode deliberately keeps a **2.5 m minimum estimated horizontal-accuracy floor**.
+mode deliberately keeps a **0.5 m minimum estimated horizontal-accuracy floor** in
+v0.4.0. This is an uncertainty floor, not a promise of 0.5 m absolute accuracy.
 If the independent broadcast solution disagrees with Android's hardware fix, the
 reported uncertainty is widened rather than hiding the discrepancy.
 
@@ -37,9 +39,11 @@ While HAS connects/converges, Enhanced GNSS continues to provide a usable fallba
 Once MRTKLIB has a valid covariance-backed HAS PPP solution, that solution replaces
 the fallback automatically.
 
-The app detects the measurements actually exposed by the handset at runtime.
-A single-frequency handset can run uncombined SF PPP; phones exposing valid carrier
-phase on additional frequencies automatically move to DF/MF processing.
+The carrier smoothing, TDCP derivation, cycle-slip handling and smartphone quality
+weighting occur before the solver, so the same conditioned observations also feed
+HAS PPP. The app detects the measurements actually exposed by the handset at
+runtime. A single-frequency handset can run uncombined SF PPP; phones exposing valid
+carrier phase on additional frequencies automatically move to DF/MF processing.
 
 ## Settings
 
@@ -65,6 +69,8 @@ apps that intentionally reject mock locations may ignore them.
 
 HAS is optional. Credentials can be added, edited, cleared and connection-tested
 without reinstalling the app. Caster/PPP tuning remains hidden from normal users.
+HAS remains the single signup-based correction path; the app does not add a second
+precision-service account or user-facing correction configuration path.
 
 ## Engine
 
@@ -77,11 +83,20 @@ The pinned MRTKLIB version contains several dual-frequency assumptions in its
 uncombined PPP path. This branch applies a small reviewable patch so a genuine
 L1/E1-only phone can initialize and estimate slant-ionosphere and float
 carrier-ambiguity states instead of being rejected for lacking a second band.
-Dual/multi-frequency operation continues to use the upstream multi-band states.
+The same patch adds Android-specific continuous code weighting from the conditioned
+C/N0/uncertainty score. Dual/multi-frequency operation continues to use the upstream
+multi-band states.
 
 Implemented data paths include:
 
 - GPS/Galileo pseudorange, ADR carrier phase, Doppler/range-rate, C/N0 and code type.
+- Per-signal finite-window carrier-smoothed pseudorange with arc restart on reset,
+  cycle slip, unresolved half cycle, receiver-clock discontinuity, long gaps or
+  gross code/carrier innovation.
+- TDCP range-rate derived from continuous ADR arcs and uncertainty-weighted fusion
+  with Android Doppler/range rate.
+- Android pseudorange, ADR and range-rate uncertainties carried into observation
+  conditioning, with C/N0-based soft weighting in both broadcast SPP and HAS PPP.
 - Receiver-clock discontinuity, cycle-slip and half-cycle-state handling.
 - GPS L1 C/A Android navigation reconstruction/parity validation.
 - Galileo I/NAV page reconstruction/CRC validation.
@@ -107,10 +122,13 @@ carrier-phase baseline to continue PPP development.
 - Install the current foreground-service revision and verify a long screen-off run.
 - Confirm the Engine CSV reaches `SPP OK` and compare broadcast SPP against the
   Android hardware location.
-- Field-check the no-signup uncertainty model against known/static points.
+- Field-check the v0.4.0 no-signup uncertainty model against known/static points.
 - Exercise HAS with public historical data, then live IDD when credentials are issued.
 - Validate convergence/accuracy against a known reference point.
 - Tune handset stochastic weighting only if field residuals justify it.
+
+Offline replay/regression tooling is intentionally deferred until after this field
+validation pass.
 
 The architecture intentionally keeps GNSS internals out of the normal UI so those
 internals can evolve without teaching the end user how PPP works.
