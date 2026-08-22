@@ -1,1 +1,1 @@
-build 17 - v0.4.3 revised Android launcher composition validation
+build 18 - v0.4.3 verified launcher artwork rebuild
