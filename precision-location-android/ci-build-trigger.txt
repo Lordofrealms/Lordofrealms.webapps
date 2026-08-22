@@ -1,1 +1,1 @@
-build 14 - v0.4.1 adaptive launcher icon validation
+build 15 - v0.4.2 fixed launcher artwork binary validation
