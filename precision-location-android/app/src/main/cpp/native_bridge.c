@@ -3,8 +3,10 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
+#include "android_nav.h"
 #include "mrtklib/mrtk_const.h"
 #include "mrtklib/mrtk_context.h"
 #include "mrtklib/mrtk_coords.h"
@@ -26,6 +28,7 @@
 #define A_ADR_HALF_RESOLVED 8
 #define A_ADR_HALF_REPORTED 16
 #define OBS_SLOTS (NFREQ + NEXOBS)
+#define EPH_HISTORY_PER_SAT 3
 
 static int g_valid_adr = 0;
 static int g_multi_frequency = 0;
@@ -133,6 +136,49 @@ static int min_len(JNIEnv *env, jarray first, const jarray *others, int nothers)
     return n;
 }
 
+static int init_nav_storage(void) {
+    g_nav.n = 0;
+    g_nav.nmax = MAXSAT * EPH_HISTORY_PER_SAT;
+    g_nav.eph = (eph_t *)calloc((size_t)g_nav.nmax, sizeof(eph_t));
+    if (!g_nav.eph) {
+        g_nav.nmax = 0;
+        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "ephemeris allocation failed");
+        return 0;
+    }
+    return 1;
+}
+
+static int same_ephemeris(const eph_t *a, const eph_t *b) {
+    return a->sat == b->sat && a->iode == b->iode && a->iodc == b->iodc &&
+           fabs(timediff(a->toe, b->toe)) < 1e-3 && fabs(timediff(a->toc, b->toc)) < 1e-3;
+}
+
+static void store_ephemeris(const eph_t *eph) {
+    int i, count = 0, oldest = -1;
+    if (!eph || eph->sat <= 0 || !g_nav.eph || g_nav.nmax <= 0) return;
+
+    for (i = 0; i < g_nav.n; i++) {
+        if (same_ephemeris(&g_nav.eph[i], eph)) {
+            g_nav.eph[i] = *eph;
+            return;
+        }
+        if (g_nav.eph[i].sat == eph->sat) {
+            count++;
+            if (oldest < 0 || timediff(g_nav.eph[i].toe, g_nav.eph[oldest].toe) < 0.0)
+                oldest = i;
+        }
+    }
+    if (count >= EPH_HISTORY_PER_SAT && oldest >= 0) {
+        g_nav.eph[oldest] = *eph;
+        return;
+    }
+    if (g_nav.n < g_nav.nmax) {
+        g_nav.eph[g_nav.n++] = *eph;
+        return;
+    }
+    if (oldest >= 0) g_nav.eph[oldest] = *eph;
+}
+
 static void reset_rtcm_decoder(void) {
     if (g_rtcm_initialized) {
         free_rtcm(&g_rtcm);
@@ -167,10 +213,10 @@ static int init_ppp_filter(int nf) {
     opt.nf = nf;
     opt.navsys = SYS_GPS | SYS_GAL;
     opt.sateph = EPHOPT_SSRAPC;
-    opt.modear = ARMODE_OFF;       /* HAS Initial Service: float PPP */
+    opt.modear = ARMODE_OFF;
     opt.glomodear = GLO_ARMODE_OFF;
     opt.bdsmodear = 0;
-    opt.ionoopt = IONOOPT_EST;     /* works for SF and naturally admits more bands */
+    opt.ionoopt = IONOOPT_EST;
     opt.tropopt = TROPOPT_EST;
     opt.dynamics = 0;
     opt.correction = CORR_GAL_HAS;
@@ -185,11 +231,7 @@ static int init_ppp_filter(int nf) {
     rtkinit(&g_rtk, &opt);
     g_rtk_initialized = 1;
     g_solver_nf = nf;
-    if (g_has_approx) {
-        g_rtk.sol.rr[0] = g_approx_ecef[0];
-        g_rtk.sol.rr[1] = g_approx_ecef[1];
-        g_rtk.sol.rr[2] = g_approx_ecef[2];
-    }
+    if (g_has_approx) memcpy(g_rtk.sol.rr, g_approx_ecef, 3 * sizeof(double));
     return 1;
 }
 
@@ -221,23 +263,21 @@ static void copy_rtcm_ssr_to_nav(void) {
 
 static int try_ppp_solution(void) {
     if (!g_rtk_initialized || !g_has_approx || g_epoch_n < 4 ||
-        g_nav.n <= 0 || g_ssr_satellites <= 0) {
-        return 0;
-    }
+        g_nav.n <= 0 || g_ssr_satellites <= 0) return 0;
     return rtkpos(g_ctx, &g_rtk, g_epoch_obs, g_epoch_n, &g_nav);
 }
 
 JNIEXPORT jstring JNICALL
 Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativeEngineInfo(
         JNIEnv *env, jclass clazz) {
-    (void) clazz;
+    (void)clazz;
     return (*env)->NewStringUTF(env, "MRTKLIB Galileo HAS PPP • automatic SF/DF/MF");
 }
 
 JNIEXPORT void JNICALL
 Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativeReset(
         JNIEnv *env, jclass clazz) {
-    (void) env; (void) clazz;
+    (void)env; (void)clazz;
     free_ppp_filter();
     if (g_ctx) {
         if (g_mrtk_ctx == g_ctx) g_mrtk_ctx = NULL;
@@ -246,6 +286,7 @@ Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativeReset(
     }
     freenav(&g_nav, 0x7F);
     memset(&g_nav, 0, sizeof(g_nav));
+    init_nav_storage();
     g_ctx = mrtk_ctx_create();
     g_mrtk_ctx = g_ctx;
 
@@ -262,6 +303,7 @@ Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativeReset(
     memset(g_approx_ecef, 0, sizeof(g_approx_ecef));
     memset(g_epoch_obs, 0, sizeof(g_epoch_obs));
     reset_obsdef();
+    android_nav_reset();
     reset_rtcm_decoder();
     snprintf(g_obs_info, sizeof(g_obs_info), "waiting for raw observations");
 }
@@ -274,15 +316,14 @@ Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativeSetApproximatePositi
     double pos[3] = {lat_deg * D2R, lon_deg * D2R, height_m};
     pos2ecef(pos, g_approx_ecef);
     g_has_approx = 1;
-    if (g_rtk_initialized && g_rtk.sol.stat != SOLQ_PPP) {
+    if (g_rtk_initialized && g_rtk.sol.stat != SOLQ_PPP)
         memcpy(g_rtk.sol.rr, g_approx_ecef, 3 * sizeof(double));
-    }
 }
 
 JNIEXPORT void JNICALL
 Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativeObserveCapability(
         JNIEnv *env, jclass clazz, jint valid_adr, jboolean multi_frequency) {
-    (void) env; (void) clazz;
+    (void)env; (void)clazz;
     g_valid_adr = valid_adr;
     g_multi_frequency = multi_frequency ? 1 : 0;
 }
@@ -306,7 +347,7 @@ Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativeObservationEpoch(
         (jarray)range_rate_sigma_mps, (jarray)cn0_dbhz,
         (jarray)adr_state, (jarray)sync_state
     };
-    int n = min_len(env, (jarray)constellation, rest, (int)(sizeof(rest)/sizeof(rest[0])));
+    int n = min_len(env, (jarray)constellation, rest, (int)(sizeof(rest) / sizeof(rest[0])));
     if (gps_week < 0 || !isfinite(gps_tow_seconds) || n <= 0) {
         g_epoch_n = g_epoch_signals = g_epoch_phase = 0;
         snprintf(g_obs_info, sizeof(g_obs_info), "no usable GPS/Galileo epoch");
@@ -376,17 +417,14 @@ Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativeObservationEpoch(
         }
         obsd_t *o = &g_epoch_obs[oi];
 
-        if (o->code[slot] != CODE_NONE
-                && getcodepri(sys, o->code[slot], "") >= getcodepri(sys, code, "")) {
-            continue;
-        }
+        if (o->code[slot] != CODE_NONE &&
+            getcodepri(sys, o->code[slot], "") >= getcodepri(sys, code, "")) continue;
 
         const double wavelength = CLIGHT / freq[i];
         o->P[slot] = pr[i];
         o->code[slot] = code;
-        if (isfinite(rate[i]) && wavelength > 0.0) {
+        if (isfinite(rate[i]) && wavelength > 0.0)
             o->D[slot] = (float)(-rate[i] / wavelength);
-        }
         if (isfinite(cn0[i])) {
             long snr = lround(cn0[i] * 1000.0);
             if (snr < 0) snr = 0;
@@ -402,12 +440,8 @@ Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativeObservationEpoch(
         } else {
             o->L[slot] = 0.0;
         }
-        if (clock_jump || (astate[i] & (A_ADR_RESET | A_ADR_CYCLE_SLIP))) {
-            o->LLI[slot] |= 1;
-        }
-        if ((astate[i] & A_ADR_HALF_REPORTED) && !(astate[i] & A_ADR_HALF_RESOLVED)) {
-            o->LLI[slot] |= 2;
-        }
+        if (clock_jump || (astate[i] & (A_ADR_RESET | A_ADR_CYCLE_SLIP))) o->LLI[slot] |= 1;
+        if ((astate[i] & A_ADR_HALF_REPORTED) && !(astate[i] & A_ADR_HALF_RESOLVED)) o->LLI[slot] |= 2;
         g_epoch_signals++;
     }
 
@@ -463,7 +497,7 @@ Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativePppSolution(
         out[1] = pos[0] * R2D;
         out[2] = pos[1] * R2D;
         out[3] = pos[2];
-        out[4] = 2.0 * sqrt(qh); /* deliberately conservative ~95%-ish horizontal estimate */
+        out[4] = 2.0 * sqrt(qh);
         out[5] = sqrt(fmax(0.0, Q[8]));
     } else {
         out[1] = out[2] = out[3] = out[4] = out[5] = NAN;
@@ -477,10 +511,23 @@ Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativePppSolution(
 JNIEXPORT void JNICALL
 Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativeNavigationMessage(
         JNIEnv *env, jclass clazz, jint type, jint svid, jint message_id,
-        jint submessage_id, jbyteArray data) {
-    (void) env; (void) clazz; (void) type; (void) svid;
-    (void) message_id; (void) submessage_id; (void) data;
-    /* Android navigation-message -> MRTKLIB nav_t decoder bridge follows next. */
+        jint submessage_id, jint status, jbyteArray data) {
+    (void)clazz; (void)message_id;
+    if (!data) return;
+    jsize n = (*env)->GetArrayLength(env, data);
+    if (n <= 0) return;
+    jbyte *bytes = (*env)->GetByteArrayElements(env, data, NULL);
+    if (!bytes) return;
+
+    eph_t eph = {0};
+    int result = android_nav_feed((int)type, (int)svid, (int)submessage_id,
+                                  (int)status, (const uint8_t *)bytes, (int)n, &eph);
+    (*env)->ReleaseByteArrayElements(env, data, bytes, JNI_ABORT);
+    if (result == 1) {
+        store_ephemeris(&eph);
+        __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG,
+                            "broadcast ephemeris sat=%d iode=%d total=%d", eph.sat, eph.iode, g_nav.n);
+    }
 }
 
 JNIEXPORT jint JNICALL
