@@ -1,1 +1,1 @@
-build 11 - v0.3.2 Enhanced GNSS 1.0 m floor
+build 19 - v0.4.4 approved launcher artwork validation
