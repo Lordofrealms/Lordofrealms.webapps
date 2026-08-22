@@ -1,1 +1,1 @@
-build 25 - v0.5.1 remove grid scaling slider; keep 2-20 px minimum font control
+build 26 - v0.5.2 project rename persistence fix
