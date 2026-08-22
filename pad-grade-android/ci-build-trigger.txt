@@ -1,1 +1,1 @@
-build 26 - v0.5.2 project rename persistence fix
+build 27 - v0.5.3 authoritative grid startup render; preserve Android WebView 2 px minimum font floor
