@@ -8,8 +8,10 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Insets;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.WindowInsets;
+import android.window.OnBackInvokedDispatcher;
 import android.webkit.GeolocationPermissions;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -43,6 +45,7 @@ public final class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileChooserCallback;
     private String pendingSaveText;
     private Bundle pendingInitialState;
+    private boolean modernBackRegistered = false;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -117,7 +120,16 @@ public final class MainActivity extends Activity {
             }
         });
 
+        registerModernBackCallback();
         if (savedInstanceState == null) webView.loadUrl(APP_URL); else webView.restoreState(savedInstanceState);
+    }
+
+    private void registerModernBackCallback() {
+        if (modernBackRegistered || Build.VERSION.SDK_INT < 33) return;
+        getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                this::handleBackAction);
+        modernBackRegistered = true;
     }
 
     public void requestProjectFolder() {
@@ -189,20 +201,19 @@ public final class MainActivity extends Activity {
                 .setTitle("Close Pad Grade?")
                 .setMessage("Your project is autosaved. Close the app?")
                 .setNegativeButton("Cancel", null)
-                .setPositiveButton("Close", (dialog, which) -> MainActivity.super.onBackPressed())
+                .setPositiveButton("Close", (dialog, which) -> finish())
                 .show();
     }
 
-    @Override public void onBackPressed() {
+    private void handleBackAction() {
         if (webView == null) { confirmBackExit(); return; }
-        // Let the web UI close an open dialog first. The callback returns true
-        // only when it consumed Back. If no dialog is open, confirm app closure.
-        webView.evaluateJavascript("(function(){var ds=[...document.querySelectorAll('dialog[open]')];if(ds.length){var d=ds[ds.length-1];try{d.close();}catch(e){d.removeAttribute('open');}return true;}var t=document.getElementById('termsGate');if(t&&!t.classList.contains('hidden')){t.classList.add('hidden');return true;}return false;})()", value -> {
+        webView.evaluateJavascript("(function(){var ds=[...document.querySelectorAll('dialog[open]')];if(ds.length){var d=ds[ds.length-1];try{d.close();}catch(e){d.removeAttribute('open');}return true;}return false;})()", value -> {
             if ("true".equals(value)) return;
-            if (webView.canGoBack()) webView.goBack();
-            else confirmBackExit();
+            confirmBackExit();
         });
     }
+
+    @Override public void onBackPressed() { handleBackAction(); }
 
     @Override protected void onDestroy() {
         if (nativeBridge != null) nativeBridge.destroy();

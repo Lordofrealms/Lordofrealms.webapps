@@ -1,1 +1,1 @@
-build 19 - v0.4.6 GPS repair, two-stage grid font scaling, Android Back handling
+build 20 - v0.4.7 legacy grid restoration, font-only fit scaling, modern Android Back handling
