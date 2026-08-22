@@ -19,6 +19,9 @@
 .v030-northMarker{position:absolute;left:50%;top:50%;width:0;height:0;z-index:5;pointer-events:none;transform-origin:0 0}
 .v030-northMarker span{position:absolute;left:-12px;top:-88px;width:24px;text-align:center;font-size:.67rem;font-weight:900;color:#d8f2ff;text-shadow:0 1px 3px #000}
 .v030-forwardLabel{position:absolute;top:7px;left:50%;transform:translateX(-50%);font-size:.58rem;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;z-index:2}
+/* v10's arrow head had an intentional 180-degree flip for its old semantics. In
+ * v0.3.0 the arrow itself points toward the device-relative target bearing. */
+.navVisual .navArrowHead{transform:none!important}
 .v030-mapLegend{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;font-size:.64rem;color:var(--muted)}
 .v030-mapLegend span{display:inline-flex;align-items:center;gap:4px}
 .v030-dot{width:8px;height:8px;border-radius:50%;display:inline-block;border:1px solid rgba(255,255,255,.55)}
