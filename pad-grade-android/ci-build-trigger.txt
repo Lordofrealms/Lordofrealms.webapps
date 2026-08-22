@@ -1,1 +1,1 @@
-build 2 - v0.2.2 Android system-bar insets + progressive USGS NAIP imagery
+build 3 - v0.2.3 WebView layout margins + single Android legal gate
