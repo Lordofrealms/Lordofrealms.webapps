@@ -54,6 +54,8 @@ public final class PrecisionLocationService extends Service
     private static final String CHANNEL_ID = "precision_location_active";
     private static final int NOTIFICATION_ID = 4107;
     private static final long NOTIFICATION_REFRESH_MS = 10_000L;
+    private static final String TERMS_ERROR =
+            "Terms acceptance required for this Precision Location version. Open Precision Location and accept the Terms of Use & Safety Notice.";
 
     private final LocalBinder binder = new LocalBinder();
     private final List<Messenger> externalClients = new ArrayList<>();
@@ -103,7 +105,13 @@ public final class PrecisionLocationService extends Service
             stopSession();
             return START_NOT_STICKY;
         }
-        if (ACTION_START.equals(action)) startSession();
+        if (ACTION_START.equals(action)) {
+            if (!LegalNoticeActivity.isAccepted(this)) {
+                rejectUntilTermsAccepted();
+                return START_NOT_STICKY;
+            }
+            startSession();
+        }
         return START_NOT_STICKY;
     }
 
@@ -125,11 +133,22 @@ public final class PrecisionLocationService extends Service
         if (msg == null || !isAllowedExternalCaller(msg.sendingUid)) return true;
         if (msg.what == IPC_REGISTER && msg.replyTo != null) {
             if (!containsClient(msg.replyTo)) externalClients.add(msg.replyTo);
-            if (lastSolution != null) sendSolution(msg.replyTo, lastSolution);
-            else if (lastError != null && !lastError.isEmpty()) sendError(msg.replyTo, lastError);
-            else if (!running) sendStopped(msg.replyTo);
+            if (!LegalNoticeActivity.isAccepted(this)) {
+                lastError = TERMS_ERROR;
+                sendError(msg.replyTo, lastError);
+            } else if (lastSolution != null) {
+                sendSolution(msg.replyTo, lastSolution);
+            } else if (lastError != null && !lastError.isEmpty()) {
+                sendError(msg.replyTo, lastError);
+            } else if (!running) {
+                sendStopped(msg.replyTo);
+            }
         } else if (msg.what == IPC_UNREGISTER && msg.replyTo != null) {
             removeClient(msg.replyTo);
+            if (!running && externalClients.isEmpty()) {
+                stopForeground(STOP_FOREGROUND_REMOVE);
+                stopSelf();
+            }
         }
         return true;
     }
@@ -157,8 +176,25 @@ public final class PrecisionLocationService extends Service
         externalClients.removeIf(client -> client.getBinder().equals(target));
     }
 
+    private void rejectUntilTermsAccepted() {
+        running = false;
+        lastSolution = null;
+        lastError = TERMS_ERROR;
+        startForeground(
+                NOTIFICATION_ID,
+                buildNotification("Terms acceptance required • tap to open app"),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
+        UiListener listener = uiListener;
+        if (listener != null) listener.onServiceError(lastError);
+        notifyExternalError(lastError);
+    }
+
     private void startSession() {
         if (running) return;
+        if (!LegalNoticeActivity.isAccepted(this)) {
+            rejectUntilTermsAccepted();
+            return;
+        }
         running = true;
         lastError = null;
         lastNotificationState = null;
@@ -368,7 +404,7 @@ public final class PrecisionLocationService extends Service
                 .setContentTitle("Precision Location")
                 .setContentText(text)
                 .setContentIntent(openPending)
-                .setOngoing(true)
+                .setOngoing(running)
                 .setOnlyAlertOnce(true)
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .addAction(new Notification.Action.Builder(stopIcon, "Stop", stopPending).build())
