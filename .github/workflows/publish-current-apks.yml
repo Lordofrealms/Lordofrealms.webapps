@@ -48,13 +48,16 @@ jobs:
         with:
           gradle-version: '9.5.0'
 
-      - name: Build Pad Grade v0.4.0
+      - name: Build Pad Grade v0.4.1
         run: |
           git worktree add /tmp/pad-grade "$MAIN_SHA"
+          node --check /tmp/pad-grade/pad-grade/capture-fix.js
           node --check /tmp/pad-grade/pad-grade/v040.js
           node --check /tmp/pad-grade/pad-grade/v040-sync.js
+          node --check /tmp/pad-grade/pad-grade/v041.js
+          node --check /tmp/pad-grade/pad-grade/v041-persist.js
           gradle -p /tmp/pad-grade/pad-grade-android :app:assembleDebug --stacktrace
-          cp /tmp/pad-grade/pad-grade-android/app/build/outputs/apk/debug/app-debug.apk Pad-Grade-v0.4.0.apk
+          cp /tmp/pad-grade/pad-grade-android/app/build/outputs/apk/debug/app-debug.apk Pad-Grade-v0.4.1.apk
 
       - name: Checkout Precision Location branch
         run: git worktree add /tmp/precision-location "$PRECISION_SHA"
@@ -72,17 +75,17 @@ jobs:
           gradle -p /tmp/precision-location/precision-location-android :app:assembleDebug --stacktrace
           cp /tmp/precision-location/precision-location-android/app/build/outputs/apk/debug/app-debug.apk Precision-Location-v0.3.2.apk
 
-      - name: Publish Pad Grade v0.4.0 release
+      - name: Publish Pad Grade v0.4.1 release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view pad-grade-v0.4.0 >/dev/null 2>&1; then
-            gh release upload pad-grade-v0.4.0 Pad-Grade-v0.4.0.apk --clobber
+          if gh release view pad-grade-v0.4.1 >/dev/null 2>&1; then
+            gh release upload pad-grade-v0.4.1 Pad-Grade-v0.4.1.apk --clobber
           else
-            gh release create pad-grade-v0.4.0 Pad-Grade-v0.4.0.apk \
+            gh release create pad-grade-v0.4.1 Pad-Grade-v0.4.1.apk \
               --target "$MAIN_SHA" \
-              --title "Pad Grade v0.4.0" \
-              --notes "Pad Grade v0.4.0 adds a proportional responsive grade grid with a 2–20 px minimum-text slider, multi-project management, debounced and periodic autosave, legacy project migration, and Android durable .padgrade project-folder storage that can be reconnected after reinstall."
+              --title "Pad Grade v0.4.1" \
+              --notes "Pad Grade v0.4.1 adds project archive/restore with a separate archived-project view, preserves open/archived lifecycle status in project exports and backups, adds Export Current and Backup All/restore support for the web app, and makes grade-grid cell sizing uniform by reserving the same five populated information lines in every cell before deciding whether to fit or scroll."
           fi
 
       - name: Publish Precision Location v0.3.2 release
@@ -102,7 +105,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view pad-grade-v0.4.0 --json assets --jq '.assets[].name' | grep -Fx 'Pad-Grade-v0.4.0.apk'
+          gh release view pad-grade-v0.4.1 --json assets --jq '.assets[].name' | grep -Fx 'Pad-Grade-v0.4.1.apk'
 
       - name: Report Precision Location release assets
         env:
@@ -117,4 +120,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          gh pr comment "$PR_NUMBER" --body "✅ Verified GitHub Release published successfully with direct Pad Grade APK asset: Pad-Grade-v0.4.0.apk."
+          gh pr comment "$PR_NUMBER" --body "✅ Verified GitHub Release published successfully with direct Pad Grade APK asset: Pad-Grade-v0.4.1.apk."
