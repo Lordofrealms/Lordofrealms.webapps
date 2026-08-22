@@ -48,7 +48,7 @@ jobs:
         with:
           gradle-version: '9.5.0'
 
-      - name: Build Pad Grade v0.4.4
+      - name: Build Pad Grade v0.4.5
         run: |
           git worktree add /tmp/pad-grade "$MAIN_SHA"
           node --check /tmp/pad-grade/pad-grade/capture-fix.js
@@ -59,35 +59,29 @@ jobs:
           node --check /tmp/pad-grade/pad-grade/v042.js
           node --check /tmp/pad-grade/pad-grade/v043.js
           gradle -p /tmp/pad-grade/pad-grade-android :app:assembleDebug --stacktrace
-          cp /tmp/pad-grade/pad-grade-android/app/build/outputs/apk/debug/app-debug.apk Pad-Grade-v0.4.4.apk
+          cp /tmp/pad-grade/pad-grade-android/app/build/outputs/apk/debug/app-debug.apk Pad-Grade-v0.4.5.apk
 
       - name: Checkout Precision Location branch
         run: git worktree add /tmp/precision-location "$PRECISION_SHA"
 
       - name: Validate Galileo HAS fixture
         run: |
-          curl --fail --location --retry 3 \
-            https://raw.githubusercontent.com/hirokawa/cssrlib-data/main/data/doy2023-229/idd2023229c.rtc \
-            --output /tmp/galileo-has-idd.rtc
-          python3 /tmp/precision-location/precision-location-android/tools/rtcm_inventory.py \
-            /tmp/galileo-has-idd.rtc --require-ssr
+          curl --fail --location --retry 3 https://raw.githubusercontent.com/hirokawa/cssrlib-data/main/data/doy2023-229/idd2023229c.rtc --output /tmp/galileo-has-idd.rtc
+          python3 /tmp/precision-location/precision-location-android/tools/rtcm_inventory.py /tmp/galileo-has-idd.rtc --require-ssr
 
       - name: Build Precision Location v0.3.2
         run: |
           gradle -p /tmp/precision-location/precision-location-android :app:assembleDebug --stacktrace
           cp /tmp/precision-location/precision-location-android/app/build/outputs/apk/debug/app-debug.apk Precision-Location-v0.3.2.apk
 
-      - name: Publish Pad Grade v0.4.4 release
+      - name: Publish Pad Grade v0.4.5 release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view pad-grade-v0.4.4 >/dev/null 2>&1; then
-            gh release upload pad-grade-v0.4.4 Pad-Grade-v0.4.4.apk --clobber
+          if gh release view pad-grade-v0.4.5 >/dev/null 2>&1; then
+            gh release upload pad-grade-v0.4.5 Pad-Grade-v0.4.5.apk --clobber
           else
-            gh release create pad-grade-v0.4.4 Pad-Grade-v0.4.4.apk \
-              --target "$MAIN_SHA" \
-              --title "Pad Grade v0.4.4" \
-              --notes "Pad Grade v0.4.4 makes durable project-folder loading legacy-safe and non-reloading so older project files cannot trap the app in a refresh loop. Older project formats are normalized where possible and unreadable files are skipped. Grade-grid text now renders at 70 percent of the calculated maximum and reserves capacity for two-digit CUT/FILL values while respecting the configured minimum font size."
+            gh release create pad-grade-v0.4.5 Pad-Grade-v0.4.5.apk --target "$MAIN_SHA" --title "Pad Grade v0.4.5" --notes "Pad Grade v0.4.5 fixes durable-folder recovery by synchronizing imported projects with the live project-manager index and allowing legacy JSON project files through the Android folder scan. It also adds a live Grid text fit scale slider in Settings from 10 to 100 percent, defaulting to 40 percent, so grid text fit can be tuned without rebuilding."
           fi
 
       - name: Publish Precision Location v0.3.2 release
@@ -97,29 +91,22 @@ jobs:
           if gh release view precision-location-v0.3.2 >/dev/null 2>&1; then
             gh release upload precision-location-v0.3.2 Precision-Location-v0.3.2.apk --clobber
           else
-            gh release create precision-location-v0.3.2 Precision-Location-v0.3.2.apk \
-              --target "$PRECISION_SHA" \
-              --title "Precision Location v0.3.2" \
-              --notes "Precision Location v0.3.2. Enhanced GNSS/non-HAS reported horizontal accuracy floor is 1.0 m while existing uncertainty-widening logic remains active; Galileo HAS PPP behavior is unchanged."
+            gh release create precision-location-v0.3.2 Precision-Location-v0.3.2.apk --target "$PRECISION_SHA" --title "Precision Location v0.3.2" --notes "Precision Location v0.3.2. Enhanced GNSS/non-HAS reported horizontal accuracy floor is 1.0 m while existing uncertainty-widening logic remains active; Galileo HAS PPP behavior is unchanged."
           fi
 
       - name: Verify Pad Grade release asset
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release view pad-grade-v0.4.4 --json assets --jq '.assets[].name' | grep -Fx 'Pad-Grade-v0.4.4.apk'
+        run: gh release view pad-grade-v0.4.5 --json assets --jq '.assets[].name' | grep -Fx 'Pad-Grade-v0.4.5.apk'
 
       - name: Report Precision Location release assets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          echo 'Precision Location release assets:'
-          gh release view precision-location-v0.3.2 --json assets --jq '.assets[].name' || true
+        run: gh release view precision-location-v0.3.2 --json assets --jq '.assets[].name' || true
 
       - name: Confirm publishing on validation PR
         if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          gh pr comment "$PR_NUMBER" --body "✅ Verified GitHub Release published successfully with direct Pad Grade APK asset: Pad-Grade-v0.4.4.apk."
+        run: gh pr comment "$PR_NUMBER" --body "✅ Verified GitHub Release published successfully with direct Pad Grade APK asset: Pad-Grade-v0.4.5.apk."
