@@ -1,0 +1,40 @@
+/* Pad Grade v0.4.2 — equal five-line grid tracks and compact restore UI. */
+#grid.v042-uniform .cell{
+  display:grid!important;
+  grid-template-rows:repeat(5,minmax(0,1fr));
+  align-items:center;
+  justify-items:center;
+  gap:0!important;
+  padding:2px;
+  box-sizing:border-box;
+}
+#grid.v042-uniform .cell .coord,
+#grid.v042-uniform .cell .main,
+#grid.v042-uniform .cell .sub,
+#grid.v042-uniform .cell .xy span{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:100%;
+  height:100%;
+  margin:0!important;
+  padding:0!important;
+  line-height:1!important;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:clip;
+  box-sizing:border-box;
+}
+#grid.v042-uniform .cell .xy{display:contents!important}
+#grid.v042-uniform .cell .coord{grid-row:1}
+#grid.v042-uniform .cell .xy span:first-child{grid-row:2}
+#grid.v042-uniform .cell .xy span:last-child{grid-row:3}
+#grid.v042-uniform .cell .main{grid-row:4}
+#grid.v042-uniform .cell .sub{grid-row:5}
+#grid.v042-uniform .cell .coord,
+#grid.v042-uniform .cell .xy span,
+#grid.v042-uniform .cell .main,
+#grid.v042-uniform .cell .sub{font-size:var(--grid-font,10px)!important}
+#grid.v042-uniform .cell .coord{font-weight:900}
+#grid.v042-uniform .cell .main{font-weight:800}
+#v042RestoreBackup{font-weight:800}
