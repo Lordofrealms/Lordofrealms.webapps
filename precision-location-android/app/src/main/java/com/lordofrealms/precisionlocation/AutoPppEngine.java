@@ -20,6 +20,7 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
     private volatile boolean running;
     private volatile Location fallbackLocation;
     private volatile boolean hasCorrections;
+    private volatile boolean hasAccessConfigured;
     private volatile String correctionStatus = "HAS not started";
     private HasNtripClient hasClient;
     private int readyStreak;
@@ -33,7 +34,6 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
         running = true;
         hasCorrections = false;
         readyStreak = 0;
-        correctionStatus = "Connecting to HAS corrections";
         synchronized (nativeLock) {
             nativeReset();
             Location f = fallbackLocation;
@@ -41,13 +41,16 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
         }
 
         HasAccessConfig config = HasAccessConfig.load(appContext);
-        if (config.isConfigured()) {
+        hasAccessConfigured = config.isConfigured();
+        if (hasAccessConfigured) {
+            correctionStatus = "Connecting to HAS corrections";
             hasClient = new HasNtripClient(config, this);
             hasClient.start();
+            emit(PppSolution.State.STARTING, "AUTO", "Acquiring raw GNSS\n" + correctionStatus);
         } else {
-            correctionStatus = "HAS access setup required";
+            correctionStatus = "HAS not configured • broadcast/raw GNSS preflight only";
+            emit(PppSolution.State.PRECHECK, "AUTO", "Testing phone GNSS\n" + correctionStatus);
         }
-        emit(PppSolution.State.STARTING, "AUTO", "Acquiring raw GNSS\n" + correctionStatus);
     }
 
     @Override public void stop() {
@@ -112,13 +115,18 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
 
         readyStreak = 0;
         Location f = fallbackLocation;
-        PppSolution.State state = hasCorrections && accepted >= 4
-                ? PppSolution.State.CONVERGING : PppSolution.State.STARTING;
+        PppSolution.State state;
+        if (!hasAccessConfigured) {
+            state = PppSolution.State.PRECHECK;
+        } else {
+            state = hasCorrections && accepted >= 4
+                    ? PppSolution.State.CONVERGING : PppSolution.State.STARTING;
+        }
         if (f != null) {
             listener.onSolution(new PppSolution(
                     state,
                     f.getLatitude(), f.getLongitude(), f.getAltitude(), Double.NaN,
-                    mode, detail + "\nAndroid location is being used only as a PPP initialization seed."));
+                    mode, detail + "\nAndroid location is used only as an internal initialization/reference point."));
         } else {
             emit(state, mode, detail);
         }
