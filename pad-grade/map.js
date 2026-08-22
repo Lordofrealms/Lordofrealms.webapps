@@ -1,15 +1,17 @@
 /* Pad Grade live GPS map — shared web/Android source.
  *
- * Uses the same MapLibre/USGS hybrid imagery approach as Tractor Guidance.
- * The map intentionally contains only the current location and the reported
- * horizontal uncertainty circle. Grading/calibration geometry remains in the
- * existing Pad Grade UI rather than being duplicated here.
+ * Uses the same progressive USGS imagery stack as Tractor Guidance: cached
+ * imagery underneath, with dynamic NAIP Plus imagery layered above at close
+ * zoom. The map intentionally contains only the current location and the
+ * reported horizontal uncertainty circle. Grading/calibration geometry remains
+ * in the existing Pad Grade UI rather than being duplicated here.
  */
 (function installPadGradeGpsMap(){
   'use strict';
 
-  const TILE_URL='https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}';
-  const SOURCE_ID='usgs-imagery-topo';
+  const CACHED_TILE_URL='https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}';
+  const CACHED_SOURCE='usgs-cached-imagery';
+  const HIGH_RES_SOURCE='usgs-naip-plus';
   const FIX_SOURCE='pad-grade-current-fix';
   const ERROR_SOURCE='pad-grade-error-circle';
   const FIX_LAYER='pad-grade-current-fix-layer';
@@ -32,6 +34,41 @@
   let companionMapPosition=null;
 
   function el(id){ return document.getElementById(id); }
+
+  function highResTileUrl(){
+    const renderingRule=encodeURIComponent(JSON.stringify({rasterFunction:'NaturalColor'}));
+    return 'https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/exportImage'
+      +'?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256'
+      +'&format=jpgpng&transparent=false&f=image&renderingRule='+renderingRule;
+  }
+
+  function imageryStyle(){
+    return {
+      version:8,
+      sources:{
+        [CACHED_SOURCE]:{
+          type:'raster',
+          tiles:[CACHED_TILE_URL],
+          tileSize:256,
+          minzoom:0,
+          maxzoom:16,
+          attribution:'USGS, USDA, The National Map'
+        },
+        [HIGH_RES_SOURCE]:{
+          type:'raster',
+          tiles:[highResTileUrl()],
+          tileSize:256,
+          minzoom:14,
+          maxzoom:22,
+          attribution:'USGS, USDA, The National Map'
+        }
+      },
+      layers:[
+        {id:'usgs-cached',type:'raster',source:CACHED_SOURCE},
+        {id:'usgs-highres',type:'raster',source:HIGH_RES_SOURCE,minzoom:14,paint:{'raster-opacity':1}}
+      ]
+    };
+  }
 
   function positionSample(pos){
     if(!pos || !pos.coords || !Number.isFinite(+pos.coords.latitude) || !Number.isFinite(+pos.coords.longitude)) return null;
@@ -294,18 +331,7 @@
         minZoom:3,
         maxZoom:22,
         attributionControl:true,
-        style:{
-          version:8,
-          sources:{
-            [SOURCE_ID]:{
-              type:'raster',
-              tiles:[TILE_URL],
-              tileSize:256,
-              attribution:'USGS The National Map'
-            }
-          },
-          layers:[{id:'usgs-hybrid',type:'raster',source:SOURCE_ID,minzoom:0,maxzoom:22}]
-        }
+        style:imageryStyle()
       });
       map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
       map.on('load',()=>{
@@ -336,7 +362,11 @@
       map.on('zoomstart',e=>{
         if(e && e.originalEvent) follow=false;
       });
-      map.on('error',()=>{
+      map.on('error',ev=>{
+        const detail=ev&&ev.error&&ev.error.message?String(ev.error.message):String(ev&&ev.error||'');
+        // Dynamic NAIP is intentionally optional; cached imagery remains visible
+        // underneath whenever a close-zoom image request is slow or unavailable.
+        if(/naip|exportimage|imagery\.nationalmap/i.test(detail)) return;
         const message=el('gpsMapMessage');
         if(message && !mapReady){
           message.textContent='Map imagery unavailable. GPS guidance still works.';
