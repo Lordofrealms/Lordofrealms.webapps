@@ -1,1 +1,1 @@
-build 8 - v0.3.1 compact info icons, IME save-next, native heading radar guidance
+build 9 - v0.4.0 responsive grid, autosave, multi-project durable storage
