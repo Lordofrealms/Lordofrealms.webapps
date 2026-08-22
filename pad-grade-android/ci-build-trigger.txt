@@ -1,1 +1,1 @@
-build 7 - v0.3.0 polished calibration instruction and job summary layout
+build 8 - v0.3.1 compact info icons, IME save-next, native heading radar guidance

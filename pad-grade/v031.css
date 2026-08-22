@@ -1,0 +1,44 @@
+/* Pad Grade v0.3.1 — compact help + scaled target radar */
+.v030-help{width:18px!important;height:18px!important;min-width:18px!important;min-height:18px!important;padding:0!important;border-radius:50%!important;font-size:.62rem!important;line-height:1!important}
+.v031-infoRow{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.v031-infoAnchor{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.v031-infoAnchor .v030-help{margin-left:auto}
+.v030-helpText{margin-top:6px!important}
+
+/* Radar replaces the old fixed-length arrow/bullseye behavior. */
+.navRing{overflow:hidden}
+.navVisual .navArrow,.navVisual .navBullseye{display:none!important}
+.v031-errorCircle{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  border:1.5px solid rgba(143,212,255,.95);background:rgba(99,183,255,.14);
+  border-radius:50%;pointer-events:none;z-index:1
+}
+.v031-targetLine{
+  position:absolute;left:50%;top:50%;height:2px;background:#ffd166;
+  transform-origin:0 50%;box-shadow:0 0 8px rgba(255,209,102,.35);z-index:3;pointer-events:none
+}
+.v031-targetDot{
+  position:absolute;width:14px;height:14px;border-radius:50%;background:#ffd166;
+  border:2px solid #fff;box-shadow:0 0 10px rgba(255,209,102,.6);
+  transform:translate(-50%,-50%);z-index:5;pointer-events:none
+}
+.v031-targetDot.edge{box-shadow:0 0 0 3px rgba(255,209,102,.2),0 0 12px rgba(255,209,102,.75)}
+.v031-currentDot{
+  position:absolute;left:50%;top:50%;width:10px;height:10px;border-radius:50%;
+  background:var(--accent);border:2px solid #fff;transform:translate(-50%,-50%);z-index:6;pointer-events:none
+}
+.v031-scaleLabel{
+  position:absolute;left:50%;bottom:8px;transform:translateX(-50%);z-index:6;
+  padding:2px 6px;border-radius:999px;background:rgba(11,15,20,.75);border:1px solid rgba(255,255,255,.12);
+  font-size:.57rem;color:var(--muted);white-space:nowrap;pointer-events:none
+}
+.v031-targetLegend{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin-top:6px;font-size:.64rem;color:var(--muted)}
+.v031-targetLegend span{display:inline-flex;align-items:center;gap:4px}
+.v031-miniDot{width:8px;height:8px;border-radius:50%;display:inline-block;border:1px solid #fff}
+.v031-miniDot.current{background:var(--accent)}
+.v031-miniDot.target{background:#ffd166}
+.v031-miniRing{width:10px;height:10px;border-radius:50%;display:inline-block;border:1.5px solid #8fd4ff;background:rgba(99,183,255,.14)}
+
+@media(max-width:520px){
+  .v030-help{width:17px!important;height:17px!important;min-width:17px!important;min-height:17px!important;font-size:.58rem!important}
+}
