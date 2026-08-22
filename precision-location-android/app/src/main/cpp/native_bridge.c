@@ -17,6 +17,7 @@
 #include "mrtklib/mrtk_rtcm.h"
 #include "mrtklib/mrtk_rtkpos.h"
 #include "mrtklib/mrtk_sol.h"
+#include "mrtklib/mrtk_spp.h"
 #include "mrtklib/mrtk_time.h"
 
 #define LOG_TAG "PrecisionLocation"
@@ -34,6 +35,7 @@ static int g_valid_adr = 0;
 static int g_multi_frequency = 0;
 static long g_has_bytes = 0;
 static long g_ssr_messages = 0;
+static long g_idd_ephemerides = 0;
 static int g_ssr_satellites = 0;
 static int g_last_hw_disc = -1;
 static unsigned long g_clock_resets = 0;
@@ -43,7 +45,11 @@ static int g_epoch_signals = 0;
 static int g_epoch_phase = 0;
 static int g_epoch_dropped = 0;
 static int g_epoch_max_slot = -1;
-static char g_obs_info[224] = "waiting for raw observations";
+static char g_obs_info[384] = "waiting for raw observations";
+static char g_spp_info[160] = "SPP waiting for broadcast ephemeris";
+static int g_spp_ok = 0;
+static int g_spp_satellites = 0;
+static double g_spp_horizontal_delta_m = NAN;
 
 static rtcm_t g_rtcm;
 static int g_rtcm_initialized = 0;
@@ -179,6 +185,19 @@ static void store_ephemeris(const eph_t *eph) {
     if (oldest >= 0) g_nav.eph[oldest] = *eph;
 }
 
+static int copy_rtcm_ephemeris_to_nav(void) {
+    int sat = g_rtcm.ephsat;
+    int set = g_rtcm.ephset;
+    if (sat <= 0 || set < 0 || set > 1 || !g_rtcm.nav.eph) return 0;
+
+    int index = (sat - 1) + MAXSAT * set;
+    if (index < 0 || index >= g_rtcm.nav.n) return 0;
+    const eph_t *eph = &g_rtcm.nav.eph[index];
+    if (eph->sat != sat) return 0;
+    store_ephemeris(eph);
+    return 1;
+}
+
 static void reset_rtcm_decoder(void) {
     if (g_rtcm_initialized) {
         free_rtcm(&g_rtcm);
@@ -261,6 +280,62 @@ static void copy_rtcm_ssr_to_nav(void) {
     g_ssr_satellites = active;
 }
 
+static void run_spp_preflight(void) {
+    g_spp_ok = 0;
+    g_spp_satellites = 0;
+    g_spp_horizontal_delta_m = NAN;
+
+    if (!g_ctx || g_epoch_n < 4) {
+        snprintf(g_spp_info, sizeof(g_spp_info), "SPP waiting: need 4+ satellites");
+        return;
+    }
+    if (g_nav.n <= 0) {
+        snprintf(g_spp_info, sizeof(g_spp_info), "SPP waiting: no broadcast ephemeris yet");
+        return;
+    }
+
+    prcopt_t opt = prcopt_default;
+    opt.mode = PMODE_SINGLE;
+    opt.nf = 1;
+    opt.navsys = SYS_GPS | SYS_GAL;
+    opt.sateph = EPHOPT_BRDC;
+    opt.modear = ARMODE_OFF;
+    opt.ionoopt = IONOOPT_BRDC;
+    opt.tropopt = TROPOPT_SAAS;
+    opt.correction = CORR_NONE;
+
+    sol_t sol = {0};
+    char msg[128] = {0};
+    if (g_has_approx) memcpy(sol.rr, g_approx_ecef, 3 * sizeof(double));
+
+    if (!pntpos(g_ctx, g_epoch_obs, g_epoch_n, &g_nav, &opt, &sol, NULL, NULL, msg)) {
+        snprintf(g_spp_info, sizeof(g_spp_info), "SPP waiting: %.110s", msg[0] ? msg : "no solution");
+        return;
+    }
+
+    g_spp_ok = 1;
+    g_spp_satellites = sol.ns;
+    if (g_has_approx && norm(g_approx_ecef, 3) > 0.0 && norm(sol.rr, 3) > 0.0) {
+        double pos[3], dr[3], enu[3];
+        int i;
+        ecef2pos(g_approx_ecef, pos);
+        for (i = 0; i < 3; i++) dr[i] = sol.rr[i] - g_approx_ecef[i];
+        ecef2enu(pos, dr, enu);
+        g_spp_horizontal_delta_m = sqrt(enu[0] * enu[0] + enu[1] * enu[1]);
+    }
+    if (!g_has_approx && norm(sol.rr, 3) > 0.0) {
+        memcpy(g_approx_ecef, sol.rr, 3 * sizeof(double));
+        g_has_approx = 1;
+    }
+
+    if (isfinite(g_spp_horizontal_delta_m)) {
+        snprintf(g_spp_info, sizeof(g_spp_info), "SPP OK: %d sats, %.1f m from Android seed",
+                 g_spp_satellites, g_spp_horizontal_delta_m);
+    } else {
+        snprintf(g_spp_info, sizeof(g_spp_info), "SPP OK: %d sats", g_spp_satellites);
+    }
+}
+
 static int try_ppp_solution(void) {
     if (!g_rtk_initialized || !g_has_approx || g_epoch_n < 4 ||
         g_nav.n <= 0 || g_ssr_satellites <= 0) return 0;
@@ -294,17 +369,22 @@ Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativeReset(
     g_multi_frequency = 0;
     g_has_bytes = 0;
     g_ssr_messages = 0;
+    g_idd_ephemerides = 0;
     g_ssr_satellites = 0;
     g_last_hw_disc = -1;
     g_clock_resets = 0;
     g_epoch_n = g_epoch_signals = g_epoch_phase = g_epoch_dropped = 0;
     g_epoch_max_slot = -1;
+    g_spp_ok = 0;
+    g_spp_satellites = 0;
+    g_spp_horizontal_delta_m = NAN;
     g_has_approx = 0;
     memset(g_approx_ecef, 0, sizeof(g_approx_ecef));
     memset(g_epoch_obs, 0, sizeof(g_epoch_obs));
     reset_obsdef();
     android_nav_reset();
     reset_rtcm_decoder();
+    snprintf(g_spp_info, sizeof(g_spp_info), "SPP waiting for broadcast ephemeris");
     snprintf(g_obs_info, sizeof(g_obs_info), "waiting for raw observations");
 }
 
@@ -454,14 +534,16 @@ Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativeObservationEpoch(
     (*env)->ReleaseDoubleArrayElements(env, cn0_dbhz, cn0, JNI_ABORT);
     (*env)->ReleaseIntArrayElements(env, adr_state, astate, JNI_ABORT);
 
+    run_spp_preflight();
+
     int desired_nf = g_epoch_max_slot >= 0 ? g_epoch_max_slot + 1 : 1;
     ensure_ppp_filter(desired_nf, clock_jump);
     try_ppp_solution();
 
     snprintf(g_obs_info, sizeof(g_obs_info),
-             "%d signals, %d phase, %d satellites, %d dropped • PPP nf=%d • eph=%d • SSR sats=%d%s",
+             "%d signals, %d phase, %d satellites, %d dropped • PPP nf=%d • eph=%d (IDD=%ld) • SSR sats=%d • %s%s",
              g_epoch_signals, g_epoch_phase, g_epoch_n, g_epoch_dropped,
-             g_solver_nf, g_nav.n, g_ssr_satellites,
+             g_solver_nf, g_nav.n, g_idd_ephemerides, g_ssr_satellites, g_spp_info,
              clock_jump ? " • receiver clock reset" : "");
     return g_epoch_n;
 }
@@ -477,11 +559,14 @@ JNIEXPORT jdoubleArray JNICALL
 Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativePppSolution(
         JNIEnv *env, jclass clazz) {
     (void)clazz;
-    double out[9] = {0};
+    double out[12] = {0};
     out[0] = g_rtk_initialized ? g_rtk.sol.stat : SOLQ_NONE;
     out[6] = g_rtk_initialized ? g_rtk.sol.ns : 0;
     out[7] = g_solver_nf;
     out[8] = g_ssr_satellites;
+    out[9] = g_spp_ok;
+    out[10] = g_spp_satellites;
+    out[11] = g_spp_horizontal_delta_m;
 
     if (g_rtk_initialized && g_rtk.sol.stat == SOLQ_PPP && norm(g_rtk.sol.rr, 3) > 0.0) {
         double pos[3], P[9] = {0}, Q[9] = {0};
@@ -503,8 +588,8 @@ Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativePppSolution(
         out[1] = out[2] = out[3] = out[4] = out[5] = NAN;
     }
 
-    jdoubleArray arr = (*env)->NewDoubleArray(env, 9);
-    if (arr) (*env)->SetDoubleArrayRegion(env, arr, 0, 9, out);
+    jdoubleArray arr = (*env)->NewDoubleArray(env, 12);
+    if (arr) (*env)->SetDoubleArrayRegion(env, arr, 0, 12, out);
     return arr;
 }
 
@@ -544,7 +629,11 @@ Java_com_lordofrealms_precisionlocation_AutoPppEngine_nativeHasBytes(
     int i;
     for (i = 0; i < n; i++) {
         int status = input_rtcm3(&g_rtcm, (uint8_t)bytes[i]);
-        if (status == 10) {
+        if (status == 2) {
+            if (copy_rtcm_ephemeris_to_nav()) {
+                g_idd_ephemerides++;
+            }
+        } else if (status == 10) {
             decoded++;
             g_ssr_messages++;
             copy_rtcm_ssr_to_nav();
