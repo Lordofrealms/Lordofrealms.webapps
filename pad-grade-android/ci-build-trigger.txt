@@ -1,1 +1,1 @@
-build 3 - v0.2.3 WebView layout margins + single Android legal gate
+build 4 - v0.2.4 Android bottom system inset + resilient corner capture completion

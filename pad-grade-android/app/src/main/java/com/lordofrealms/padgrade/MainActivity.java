@@ -59,10 +59,9 @@ public final class MainActivity extends Activity {
         pendingInitialState = null;
 
         webView = new WebView(this);
-        // targetSdk 36 is edge-to-edge. WebView does not reliably use its own
-        // padding to move HTML content below the status bar, so apply the real
-        // system-bar/cutout insets as layout margins on the WebView itself.
-        // The bottom web action bar already handles its own safe area.
+        // targetSdk 36 is edge-to-edge. Reserve the actual status/navigation bar
+        // and cutout regions by shrinking the WebView itself. This keeps both the
+        // top content and the fixed bottom action bar out of Android system UI.
         webView.setOnApplyWindowInsetsListener((view, windowInsets) -> {
             Insets bars = windowInsets.getInsets(
                     WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
@@ -70,7 +69,7 @@ public final class MainActivity extends Activity {
             if (raw instanceof android.view.ViewGroup.MarginLayoutParams) {
                 android.view.ViewGroup.MarginLayoutParams margins =
                         (android.view.ViewGroup.MarginLayoutParams) raw;
-                margins.setMargins(bars.left, bars.top, bars.right, 0);
+                margins.setMargins(bars.left, bars.top, bars.right, bars.bottom);
                 view.setLayoutParams(margins);
             }
             return windowInsets;
