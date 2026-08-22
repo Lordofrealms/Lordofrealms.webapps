@@ -62,7 +62,7 @@ public final class PrecisionLocationClient {
     public boolean isAvailable() {
         Intent query = new Intent(ACTION_EXTERNAL_BIND).setPackage(PRECISION_PACKAGE);
         PackageManager pm = context.getPackageManager();
-        List<ResolveInfo> services = pm.queryIntentServices(query, PackageManager.MATCH_DEFAULT_ONLY);
+        List<ResolveInfo> services = pm.queryIntentServices(query, 0);
         return services != null && !services.isEmpty();
     }
 
