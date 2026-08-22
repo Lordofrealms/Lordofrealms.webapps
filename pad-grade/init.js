@@ -89,6 +89,8 @@ function showPadTerms(force=false){
 installPadTermsUI();
 showPadTerms(false);
 
+// v10 supplies a richer four-corner project payload, but the shared UI owns the
+// actual export transport so browser downloads and Android Save As stay identical.
 if(typeof exportProjectShared==='function') exportProject=exportProjectShared;
 
 $('readingInput').addEventListener('input',updateModalResult);
