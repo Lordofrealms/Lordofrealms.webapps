@@ -6,7 +6,9 @@ import android.location.Location;
  * No-signup, no-correction fallback. It smooths the hardware GPS position with
  * a constant-velocity local-plane filter while keeping a conservative absolute
  * accuracy floor because correlated GNSS biases do not disappear through
- * averaging. The floor is 1 m; other quality checks can widen it as needed.
+ * averaging. v0.4.0 lowers the floor to 0.5 m after adding carrier-smoothed code,
+ * TDCP aiding, robust observation weighting, and an independent broadcast-SPP
+ * consistency/correction input.
  */
 public final class EnhancedGnssFilter {
     public static final class Result {
@@ -30,7 +32,7 @@ public final class EnhancedGnssFilter {
     }
 
     private static final double EARTH_RADIUS_M = 6378137.0;
-    private static final double MIN_ABSOLUTE_ACCURACY_M = 1.0;
+    private static final double MIN_ABSOLUTE_ACCURACY_M = 0.5;
     private static final double MAX_DT_S = 10.0;
 
     private boolean initialized;
@@ -46,19 +48,26 @@ public final class EnhancedGnssFilter {
     private long lastFixElapsedNanos;
     private int validAdr;
     private double independentSppDeltaM = Double.NaN;
+    private double independentSppLatDeg = Double.NaN;
+    private double independentSppLonDeg = Double.NaN;
 
     public void reset() {
         initialized = false;
         horizontalAccuracy = Double.NaN;
         validAdr = 0;
         independentSppDeltaM = Double.NaN;
+        independentSppLatDeg = Double.NaN;
+        independentSppLonDeg = Double.NaN;
         lastElapsedNanos = 0L;
         lastFixElapsedNanos = 0L;
     }
 
-    public void setGnssQuality(int validAdr, double independentSppDeltaM) {
+    public void setGnssQuality(int validAdr, double independentSppDeltaM,
+                               double sppLatDeg, double sppLonDeg) {
         this.validAdr = Math.max(0, validAdr);
         this.independentSppDeltaM = independentSppDeltaM;
+        this.independentSppLatDeg = sppLatDeg;
+        this.independentSppLonDeg = sppLonDeg;
     }
 
     public void update(Location location) {
@@ -69,7 +78,7 @@ public final class EnhancedGnssFilter {
         double latRad = Math.toRadians(location.getLatitude());
         double lonRad = Math.toRadians(location.getLongitude());
         double rawAccuracy = location.hasAccuracy() && Float.isFinite(location.getAccuracy())
-                ? Math.max(1.0, location.getAccuracy()) : 10.0;
+                ? Math.max(MIN_ABSOLUTE_ACCURACY_M, location.getAccuracy()) : 10.0;
 
         if (!initialized) {
             initialized = true;
@@ -112,6 +121,21 @@ public final class EnhancedGnssFilter {
         xEast += alpha * residualX;
         yNorth += alpha * residualY;
 
+        // When the carrier-smoothed independent broadcast solution is healthy and
+        // broadly agrees with Android, let it gently correct the absolute anchor.
+        if (validAdr >= 5 && Double.isFinite(independentSppDeltaM)
+                && independentSppDeltaM <= 8.0
+                && Double.isFinite(independentSppLatDeg)
+                && Double.isFinite(independentSppLonDeg)) {
+            double sppLat = Math.toRadians(independentSppLatDeg);
+            double sppLon = Math.toRadians(independentSppLonDeg);
+            double sppX = (sppLon - originLonRad) * EARTH_RADIUS_M * Math.max(0.2, cosLat);
+            double sppY = (sppLat - originLatRad) * EARTH_RADIUS_M;
+            double sppBlend = moving ? 0.10 : 0.18;
+            xEast += sppBlend * (sppX - xEast);
+            yNorth += sppBlend * (sppY - yNorth);
+        }
+
         if (location.hasSpeed() && location.hasBearing()) {
             setVelocityFromLocation(location, moving ? 0.55 : 0.30);
         } else if (dt > 0.2) {
@@ -126,10 +150,10 @@ public final class EnhancedGnssFilter {
         }
 
         double estimate = Math.max(MIN_ABSOLUTE_ACCURACY_M,
-                rawAccuracy * (moving ? 0.95 : 0.85));
+                rawAccuracy * (moving ? 0.92 : 0.80));
         if (validAdr < 5) estimate = Math.max(estimate, rawAccuracy);
         if (Double.isFinite(independentSppDeltaM)) {
-            estimate = Math.max(estimate, Math.min(15.0, independentSppDeltaM));
+            estimate = Math.max(estimate, Math.min(15.0, independentSppDeltaM * 0.65));
         }
         horizontalAccuracy = 0.25 * estimate + 0.75 * horizontalAccuracy;
         lastFixElapsedNanos = now;
