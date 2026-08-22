@@ -1,0 +1,17 @@
+/* Pad Grade v0.4.1 — archived projects + uniform five-line grid. */
+#grid.v041-uniform .cell{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;min-width:0!important;width:100%;height:100%;padding:2px;overflow:hidden;box-sizing:border-box}
+#grid.v041-uniform .cell .coord,#grid.v041-uniform .cell .xy,#grid.v041-uniform .cell .main,#grid.v041-uniform .cell .sub{font-size:var(--grid-font,10px)!important;line-height:1;white-space:nowrap;margin:0;padding:0;max-width:100%;overflow:hidden;text-overflow:clip}
+#grid.v041-uniform .cell .xy{display:flex;flex-direction:column;align-items:center;font-size:calc(var(--grid-font,10px)*.86)!important}
+#grid.v041-uniform .cell .main{font-size:calc(var(--grid-font,10px)*1.02)!important;font-weight:800}
+#grid.v041-uniform .cell .sub{font-size:calc(var(--grid-font,10px)*.9)!important}
+
+.v041-projectItem{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:11px;background:#0d1218}
+.v041-projectItem.current{border-color:#6d9d45;background:#14210f}
+.v041-projectItem b{display:block;font-size:.9rem}
+.v041-archived{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+.v041-archived summary{cursor:pointer;font-size:.78rem;font-weight:800;color:var(--muted);display:flex;justify-content:space-between;gap:8px;align-items:center}
+.v041-archived summary span{font-size:.68rem;color:var(--accent)}
+.v041-empty{padding:8px 2px}
+#v041ArchivedList{max-height:28vh}
+
+@media(max-width:520px){.v041-projectItem{grid-template-columns:1fr}.v041-projectItem .v040-projectActions{justify-content:flex-start}}
