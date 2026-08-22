@@ -1,1 +1,1 @@
-build 1 - shared web assets + Precision Location IPC wrapper
+validate v0.2.1 - Precision Location state sync
