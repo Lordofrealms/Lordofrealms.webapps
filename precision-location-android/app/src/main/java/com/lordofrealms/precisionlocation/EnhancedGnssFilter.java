@@ -4,9 +4,9 @@ import android.location.Location;
 
 /**
  * No-signup, no-correction fallback. It smooths the hardware GPS position with
- * a constant-velocity local-plane filter while keeping a deliberately
- * conservative absolute-accuracy floor because broadcast orbit/clock and
- * single-frequency ionosphere errors do not disappear through averaging.
+ * a constant-velocity local-plane filter while keeping a conservative absolute
+ * accuracy floor because correlated GNSS biases do not disappear through
+ * averaging. The floor is 1 m; other quality checks can widen it as needed.
  */
 public final class EnhancedGnssFilter {
     public static final class Result {
@@ -30,7 +30,7 @@ public final class EnhancedGnssFilter {
     }
 
     private static final double EARTH_RADIUS_M = 6378137.0;
-    private static final double MIN_ABSOLUTE_ACCURACY_M = 2.5;
+    private static final double MIN_ABSOLUTE_ACCURACY_M = 1.0;
     private static final double MAX_DT_S = 10.0;
 
     private boolean initialized;
@@ -89,8 +89,6 @@ public final class EnhancedGnssFilter {
         if (!(dt > 0.0) || dt > MAX_DT_S) dt = 1.0;
         lastElapsedNanos = now;
 
-        // Predict with the last velocity. This prevents the smoothing from
-        // simply lagging behind a walking user.
         xEast += vxEast * dt;
         yNorth += vyNorth * dt;
 
@@ -114,8 +112,6 @@ public final class EnhancedGnssFilter {
         xEast += alpha * residualX;
         yNorth += alpha * residualY;
 
-        // Use measured speed/bearing when Android has it; otherwise infer a
-        // small velocity correction from successive position residuals.
         if (location.hasSpeed() && location.hasBearing()) {
             setVelocityFromLocation(location, moving ? 0.55 : 0.30);
         } else if (dt > 0.2) {
@@ -129,13 +125,10 @@ public final class EnhancedGnssFilter {
             else altitude = 0.25 * location.getAltitude() + 0.75 * altitude;
         }
 
-        // Absolute GNSS biases are correlated and do not average away, so never
-        // report a sub-meter/survey-like uncertainty in this no-correction mode.
-        double estimate = Math.max(MIN_ABSOLUTE_ACCURACY_M, rawAccuracy * (moving ? 0.95 : 0.85));
+        double estimate = Math.max(MIN_ABSOLUTE_ACCURACY_M,
+                rawAccuracy * (moving ? 0.95 : 0.85));
         if (validAdr < 5) estimate = Math.max(estimate, rawAccuracy);
         if (Double.isFinite(independentSppDeltaM)) {
-            // If our independently decoded broadcast solution disagrees with
-            // Android, widen the uncertainty rather than hiding the discrepancy.
             estimate = Math.max(estimate, Math.min(15.0, independentSppDeltaM));
         }
         horizontalAccuracy = 0.25 * estimate + 0.75 * horizontalAccuracy;
