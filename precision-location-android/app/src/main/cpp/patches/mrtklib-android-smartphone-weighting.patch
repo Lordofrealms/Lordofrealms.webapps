@@ -1,0 +1,66 @@
+diff --git a/src/pos/mrtk_ppp.c b/src/pos/mrtk_ppp.c
+--- a/src/pos/mrtk_ppp.c
++++ b/src/pos/mrtk_ppp.c
+@@ -472,4 +472,4 @@
+-static double varerr(int sat, int sys, double el, int idx, int type, const prcopt_t* opt) {
++static double varerr(int sat, int sys, double el, int idx, int type, double snr, const prcopt_t* opt) {
+     double fact = 1.0, sinel = sin(el);
+ 
+     if (type == 1) {
+@@ -487,5 +487,17 @@
+     if (opt->ionoopt == IONOOPT_IFLC) {
+         fact *= 3.0;
+     }
+-    return SQR(fact * opt->err[1]) + SQR(fact * opt->err[2] / sinel);
++    double var = SQR(fact * opt->err[1]) + SQR(fact * opt->err[2] / sinel);
++
++    /* Android phone code measurements benefit from continuous C/N0/uncertainty
++     * weighting. CarrierPhasePreprocessor encodes both RF C/N0 and Android's
++     * reported code uncertainty in obs->SNR. Keep carrier phase on MRTKLIB's
++     * normal phase model; only code receives this extra variance term. */
++    if (type == 1 && snr > 0.0) {
++        double cn0_sigma = opt->err[6] > 0.0 ? opt->err[6] : 0.35;
++        double cn0_max = opt->err[5] > 0.0 ? opt->err[5] : 45.0;
++        double d = cn0_max - snr;
++        var += SQR(cn0_sigma) * pow(10.0, 0.1 * (d > 0.0 ? d : 0.0));
++    }
++    return var;
+ }
+@@ -1588,3 +1600,4 @@
+             /* variance */
+-            var[nv] = varerr(obs[i].sat, sys, azel[1 + i * 2], j / 2, j % 2, opt) + vart + SQR(C) * vari +
++            var[nv] = varerr(obs[i].sat, sys, azel[1 + i * 2], j / 2, j % 2,
++                             obs[i].SNR[j / 2] * SNR_UNIT, opt) + vart + SQR(C) * vari +
+                       opt->uraratio * var_rs[i];
+diff --git a/src/pos/mrtk_spp.c b/src/pos/mrtk_spp.c
+--- a/src/pos/mrtk_spp.c
++++ b/src/pos/mrtk_spp.c
+@@ -82,5 +82,5 @@
+ static double varerr(const prcopt_t* opt, double el, double snr, int sys) {
+-    double fact, varr;
++    double fact, varr, cn0_sigma = opt->err[6], cn0_max = opt->err[5];
+     fact = sys == SYS_GLO ? EFACT_GLO : (sys == SYS_SBS ? EFACT_SBS : EFACT_GPS);
+     if (el < MIN_EL) {
+         el = MIN_EL;
+@@ -91,13 +91,18 @@
+     }
+     varr = SQR(fact) * varr;
+ 
++#ifdef __ANDROID__
++    if (cn0_sigma <= 0.0) cn0_sigma = 0.35;
++    if (cn0_max <= 0.0) cn0_max = 45.0;
++#endif
++
+     /* #116 P1: optional C/N0 (Sigma-epsilon) term, identical in form to the RTK
+      * varerr(). Off when err[6]<=0 (default) -> bit-identical to the previous
+      * elevation-only model; skipped when SNR is absent (snr==0) so a receiver
+      * that reports no C/N0 keeps the legacy behaviour. */
+-    if (opt->err[6] > 0.0 && snr > 0.0) {
+-        double e = fact * opt->err[6];
+-        double d = opt->err[5] - snr; /* dB-Hz below snr_max */
++    if (cn0_sigma > 0.0 && snr > 0.0) {
++        double e = fact * cn0_sigma;
++        double d = cn0_max - snr; /* dB-Hz below snr_max */
+         varr += SQR(e) * pow(10.0, 0.1 * (d > 0.0 ? d : 0.0));
+     }
+     return varr;
