@@ -32,7 +32,7 @@ GPS-guided mode is intended only to help navigate approximately between measurem
 
 Pad Grade Mapper is designed to keep GPS coordinates, grade readings, and project data in local browser/device storage unless the user explicitly exports them.
 
-When the GPS map is visible, the original distributed application requests map tiles from the **USGS National Map** service. Those requests can reveal the approximate geographic area being viewed to that map service. The original distributed application does not include analytics or telemetry.
+The GPS map uses a pinned MapLibre GL display library served by **unpkg.com** and hybrid aerial map tiles from the **USGS National Map** service. The static MapLibre library request is not supplied with Pad Grade project or GPS data. When the map is visible, the USGS tile URLs necessarily identify the approximate geographic area being viewed. The original distributed application blocks other runtime fetch/XHR destinations and does not include analytics or telemetry.
 
 Exported project or CSV files leave the device only when the user chooses to save, share, or upload them.
 
