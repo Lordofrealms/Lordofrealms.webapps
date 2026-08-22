@@ -1,1 +1,1 @@
-build 18 - v0.4.5 publish validated APK directly to GitHub Releases
+build 19 - v0.4.6 GPS repair, two-stage grid font scaling, Android Back handling
