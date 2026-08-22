@@ -1,22 +1,30 @@
 /* Shared Pad Grade platform bridge.
  *
  * Browser target: leaves navigator.geolocation alone.
- * Android WebView target: the wrapper exposes window.PadGradeNative. We shadow
- * navigator.geolocation with a compatible provider backed by Precision Location,
- * so the existing Pad Grade GPS/calibration code stays identical on both targets.
+ * Android WebView target: the wrapper exposes window.PadGradeNative. When the
+ * Precision Location companion is available, we shadow navigator.geolocation
+ * with a compatible provider backed by that service. If it is not installed or
+ * not yet IPC-capable, the WebView falls back to ordinary browser geolocation.
  */
 (function installPadGradePlatform(){
   'use strict';
 
   const nativeBridge=window.PadGradeNative;
-  const hasNativeBridge=!!(nativeBridge && typeof nativeBridge.startPrecisionLocation==='function');
+  let precisionAvailable=false;
+  if(nativeBridge && typeof nativeBridge.startPrecisionLocation==='function'){
+    try{
+      precisionAvailable=typeof nativeBridge.isPrecisionLocationAvailable==='function'
+        ? !!nativeBridge.isPrecisionLocationAvailable()
+        : true;
+    }catch(e){ precisionAvailable=false; }
+  }
 
   window.PadGradePlatform={
-    target:hasNativeBridge?'android':'web',
-    nativePrecisionLocation:hasNativeBridge
+    target:nativeBridge?'android':'web',
+    nativePrecisionLocation:precisionAvailable
   };
 
-  if(!hasNativeBridge) return;
+  if(!precisionAvailable) return;
 
   let nextWatchId=1;
   const watchers=new Map();
@@ -74,7 +82,7 @@
       const result=nativeBridge.startPrecisionLocation();
       if(result===false){
         startRequested=false;
-        emitError(2,'Precision Location is not installed or could not be started.');
+        emitError(2,'Precision Location could not be started.');
       }
     }catch(e){
       startRequested=false;
