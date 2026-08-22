@@ -1,15 +1,14 @@
 name: Precision Location Android
 
+# Deliberately quiet CI: code commits do not build automatically.
+# Bump precision-location-android/ci-build-trigger.txt when a validation build is wanted.
 on:
   push:
     branches: [precision-location-android]
     paths:
-      - 'precision-location-android/**'
+      - 'precision-location-android/ci-build-trigger.txt'
       - '.github/workflows/precision-location-android.yml'
-  pull_request:
-    paths:
-      - 'precision-location-android/**'
-      - '.github/workflows/precision-location-android.yml'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -17,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
