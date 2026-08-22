@@ -18,6 +18,7 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
     private final Listener listener;
     private final Object nativeLock = new Object();
     private final AndroidGnssObservationConverter observationConverter = new AndroidGnssObservationConverter();
+    private final CarrierPhasePreprocessor carrierPreprocessor = new CarrierPhasePreprocessor();
     private final EnhancedGnssFilter enhancedFilter = new EnhancedGnssFilter();
     private volatile boolean running;
     private volatile Location fallbackLocation;
@@ -39,6 +40,7 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
         hasCorrections = false;
         hasConnectionFailed = false;
         readyStreak = 0;
+        carrierPreprocessor.reset();
         enhancedFilter.reset();
         closePreflightLogger();
         synchronized (nativeLock) {
@@ -71,6 +73,7 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
         hasClient = null;
         if (c != null) c.stop();
         closePreflightLogger();
+        carrierPreprocessor.reset();
         enhancedFilter.reset();
         emit(PppSolution.State.OFF, "AUTO", "Stopped");
     }
@@ -81,7 +84,8 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
         GnssPreflightLogger logger = preflightLogger;
         if (logger != null) logger.logMeasurements(event);
 
-        RawObservationEpoch epoch = observationConverter.convert(event);
+        RawObservationEpoch rawEpoch = observationConverter.convert(event);
+        RawObservationEpoch epoch = carrierPreprocessor.process(rawEpoch);
         final int accepted;
         final String nativeInfo;
         final double[] ppp;
@@ -153,7 +157,7 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
             } else {
                 state = qualityReady ? PppSolution.State.READY : PppSolution.State.PRECHECK;
                 mode = "ENHANCED GNSS";
-                extra = "\nNo-signup Enhanced GNSS: broadcast/system absolute anchor + temporal smoothing + raw carrier-phase quality checks."
+                extra = "\nNo-signup Enhanced GNSS: carrier-smoothed code + TDCP-aided range rate + robust measurement weighting + broadcast/system absolute anchor."
                         + " Absolute uncertainty remains meter-class without external corrections.";
             }
             listener.onSolution(new PppSolution(
