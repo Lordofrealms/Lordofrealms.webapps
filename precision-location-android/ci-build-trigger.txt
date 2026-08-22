@@ -1,1 +1,1 @@
-build 16 - v0.4.2 fixed launcher artwork binary validation
+build 17 - v0.4.3 revised Android launcher composition validation
