@@ -2,7 +2,6 @@ package com.lordofrealms.precisionlocation;
 
 import android.Manifest;
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -12,11 +11,9 @@ import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
-import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -71,24 +68,24 @@ public final class MainActivity extends Activity implements PrecisionLocationSer
         super.onCreate(savedInstanceState);
         buildUi();
         engineView.setText(AutoPppEngine.nativeEngineInfo());
-
-        // Long-press while running only reveals engineering diagnostics. HAS
-        // credentials now have a visible Settings button and are not hidden.
         detailView.setOnLongClickListener(v -> {
-            if (running) {
-                diagnosticsVisible = !diagnosticsVisible;
-                renderLastSolution();
-                return true;
-            }
-            return false;
+            if (!running) return false;
+            diagnosticsVisible = !diagnosticsVisible;
+            renderLastSolution();
+            return true;
         });
         refreshSetupState();
     }
 
     @Override protected void onStart() {
         super.onStart();
-        Intent intent = new Intent(this, PrecisionLocationService.class);
-        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
+        bindService(new Intent(this, PrecisionLocationService.class),
+                serviceConnection, Context.BIND_AUTO_CREATE);
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        if (!running) refreshSetupState();
     }
 
     @Override protected void onStop() {
@@ -98,8 +95,8 @@ public final class MainActivity extends Activity implements PrecisionLocationSer
             bound = false;
             service = null;
         }
-        // Deliberately do NOT stop GNSS here. Screen-off/backgrounding is one
-        // of the main use cases for the foreground service.
+        // Active GNSS belongs to the foreground service and continues through
+        // screen-off/backgrounding until Stop or the app task is closed.
         super.onStop();
     }
 
@@ -144,14 +141,14 @@ public final class MainActivity extends Activity implements PrecisionLocationSer
         startButton.setText("Start");
         startButton.setTextSize(18);
         startButton.setOnClickListener(v -> toggle());
-        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(58));
-        root.addView(startButton, buttonParams);
+        root.addView(startButton, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(58)));
 
         settingsButton = new Button(this);
-        settingsButton.setText("HAS Settings");
+        settingsButton.setText("Settings");
         settingsButton.setTextSize(14);
-        settingsButton.setOnClickListener(v -> showHasSetupDialog());
+        settingsButton.setOnClickListener(v ->
+                startActivity(new Intent(this, AppSettingsActivity.class)));
         LinearLayout.LayoutParams settingsParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(50));
         settingsParams.topMargin = dp(10);
@@ -171,19 +168,24 @@ public final class MainActivity extends Activity implements PrecisionLocationSer
         diagnosticsVisible = false;
         engineView.setVisibility(View.GONE);
         settingsButton.setEnabled(true);
+        startButton.setText("Start");
         modeView.setText("AUTOMATIC");
         accuracyView.setText("—");
-        if (HasAccessConfig.load(this).isConfigured()) {
-            stateView.setText("OFF");
-            stateView.setTextColor(Color.rgb(160, 172, 184));
-            detailView.setText("HAS configured. Tap Start.");
-            startButton.setText("Start");
+        stateView.setText("READY TO START");
+        stateView.setTextColor(Color.rgb(160, 172, 184));
+
+        String positioning = HasAccessConfig.load(this).isConfigured()
+                ? "HAS configured; Start will prefer HAS PPP."
+                : "No-signup positioning ready; HAS is optional in Settings.";
+        String phoneOutput;
+        if (!PhoneLocationConfig.isEnabled(this)) {
+            phoneOutput = "";
+        } else if (PhoneLocationConfig.isAuthorized(this)) {
+            phoneOutput = " Phone location replacement is enabled.";
         } else {
-            stateView.setText("GNSS TEST READY");
-            stateView.setTextColor(Color.rgb(245, 190, 78));
-            detailView.setText("HAS is not configured yet. Test GNSS now or add credentials in HAS Settings.");
-            startButton.setText("Test GNSS");
+            phoneOutput = " Phone location replacement still needs one-time Android authorization.";
         }
+        detailView.setText(positioning + phoneOutput);
     }
 
     private void toggle() {
@@ -229,12 +231,11 @@ public final class MainActivity extends Activity implements PrecisionLocationSer
     }
 
     private void renderStartingState() {
+        stateView.setText("STARTING");
         if (HasAccessConfig.load(this).isConfigured()) {
-            stateView.setText("STARTING");
-            detailView.setText("Getting a high-accuracy position…");
+            detailView.setText("Starting GNSS and HAS corrections…");
         } else {
-            stateView.setText("PRECHECK");
-            detailView.setText("Testing the phone's raw GNSS… this continues with the screen off.");
+            detailView.setText("Starting no-signup precision GNSS… this continues with the screen off.");
         }
         stateView.setTextColor(Color.rgb(245, 190, 78));
         accuracyView.setText("—");
@@ -245,121 +246,17 @@ public final class MainActivity extends Activity implements PrecisionLocationSer
         if (requestCode != PERMISSION_REQUEST) return;
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
                 == PackageManager.PERMISSION_GRANTED) {
-            // Notification permission is useful but not required for the location
-            // foreground service to function; Android still exposes active FGS state.
             startPrecisionSession();
         } else {
             onServiceError("Precise location permission is required");
         }
     }
 
-    private void showHasSetupDialog() {
-        if (running) return;
-        HasAccessConfig existing = HasAccessConfig.load(this);
-        int pad = dp(14);
-        LinearLayout form = new LinearLayout(this);
-        form.setOrientation(LinearLayout.VERTICAL);
-        form.setPadding(pad, dp(4), pad, 0);
-
-        EditText url = new EditText(this);
-        url.setHint("HTTPS caster URL including mountpoint");
-        url.setSingleLine(true);
-        url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        url.setText(existing.url);
-        form.addView(url, matchWrap());
-
-        EditText username = new EditText(this);
-        username.setHint("HAS username");
-        username.setSingleLine(true);
-        username.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
-        username.setText(existing.username);
-        form.addView(username, matchWrap());
-
-        EditText password = new EditText(this);
-        password.setHint("HAS password");
-        password.setSingleLine(true);
-        password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        password.setText(existing.password);
-        form.addView(password, matchWrap());
-
-        TextView testStatus = text("", 13, Color.rgb(160, 172, 184), false);
-        testStatus.setPadding(0, dp(8), 0, dp(4));
-        form.addView(testStatus, matchWrap());
-
-        Button testButton = new Button(this);
-        testButton.setText("Test Connection");
-        form.addView(testButton, matchWrap());
-
-        final HasNtripClient[] testClient = new HasNtripClient[1];
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("HAS Settings")
-                .setMessage("Add or change Galileo HAS Internet Data Distribution access here. Changes are used the next time positioning starts.")
-                .setView(form)
-                .setNeutralButton("Clear", null)
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton("Save", null)
-                .create();
-
-        Runnable stopTest = () -> {
-            HasNtripClient client = testClient[0];
-            testClient[0] = null;
-            if (client != null) client.stop();
-        };
-
-        testButton.setOnClickListener(v -> {
-            stopTest.run();
-            HasAccessConfig candidate = new HasAccessConfig(
-                    url.getText().toString(), username.getText().toString(), password.getText().toString());
-            if (!candidate.isConfigured()) {
-                testStatus.setText("Enter the HTTPS caster URL, username, and password first.");
-                return;
-            }
-            testStatus.setText("Connecting…");
-            HasNtripClient client = new HasNtripClient(candidate, new HasNtripClient.Listener() {
-                @Override public void onCorrectionBytes(byte[] data, int length) {
-                    runOnUiThread(() -> testStatus.setText("Connected — correction data received."));
-                    stopTest.run();
-                }
-                @Override public void onStatus(String status) {
-                    runOnUiThread(() -> testStatus.setText(status));
-                }
-                @Override public void onFatalError(String message) {
-                    runOnUiThread(() -> testStatus.setText(message));
-                }
-            });
-            testClient[0] = client;
-            client.start();
-        });
-
-        dialog.setOnShowListener(ignored -> {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                HasAccessConfig value = new HasAccessConfig(
-                        url.getText().toString(), username.getText().toString(), password.getText().toString());
-                if (!value.isConfigured()) {
-                    url.setError("Use the full HTTPS HAS caster URL and enter the issued login");
-                    return;
-                }
-                stopTest.run();
-                value.save(this);
-                dialog.dismiss();
-                refreshSetupState();
-            });
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
-                stopTest.run();
-                HasAccessConfig.clear(this);
-                dialog.dismiss();
-                refreshSetupState();
-            });
-        });
-        dialog.setOnDismissListener(ignored -> stopTest.run());
-        dialog.show();
-    }
-
     @Override public void onServiceSolution(PppSolution solution) {
         runOnUiThread(() -> {
             running = solution.state != PppSolution.State.OFF;
             settingsButton.setEnabled(!running);
-            startButton.setText(running ? "Stop" : (HasAccessConfig.load(this).isConfigured() ? "Start" : "Test GNSS"));
+            startButton.setText(running ? "Stop" : "Start");
             lastSolution = solution;
             if (!running) refreshSetupState();
             else renderLastSolution();
@@ -385,9 +282,11 @@ public final class MainActivity extends Activity implements PrecisionLocationSer
 
         if (Double.isFinite(solution.horizontalAccuracyMeters)) {
             if (solution.horizontalAccuracyMeters < 1.0) {
-                accuracyView.setText(String.format(Locale.US, "%.0f cm", solution.horizontalAccuracyMeters * 100.0));
+                accuracyView.setText(String.format(Locale.US, "%.0f cm",
+                        solution.horizontalAccuracyMeters * 100.0));
             } else {
-                accuracyView.setText(String.format(Locale.US, "%.1f m", solution.horizontalAccuracyMeters));
+                accuracyView.setText(String.format(Locale.US, "%.1f m",
+                        solution.horizontalAccuracyMeters));
             }
         } else {
             accuracyView.setText("—");
@@ -409,13 +308,13 @@ public final class MainActivity extends Activity implements PrecisionLocationSer
     private String friendlyDetail(PppSolution.State state) {
         switch (state) {
             case PRECHECK:
-                return "Testing phone GNSS. This continues with the screen off.";
+                return "No-signup GNSS is stabilizing. This continues with the screen off.";
             case STARTING:
                 return "Acquiring satellites and corrections…";
             case CONVERGING:
                 return "Improving accuracy. Keep a clear view of the sky.";
             case READY:
-                return "High-accuracy position is ready.";
+                return "Precision position is ready.";
             case DEGRADED:
                 return "Accuracy is temporarily degraded. Keep a clear view of the sky.";
             case ERROR:
@@ -427,16 +326,17 @@ public final class MainActivity extends Activity implements PrecisionLocationSer
     }
 
     private TextView text(String value, int sp, int color, boolean bold) {
-        TextView v = new TextView(this);
-        v.setText(value);
-        v.setTextSize(sp);
-        v.setTextColor(color);
-        if (bold) v.setTypeface(v.getTypeface(), android.graphics.Typeface.BOLD);
-        return v;
+        TextView view = new TextView(this);
+        view.setText(value);
+        view.setTextSize(sp);
+        view.setTextColor(color);
+        if (bold) view.setTypeface(view.getTypeface(), android.graphics.Typeface.BOLD);
+        return view;
     }
 
     private LinearLayout.LayoutParams matchWrap() {
-        return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+        return new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
     }
 
