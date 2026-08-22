@@ -22,10 +22,13 @@
   const platform={
     target:nativeBridge?'android':'web',
     nativePrecisionLocation:precisionAvailable,
-    // First-class source metadata for UI components such as the live GPS map.
-    // Browser/WebView fallback stays Native GPS; the direct companion feed
-    // replaces this with its actual solutionMode/solutionState on every fix.
-    lastLocationMeta:{
+    lastLocationMeta:precisionAvailable?{
+      provider:'precision-location',
+      solutionMode:'Precision Location',
+      solutionState:'STARTING',
+      fixAgeMs:0,
+      timestamp:0
+    }:{
       provider:'native',
       solutionMode:'Native GPS',
       solutionState:'UNKNOWN',
@@ -58,7 +61,18 @@
     return {code,message:String(message||'Location unavailable')};
   }
 
+  function setPrecisionState(state,mode){
+    platform.lastLocationMeta={
+      provider:'precision-location',
+      solutionMode:mode||platform.lastLocationMeta.solutionMode||'Precision Location',
+      solutionState:state||'UNKNOWN',
+      fixAgeMs:platform.lastLocationMeta.fixAgeMs||0,
+      timestamp:platform.lastLocationMeta.timestamp||0
+    };
+  }
+
   function emitError(code,message){
+    setPrecisionState('ERROR','Precision Location');
     const err=positionError(code,message);
     for(const watcher of watchers.values()){
       try{ if(typeof watcher.error==='function') watcher.error(err); }catch(e){}
@@ -107,6 +121,7 @@
   function ensureStarted(){
     if(startRequested) return;
     startRequested=true;
+    setPrecisionState('STARTING','Precision Location');
     try{
       const result=nativeBridge.startPrecisionLocation();
       if(result===false){
@@ -139,6 +154,7 @@
       request.timer=setTimeout(()=>{
         const index=oneShots.indexOf(request);
         if(index>=0) oneShots.splice(index,1);
+        setPrecisionState('ERROR','Precision Location');
         try{ if(typeof error==='function') error(positionError(3,'Precision Location request timed out.')); }catch(e){}
         maybeReleaseSubscription();
       },timeout);
@@ -189,6 +205,7 @@
 
   window.__padGradeNativeProviderStopped=function(){
     startRequested=false;
+    setPrecisionState('STOPPED',platform.lastLocationMeta.solutionMode||'Precision Location');
   };
 
   // Navigator.geolocation is normally inherited from Navigator.prototype. An
