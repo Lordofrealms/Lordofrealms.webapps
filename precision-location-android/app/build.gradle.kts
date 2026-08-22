@@ -10,8 +10,8 @@ android {
         applicationId = "com.lordofrealms.precisionlocation"
         minSdk = 31
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
@@ -37,4 +37,8 @@ android {
             version = "3.22.1"
         }
     }
+}
+
+dependencies {
+    implementation("com.google.android.gms:play-services-location:21.4.0")
 }
