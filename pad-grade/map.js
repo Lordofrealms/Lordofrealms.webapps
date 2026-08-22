@@ -28,8 +28,22 @@
   let lastFixSignature='';
   let lastModeVisible=null;
   let pollTimer=null;
+  let companionWatchId=null;
+  let companionMapPosition=null;
 
   function el(id){ return document.getElementById(id); }
+
+  function positionSample(pos){
+    if(!pos || !pos.coords || !Number.isFinite(+pos.coords.latitude) || !Number.isFinite(+pos.coords.longitude)) return null;
+    return {
+      lat:+pos.coords.latitude,
+      lon:+pos.coords.longitude,
+      accuracy:Number.isFinite(+pos.coords.accuracy)?+pos.coords.accuracy:NaN,
+      heading:Number.isFinite(+pos.coords.heading)?+pos.coords.heading:null,
+      speed:Number.isFinite(+pos.coords.speed)?+pos.coords.speed:null,
+      timestamp:Number.isFinite(+pos.timestamp)?+pos.timestamp:Date.now()
+    };
+  }
 
   function getGpsPosition(){
     try{
@@ -37,6 +51,9 @@
         return gpsPos;
       }
     }catch(e){}
+    if(companionMapPosition && Number.isFinite(+companionMapPosition.lat) && Number.isFinite(+companionMapPosition.lon)){
+      return companionMapPosition;
+    }
     return null;
   }
 
@@ -89,8 +106,8 @@
         : (pos?'ACTIVE':'WAITING');
       state.textContent=stateText;
       state.classList.toggle('ready',/READY/i.test(stateText));
-      state.classList.toggle('working',!/READY|ERROR|DEGRADED/i.test(stateText));
-      state.classList.toggle('bad',/ERROR|DEGRADED/i.test(stateText));
+      state.classList.toggle('working',!/READY|ERROR|DEGRADED|NO DATA/i.test(stateText));
+      state.classList.toggle('bad',/ERROR|DEGRADED|NO DATA/i.test(stateText));
     }
     if(accuracy){
       const a=pos && Number.isFinite(+pos.accuracy) ? +pos.accuracy : NaN;
@@ -142,11 +159,71 @@
     if(source && typeof source.setData==='function') source.setData(data);
   }
 
+  function setCompanionState(state){
+    const platform=window.PadGradePlatform||{};
+    if(!platform.nativePrecisionLocation) return;
+    const meta=platform.lastLocationMeta||{};
+    platform.lastLocationMeta={
+      provider:'precision-location',
+      solutionMode:meta.solutionMode||'Precision Location',
+      solutionState:state,
+      fixAgeMs:Number.isFinite(+meta.fixAgeMs)?+meta.fixAgeMs:0,
+      timestamp:Number.isFinite(+meta.timestamp)?+meta.timestamp:Date.now()
+    };
+  }
+
+  function syncCompanionWatch(visible){
+    const platform=window.PadGradePlatform||{};
+    const shouldWatch=!!(
+      visible &&
+      platform.target==='android' &&
+      platform.nativePrecisionLocation &&
+      navigator.geolocation &&
+      typeof navigator.geolocation.watchPosition==='function'
+    );
+
+    if(shouldWatch && companionWatchId==null){
+      setCompanionState('STARTING');
+      try{
+        companionWatchId=navigator.geolocation.watchPosition(
+          pos=>{
+            const sample=positionSample(pos);
+            if(sample) companionMapPosition=sample;
+            updateMap();
+          },
+          err=>{
+            companionMapPosition=null;
+            setCompanionState('ERROR');
+            const message=el('gpsMapMessage');
+            if(message){
+              const detail=err&&err.message?String(err.message):'Precision Location data connection failed.';
+              message.textContent=detail;
+              message.classList.remove('hidden');
+            }
+            updateSourceUi(getGpsPosition());
+          },
+          {enableHighAccuracy:true,maximumAge:500,timeout:15000}
+        );
+      }catch(e){
+        companionWatchId=null;
+        setCompanionState('ERROR');
+      }
+      return;
+    }
+
+    if(!shouldWatch && companionWatchId!=null){
+      try{ navigator.geolocation.clearWatch(companionWatchId); }catch(e){}
+      companionWatchId=null;
+      companionMapPosition=null;
+    }
+  }
+
   function updateMap(){
     const card=el('gpsMapCard');
     const visible=isGpsMode();
     if(card) card.classList.toggle('show',visible);
 
+    syncCompanionWatch(visible);
     if(visible && !map && !mapInitAttempted) initMap();
 
     if(lastModeVisible!==visible){
@@ -159,7 +236,7 @@
     const message=el('gpsMapMessage');
     if(!pos){
       if(message){
-        message.textContent=visible?'Enable GPS to show current position.':'';
+        message.textContent=visible?'Waiting for current GPS position…':'';
         message.classList.toggle('hidden',!visible);
       }
       setGeoJson(FIX_SOURCE,pointGeoJson(null));
@@ -284,6 +361,10 @@
     window.addEventListener('beforeunload',()=>{
       if(pollTimer) clearInterval(pollTimer);
       pollTimer=null;
+      if(companionWatchId!=null){
+        try{ navigator.geolocation.clearWatch(companionWatchId); }catch(e){}
+        companionWatchId=null;
+      }
       if(map){ try{map.remove();}catch(e){} map=null; }
     },{once:true});
   }
