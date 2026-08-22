@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.22.1)
 project(precision_location C)
 
 include(FetchContent)
+find_package(Git REQUIRED)
 
 # Pin the GNSS engine so field behavior does not silently change between builds.
 FetchContent_Declare(
@@ -13,6 +14,39 @@ FetchContent_Declare(
 FetchContent_GetProperties(mrtklib_src)
 if(NOT mrtklib_src_POPULATED)
     FetchContent_Populate(mrtklib_src)
+endif()
+
+# Android needs uncombined PPP to accept a genuine one-frequency epoch. The
+# pinned upstream corr_meas() currently calculates a two-frequency LC even when
+# IONOOPT_EST is selected, so L1/E1-only phones are rejected before the iono
+# state can be estimated. Keep this as a small, reviewable patch instead of a
+# fork; do nothing if CMake is re-run and the patch is already applied.
+set(MRTKLIB_ANDROID_PATCH
+    "${CMAKE_CURRENT_LIST_DIR}/patches/mrtklib-uncombined-single-frequency.patch")
+execute_process(
+    COMMAND "${GIT_EXECUTABLE}" apply --reverse --check "${MRTKLIB_ANDROID_PATCH}"
+    WORKING_DIRECTORY "${mrtklib_src_SOURCE_DIR}"
+    RESULT_VARIABLE MRTK_PATCH_ALREADY_APPLIED
+    OUTPUT_QUIET ERROR_QUIET
+)
+if(NOT MRTK_PATCH_ALREADY_APPLIED EQUAL 0)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" apply --check "${MRTKLIB_ANDROID_PATCH}"
+        WORKING_DIRECTORY "${mrtklib_src_SOURCE_DIR}"
+        RESULT_VARIABLE MRTK_PATCH_CHECK
+        OUTPUT_QUIET ERROR_VARIABLE MRTK_PATCH_ERROR
+    )
+    if(NOT MRTK_PATCH_CHECK EQUAL 0)
+        message(FATAL_ERROR "MRTKLIB Android patch no longer applies: ${MRTK_PATCH_ERROR}")
+    endif()
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" apply "${MRTKLIB_ANDROID_PATCH}"
+        WORKING_DIRECTORY "${mrtklib_src_SOURCE_DIR}"
+        RESULT_VARIABLE MRTK_PATCH_RESULT
+    )
+    if(NOT MRTK_PATCH_RESULT EQUAL 0)
+        message(FATAL_ERROR "Failed to apply MRTKLIB Android patch")
+    endif()
 endif()
 
 # MRTKLIB's upstream top-level CMake currently assumes it is the root project
