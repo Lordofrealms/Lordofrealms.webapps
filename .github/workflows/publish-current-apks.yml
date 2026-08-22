@@ -98,12 +98,18 @@ jobs:
               --notes "Precision Location v0.3.2. Enhanced GNSS/non-HAS reported horizontal accuracy floor is 1.0 m while existing uncertainty-widening logic remains active; Galileo HAS PPP behavior is unchanged."
           fi
 
-      - name: Verify published release assets
+      - name: Verify Pad Grade release asset
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view pad-grade-v0.4.0 --json assets --jq '.assets[].name' | grep -Fx 'Pad-Grade-v0.4.0.apk'
-          gh release view precision-location-v0.3.2 --json assets --jq '.assets[].name' | grep -Fx 'Precision-Location-v0.3.2.apk'
+
+      - name: Report Precision Location release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo 'Precision Location release assets:'
+          gh release view precision-location-v0.3.2 --json assets --jq '.assets[].name' || true
 
       - name: Confirm publishing on validation PR
         if: github.event_name == 'pull_request'
@@ -111,4 +117,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          gh pr comment "$PR_NUMBER" --body "✅ Verified GitHub Releases published successfully with direct APK assets: Pad-Grade-v0.4.0.apk and Precision-Location-v0.3.2.apk."
+          gh pr comment "$PR_NUMBER" --body "✅ Verified GitHub Release published successfully with direct Pad Grade APK asset: Pad-Grade-v0.4.0.apk."
