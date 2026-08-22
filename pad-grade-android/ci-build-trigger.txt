@@ -1,1 +1,1 @@
-build 5 - v0.3.0 GPS workflow redesign, unified location state, map grid overlays
+build 6 - v0.3.0 final redesign validation including compass orientation fix
