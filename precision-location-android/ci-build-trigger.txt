@@ -1,1 +1,1 @@
-build 1 - embedded MRTKLIB Android integration
+build 2 - Android nav ephemeris + embedded MRTKLIB
