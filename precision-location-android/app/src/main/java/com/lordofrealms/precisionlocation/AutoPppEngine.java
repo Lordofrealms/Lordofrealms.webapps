@@ -117,8 +117,8 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
         if (f != null) {
             listener.onSolution(new PppSolution(
                     state,
-                    f.getLatitude(), f.getLongitude(), f.getAltitude(), f.getAccuracy(),
-                    mode, detail + "\nDisplayed accuracy is Android fallback until PPP is available."));
+                    f.getLatitude(), f.getLongitude(), f.getAltitude(), Double.NaN,
+                    mode, detail + "\nAndroid location is being used only as a PPP initialization seed."));
         } else {
             emit(state, mode, detail);
         }
@@ -172,7 +172,7 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
                 f == null ? Double.NaN : f.getLatitude(),
                 f == null ? Double.NaN : f.getLongitude(),
                 f == null ? Double.NaN : f.getAltitude(),
-                f == null ? Double.NaN : f.getAccuracy(), mode, detail));
+                Double.NaN, mode, detail));
     }
 
     public static native String nativeEngineInfo();
