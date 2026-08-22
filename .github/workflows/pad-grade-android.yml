@@ -87,9 +87,17 @@ jobs:
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/migration-core.js'
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/grid-core.js'
 
-      - name: Verify approved launcher artwork packaged
+      - name: Verify launcher icon resolves to approved raster
         run: |
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'ic_pad_grade_surveying'
+          APK=pad-grade-android/app/build/outputs/apk/debug/app-debug.apk
+          AAPT="$ANDROID_HOME/build-tools/36.0.0/aapt"
+          unzip -l "$APK" | grep 'res/mipmap-nodpi-v4/ic_launcher.webp'
+          unzip -l "$APK" | grep 'res/mipmap-nodpi-v4/ic_launcher_round.webp'
+          if unzip -l "$APK" | grep -q 'res/mipmap-anydpi-v26/ic_launcher.xml'; then
+            echo 'Unexpected adaptive launcher override remains in APK' >&2
+            exit 1
+          fi
+          "$AAPT" dump badging "$APK" | grep "application-icon" | grep 'ic_launcher'
 
       - name: Name APK
         run: cp pad-grade-android/app/build/outputs/apk/debug/app-debug.apk "$APK_NAME"
