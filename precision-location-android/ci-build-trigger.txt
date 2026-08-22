@@ -1,1 +1,1 @@
-build 13 - v0.4.0 carrier/TDCP/weighting validation
+build 14 - v0.4.1 adaptive launcher icon validation
