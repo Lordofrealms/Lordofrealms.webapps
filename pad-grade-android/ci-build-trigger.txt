@@ -1,1 +1,1 @@
-build 21 - v0.4.8 in-place project switching, reliable grid text scaler, Pad Grade launcher icon
+build 23 - v0.4.9 grid font minimum 1 px and scaler test baseline
