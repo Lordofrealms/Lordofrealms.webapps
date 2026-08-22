@@ -29,6 +29,7 @@ jobs:
           node --check pad-grade/v040-sync.js
           node --check pad-grade/v041.js
           node --check pad-grade/v041-persist.js
+          node --check pad-grade/v042.js
 
       - uses: actions/setup-java@v5
         with:
@@ -58,6 +59,8 @@ jobs:
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v041.js'
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v041-persist.js'
           unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v041.css'
+          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v042.js'
+          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v042.css'
 
       - name: Upload debug APK
         if: success()
