@@ -23,6 +23,7 @@ public final class MockLocationPublisher {
     private final Listener listener;
     private volatile boolean requested;
     private volatile boolean mockModeActive;
+    private volatile boolean enableInFlight;
     private volatile PppSolution pendingSolution;
 
     public MockLocationPublisher(Context context, Listener listener) {
@@ -37,6 +38,7 @@ public final class MockLocationPublisher {
     public void start() {
         requested = PhoneLocationConfig.isEnabled(appContext);
         mockModeActive = false;
+        enableInFlight = false;
         pendingSolution = null;
         if (!requested) {
             notifyStatus("Phone location output off");
@@ -47,23 +49,30 @@ public final class MockLocationPublisher {
             return;
         }
 
+        enableInFlight = true;
         fusedClient.setMockMode(true)
                 .addOnSuccessListener(ignored -> {
-                    if (!requested) return;
+                    enableInFlight = false;
+                    if (!requested) {
+                        // Stop may have happened while the asynchronous enable was
+                        // in flight. Never leave Fused Location in mock mode.
+                        fusedClient.setMockMode(false);
+                        return;
+                    }
                     mockModeActive = true;
                     notifyStatus("Phone location output active");
                     PppSolution pending = pendingSolution;
                     if (pending != null) publish(pending);
                 })
                 .addOnFailureListener(error -> {
+                    enableInFlight = false;
                     mockModeActive = false;
                     notifyStatus("Phone location output unavailable: " + safeMessage(error));
                 });
     }
 
     public void publish(PppSolution solution) {
-        if (!requested || solution == null) return;
-        if (!isPublishable(solution)) return;
+        if (!requested || solution == null || !isPublishable(solution)) return;
         pendingSolution = solution;
         if (!mockModeActive) return;
 
@@ -78,6 +87,8 @@ public final class MockLocationPublisher {
         fusedClient.setMockLocation(location)
                 .addOnFailureListener(error -> {
                     mockModeActive = false;
+                    requested = false;
+                    fusedClient.setMockMode(false);
                     notifyStatus("Phone location output stopped: " + safeMessage(error));
                 });
     }
@@ -85,8 +96,9 @@ public final class MockLocationPublisher {
     public void stop() {
         requested = false;
         pendingSolution = null;
-        if (!mockModeActive) return;
+        boolean shouldDisable = mockModeActive || enableInFlight;
         mockModeActive = false;
+        if (!shouldDisable) return;
         fusedClient.setMockMode(false)
                 .addOnFailureListener(error ->
                         notifyStatus("Could not restore normal phone location: " + safeMessage(error)));
