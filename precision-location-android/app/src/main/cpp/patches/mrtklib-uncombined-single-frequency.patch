@@ -19,3 +19,51 @@ diff --git a/src/pos/mrtk_ppp.c b/src/pos/mrtk_ppp.c
      if (freq[0] == 0.0 || freq[i2] == 0.0) {
          return 0;
      }
+@@ -1134,11 +1145,18 @@ static void udiono_ppp(rtk_t* rtk, const obsd_t* obs, int n, const nav_t* nav) {
+         slip = rtk->ssat[obs[i].sat - 1].slip;
+ 
+         if (rtk->x[j] == 0.0) {
+-            if (P[0] == 0.0 || P[1] == 0.0 || freq1 == 0.0 || freq2 == 0.0) {
++            if (P[0] == 0.0 || freq1 == 0.0) {
+                 continue;
+             }
+-            ionp = (P[0] - P[1]) / (SQR(FREQ1 / freq1) - SQR(FREQ1 / freq2));
++            if (P[1] != 0.0 && freq2 != 0.0) {
++                ionp = (P[0] - P[1]) / (SQR(FREQ1 / freq1) - SQR(FREQ1 / freq2));
++            } else {
++                /* Single-frequency uncombined PPP: start the slant-ionosphere
++                 * state essentially at zero with VAR_IONO uncertainty. Code and
++                 * phase residuals then estimate it jointly with the ambiguity. */
++                ionp = 1E-6;
++            }
+             ecef2pos(rtk->sol.rr, pos);
+             azel = rtk->ssat[obs[i].sat - 1].azel;
+             initx(rtk, ionp, VAR_IONO, j);
+ 
+-            if (L[0] == 0.0 || L[1] == 0.0 || slip[0] || slip[1]) {
++            if (L[0] == 0.0 || L[1] == 0.0 || freq2 == 0.0 || slip[0] || slip[1]) {
+                 rtk->ssat[obs[i].sat - 1].ionc = 0.0;
+@@ -1264,10 +1282,19 @@ static void udbias_ppp(rtk_t* rtk, const obsd_t* obs, int n, const nav_t* nav) {
+                 freq2 = sat2freq(sat, obs[i].code[1], nav);
+                 freq3 = sat2freq(sat, obs[i].code[f], nav);
+                 slip[i] = rtk->ssat[sat - 1].slip[f];
+-                if (obs[i].P[0] == 0.0 || obs[i].P[1] == 0.0 || obs[i].P[f] == 0.0 || freq1 == 0.0 || freq2 == 0.0 ||
+-                    freq3 == 0.0) {
++                if (obs[i].P[f] == 0.0 || freq3 == 0.0) {
+                     continue;
+                 }
+-                ion = (obs[i].P[0] - obs[i].P[1]) / (1.0 - SQR(freq1 / freq2));
+-                bias[i] = L[f] - P[f] + 2.0 * ion * SQR(freq1 / freq3);
++                if (obs[i].P[0] != 0.0 && obs[i].P[1] != 0.0 && freq1 != 0.0 && freq2 != 0.0) {
++                    ion = (obs[i].P[0] - obs[i].P[1]) / (1.0 - SQR(freq1 / freq2));
++                } else if (rtk->opt.ionoopt == IONOOPT_EST) {
++                    /* For a single-frequency (or gapped multi-frequency) epoch,
++                     * use the current estimated L1 slant-ionosphere state. It is
++                     * zero on first acquisition, which is a safe float-ambiguity
++                     * seed; subsequent epochs use the filter's ionosphere state. */
++                    ion = rtk->x[II(sat, &rtk->opt)];
++                } else {
++                    continue;
++                }
++                bias[i] = L[f] - P[f] + 2.0 * ion * SQR(FREQ1 / freq3);
+             }
