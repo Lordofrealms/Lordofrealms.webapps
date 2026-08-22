@@ -69,7 +69,6 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
     }
 
     @JavascriptInterface public void chooseProjectFolder() { activity.requestProjectFolder(); }
-
     @JavascriptInterface public boolean hasProjectFolder() { return getProjectFolder() != null; }
 
     @JavascriptInterface public String listProjectFiles() {
@@ -103,7 +102,7 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
         if (folder == null) return false;
         try {
             DocumentFile file = findProjectFile(filename);
-            if (file == null) file = folder.createFile("application/json", filename);
+            if (file == null) file = folder.createFile("application/octet-stream", filename);
             if (file == null) return false;
             try (OutputStream out = activity.getContentResolver().openOutputStream(file.getUri(), "wt")) {
                 if (out == null) return false;
