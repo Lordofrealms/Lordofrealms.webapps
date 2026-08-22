@@ -46,7 +46,7 @@
   };
 })();
 
-(function installV043Bootstrap(){
+(function installV046Bootstrap(){
   'use strict';
 
   if(window.maplibregl && window.maplibregl.Map && !window.__padGradeMapHookInstalled){
@@ -86,7 +86,7 @@
   }
 
   function polishLoadedWorkflow(){
-    document.title='Pad Grade Mapper v0.4.3';
+    document.title='Pad Grade Mapper v0.4.6';
 
     const calibration=document.querySelector('.v030-calibration');
     const instruction=document.getElementById('gpsInstruction');
@@ -111,7 +111,9 @@
           loadScript('v041.js?v=20260822-1','padgrade-v041',()=>{
             loadScript('v041-persist.js?v=20260822-1','padgrade-v041-persist',()=>{
               loadScript('v042.js?v=20260822-1','padgrade-v042',()=>{
-                loadScript('v043.js?v=20260822-1','padgrade-v043');
+                loadScript('v043.js?v=20260822-1','padgrade-v043',()=>{
+                  loadScript('v046.js?v=20260822-1','padgrade-v046');
+                });
               });
             });
           });
