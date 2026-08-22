@@ -22,6 +22,16 @@
   const platform={
     target:nativeBridge?'android':'web',
     nativePrecisionLocation:precisionAvailable,
+    // First-class source metadata for UI components such as the live GPS map.
+    // Browser/WebView fallback stays Native GPS; the direct companion feed
+    // replaces this with its actual solutionMode/solutionState on every fix.
+    lastLocationMeta:{
+      provider:'native',
+      solutionMode:'Native GPS',
+      solutionState:'UNKNOWN',
+      fixAgeMs:0,
+      timestamp:0
+    },
     saveTextFile(filename,mimeType,text){
       if(!nativeBridge || typeof nativeBridge.saveTextFile!=='function') return false;
       try{
@@ -68,6 +78,14 @@
     const verticalAccuracy=Number.isFinite(+p.verticalAccuracy)?+p.verticalAccuracy:null;
     const speed=Number.isFinite(+p.speed)?+p.speed:null;
     const heading=Number.isFinite(+p.bearing)?+p.bearing:null;
+    const timestamp=Number.isFinite(+p.timestamp)?+p.timestamp:Date.now();
+    platform.lastLocationMeta={
+      provider:'precision-location',
+      solutionMode:p.solutionMode||'Precision Location',
+      solutionState:p.solutionState||'UNKNOWN',
+      fixAgeMs:Number.isFinite(+p.fixAgeMs)?+p.fixAgeMs:0,
+      timestamp
+    };
     return {
       coords:{
         latitude:+p.latitude,
@@ -77,12 +95,12 @@
         altitudeAccuracy:verticalAccuracy,
         heading,
         speed,
-        solutionMode:p.solutionMode||'Precision Location',
-        solutionState:p.solutionState||'UNKNOWN',
-        fixAgeMs:Number.isFinite(+p.fixAgeMs)?+p.fixAgeMs:0,
+        solutionMode:platform.lastLocationMeta.solutionMode,
+        solutionState:platform.lastLocationMeta.solutionState,
+        fixAgeMs:platform.lastLocationMeta.fixAgeMs,
         provider:'precision-location'
       },
-      timestamp:Number.isFinite(+p.timestamp)?+p.timestamp:Date.now()
+      timestamp
     };
   }
 
