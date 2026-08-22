@@ -73,6 +73,12 @@
     document.head.appendChild(link);
   }
 
+  addStyle('v030.css?v=20260822-2','padgrade-v030');
+  addStyle('v031.css?v=20260822-1','padgrade-v031');
+  addStyle('v040.css?v=20260822-1','padgrade-v040');
+  addStyle('v041.css?v=20260822-1','padgrade-v041');
+  addStyle('v042.css?v=20260822-1','padgrade-v042');
+
   function loadScript(src,key,onload){
     if(document.querySelector(`script[data-${key}]`)){if(onload)onload();return;}
     const script=document.createElement('script');
