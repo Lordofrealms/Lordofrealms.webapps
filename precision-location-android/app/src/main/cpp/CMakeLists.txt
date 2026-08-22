@@ -62,10 +62,7 @@ target_compile_definitions(mrtklib_android PUBLIC
 # desktop Linux build it should not link a separate librt.
 target_link_libraries(mrtklib_android PUBLIC m)
 
-add_library(precision_location SHARED
-    native_bridge.c
-    android_observation.c
-)
+add_library(precision_location SHARED native_bridge.c)
 find_library(log_lib log)
 target_link_libraries(precision_location PRIVATE mrtklib_android ${log_lib} m)
 target_include_directories(precision_location PRIVATE
