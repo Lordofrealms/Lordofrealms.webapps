@@ -2,8 +2,8 @@
  *
  * This file is the only production module allowed to own grid drawing or grid
  * resize behavior. Legacy version layers may still provide project migration,
- * archive/backup UI, and switching logic, but their old grid renderers are
- * disabled whenever __padGradeGridOwned is true.
+ * archive/backup UI, and switching logic, but they do not own production grid
+ * rendering once this core is installed.
  */
 (function installPadGradeGridCore(){
   'use strict';
@@ -75,53 +75,54 @@
     return out;
   }
 
-  function renderGridV054(reason='explicit'){
+  function solveLayout(){
     const s=cfg();
     const grid=$('grid');
     const shell=grid?.parentElement;
-    if(!grid||!shell)return;
+    if(!grid||!shell)return null;
 
     const minFont=Math.max(2,Math.min(20,Number(prefs().minGridFont)||2));
     const dx=s.width/(s.cols-1);
     const dy=s.length/(s.rows-1);
-    const ratio=Math.max(.05,dx/dy);
-    const shellStyle=getComputedStyle(shell);
-    const available=Math.max(1,shell.clientWidth-px(shellStyle.paddingLeft)-px(shellStyle.paddingRight));
-    const fitW=Math.max(1,(available-FIT_GAP*Math.max(0,s.cols-1))/s.cols);
-    const fitH=fitW/ratio;
+    const physicalRatio=Math.max(.05,dx/dy);
 
-    // Measure with the exact styles the real cells will use. The grid is not
-    // cleared until all sizing math is complete, so a render never exposes an
-    // intermediate tiny-font state.
+    const shellStyle=getComputedStyle(shell);
+    const availableWidth=Math.max(1,shell.clientWidth-px(shellStyle.paddingLeft)-px(shellStyle.paddingRight));
+    const fitCellW=Math.max(1,(availableWidth-FIT_GAP*Math.max(0,s.cols-1))/s.cols);
+    const fitCellH=fitCellW/physicalRatio;
+
+    // Use the exact production cell styles to measure chrome and actual strings.
+    // This is a full solve: text width AND five-line text height must both fit.
     const oldClass=grid.className;
     grid.className='v040-fit v041-uniform v042-uniform v043-uniform';
     const chrome=cellChrome(grid);
-    const need=measureNeed(textSamples(s));
+    const needWidthPerPx=measureNeed(textSamples(s));
     grid.className=oldClass;
 
-    const calculated=Math.min(
-      20,
-      Math.max(0,(fitW-chrome.x)/need),
-      Math.max(0,(fitH-chrome.y)/5.15)
-    );
-    const fit=Number.isFinite(calculated)&&calculated>=minFont;
+    const widthFontLimit=Math.max(0,(fitCellW-chrome.x)/needWidthPerPx);
+    const heightFontLimit=Math.max(0,(fitCellH-chrome.y)/5.15);
+    const calculatedFont=Math.min(20,widthFontLimit,heightFontLimit);
+    const fitsAtConfiguredMinimum=Number.isFinite(calculatedFont)&&calculatedFont>=minFont;
 
     let font,cellW,cellH,className,width,columns,rows,gap;
-    if(fit){
-      font=calculated;
-      cellW=fitW;
-      cellH=fitH;
+    if(fitsAtConfiguredMinimum){
+      font=calculatedFont;
+      cellW=fitCellW;
+      cellH=fitCellH;
       className='v040-fit v041-uniform v042-uniform v043-uniform';
       width='100%';
       columns=`repeat(${s.cols},minmax(0,1fr))`;
       rows=`${cellH.toFixed(2)}px`;
       gap=FIT_GAP;
     }else{
+      // The minimum font wins. Expand the physical cells just enough to satisfy
+      // BOTH the widest actual string and the full five-line height requirement,
+      // while preserving the configured pad/grid physical aspect ratio.
       font=minFont;
-      const requiredW=need*minFont+chrome.x;
-      const requiredH=5.15*minFont+chrome.y;
-      cellH=Math.max(requiredH,requiredW/ratio);
-      cellW=cellH*ratio;
+      const textRequiredW=needWidthPerPx*font+chrome.x;
+      const textRequiredH=5.15*font+chrome.y;
+      cellH=Math.max(textRequiredH,textRequiredW/physicalRatio);
+      cellW=cellH*physicalRatio;
       className='v040-scroll v041-uniform v042-uniform v043-uniform';
       width='max-content';
       columns=`repeat(${s.cols},${cellW.toFixed(2)}px)`;
@@ -129,6 +130,19 @@
       gap=SCROLL_GAP;
     }
 
+    return {
+      s,grid,shell,font,cellW,cellH,className,width,columns,rows,gap,
+      fit:fitsAtConfiguredMinimum,availableWidth,widthFontLimit,heightFontLimit
+    };
+  }
+
+  function renderGridV054(reason='explicit'){
+    const layout=solveLayout();
+    if(!layout)return;
+    const {s,grid,shell,font,className,width,columns,rows,gap,fit,availableWidth,widthFontLimit,heightFontLimit}=layout;
+
+    // Build the complete visual tree off-DOM so the user never sees an
+    // intermediate font size or a partially rebuilt grid.
     const fragment=document.createDocumentFragment();
     for(let rr=s.rows-1;rr>=0;rr--)for(let c=0;c<s.cols;c++){
       const value=readings[k(rr,c)];
@@ -141,7 +155,7 @@
       fragment.appendChild(cell);
     }
 
-    // Commit the completed layout in one pass.
+    // One atomic visible commit at the already-solved final size.
     grid.replaceChildren(fragment);
     grid.className=className;
     grid.style.width=width;
@@ -157,20 +171,51 @@
     $('v040GridMode')?.remove();
     updateStats();
 
-    const stats=window.__padGradeGridStats||(window.__padGradeGridStats={renders:0,lastReason:'',lastFont:0,lastWidth:0});
+    const stats=window.__padGradeGridStats||(window.__padGradeGridStats={renders:0,lastReason:'',lastFont:0,lastWidth:0,widthLimit:0,heightLimit:0});
     stats.renders++;
     stats.lastReason=reason;
     stats.lastFont=font;
-    stats.lastWidth=available;
+    stats.lastWidth=availableWidth;
+    stats.widthLimit=widthFontLimit;
+    stats.heightLimit=heightFontLimit;
   }
 
   window.renderGrid=function(){renderGridV054('explicit');};
   window.__padGradeRenderGrid=renderGridV054;
+  window.__padGradeSolveGrid=solveLayout;
 
-  // Only the shell WIDTH determines cell width/font size. Do not observe height:
-  // grid rendering changes its own height and observing that creates feedback
-  // loops. A width change is debounced into exactly one redraw.
   const shell=$('grid')?.parentElement;
+
+  // Startup: do not show a sequence of provisional guesses. Wait until the
+  // WebView/container width is stable across consecutive animation frames, then
+  // solve all constraints once and reveal the finished grid.
+  function settleAndInitialRender(){
+    if(!shell){renderGridV054('initial');return;}
+    let previous=-1;
+    let stableFrames=0;
+    let frames=0;
+    const check=()=>{
+      const width=Math.round(shell.getBoundingClientRect().width*10)/10;
+      if(width>0&&Math.abs(width-previous)<0.5)stableFrames++;
+      else stableFrames=0;
+      previous=width;
+      frames++;
+      if(stableFrames>=2||frames>=12){
+        renderGridV054('initial-stable');
+        return;
+      }
+      requestAnimationFrame(check);
+    };
+    requestAnimationFrame(check);
+  }
+
+  settleAndInitialRender();
+
+  // After startup, shell width is the only EXTERNAL geometry input that can
+  // change without the app explicitly requesting a render. Cell height is not
+  // ignored: every solve derives cell height from physical aspect ratio and then
+  // tests the complete text-height requirement. Watching height itself would be
+  // wrong because rendering the grid changes its own height and creates a loop.
   if(shell&&typeof ResizeObserver==='function'){
     let lastWidth=Math.round(shell.getBoundingClientRect().width*10)/10;
     let timer=null;
@@ -181,7 +226,7 @@
       if(Math.abs(width-lastWidth)<0.5)return;
       lastWidth=width;
       clearTimeout(timer);
-      timer=setTimeout(()=>renderGridV054('width-change'),80);
+      timer=setTimeout(()=>renderGridV054('container-width-change'),80);
     });
     observer.observe(shell);
     window.__padGradeGridResizeObserver=observer;
