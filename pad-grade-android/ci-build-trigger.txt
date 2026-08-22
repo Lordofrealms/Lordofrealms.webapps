@@ -1,1 +1,1 @@
-build 6 - v0.3.0 final redesign validation including compass orientation fix
+build 7 - v0.3.0 polished calibration instruction and job summary layout
