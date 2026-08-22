@@ -5,6 +5,7 @@
   const FT_PER_M=3.280839895;
   let nativeHeadingDeg=null;
   let nativeHeadingAccuracyDeg=null;
+  let nativeHeadingSource='phone compass';
   let nativeHeadingAt=0;
 
   const byId=id=>document.getElementById(id);
@@ -24,24 +25,19 @@
   }
 
   function compactHelpPlacement(){
-    // Four-corner info belongs in the title row; expanded text remains below the section.
     const calTitle=document.querySelector('.v030-calibration .v030-sectionTitle');
     moveHelpButton(document.querySelector('.v030-help[aria-label="Calibration information"]'),calTitle);
 
-    // Map help sits at the end of the legend row instead of occupying another row.
     const mapLegend=document.querySelector('.v030-mapLegend');
     moveHelpButton(document.querySelector('.v030-help[aria-label="Map information"]'),mapLegend);
 
-    // Grade-grid help lives at the end of the existing legend row.
     const gridCard=byId('grid')?.closest('.card');
     const gridLegend=gridCard?.querySelector('.legend')||gridCard?.querySelector('.gridHeader');
     moveHelpButton(document.querySelector('.v030-help[aria-label="Grade grid information"]'),gridLegend);
 
-    // Volume explanation belongs on the Job Summary heading line.
     const summaryTitle=document.querySelector('.v030-jobSummary .v030-sectionTitle');
     moveHelpButton(document.querySelector('.v030-help[aria-label="Volume estimate information"]'),summaryTitle);
 
-    // Privacy info sits beside "Privacy lock active" rather than below it.
     const privacy=document.querySelector('.v030-privacy');
     if(privacy){
       let row=privacy.querySelector('.v031-infoRow');
@@ -69,8 +65,6 @@
     const input=byId('readingInput');
     if(!input||input.dataset.v031Ime) return;
     input.dataset.v031Ime='1';
-    // Android numeric keyboards commonly label Enter as Go/Done. In HTML that
-    // still arrives as Enter, so route it to the same Save & Next button.
     input.setAttribute('enterkeyhint','go');
     input.addEventListener('keydown',saveAndNextFromKeyboard,true);
   }
@@ -95,10 +89,8 @@
 
   function currentHeading(){
     if(Number.isFinite(nativeHeadingDeg) && Date.now()-nativeHeadingAt<5000){
-      return {heading:nativeHeadingDeg,source:'phone compass',accuracy:nativeHeadingAccuracyDeg};
+      return {heading:nativeHeadingDeg,source:nativeHeadingSource,accuracy:nativeHeadingAccuracyDeg};
     }
-    // GPS course is meaningful only while moving; use it as a fallback, not as
-    // the primary reference for a phone-forward display.
     if(gpsPos&&Number.isFinite(gpsPos.heading)&&Number.isFinite(gpsPos.speed)&&gpsPos.speed>=0.8){
       return {heading:gpsPos.heading,source:'GPS course',accuracy:null};
     }
@@ -113,7 +105,8 @@
       const p=typeof payload==='string'?JSON.parse(payload):payload;
       if(!p||!Number.isFinite(+p.heading)) return;
       nativeHeadingDeg=((+p.heading%360)+360)%360;
-      nativeHeadingAccuracyDeg=Number.isFinite(+p.accuracy)?+p.accuracy:null;
+      nativeHeadingAccuracyDeg=(p.accuracy!==null&&p.accuracy!==undefined&&Number.isFinite(+p.accuracy))?+p.accuracy:null;
+      nativeHeadingSource=String(p.source||'phone compass');
       nativeHeadingAt=Date.now();
       if(measureMode==='gps') updateGpsUI();
     }catch(e){}
@@ -124,14 +117,10 @@
     if(native&&typeof native.startHeadingUpdates==='function'){
       try{native.startHeadingUpdates();}catch(e){}
     }else{
-      // Browser fallback keeps the existing DeviceOrientationEvent path alive.
       try{enableDeviceHeading();}catch(e){}
     }
   }
 
-  // Override v10/v0.3.0 navigation with a distance-scaled radar. The center green
-  // dot is the reported phone position. The yellow target dot preserves both
-  // direction and remaining offset even after it falls inside GPS uncertainty.
   window.renderNavigation=function(tgt,d){
     const visual=byId('navVisual'),ring=ensureRadar();
     if(!visual||!ring||!gpsFit||!gpsPos||!tgt||!d){ if(visual) visual.classList.remove('show'); return; }
@@ -143,10 +132,6 @@
     const accFt=Math.max(0,(gpsPos.accuracy||0)*FT_PER_M);
     const distanceFt=Math.max(0,d.distance||0);
     const usableRadius=Math.max(54,ring.clientWidth/2-24);
-
-    // Dynamic scale keeps the target visible while giving meaningful geometry.
-    // Never let the uncertainty circle consume the whole radar unless uncertainty
-    // actually dominates the navigation problem.
     const gridScale=Math.max(6,gridMinSpacing());
     const scaleFt=Math.max(gridScale,distanceFt*1.18,accFt*1.18,8);
     const pxPerFt=usableRadius/scaleFt;
@@ -164,7 +149,6 @@
     }
     if(line){
       line.style.width=`${targetPx.toFixed(1)}px`;
-      // line starts pointing right; rotate clockwise to the target vector.
       line.style.transform=`rotate(${(relative-90).toFixed(1)}deg)`;
     }
     if(error){
@@ -197,8 +181,6 @@
   ensureRadar();
   startNativeHeading();
 
-  // DOM sections are assembled asynchronously by v0.3.0; repeat a few times so
-  // every contextual help control lands on its intended information row.
   let passes=0;
   const timer=setInterval(()=>{
     compactHelpPlacement(); installImeSaveNext(); ensureRadar();
