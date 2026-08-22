@@ -18,7 +18,7 @@ import android.os.SystemClock;
  * does not terminate an active precision session.
  */
 public final class PrecisionLocationService extends Service
-        implements PositionEngine.Listener, GnssCollector.Listener {
+        implements PositionEngine.Listener, GnssCollector.Listener, MockLocationPublisher.Listener {
 
     public interface UiListener {
         void onServiceSolution(PppSolution solution);
@@ -35,10 +35,12 @@ public final class PrecisionLocationService extends Service
     private final LocalBinder binder = new LocalBinder();
     private AutoPppEngine engine;
     private GnssCollector collector;
+    private MockLocationPublisher phoneLocationPublisher;
     private PowerManager.WakeLock wakeLock;
     private volatile boolean running;
     private volatile PppSolution lastSolution;
     private volatile String lastError;
+    private volatile String phoneLocationStatus = "Phone location output off";
     private volatile UiListener uiListener;
     private PppSolution.State lastNotificationState;
     private long lastNotificationUpdateMs;
@@ -54,6 +56,7 @@ public final class PrecisionLocationService extends Service
         createNotificationChannel();
         engine = new AutoPppEngine(this, this);
         collector = new GnssCollector(this, engine, this);
+        phoneLocationPublisher = new MockLocationPublisher(this, this);
         PowerManager pm = (PowerManager)getSystemService(POWER_SERVICE);
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
                 "PrecisionLocation:ActiveGnss");
@@ -77,6 +80,7 @@ public final class PrecisionLocationService extends Service
     public boolean isRunning() { return running; }
     public PppSolution getLastSolution() { return lastSolution; }
     public String getLastError() { return lastError; }
+    public String getPhoneLocationStatus() { return phoneLocationStatus; }
 
     public void setUiListener(UiListener listener) {
         uiListener = listener;
@@ -100,11 +104,13 @@ public final class PrecisionLocationService extends Service
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
 
         if (wakeLock != null && !wakeLock.isHeld()) wakeLock.acquire();
+        phoneLocationPublisher.start();
         collector.start();
     }
 
     private void stopSession() {
         if (collector != null) collector.stop();
+        if (phoneLocationPublisher != null) phoneLocationPublisher.stop();
         running = false;
         releaseWakeLock();
         stopForeground(STOP_FOREGROUND_REMOVE);
@@ -113,6 +119,7 @@ public final class PrecisionLocationService extends Service
 
     @Override public void onDestroy() {
         if (running && collector != null) collector.stop();
+        if (phoneLocationPublisher != null) phoneLocationPublisher.stop();
         running = false;
         releaseWakeLock();
         super.onDestroy();
@@ -130,6 +137,8 @@ public final class PrecisionLocationService extends Service
     @Override public void onSolution(PppSolution solution) {
         lastSolution = solution;
         lastError = null;
+        if (phoneLocationPublisher != null) phoneLocationPublisher.publish(solution);
+
         UiListener listener = uiListener;
         if (listener != null) listener.onServiceSolution(solution);
 
@@ -157,23 +166,47 @@ public final class PrecisionLocationService extends Service
         }
     }
 
-    private String notificationText(PppSolution solution) {
-        if (solution == null) return "Precision positioning active";
-        switch (solution.state) {
-            case PRECHECK: return "Testing raw GNSS in background";
-            case STARTING: return "Acquiring satellites and HAS corrections";
-            case CONVERGING: return "Improving high-accuracy position";
-            case READY:
-                if (Double.isFinite(solution.horizontalAccuracyMeters)) {
-                    return solution.horizontalAccuracyMeters < 1.0
-                            ? String.format(java.util.Locale.US, "Ready • %.0f cm estimated", solution.horizontalAccuracyMeters * 100.0)
-                            : String.format(java.util.Locale.US, "Ready • %.1f m estimated", solution.horizontalAccuracyMeters);
-                }
-                return "High-accuracy position ready";
-            case DEGRADED: return "Positioning active • signal degraded";
-            case ERROR: return "Positioning needs attention";
-            default: return "Precision positioning active";
+    @Override public void onPhoneLocationStatus(String status) {
+        phoneLocationStatus = status;
+        if (running && PhoneLocationConfig.isEnabled(this)) {
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            PppSolution solution = lastSolution;
+            String base = solution == null ? "Precision positioning active" : notificationText(solution);
+            manager.notify(NOTIFICATION_ID, buildNotification(base));
         }
+    }
+
+    private String notificationText(PppSolution solution) {
+        String base;
+        if (solution == null) {
+            base = "Precision positioning active";
+        } else {
+            switch (solution.state) {
+                case PRECHECK: base = "Testing raw GNSS in background"; break;
+                case STARTING: base = "Acquiring satellites and HAS corrections"; break;
+                case CONVERGING: base = "Improving high-accuracy position"; break;
+                case READY:
+                    if (Double.isFinite(solution.horizontalAccuracyMeters)) {
+                        base = solution.horizontalAccuracyMeters < 1.0
+                                ? String.format(java.util.Locale.US, "Ready • %.0f cm estimated", solution.horizontalAccuracyMeters * 100.0)
+                                : String.format(java.util.Locale.US, "Ready • %.1f m estimated", solution.horizontalAccuracyMeters);
+                    } else {
+                        base = "High-accuracy position ready";
+                    }
+                    break;
+                case DEGRADED: base = "Positioning active • signal degraded"; break;
+                case ERROR: base = "Positioning needs attention"; break;
+                default: base = "Precision positioning active"; break;
+            }
+        }
+
+        if (phoneLocationPublisher != null && phoneLocationPublisher.isActive()) {
+            return base + " • phone location on";
+        }
+        if (PhoneLocationConfig.isEnabled(this) && !PhoneLocationConfig.isAuthorized(this)) {
+            return base + " • phone output needs setup";
+        }
+        return base;
     }
 
     private Notification buildNotification(String text) {
