@@ -8,7 +8,7 @@ import android.location.Location;
  * accuracy floor because correlated GNSS biases do not disappear through
  * averaging. v0.4.0 lowers the floor to 0.5 m after adding carrier-smoothed code,
  * TDCP aiding, robust observation weighting, and an independent broadcast-SPP
- * consistency/correction input.
+ * consistency input.
  */
 public final class EnhancedGnssFilter {
     public static final class Result {
@@ -48,26 +48,19 @@ public final class EnhancedGnssFilter {
     private long lastFixElapsedNanos;
     private int validAdr;
     private double independentSppDeltaM = Double.NaN;
-    private double independentSppLatDeg = Double.NaN;
-    private double independentSppLonDeg = Double.NaN;
 
     public void reset() {
         initialized = false;
         horizontalAccuracy = Double.NaN;
         validAdr = 0;
         independentSppDeltaM = Double.NaN;
-        independentSppLatDeg = Double.NaN;
-        independentSppLonDeg = Double.NaN;
         lastElapsedNanos = 0L;
         lastFixElapsedNanos = 0L;
     }
 
-    public void setGnssQuality(int validAdr, double independentSppDeltaM,
-                               double sppLatDeg, double sppLonDeg) {
+    public void setGnssQuality(int validAdr, double independentSppDeltaM) {
         this.validAdr = Math.max(0, validAdr);
         this.independentSppDeltaM = independentSppDeltaM;
-        this.independentSppLatDeg = sppLatDeg;
-        this.independentSppLonDeg = sppLonDeg;
     }
 
     public void update(Location location) {
@@ -120,21 +113,6 @@ public final class EnhancedGnssFilter {
 
         xEast += alpha * residualX;
         yNorth += alpha * residualY;
-
-        // When the carrier-smoothed independent broadcast solution is healthy and
-        // broadly agrees with Android, let it gently correct the absolute anchor.
-        if (validAdr >= 5 && Double.isFinite(independentSppDeltaM)
-                && independentSppDeltaM <= 8.0
-                && Double.isFinite(independentSppLatDeg)
-                && Double.isFinite(independentSppLonDeg)) {
-            double sppLat = Math.toRadians(independentSppLatDeg);
-            double sppLon = Math.toRadians(independentSppLonDeg);
-            double sppX = (sppLon - originLonRad) * EARTH_RADIUS_M * Math.max(0.2, cosLat);
-            double sppY = (sppLat - originLatRad) * EARTH_RADIUS_M;
-            double sppBlend = moving ? 0.10 : 0.18;
-            xEast += sppBlend * (sppX - xEast);
-            yNorth += sppBlend * (sppY - yNorth);
-        }
 
         if (location.hasSpeed() && location.hasBearing()) {
             setVelocityFromLocation(location, moving ? 0.55 : 0.30);
