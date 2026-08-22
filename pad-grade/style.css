@@ -58,6 +58,39 @@ button.activeMode{border-color:#8fd14f;background:#1d3517;color:#c9f7a4}
 .gpsTarget .big{font-size:1.45rem;font-weight:900;color:var(--accent)}
 .gpsTarget .move{font-size:1rem;font-weight:800;margin-top:5px}
 .gpsTarget .warn{font-size:.72rem;color:#ffc27a;margin-top:7px;line-height:1.3}
+
+/* Compact live map. It appears only while GPS Guided mode is selected. */
+.gpsMapCard{display:none;padding:10px}
+.gpsMapCard.show{display:block}
+.gpsMapHeader{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px}
+.gpsMapHeaderRight{text-align:right;min-width:116px}
+.gpsMapHeaderRight button{padding:6px 10px;font-size:.75rem;margin-top:5px}
+.gpsSourceLine{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:5px}
+.gpsSourceBadge,.gpsSourceState{
+  display:inline-flex;align-items:center;min-height:23px;padding:3px 8px;border-radius:999px;
+  border:1px solid var(--line);font-size:.68rem;font-weight:800;letter-spacing:.02em
+}
+.gpsSourceBadge.native{background:#172331;color:#b8d9f5;border-color:#31506b}
+.gpsSourceBadge.precision{background:#183017;color:#c8f5a1;border-color:#548637}
+.gpsSourceState{background:#191f27;color:#cbd5df}
+.gpsSourceState.working{color:#ffd08a;border-color:#6c5530}
+.gpsSourceState.ready{color:#c8f5a1;border-color:#548637}
+.gpsSourceState.bad{color:#ff9d8d;border-color:#744238}
+.gpsMapAccuracy{font-size:1.1rem;font-weight:900;color:#d8f2ff;line-height:1}
+.gpsMapWrap{position:relative;height:230px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#0d1218}
+#gpsMap{position:absolute;inset:0}
+.gpsMapMessage{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:4;
+  max-width:80%;padding:7px 10px;border-radius:9px;background:rgba(11,15,20,.88);
+  border:1px solid rgba(255,255,255,.16);color:#dbe3eb;font-size:.72rem;text-align:center;
+  pointer-events:none
+}
+.gpsMapMessage.hidden{display:none}
+.gpsMapFoot{font-size:.66rem;color:var(--muted);margin-top:6px;line-height:1.25}
+.gpsMapWrap .maplibregl-ctrl-attrib{font-size:9px;background:rgba(255,255,255,.78)}
+.gpsMapWrap .maplibregl-ctrl-top-right{top:4px;right:4px}
+.gpsMapWrap .maplibregl-ctrl-group{box-shadow:none;border:1px solid rgba(0,0,0,.25)}
+
 .volume{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .vol{padding:10px;border-radius:12px;background:var(--panel2);text-align:center;border:1px solid var(--line)}
 .vol b{display:block;font-size:1.08rem}
@@ -122,4 +155,8 @@ dialog::backdrop{background:rgba(0,0,0,.62)}
   .metrics{grid-template-columns:repeat(2,1fr)}
   .gpsStatus{grid-template-columns:1fr}
   .cell{min-width:50px}
+  .gpsMapWrap{height:205px}
+  .gpsMapHeader{align-items:stretch}
+  .gpsMapHeaderRight{min-width:104px}
+  .gpsSourceBadge{max-width:220px;white-space:normal}
 }
