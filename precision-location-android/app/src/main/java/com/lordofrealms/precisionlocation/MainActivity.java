@@ -33,6 +33,7 @@ public final class MainActivity extends Activity implements PrecisionLocationSer
     private boolean running;
     private boolean diagnosticsVisible;
     private boolean bound;
+    private boolean legalPromptShown;
     private PppSolution lastSolution;
     private PrecisionLocationService service;
 
@@ -75,6 +76,7 @@ public final class MainActivity extends Activity implements PrecisionLocationSer
             return true;
         });
         refreshSetupState();
+        maybeShowRequiredTerms();
     }
 
     @Override protected void onStart() {
@@ -86,6 +88,7 @@ public final class MainActivity extends Activity implements PrecisionLocationSer
     @Override protected void onResume() {
         super.onResume();
         if (!running) refreshSetupState();
+        if (LegalNoticeActivity.isAccepted(this)) legalPromptShown = false;
     }
 
     @Override protected void onStop() {
@@ -98,6 +101,12 @@ public final class MainActivity extends Activity implements PrecisionLocationSer
         // Active GNSS belongs to the foreground service and continues through
         // screen-off/backgrounding until Stop or the app task is closed.
         super.onStop();
+    }
+
+    private void maybeShowRequiredTerms() {
+        if (LegalNoticeActivity.isAccepted(this) || legalPromptShown) return;
+        legalPromptShown = true;
+        startActivity(LegalNoticeActivity.termsIntent(this, true));
     }
 
     private void buildUi() {
@@ -171,6 +180,16 @@ public final class MainActivity extends Activity implements PrecisionLocationSer
         startButton.setText("Start");
         modeView.setText("AUTOMATIC");
         accuracyView.setText("—");
+
+        if (!LegalNoticeActivity.isAccepted(this)) {
+            startButton.setEnabled(false);
+            stateView.setText("TERMS REQUIRED");
+            stateView.setTextColor(Color.rgb(245, 190, 78));
+            detailView.setText("Accept the Terms of Use & Safety Notice for this app version before positioning can start.");
+            return;
+        }
+
+        startButton.setEnabled(true);
         stateView.setText("READY TO START");
         stateView.setTextColor(Color.rgb(160, 172, 184));
 
@@ -197,6 +216,11 @@ public final class MainActivity extends Activity implements PrecisionLocationSer
             refreshSetupState();
             return;
         }
+        if (!LegalNoticeActivity.isAccepted(this)) {
+            legalPromptShown = true;
+            startActivity(LegalNoticeActivity.termsIntent(this, true));
+            return;
+        }
         requestPermissionsAndStart();
     }
 
@@ -219,6 +243,11 @@ public final class MainActivity extends Activity implements PrecisionLocationSer
     }
 
     private void startPrecisionSession() {
+        if (!LegalNoticeActivity.isAccepted(this)) {
+            refreshSetupState();
+            maybeShowRequiredTerms();
+            return;
+        }
         running = true;
         diagnosticsVisible = false;
         startButton.setText("Stop");
