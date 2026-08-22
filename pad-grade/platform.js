@@ -10,6 +10,26 @@
   'use strict';
 
   const nativeBridge=window.PadGradeNative;
+
+  // Android has its own canonical native Terms/Safety acceptance screen. The
+  // shared web build retains the browser Terms gate, but the Android wrapper
+  // suppresses that older duplicate so users are not asked to accept twice.
+  if(nativeBridge){
+    try{ localStorage.setItem('padGradeTermsAcceptedVersion','2026-08-19-v1'); }catch(e){}
+    const removeLegacyTerms=()=>{
+      try{ document.getElementById('termsGate')?.remove(); }catch(e){}
+      try{ document.getElementById('termsBtn')?.remove(); }catch(e){}
+    };
+    if(document.readyState==='loading'){
+      document.addEventListener('DOMContentLoaded',removeLegacyTerms,{once:true});
+    }else removeLegacyTerms();
+    try{
+      const observer=new MutationObserver(()=>removeLegacyTerms());
+      observer.observe(document.documentElement,{childList:true,subtree:true});
+      setTimeout(()=>observer.disconnect(),5000);
+    }catch(e){}
+  }
+
   let precisionAvailable=false;
   if(nativeBridge && typeof nativeBridge.startPrecisionLocation==='function'){
     try{
