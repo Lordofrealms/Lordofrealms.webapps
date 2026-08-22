@@ -6,6 +6,7 @@
   'use strict';
   const INDEX_KEY='padGradeProjectsV5';
   const ACTIVE_KEY='padGradeActiveProjectIdV5';
+  const PROMPT_KEY='padGradeDurableFolderPromptedV1';
   const projectKey=id=>`padGradeProjectV5:${id}`;
   const native=window.PadGradeNative;
   if(!native||typeof native.listProjectFiles!=='function') return;
@@ -53,5 +54,17 @@
     try{reconcile(true);}catch(e){try{previous?.();}catch(ignore){}}
   };
 
-  try{if(native.hasProjectFolder()) setTimeout(()=>reconcile(false),250);}catch(e){}
+  let connected=false;
+  try{connected=!!native.hasProjectFolder();}catch(e){}
+  if(connected){
+    setTimeout(()=>reconcile(false),250);
+  }else if(!localStorage.getItem(PROMPT_KEY)){
+    localStorage.setItem(PROMPT_KEY,'1');
+    setTimeout(()=>{
+      const ok=confirm('Choose a durable Pad Grade project folder now? Projects in that folder survive app uninstall/reinstall. You can also do this later from Projects.');
+      if(ok&&typeof native.chooseProjectFolder==='function'){
+        try{native.chooseProjectFolder();}catch(e){}
+      }
+    },700);
+  }
 })();
