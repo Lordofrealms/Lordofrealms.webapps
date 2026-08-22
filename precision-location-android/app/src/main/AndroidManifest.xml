@@ -29,8 +29,12 @@
         </activity>
         <service
             android:name=".PrecisionLocationService"
-            android:exported="false"
+            android:exported="true"
             android:foregroundServiceType="location"
-            android:stopWithTask="true" />
+            android:stopWithTask="true">
+            <intent-filter>
+                <action android:name="com.lordofrealms.precisionlocation.EXTERNAL_BIND" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>
