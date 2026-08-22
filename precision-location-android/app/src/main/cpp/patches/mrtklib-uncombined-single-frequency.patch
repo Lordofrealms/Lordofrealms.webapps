@@ -1,36 +1,7 @@
 diff --git a/src/pos/mrtk_ppp.c b/src/pos/mrtk_ppp.c
 --- a/src/pos/mrtk_ppp.c
 +++ b/src/pos/mrtk_ppp.c
-@@ -469,7 +469,7 @@ static int model_phw(gtime_t time, int sat, const char* type, int opt, const dou
- }
- /* measurement error variance ------------------------------------------------*/
--static double varerr(int sat, int sys, double el, int idx, int type, const prcopt_t* opt) {
-+static double varerr(int sat, int sys, double el, int idx, int type, double snr, const prcopt_t* opt) {
-     double fact = 1.0, sinel = sin(el);
- 
-     if (type == 1) {
-@@ -487,7 +487,19 @@ static double varerr(int sat, int sys, double el, int idx, int type, const prcop
-     if (opt->ionoopt == IONOOPT_IFLC) {
-         fact *= 3.0;
-     }
--    return SQR(fact * opt->err[1]) + SQR(fact * opt->err[2] / sinel);
-+    double var = SQR(fact * opt->err[1]) + SQR(fact * opt->err[2] / sinel);
-+
-+    /* Android phone code measurements benefit from continuous C/N0/uncertainty
-+     * weighting. CarrierPhasePreprocessor encodes both RF C/N0 and Android's
-+     * reported code uncertainty in obs->SNR. Keep carrier phase on MRTKLIB's
-+     * normal phase model; only code receives this extra variance term. */
-+    if (type == 1 && snr > 0.0) {
-+        double cn0_sigma = opt->err[6] > 0.0 ? opt->err[6] : 0.35;
-+        double cn0_max = opt->err[5] > 0.0 ? opt->err[5] : 45.0;
-+        double d = cn0_max - snr;
-+        var += SQR(cn0_sigma) * pow(10.0, 0.1 * (d > 0.0 ? d : 0.0));
-+    }
-+    return var;
- }
- /* initialize state and covariance -------------------------------------------*/
- static void initx(rtk_t* rtk, double xi, double var, int i) {
-@@ -739,6 +751,17 @@ static int corr_meas(const obsd_t* obs, const nav_t* nav, const double* azel, co
+@@ -739,6 +739,17 @@ static int corr_meas(const obsd_t* obs, const nav_t* nav, const double* azel, co
          }
      }
      *Lc = *Pc = 0.0;
@@ -48,7 +19,7 @@ diff --git a/src/pos/mrtk_ppp.c b/src/pos/mrtk_ppp.c
      if (freq[0] == 0.0 || freq[i2] == 0.0) {
          return 0;
      }
-@@ -1134,13 +1157,20 @@ static void udiono_ppp(rtk_t* rtk, const obsd_t* obs, int n, const nav_t* nav) {
+@@ -1134,13 +1145,20 @@ static void udiono_ppp(rtk_t* rtk, const obsd_t* obs, int n, const nav_t* nav) {
          slip = rtk->ssat[obs[i].sat - 1].slip;
  
          if (rtk->x[j] == 0.0) {
@@ -72,7 +43,7 @@ diff --git a/src/pos/mrtk_ppp.c b/src/pos/mrtk_ppp.c
 -            if (L[0] == 0.0 || L[1] == 0.0 || slip[0] || slip[1]) {
 +            if (L[0] == 0.0 || L[1] == 0.0 || freq2 == 0.0 || slip[0] || slip[1]) {
                  rtk->ssat[obs[i].sat - 1].ionc = 0.0;
-@@ -1264,10 +1294,19 @@ static void udbias_ppp(rtk_t* rtk, const obsd_t* obs, int n, const nav_t* nav) {
+@@ -1264,10 +1282,19 @@ static void udbias_ppp(rtk_t* rtk, const obsd_t* obs, int n, const nav_t* nav) {
                  freq2 = sat2freq(sat, obs[i].code[1], nav);
                  freq3 = sat2freq(sat, obs[i].code[f], nav);
                  slip[i] = rtk->ssat[sat - 1].slip[f];
@@ -96,50 +67,3 @@ diff --git a/src/pos/mrtk_ppp.c b/src/pos/mrtk_ppp.c
 +                }
 +                bias[i] = L[f] - P[f] + 2.0 * ion * SQR(FREQ1 / freq3);
              }
-@@ -1562,7 +1601,8 @@ static int ppp_res(int post, const obsd_t* obs, int n, const double* rs, const do
-             }
- 
-             /* variance */
--            var[nv] = varerr(obs[i].sat, sys, azel[1 + i * 2], j / 2, j % 2, opt) + vart + SQR(C) * vari +
-+            var[nv] = varerr(obs[i].sat, sys, azel[1 + i * 2], j / 2, j % 2,
-+                             obs[i].SNR[j / 2] * SNR_UNIT, opt) + vart + SQR(C) * vari +
-                       opt->uraratio * var_rs[i];
-             if (sys == SYS_GLO && j % 2 == 1) {
-                 var[nv] += VAR_GLO_IFB;
-
-diff --git a/src/pos/mrtk_spp.c b/src/pos/mrtk_spp.c
---- a/src/pos/mrtk_spp.c
-+++ b/src/pos/mrtk_spp.c
-@@ -79,7 +79,7 @@ const double chisqr[100] = {10.8, 13.8, 16.3, 18.5, 20.5, 22.5, 24.3, 26.1, 27
- 
- /* pseudorange measurement error variance ------------------------------------*/
- static double varerr(const prcopt_t* opt, double el, double snr, int sys) {
--    double fact, varr;
-+    double fact, varr, cn0_sigma = opt->err[6], cn0_max = opt->err[5];
-     fact = sys == SYS_GLO ? EFACT_GLO : (sys == SYS_SBS ? EFACT_SBS : EFACT_GPS);
-     if (el < MIN_EL) {
-         el = MIN_EL;
-@@ -94,12 +94,18 @@ static double varerr(const prcopt_t* opt, double el, double snr, int sys) {
-     }
-     varr = SQR(fact) * varr;
- 
-+    /* Android embedded builds use the conditioned smartphone quality score even
-+     * when the generic MRTKLIB defaults leave C/N0 variance disabled. */
-+#ifdef __ANDROID__
-+    if (cn0_sigma <= 0.0) cn0_sigma = 0.35;
-+    if (cn0_max <= 0.0) cn0_max = 45.0;
-+#endif
-+
-     /* #116 P1: optional C/N0 (Sigma-epsilon) term, identical in form to the RTK
-      * varerr(). Off when err[6]<=0 (default) -> bit-identical to the previous
-      * elevation-only model; skipped when SNR is absent (snr==0) so a receiver
-      * that reports no C/N0 keeps the legacy behaviour. */
--    if (opt->err[6] > 0.0 && snr > 0.0) {
--        double e = fact * opt->err[6];
--        double d = opt->err[5] - snr; /* dB-Hz below snr_max */
-+    if (cn0_sigma > 0.0 && snr > 0.0) {
-+        double e = fact * cn0_sigma;
-+        double d = cn0_max - snr; /* dB-Hz below snr_max */
-         varr += SQR(e) * pow(10.0, 0.1 * (d > 0.0 ? d : 0.0));
-     }
-     return varr;
