@@ -1,6 +1,6 @@
 /* Shared Pad Grade platform bridge.
  *
- * Browser target: leaves navigator.geolocation alone.
+ * Browser target: leaves navigator.geolocation and downloads alone.
  * Android WebView target: the wrapper exposes window.PadGradeNative. When the
  * Precision Location companion is available, we shadow navigator.geolocation
  * with a compatible provider backed by that service. If it is not installed or
@@ -19,10 +19,21 @@
     }catch(e){ precisionAvailable=false; }
   }
 
-  window.PadGradePlatform={
+  const platform={
     target:nativeBridge?'android':'web',
-    nativePrecisionLocation:precisionAvailable
+    nativePrecisionLocation:precisionAvailable,
+    saveTextFile(filename,mimeType,text){
+      if(!nativeBridge || typeof nativeBridge.saveTextFile!=='function') return false;
+      try{
+        return !!nativeBridge.saveTextFile(
+          String(filename||'pad-grade.txt'),
+          String(mimeType||'text/plain'),
+          String(text??'')
+        );
+      }catch(e){ return false; }
+    }
   };
+  window.PadGradePlatform=platform;
 
   if(!precisionAvailable) return;
 
@@ -174,6 +185,6 @@
   }catch(e){
     // If a future WebView makes Navigator non-configurable, expose the provider
     // explicitly so Pad Grade can switch to it with a tiny compatibility change.
-    window.PadGradePlatform.geolocation=nativeGeolocation;
+    platform.geolocation=nativeGeolocation;
   }
 })();
