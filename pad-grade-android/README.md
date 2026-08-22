@@ -2,10 +2,10 @@
 
 Pad Grade has **one canonical application codebase**: `../pad-grade/`.
 
-The Android project does not keep a second copy of the HTML/CSS/JavaScript. During
-`merge*Assets`, Gradle copies the canonical `pad-grade/` directory into generated
-Android assets and packages those exact files in the APK. GitHub Pages continues
-to publish the same source directory.
+The Android project does not keep a second copy of the HTML/CSS/JavaScript. Gradle
+uses the canonical `pad-grade/` directory itself as the Android asset source, so the
+APK packages those exact files directly. GitHub Pages publishes the same directory.
+There is no generated or manually synchronized Android web tree.
 
 ## Platform model
 
