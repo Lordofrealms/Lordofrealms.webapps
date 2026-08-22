@@ -1,0 +1,88 @@
+name: Publish Current Android APKs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/release-trigger.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK/NDK
+        run: |
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Build Pad Grade v0.3.0
+        run: |
+          gradle -p pad-grade-android :app:assembleDebug --stacktrace
+          cp pad-grade-android/app/build/outputs/apk/debug/app-debug.apk Pad-Grade-v0.3.0.apk
+
+      - name: Checkout Precision Location branch
+        run: |
+          git fetch origin precision-location-android
+          git worktree add /tmp/precision-location origin/precision-location-android
+          echo "PRECISION_SHA=$(git rev-parse origin/precision-location-android)" >> "$GITHUB_ENV"
+
+      - name: Validate Galileo HAS fixture
+        run: |
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/hirokawa/cssrlib-data/main/data/doy2023-229/idd2023229c.rtc \
+            --output /tmp/galileo-has-idd.rtc
+          python3 /tmp/precision-location/precision-location-android/tools/rtcm_inventory.py \
+            /tmp/galileo-has-idd.rtc --require-ssr
+
+      - name: Build Precision Location v0.3.2
+        run: |
+          gradle -p /tmp/precision-location/precision-location-android :app:assembleDebug --stacktrace
+          cp /tmp/precision-location/precision-location-android/app/build/outputs/apk/debug/app-debug.apk Precision-Location-v0.3.2.apk
+
+      - name: Publish Pad Grade v0.3.0 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view pad-grade-v0.3.0 >/dev/null 2>&1; then
+            gh release upload pad-grade-v0.3.0 Pad-Grade-v0.3.0.apk --clobber
+          else
+            gh release create pad-grade-v0.3.0 Pad-Grade-v0.3.0.apk \
+              --target "$GITHUB_SHA" \
+              --title "Pad Grade v0.3.0" \
+              --notes "Pad Grade v0.3.0 GPS workflow redesign. Includes the calibrated map grid/outline, unified GPS state, redesigned calibration and target guidance, expandable info panels, and Android safe-area fixes."
+          fi
+
+      - name: Publish Precision Location v0.3.2 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view precision-location-v0.3.2 >/dev/null 2>&1; then
+            gh release upload precision-location-v0.3.2 Precision-Location-v0.3.2.apk --clobber
+          else
+            gh release create precision-location-v0.3.2 Precision-Location-v0.3.2.apk \
+              --target "$PRECISION_SHA" \
+              --title "Precision Location v0.3.2" \
+              --notes "Precision Location v0.3.2. Enhanced GNSS/non-HAS reported horizontal accuracy floor is 1.0 m while existing uncertainty-widening logic remains active; Galileo HAS PPP behavior is unchanged."
+          fi
