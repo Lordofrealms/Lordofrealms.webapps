@@ -1,1 +1,1 @@
-build 15 - v0.4.2 fixed launcher artwork binary validation
+build 16 - v0.4.2 fixed launcher artwork binary validation
