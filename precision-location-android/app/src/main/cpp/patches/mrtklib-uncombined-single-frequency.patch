@@ -1,7 +1,7 @@
 diff --git a/src/pos/mrtk_ppp.c b/src/pos/mrtk_ppp.c
 --- a/src/pos/mrtk_ppp.c
 +++ b/src/pos/mrtk_ppp.c
-@@ -739,6 +739,16 @@ static int corr_meas(const obsd_t* obs, const nav_t* nav, const double* azel, co
+@@ -739,6 +739,17 @@ static int corr_meas(const obsd_t* obs, const nav_t* nav, const double* azel, co
          }
      }
      *Lc = *Pc = 0.0;
