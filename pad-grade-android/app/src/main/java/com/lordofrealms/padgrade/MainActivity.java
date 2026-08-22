@@ -22,7 +22,7 @@ public final class MainActivity extends Activity {
     private static final int LOCATION_PERMISSION_REQUEST = 1001;
     private static final int FILE_CHOOSER_REQUEST = 1002;
     private static final String APP_ORIGIN = "https://appassets.androidplatform.net";
-    private static final String APP_URL = APP_ORIGIN + "/assets/pad-grade/index.html";
+    private static final String APP_URL = APP_ORIGIN + "/assets/index.html";
 
     private WebView webView;
     private PadGradeNativeBridge nativeBridge;
@@ -96,9 +96,8 @@ public final class MainActivity extends Activity {
                     FileChooserParams fileChooserParams) {
                 if (fileChooserCallback != null) fileChooserCallback.onReceiveValue(null);
                 fileChooserCallback = filePathCallback;
-                Intent intent;
                 try {
-                    intent = fileChooserParams.createIntent();
+                    Intent intent = fileChooserParams.createIntent();
                     startActivityForResult(intent, FILE_CHOOSER_REQUEST);
                     return true;
                 } catch (RuntimeException ex) {
@@ -108,11 +107,8 @@ public final class MainActivity extends Activity {
             }
         });
 
-        if (savedInstanceState == null) {
-            webView.loadUrl(APP_URL);
-        } else {
-            webView.restoreState(savedInstanceState);
-        }
+        if (savedInstanceState == null) webView.loadUrl(APP_URL);
+        else webView.restoreState(savedInstanceState);
     }
 
     @Override protected void onSaveInstanceState(Bundle outState) {
