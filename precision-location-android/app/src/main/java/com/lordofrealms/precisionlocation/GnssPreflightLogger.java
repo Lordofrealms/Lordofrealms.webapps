@@ -21,15 +21,7 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 
-/**
- * Raw diagnostic recorder used only by no-HAS GNSS preflight sessions.
- *
- * The file intentionally stores Android's original clock/measurement values in
- * addition to the values later converted for MRTKLIB. That gives us a durable
- * field-data record if pseudorange/time/ADR handling ever needs to be audited.
- * Files are written through MediaStore to Downloads/PrecisionLocation, so no
- * broad storage permission is needed on the app's Android 12+ target.
- */
+/** Raw diagnostic recorder used only by no-HAS GNSS preflight sessions. */
 public final class GnssPreflightLogger implements AutoCloseable {
     private final ContentResolver resolver;
     private final Uri uri;
@@ -80,12 +72,13 @@ public final class GnssPreflightLogger implements AutoCloseable {
 
     private void writeHeader() throws IOException {
         writer.write("# Precision Location raw GNSS preflight log\n");
-        writer.write("# format=1\n");
+        writer.write("# format=2\n");
         writer.write("# device=" + csv(Build.MANUFACTURER + " " + Build.MODEL) + "\n");
         writer.write("# sdk=" + Build.VERSION.SDK_INT + "\n");
         writer.write("# Raw columns: elapsedRealtimeNanos,timeNanos,fullBiasNanos,biasNanos,driftNanosPerSecond,hwDiscontinuity,svid,constellation,timeOffsetNanos,state,receivedSvTimeNanos,receivedSvTimeUncertaintyNanos,cn0DbHz,pseudorangeRateMps,pseudorangeRateUncertaintyMps,adrState,adrMeters,adrUncertaintyMeters,carrierFrequencyHz,codeType,multipathIndicator,agcDb\n");
         writer.write("# Nav columns: elapsedRealtimeNanos,type,svid,messageId,submessageId,status,dataHex\n");
         writer.write("# Fix columns: elapsedRealtimeNanos,timeMillis,latitudeDeg,longitudeDeg,altitudeMeters,accuracyMeters,verticalAccuracyMeters\n");
+        writer.write("# Engine columns: elapsedRealtimeNanos,acceptedSatellites,solutionStatus,pppLatDeg,pppLonDeg,pppHeightMeters,pppHorizontalAccuracyMeters,pppSatellites,solverNf,ssrSatellites,nativeInfo\n");
         writer.flush();
     }
 
@@ -130,7 +123,6 @@ public final class GnssPreflightLogger implements AutoCloseable {
             }
             writer.flush();
         } catch (IOException | RuntimeException ignored) {
-            // Logging must never stop positioning/preflight.
         }
     }
 
@@ -149,7 +141,6 @@ public final class GnssPreflightLogger implements AutoCloseable {
             writer.write('\n');
             writer.flush();
         } catch (IOException | RuntimeException ignored) {
-            // Logging must never stop positioning/preflight.
         }
     }
 
@@ -168,7 +159,28 @@ public final class GnssPreflightLogger implements AutoCloseable {
             writer.write('\n');
             writer.flush();
         } catch (IOException | RuntimeException ignored) {
-            // Logging must never stop positioning/preflight.
+        }
+    }
+
+    public synchronized void logEngineStatus(long elapsedRealtimeNanos, int accepted,
+                                             String nativeInfo, double[] ppp) {
+        if (closed || writer == null) return;
+        try {
+            writer.write("Engine,");
+            writer.write(Long.toString(elapsedRealtimeNanos)); writer.write(',');
+            writer.write(Integer.toString(accepted)); writer.write(',');
+            writer.write(Double.toString(value(ppp, 0))); writer.write(',');
+            writer.write(Double.toString(value(ppp, 1))); writer.write(',');
+            writer.write(Double.toString(value(ppp, 2))); writer.write(',');
+            writer.write(Double.toString(value(ppp, 3))); writer.write(',');
+            writer.write(Double.toString(value(ppp, 4))); writer.write(',');
+            writer.write(Double.toString(value(ppp, 6))); writer.write(',');
+            writer.write(Double.toString(value(ppp, 7))); writer.write(',');
+            writer.write(Double.toString(value(ppp, 8))); writer.write(',');
+            writer.write(csv(nativeInfo));
+            writer.write('\n');
+            writer.flush();
+        } catch (IOException | RuntimeException ignored) {
         }
     }
 
@@ -187,6 +199,10 @@ public final class GnssPreflightLogger implements AutoCloseable {
             } catch (RuntimeException ignored) {
             }
         }
+    }
+
+    private static double value(double[] values, int index) {
+        return values != null && index >= 0 && index < values.length ? values[index] : Double.NaN;
     }
 
     private static String csv(String value) {
