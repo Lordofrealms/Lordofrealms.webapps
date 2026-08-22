@@ -18,10 +18,12 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
     private final Listener listener;
     private final Object nativeLock = new Object();
     private final AndroidGnssObservationConverter observationConverter = new AndroidGnssObservationConverter();
+    private final EnhancedGnssFilter enhancedFilter = new EnhancedGnssFilter();
     private volatile boolean running;
     private volatile Location fallbackLocation;
     private volatile boolean hasCorrections;
     private volatile boolean hasAccessConfigured;
+    private volatile boolean hasConnectionFailed;
     private volatile String correctionStatus = "HAS not started";
     private HasNtripClient hasClient;
     private GnssPreflightLogger preflightLogger;
@@ -35,7 +37,9 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
     @Override public void start() {
         running = true;
         hasCorrections = false;
+        hasConnectionFailed = false;
         readyStreak = 0;
+        enhancedFilter.reset();
         closePreflightLogger();
         synchronized (nativeLock) {
             nativeReset();
@@ -49,17 +53,15 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
             correctionStatus = "Connecting to HAS corrections";
             hasClient = new HasNtripClient(config, this);
             hasClient.start();
-            emit(PppSolution.State.STARTING, "AUTO", "Acquiring raw GNSS\n" + correctionStatus);
         } else {
+            correctionStatus = "No-signup Enhanced GNSS active • HAS optional";
             preflightLogger = GnssPreflightLogger.create(appContext);
-            correctionStatus = "HAS not configured • broadcast/raw GNSS preflight only";
             if (preflightLogger != null) {
                 correctionStatus += " • log=" + preflightLogger.displayName();
-            } else {
-                correctionStatus += " • diagnostic log unavailable";
             }
-            emit(PppSolution.State.PRECHECK, "AUTO", "Testing phone GNSS\n" + correctionStatus);
         }
+        emitEnhancedOrFallback(PppSolution.State.STARTING, "AUTO",
+                hasAccessConfigured ? "Acquiring raw GNSS and HAS corrections" : "Starting Enhanced GNSS");
     }
 
     @Override public void stop() {
@@ -69,6 +71,7 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
         hasClient = null;
         if (c != null) c.stop();
         closePreflightLogger();
+        enhancedFilter.reset();
         emit(PppSolution.State.OFF, "AUTO", "Stopped");
     }
 
@@ -111,44 +114,62 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
             logger.logEngineStatus(elapsed, accepted, nativeInfo, ppp);
         }
 
-        String mode = inventory.automaticMode();
+        double sppDelta = Double.NaN;
+        if (ppp != null && ppp.length >= 12 && ppp[9] > 0.5 && Double.isFinite(ppp[11])) {
+            sppDelta = ppp[11];
+        }
+        enhancedFilter.setGnssQuality(inventory.validAdrTotal(), sppDelta);
+
+        String signalMode = inventory.automaticMode();
         String detail = inventory.summary() + "\n"
                 + correctionStatus + "\n"
                 + accepted + " GPS/Galileo satellite records accepted • " + nativeInfo;
 
-        if (ppp != null && ppp.length >= 9
-                && (int)Math.round(ppp[0]) == SOLQ_PPP
-                && Double.isFinite(ppp[1]) && Double.isFinite(ppp[2])
-                && Double.isFinite(ppp[4])) {
+        if (isPppSolution(ppp)) {
             int ns = (int)Math.round(ppp[6]);
             if (ppp[4] <= READY_HORIZONTAL_METERS && ns >= 5) readyStreak++;
             else readyStreak = 0;
             PppSolution.State state = readyStreak >= READY_STREAK_EPOCHS
                     ? PppSolution.State.READY : PppSolution.State.CONVERGING;
-            String pppDetail = detail + "\nPPP solution: " + ns + " satellites"
+            String pppDetail = detail + "\nHAS PPP solution: " + ns + " satellites"
                     + (state == PppSolution.State.READY ? " • precision ready" : " • stabilizing");
             listener.onSolution(new PppSolution(
-                    state, ppp[1], ppp[2], ppp[3], ppp[4], mode, pppDetail));
+                    state, ppp[1], ppp[2], ppp[3], ppp[4],
+                    "HAS PPP • " + signalMode, pppDetail));
             return;
         }
 
         readyStreak = 0;
-        Location f = fallbackLocation;
-        PppSolution.State state;
-        if (!hasAccessConfigured) {
-            state = PppSolution.State.PRECHECK;
-        } else {
-            state = hasCorrections && accepted >= 4
-                    ? PppSolution.State.CONVERGING : PppSolution.State.STARTING;
-        }
-        if (f != null) {
+        EnhancedGnssFilter.Result enhanced = enhancedFilter.result(SystemClock.elapsedRealtimeNanos());
+        if (enhanced != null) {
+            boolean qualityReady = enhanced.validCarrierPhaseSignals >= 5 && enhanced.ageMillis <= 2_000L;
+            PppSolution.State state;
+            String mode;
+            String extra;
+            if (hasAccessConfigured && !hasConnectionFailed) {
+                state = PppSolution.State.CONVERGING;
+                mode = "ENHANCED GNSS → HAS PPP";
+                extra = "\nEnhanced GNSS is supplying the current position while HAS PPP converges.";
+            } else {
+                state = qualityReady ? PppSolution.State.READY : PppSolution.State.PRECHECK;
+                mode = "ENHANCED GNSS";
+                extra = "\nNo-signup Enhanced GNSS: broadcast/system absolute anchor + temporal smoothing + raw carrier-phase quality checks."
+                        + " Absolute uncertainty remains meter-class without external corrections.";
+            }
             listener.onSolution(new PppSolution(
                     state,
-                    f.getLatitude(), f.getLongitude(), f.getAltitude(), Double.NaN,
-                    mode, detail + "\nAndroid location is used only as an internal initialization/reference point."));
-        } else {
-            emit(state, mode, detail);
+                    enhanced.latitudeDeg,
+                    enhanced.longitudeDeg,
+                    enhanced.altitudeMeters,
+                    enhanced.horizontalAccuracyMeters,
+                    mode,
+                    detail + extra));
+            return;
         }
+
+        PppSolution.State state = hasAccessConfigured && !hasConnectionFailed
+                ? PppSolution.State.STARTING : PppSolution.State.PRECHECK;
+        emit(state, "ENHANCED GNSS", detail + "\nWaiting for a fresh hardware GPS anchor.");
     }
 
     @Override public void onNavigationMessage(GnssNavigationMessage message) {
@@ -163,6 +184,7 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
 
     @Override public void onSystemLocation(Location location) {
         fallbackLocation = location;
+        enhancedFilter.update(location);
         GnssPreflightLogger logger = preflightLogger;
         if (logger != null) logger.logLocation(SystemClock.elapsedRealtimeNanos(), location);
         synchronized (nativeLock) {
@@ -178,6 +200,7 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
         }
         if (decodedSsr > 0) {
             hasCorrections = true;
+            hasConnectionFailed = false;
             correctionStatus = "HAS corrections active";
         }
     }
@@ -191,16 +214,37 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
     }
 
     @Override public void onFatalError(String message) {
-        correctionStatus = message;
+        correctionStatus = "HAS unavailable • using no-signup mode: " + message;
         hasCorrections = false;
+        hasConnectionFailed = true;
         readyStreak = 0;
-        if (running) emit(PppSolution.State.DEGRADED, "AUTO", message);
+        if (running) {
+            emitEnhancedOrFallback(PppSolution.State.PRECHECK, "ENHANCED GNSS", correctionStatus);
+        }
+    }
+
+    private boolean isPppSolution(double[] ppp) {
+        return ppp != null && ppp.length >= 9
+                && (int)Math.round(ppp[0]) == SOLQ_PPP
+                && Double.isFinite(ppp[1]) && Double.isFinite(ppp[2])
+                && Double.isFinite(ppp[4]);
     }
 
     private void closePreflightLogger() {
         GnssPreflightLogger logger = preflightLogger;
         preflightLogger = null;
         if (logger != null) logger.close();
+    }
+
+    private void emitEnhancedOrFallback(PppSolution.State state, String mode, String detail) {
+        EnhancedGnssFilter.Result enhanced = enhancedFilter.result(SystemClock.elapsedRealtimeNanos());
+        if (enhanced != null) {
+            listener.onSolution(new PppSolution(state,
+                    enhanced.latitudeDeg, enhanced.longitudeDeg, enhanced.altitudeMeters,
+                    enhanced.horizontalAccuracyMeters, mode, detail));
+            return;
+        }
+        emit(state, mode, detail);
     }
 
     private void emit(PppSolution.State state, String mode, String detail) {
