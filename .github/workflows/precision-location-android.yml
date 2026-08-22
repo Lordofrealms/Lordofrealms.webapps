@@ -21,6 +21,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate public Galileo HAS IDD RTCM fixture
+        run: |
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/hirokawa/cssrlib-data/main/data/doy2023-229/idd2023229c.rtc \
+            --output /tmp/galileo-has-idd.rtc
+          python3 precision-location-android/tools/rtcm_inventory.py \
+            /tmp/galileo-has-idd.rtc --require-ssr
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
