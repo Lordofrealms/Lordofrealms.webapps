@@ -4,6 +4,7 @@ import android.content.Context;
 import android.location.GnssMeasurementsEvent;
 import android.location.GnssNavigationMessage;
 import android.location.Location;
+import android.os.SystemClock;
 
 /** User-facing auto selector. PPP tuning is intentionally not exposed in normal UI. */
 public final class AutoPppEngine implements PositionEngine, HasNtripClient.Listener {
@@ -23,6 +24,7 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
     private volatile boolean hasAccessConfigured;
     private volatile String correctionStatus = "HAS not started";
     private HasNtripClient hasClient;
+    private GnssPreflightLogger preflightLogger;
     private int readyStreak;
 
     public AutoPppEngine(Context context, Listener listener) {
@@ -34,6 +36,7 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
         running = true;
         hasCorrections = false;
         readyStreak = 0;
+        closePreflightLogger();
         synchronized (nativeLock) {
             nativeReset();
             Location f = fallbackLocation;
@@ -48,7 +51,13 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
             hasClient.start();
             emit(PppSolution.State.STARTING, "AUTO", "Acquiring raw GNSS\n" + correctionStatus);
         } else {
+            preflightLogger = GnssPreflightLogger.create(appContext);
             correctionStatus = "HAS not configured • broadcast/raw GNSS preflight only";
+            if (preflightLogger != null) {
+                correctionStatus += " • log=" + preflightLogger.displayName();
+            } else {
+                correctionStatus += " • diagnostic log unavailable";
+            }
             emit(PppSolution.State.PRECHECK, "AUTO", "Testing phone GNSS\n" + correctionStatus);
         }
     }
@@ -59,11 +68,15 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
         HasNtripClient c = hasClient;
         hasClient = null;
         if (c != null) c.stop();
+        closePreflightLogger();
         emit(PppSolution.State.OFF, "AUTO", "Stopped");
     }
 
     @Override public void onMeasurements(GnssMeasurementsEvent event, SignalInventory inventory) {
         if (!running) return;
+
+        GnssPreflightLogger logger = preflightLogger;
+        if (logger != null) logger.logMeasurements(event);
 
         RawObservationEpoch epoch = observationConverter.convert(event);
         final int accepted;
@@ -134,6 +147,8 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
 
     @Override public void onNavigationMessage(GnssNavigationMessage message) {
         if (!running) return;
+        GnssPreflightLogger logger = preflightLogger;
+        if (logger != null) logger.logNavigationMessage(SystemClock.elapsedRealtimeNanos(), message);
         synchronized (nativeLock) {
             nativeNavigationMessage(message.getType(), message.getSvid(), message.getMessageId(),
                     message.getSubmessageId(), message.getStatus(), message.getData());
@@ -142,6 +157,8 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
 
     @Override public void onSystemLocation(Location location) {
         fallbackLocation = location;
+        GnssPreflightLogger logger = preflightLogger;
+        if (logger != null) logger.logLocation(SystemClock.elapsedRealtimeNanos(), location);
         synchronized (nativeLock) {
             nativeSetApproximatePosition(location.getLatitude(), location.getLongitude(), location.getAltitude());
         }
@@ -172,6 +189,12 @@ public final class AutoPppEngine implements PositionEngine, HasNtripClient.Liste
         hasCorrections = false;
         readyStreak = 0;
         if (running) emit(PppSolution.State.DEGRADED, "AUTO", message);
+    }
+
+    private void closePreflightLogger() {
+        GnssPreflightLogger logger = preflightLogger;
+        preflightLogger = null;
+        if (logger != null) logger.close();
     }
 
     private void emit(PppSolution.State state, String mode, String detail) {
