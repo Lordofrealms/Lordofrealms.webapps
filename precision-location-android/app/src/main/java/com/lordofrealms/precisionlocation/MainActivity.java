@@ -118,10 +118,10 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
             detailView.setText("Tap Start. Everything else is automatic.");
             startButton.setText("Start");
         } else {
-            stateView.setText("SETUP REQUIRED");
+            stateView.setText("GNSS TEST READY");
             stateView.setTextColor(Color.rgb(245, 190, 78));
-            detailView.setText("One-time high-accuracy service setup is required.");
-            startButton.setText("Set up HAS");
+            detailView.setText("HAS is not configured yet. You can still test the phone's raw GNSS.");
+            startButton.setText("Test GNSS");
         }
     }
 
@@ -132,10 +132,6 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
             lastSolution = null;
             diagnosticsVisible = false;
             refreshSetupState();
-            return;
-        }
-        if (!HasAccessConfig.load(this).isConfigured()) {
-            showHasSetupDialog();
             return;
         }
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -175,7 +171,7 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
 
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("One-time HAS access")
-                .setMessage("Enter the Galileo High Accuracy Service access issued by the Galileo Service Centre.")
+                .setMessage("Enter the Galileo High Accuracy Service access issued by the Galileo Service Centre. You can leave this unset and use GNSS test mode until access is available.")
                 .setView(form)
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Save", null)
@@ -198,8 +194,13 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
         running = true;
         diagnosticsVisible = false;
         startButton.setText("Stop");
-        stateView.setText("STARTING");
-        detailView.setText("Getting a high-accuracy position…");
+        if (HasAccessConfig.load(this).isConfigured()) {
+            stateView.setText("STARTING");
+            detailView.setText("Getting a high-accuracy position…");
+        } else {
+            stateView.setText("PRECHECK");
+            detailView.setText("Testing the phone's raw GNSS…");
+        }
         collector.start();
     }
 
@@ -242,6 +243,7 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
         int color;
         switch (solution.state) {
             case READY: color = Color.rgb(143, 209, 79); break;
+            case PRECHECK:
             case CONVERGING: color = Color.rgb(245, 190, 78); break;
             case DEGRADED:
             case ERROR: color = Color.rgb(255, 126, 108); break;
@@ -252,6 +254,8 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
 
     private String friendlyDetail(PppSolution.State state) {
         switch (state) {
+            case PRECHECK:
+                return "Testing phone GNSS. HAS setup is still needed for high accuracy.";
             case STARTING:
                 return "Acquiring satellites and corrections…";
             case CONVERGING:
