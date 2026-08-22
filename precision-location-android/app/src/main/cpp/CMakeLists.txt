@@ -16,35 +16,37 @@ if(NOT mrtklib_src_POPULATED)
     FetchContent_Populate(mrtklib_src)
 endif()
 
-# Android needs uncombined PPP to accept a genuine one-frequency epoch. The
-# pinned upstream implementation still has a few dual-frequency assumptions in
-# corr_meas()/iono/ambiguity initialization, so apply one small reviewable patch
-# instead of maintaining a fork.
-set(MRTKLIB_ANDROID_PATCH
-    "${CMAKE_CURRENT_LIST_DIR}/patches/mrtklib-uncombined-single-frequency.patch")
+# Android needs uncombined PPP to accept a genuine one-frequency epoch, plus a
+# small Android-specific weighting patch so conditioned smartphone C/N0/code
+# uncertainty changes both broadcast-SPP and HAS-PPP variance. Keep the two
+# concerns separate and apply them together against the pinned upstream commit.
+set(MRTKLIB_ANDROID_PATCHES
+    "${CMAKE_CURRENT_LIST_DIR}/patches/mrtklib-uncombined-single-frequency.patch"
+    "${CMAKE_CURRENT_LIST_DIR}/patches/mrtklib-android-smartphone-weighting.patch"
+)
 execute_process(
-    COMMAND "${GIT_EXECUTABLE}" apply --reverse --check "${MRTKLIB_ANDROID_PATCH}"
+    COMMAND "${GIT_EXECUTABLE}" apply --reverse --check ${MRTKLIB_ANDROID_PATCHES}
     WORKING_DIRECTORY "${mrtklib_src_SOURCE_DIR}"
-    RESULT_VARIABLE MRTK_PATCH_ALREADY_APPLIED
+    RESULT_VARIABLE MRTK_PATCHES_ALREADY_APPLIED
     OUTPUT_QUIET ERROR_QUIET
 )
-if(NOT MRTK_PATCH_ALREADY_APPLIED EQUAL 0)
+if(NOT MRTK_PATCHES_ALREADY_APPLIED EQUAL 0)
     execute_process(
-        COMMAND "${GIT_EXECUTABLE}" apply --check "${MRTKLIB_ANDROID_PATCH}"
+        COMMAND "${GIT_EXECUTABLE}" apply --check ${MRTKLIB_ANDROID_PATCHES}
         WORKING_DIRECTORY "${mrtklib_src_SOURCE_DIR}"
-        RESULT_VARIABLE MRTK_PATCH_CHECK
-        OUTPUT_QUIET ERROR_VARIABLE MRTK_PATCH_ERROR
+        RESULT_VARIABLE MRTK_PATCHES_CHECK
+        OUTPUT_QUIET ERROR_VARIABLE MRTK_PATCHES_ERROR
     )
-    if(NOT MRTK_PATCH_CHECK EQUAL 0)
-        message(FATAL_ERROR "MRTKLIB Android patch no longer applies: ${MRTK_PATCH_ERROR}")
+    if(NOT MRTK_PATCHES_CHECK EQUAL 0)
+        message(FATAL_ERROR "MRTKLIB Android patches no longer apply: ${MRTK_PATCHES_ERROR}")
     endif()
     execute_process(
-        COMMAND "${GIT_EXECUTABLE}" apply "${MRTKLIB_ANDROID_PATCH}"
+        COMMAND "${GIT_EXECUTABLE}" apply ${MRTKLIB_ANDROID_PATCHES}
         WORKING_DIRECTORY "${mrtklib_src_SOURCE_DIR}"
-        RESULT_VARIABLE MRTK_PATCH_RESULT
+        RESULT_VARIABLE MRTK_PATCHES_RESULT
     )
-    if(NOT MRTK_PATCH_RESULT EQUAL 0)
-        message(FATAL_ERROR "Failed to apply MRTKLIB Android patch")
+    if(NOT MRTK_PATCHES_RESULT EQUAL 0)
+        message(FATAL_ERROR "Failed to apply MRTKLIB Android patches")
     endif()
 endif()
 
