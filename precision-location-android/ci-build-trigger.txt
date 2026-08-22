@@ -1,1 +1,1 @@
-build 10 - Pad Grade direct IPC solution stream
+v0.3.1 validation - terms acceptance per app version + MIT license
