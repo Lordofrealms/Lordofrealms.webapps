@@ -8,6 +8,7 @@ import android.graphics.Color;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -25,6 +26,8 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
     private TextView engineView;
     private Button startButton;
     private boolean running;
+    private boolean diagnosticsVisible;
+    private PppSolution lastSolution;
     private AutoPppEngine engine;
     private GnssCollector collector;
 
@@ -34,8 +37,17 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
         engine = new AutoPppEngine(this, this);
         collector = new GnssCollector(this, engine, this);
         engineView.setText(AutoPppEngine.nativeEngineInfo());
-        engineView.setOnLongClickListener(v -> {
-            if (!running) showHasSetupDialog();
+
+        // Keep setup and diagnostics out of the normal workflow. Long-press the
+        // status text while stopped to edit HAS access, or while running to
+        // temporarily reveal engineering diagnostics.
+        detailView.setOnLongClickListener(v -> {
+            if (!running) {
+                showHasSetupDialog();
+            } else {
+                diagnosticsVisible = !diagnosticsVisible;
+                renderLastSolution();
+            }
             return true;
         });
         refreshSetupState();
@@ -68,13 +80,12 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
         accuracyLabel.setGravity(Gravity.CENTER);
         root.addView(accuracyLabel, matchWrap());
 
-        modeView = text("AUTO", 18, Color.rgb(143, 209, 79), true);
+        modeView = text("AUTOMATIC", 17, Color.rgb(143, 209, 79), true);
         modeView.setGravity(Gravity.CENTER);
         modeView.setPadding(0, dp(24), 0, dp(6));
         root.addView(modeView, matchWrap());
 
-        detailView = text("Tap Start. The app will choose the best positioning mode the phone supports.",
-                14, Color.rgb(205, 213, 221), false);
+        detailView = text("Tap Start.", 15, Color.rgb(205, 213, 221), false);
         detailView.setGravity(Gravity.CENTER);
         detailView.setPadding(0, dp(8), 0, dp(24));
         root.addView(detailView, matchWrap());
@@ -90,21 +101,26 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
         engineView = text("", 11, Color.rgb(105, 119, 132), false);
         engineView.setGravity(Gravity.CENTER);
         engineView.setPadding(0, dp(24), 0, 0);
+        engineView.setVisibility(View.GONE);
         root.addView(engineView, matchWrap());
 
         setContentView(root);
     }
 
     private void refreshSetupState() {
+        diagnosticsVisible = false;
+        engineView.setVisibility(View.GONE);
+        modeView.setText("AUTOMATIC");
+        accuracyView.setText("—");
         if (HasAccessConfig.load(this).isConfigured()) {
             stateView.setText("OFF");
             stateView.setTextColor(Color.rgb(160, 172, 184));
-            detailView.setText("Tap Start. High-accuracy corrections and GNSS mode are automatic.");
+            detailView.setText("Tap Start. Everything else is automatic.");
             startButton.setText("Start");
         } else {
             stateView.setText("SETUP REQUIRED");
             stateView.setTextColor(Color.rgb(245, 190, 78));
-            detailView.setText("Galileo HAS access is a one-time setup. After that, just tap Start.");
+            detailView.setText("One-time high-accuracy service setup is required.");
             startButton.setText("Set up HAS");
         }
     }
@@ -113,7 +129,9 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
         if (running) {
             collector.stop();
             running = false;
-            startButton.setText("Start");
+            lastSolution = null;
+            diagnosticsVisible = false;
+            refreshSetupState();
             return;
         }
         if (!HasAccessConfig.load(this).isConfigured()) {
@@ -157,7 +175,7 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
 
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("One-time HAS access")
-                .setMessage("Enter the Galileo HAS Internet Data Distribution access issued by the Galileo Service Centre.")
+                .setMessage("Enter the Galileo High Accuracy Service access issued by the Galileo Service Centre.")
                 .setView(form)
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Save", null)
@@ -178,7 +196,10 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
 
     private void startCollector() {
         running = true;
+        diagnosticsVisible = false;
         startButton.setText("Stop");
+        stateView.setText("STARTING");
+        detailView.setText("Getting a high-accuracy position…");
         collector.start();
     }
 
@@ -194,28 +215,57 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
 
     @Override public void onSolution(PppSolution solution) {
         runOnUiThread(() -> {
-            stateView.setText(solution.state.name().replace('_', ' '));
-            modeView.setText(solution.mode);
-            detailView.setText(solution.detail);
-            if (Double.isFinite(solution.horizontalAccuracyMeters)) {
-                if (solution.horizontalAccuracyMeters < 1.0) {
-                    accuracyView.setText(String.format(Locale.US, "%.0f cm", solution.horizontalAccuracyMeters * 100.0));
-                } else {
-                    accuracyView.setText(String.format(Locale.US, "%.1f m", solution.horizontalAccuracyMeters));
-                }
-            } else {
-                accuracyView.setText("—");
-            }
-            int color;
-            switch (solution.state) {
-                case READY: color = Color.rgb(143, 209, 79); break;
-                case CONVERGING: color = Color.rgb(245, 190, 78); break;
-                case DEGRADED:
-                case ERROR: color = Color.rgb(255, 126, 108); break;
-                default: color = Color.rgb(205, 213, 221); break;
-            }
-            stateView.setTextColor(color);
+            lastSolution = solution;
+            renderLastSolution();
         });
+    }
+
+    private void renderLastSolution() {
+        PppSolution solution = lastSolution;
+        if (solution == null) return;
+
+        stateView.setText(solution.state.name().replace('_', ' '));
+        modeView.setText(diagnosticsVisible ? solution.mode : "AUTOMATIC");
+        engineView.setVisibility(diagnosticsVisible ? View.VISIBLE : View.GONE);
+        detailView.setText(diagnosticsVisible ? solution.detail : friendlyDetail(solution.state));
+
+        if (Double.isFinite(solution.horizontalAccuracyMeters)) {
+            if (solution.horizontalAccuracyMeters < 1.0) {
+                accuracyView.setText(String.format(Locale.US, "%.0f cm", solution.horizontalAccuracyMeters * 100.0));
+            } else {
+                accuracyView.setText(String.format(Locale.US, "%.1f m", solution.horizontalAccuracyMeters));
+            }
+        } else {
+            accuracyView.setText("—");
+        }
+
+        int color;
+        switch (solution.state) {
+            case READY: color = Color.rgb(143, 209, 79); break;
+            case CONVERGING: color = Color.rgb(245, 190, 78); break;
+            case DEGRADED:
+            case ERROR: color = Color.rgb(255, 126, 108); break;
+            default: color = Color.rgb(205, 213, 221); break;
+        }
+        stateView.setTextColor(color);
+    }
+
+    private String friendlyDetail(PppSolution.State state) {
+        switch (state) {
+            case STARTING:
+                return "Acquiring satellites and corrections…";
+            case CONVERGING:
+                return "Improving accuracy. Keep a clear view of the sky.";
+            case READY:
+                return "High-accuracy position is ready.";
+            case DEGRADED:
+                return "Accuracy is temporarily degraded. Keep a clear view of the sky.";
+            case ERROR:
+                return "Positioning needs attention. Long-press here for diagnostics.";
+            case OFF:
+            default:
+                return "Tap Start.";
+        }
     }
 
     @Override public void onInventory(SignalInventory inventory) { }
@@ -237,7 +287,8 @@ public final class MainActivity extends Activity implements PositionEngine.Liste
         if (running) {
             collector.stop();
             running = false;
-            startButton.setText("Start");
+            lastSolution = null;
+            refreshSetupState();
         }
     }
 
