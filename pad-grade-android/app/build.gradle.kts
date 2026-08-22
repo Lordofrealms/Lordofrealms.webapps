@@ -21,19 +21,10 @@ android {
         }
     }
 
-    sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/padGradeAssets"))
-}
-
-val syncPadGradeWeb by tasks.registering(Copy::class) {
-    description = "Copies the canonical pad-grade web app into Android assets"
-    from(rootProject.projectDir.resolve("../pad-grade"))
-    into(layout.buildDirectory.dir("generated/padGradeAssets/pad-grade"))
-}
-
-tasks.configureEach {
-    if (name.startsWith("merge") && name.endsWith("Assets")) {
-        dependsOn(syncPadGradeWeb)
-    }
+    // One source tree, two targets: GitHub Pages publishes ../pad-grade and the
+    // APK packages that exact directory directly as its asset root. No copied or
+    // generated HTML/JS tree exists for Android.
+    sourceSets["main"].assets.srcDir(rootProject.projectDir.resolve("../pad-grade"))
 }
 
 dependencies {
