@@ -18,6 +18,10 @@ not need an Android-specific fork.
 If Precision Location is absent or does not yet expose the IPC action, the WebView
 falls back to ordinary Android/WebView geolocation.
 
+Project import uses Android's file picker. Project JSON and CSV export use the
+system Save As document picker through the same shared export functions used by the
+browser target.
+
 ## Precision Location IPC
 
 The wrapper starts the user-visible Precision Location foreground service and binds
@@ -47,5 +51,6 @@ The debug APK is written under:
 
 `pad-grade-android/app/build/outputs/apk/debug/app-debug.apk`
 
-CI is intentionally quiet and only runs when `ci-build-trigger.txt` changes or a
-temporary validation PR changes that trigger file.
+CI is intentionally quiet on `main`: normal Pad Grade web edits do not automatically
+build an APK. The Android workflow runs when `ci-build-trigger.txt` changes, when a
+validation PR changes that trigger file, or when the workflow is started manually.
