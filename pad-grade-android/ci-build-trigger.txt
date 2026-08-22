@@ -1,1 +1,1 @@
-build 15 - v0.4.3 measured text fit, folder reconnect, hide grid debug telemetry
+build 16 - v0.4.4 legacy-safe folder sync and 70 percent grid font safety
