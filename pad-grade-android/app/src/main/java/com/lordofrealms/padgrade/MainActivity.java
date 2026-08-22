@@ -2,6 +2,7 @@ package com.lordofrealms.padgrade;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -182,7 +183,26 @@ public final class MainActivity extends Activity {
         }
     }
 
-    @Override public void onBackPressed() { if (webView != null && webView.canGoBack()) webView.goBack(); else super.onBackPressed(); }
+    private void confirmBackExit() {
+        if (isFinishing() || isDestroyed()) return;
+        new AlertDialog.Builder(this)
+                .setTitle("Close Pad Grade?")
+                .setMessage("Your project is autosaved. Close the app?")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Close", (dialog, which) -> MainActivity.super.onBackPressed())
+                .show();
+    }
+
+    @Override public void onBackPressed() {
+        if (webView == null) { confirmBackExit(); return; }
+        // Let the web UI close an open dialog first. The callback returns true
+        // only when it consumed Back. If no dialog is open, confirm app closure.
+        webView.evaluateJavascript("(function(){var ds=[...document.querySelectorAll('dialog[open]')];if(ds.length){var d=ds[ds.length-1];try{d.close();}catch(e){d.removeAttribute('open');}return true;}var t=document.getElementById('termsGate');if(t&&!t.classList.contains('hidden')){t.classList.add('hidden');return true;}return false;})()", value -> {
+            if ("true".equals(value)) return;
+            if (webView.canGoBack()) webView.goBack();
+            else confirmBackExit();
+        });
+    }
 
     @Override protected void onDestroy() {
         if (nativeBridge != null) nativeBridge.destroy();
