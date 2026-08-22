@@ -5,8 +5,10 @@ import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.Insets;
 import android.os.Bundle;
 import android.view.Gravity;
+import android.view.WindowInsets;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.LinearLayout;
@@ -91,11 +93,19 @@ public final class LegalNoticeActivity extends Activity {
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        getWindow().setStatusBarColor(Color.rgb(11, 15, 20));
+        getWindow().setNavigationBarColor(Color.rgb(11, 15, 20));
         buildUi();
     }
 
     private void buildUi() {
         ScrollView scroll = new ScrollView(this);
+        scroll.setOnApplyWindowInsetsListener((view, windowInsets) -> {
+            Insets bars = windowInsets.getInsets(
+                    WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+            view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            return windowInsets;
+        });
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(18), dp(20), dp(28));
@@ -151,6 +161,7 @@ public final class LegalNoticeActivity extends Activity {
         root.addView(decline, declineParams);
 
         setContentView(scroll);
+        scroll.requestApplyInsets();
     }
 
     @Override public void onBackPressed() {
