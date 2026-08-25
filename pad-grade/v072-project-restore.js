@@ -119,8 +119,7 @@
     if(!storeProject(project)){done=true;endVisualHold(40);return true;}
 
     // v0.7.5 already prepainted this exact project before init.js. Keep one final
-    // compatibility pass for dev payload, notes, calibration, and overlays, but do
-    // not repeat the full project render on rAF + timeout as older builds did.
+    // compatibility pass for dev payload, notes, calibration, and overlays; do not repeat the full project render on rAF + timeout as older builds did.
     applyProject(project);
     window.__padGradeProjectStartupSettledV075=project.id;
     done=true;
