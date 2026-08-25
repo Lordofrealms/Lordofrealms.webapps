@@ -1,9 +1,10 @@
-/* Pad Grade v0.6.10 DEV — authoritative finite grid, adaptive continuous GPS-map surface.
+/* Pad Grade v0.7.0 DEV — authoritative finite grid, high-detail continuous GPS-map surface.
  *
- * The bottom grid never owns interpolation. The GPS heat map is rendered as a
- * persistent georeferenced GeoJSON mesh so it survives zoom/pan without relying
- * on MapLibre image-source loading state. Mesh density scales with the pad's
- * on-screen size and only rebuilds when a resolution tier changes.
+ * The bottom grid never owns interpolation. The GPS heat map remains a persistent
+ * georeferenced GeoJSON mesh, but v0.7.0 raises polygon density by roughly 10x
+ * while grouping equal-color cells into MultiPolygons to reduce MapLibre feature
+ * overhead. Density still scales with the pad's on-screen size and only rebuilds
+ * when a resolution tier changes.
  */
 (function installPadGrade063MapSurface(){
   'use strict';
@@ -11,10 +12,12 @@
   const SURFACE_SOURCE='pad-grade-interpolated-surface-mesh';
   const SURFACE_LAYER='pad-grade-interpolated-surface-layer';
   const LEGACY_SOURCE='pad-grade-interpolated-surface';
-  const MESH_TIERS=[96,112,128,144,160];
+  // These are about sqrt(10) times the previous 96–160 long-axis divisions,
+  // producing about ten times as many interpolation cells at comparable zoom.
+  const MESH_TIERS=[304,352,400,456,512];
   const MESH_LONG_MIN=MESH_TIERS[0];
   const MESH_LONG_MAX=MESH_TIERS[MESH_TIERS.length-1];
-  const TARGET_CELL_PX=5;
+  const TARGET_CELL_PX=1.55;
   const $=id=>document.getElementById(id);
   let lastSignature='';
   let syncTimer=null;
@@ -47,8 +50,6 @@
   function mapUsable(map){
     if(!map)return false;
     try{
-      // Do not use isStyleLoaded(): MapLibre can report false again while zoomed
-      // imagery tiles are loading even though the existing style/layers are alive.
       const style=map.getStyle&&map.getStyle();
       return !!(style&&Array.isArray(style.layers)&&style.layers.length);
     }catch(e){return false;}
@@ -63,6 +64,8 @@
     return '#'+col.slice(0,3).map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join('');
   }
 
+  function roundCoord(v){return Math.round(Number(v)*1e8)/1e8;}
+
   function removeSourceAndLayer(map,sourceId,layerId){
     if(!map)return;
     try{if(layerId&&map.getLayer(layerId))map.removeLayer(layerId);}catch(e){}
@@ -73,7 +76,6 @@
     const map=mapInstance();
     if(map){
       removeSourceAndLayer(map,SURFACE_SOURCE,SURFACE_LAYER);
-      // Clean up the v0.6.3/v0.6.4 image source if an upgraded process still has it.
       try{if(map.getSource(LEGACY_SOURCE))map.removeSource(LEGACY_SOURCE);}catch(e){}
       try{map.triggerRepaint();}catch(e){}
     }
@@ -109,8 +111,8 @@
     const tier=MESH_TIERS.find(v=>v>=desired)||MESH_LONG_MAX;
     return {
       tier,
-      nx:Math.max(32,Math.round(tier*s.width/longest)),
-      ny:Math.max(32,Math.round(tier*s.length/longest))
+      nx:Math.max(64,Math.round(tier*s.width/longest)),
+      ny:Math.max(64,Math.round(tier*s.length/longest))
     };
   }
 
@@ -124,19 +126,23 @@
     const {nx,ny}=resolution||meshResolution();
     const maxAbs=Math.max(s.tol*2,...pts.map(p=>Math.abs(p.v-s.target)),1);
 
-    // Precompute georeferenced mesh vertices once. This is much cheaper than
-    // converting four corners independently for every colored cell.
+    // Precompute georeferenced vertices once. Eight decimal places is still much
+    // finer than the survey can resolve while reducing coordinate payload churn.
     const verts=Array.from({length:ny+1},()=>Array(nx+1));
     for(let iy=0;iy<=ny;iy++){
       const y=iy/ny*s.length;
       for(let ix=0;ix<=nx;ix++){
         const x=ix/nx*s.width,ll=fitPointLatLon(x,y);
         if(!ll)return {ok:false,count:pts.length,cells:0,data:null,needsCalibration:true};
-        verts[iy][ix]=[ll.lon,ll.lat];
+        verts[iy][ix]=[roundCoord(ll.lon),roundCoord(ll.lat)];
       }
     }
 
-    const features=[];
+    // A separate GeoJSON Feature for every cell becomes expensive at this detail.
+    // Bucket cells by their already-quantized display color and emit a few hundred
+    // MultiPolygon features instead. The interpolation itself remains per-cell.
+    const colorBuckets=new Map();
+    let cellCount=0;
     for(let iy=0;iy<ny;iy++){
       const y=(iy+.5)/ny*s.length;
       for(let ix=0;ix<nx;ix++){
@@ -144,16 +150,24 @@
         if(!pgTriangleAt(x,y,pts,tris))continue;
         const v=pgIdw2(x,y,pts);
         if(!Number.isFinite(v))continue;
-        const col=pgSurfaceColor(v-s.target,maxAbs,s.tol);
+        const color=colorHex(pgSurfaceColor(v-s.target,maxAbs,s.tol));
         const a=verts[iy][ix],b=verts[iy][ix+1],c=verts[iy+1][ix+1],d=verts[iy+1][ix];
-        features.push({
-          type:'Feature',
-          properties:{color:colorHex(col)},
-          geometry:{type:'Polygon',coordinates:[[a,b,c,d,a]]}
-        });
+        let polygons=colorBuckets.get(color);
+        if(!polygons){polygons=[];colorBuckets.set(color,polygons);}
+        polygons.push([[a,b,c,d,a]]);
+        cellCount++;
       }
     }
-    return {ok:features.length>0,count:pts.length,cells:features.length,data:{type:'FeatureCollection',features}};
+
+    const features=[];
+    for(const [color,coordinates] of colorBuckets){
+      features.push({
+        type:'Feature',
+        properties:{color},
+        geometry:{type:'MultiPolygon',coordinates}
+      });
+    }
+    return {ok:cellCount>0,count:pts.length,cells:cellCount,features:features.length,data:{type:'FeatureCollection',features}};
   }
 
   function layerAnchor(map){
@@ -169,8 +183,6 @@
     const map=mapInstance();
     if(!mapUsable(map))return false;
     try{
-      // Remove only the old image source. The layer id is reused by the mesh, so
-      // remove it first if it is still attached to the old source type.
       const existingLayer=map.getLayer(SURFACE_LAYER);
       const meshSource=map.getSource(SURFACE_SOURCE);
       if(existingLayer&&!meshSource)map.removeLayer(SURFACE_LAYER);
@@ -193,7 +205,8 @@
           paint:{
             'fill-color':['get','color'],
             'fill-opacity':0.58,
-            'fill-outline-color':['get','color'],
+            // No per-cell outline: outlines made the old mesh look blockier and
+            // add substantial line work at the higher v0.7.0 resolution.
             'fill-antialias':false
           }
         },before);
@@ -237,10 +250,7 @@
     const resolution=meshResolution();
     const sig=signature(resolution);
     const layerAlive=(()=>{try{return !!(map.getSource(SURFACE_SOURCE)&&map.getLayer(SURFACE_LAYER));}catch(e){return false;}})();
-    if(!force&&sig===lastSignature&&layerAlive){
-      setSurfaceStatus(`Heat map active • ${lastPointCount} measured points • ${lastCellCount} cells`);
-      return;
-    }
+    if(!force&&sig===lastSignature&&layerAlive)return;
 
     const mesh=buildSurfaceMesh(resolution);
     if(!mesh.ok){
@@ -253,14 +263,14 @@
       lastSignature=sig;
       lastPointCount=mesh.count;
       lastCellCount=mesh.cells;
-      window.__padGradeHeatmapMesh={tier:resolution.tier,nx:resolution.nx,ny:resolution.ny,cells:mesh.cells};
+      window.__padGradeHeatmapMesh={tier:resolution.tier,nx:resolution.nx,ny:resolution.ny,cells:mesh.cells,features:mesh.features};
       setSurfaceStatus(`Heat map active • ${mesh.count} measured points • ${mesh.cells} cells`);
     }
   }
 
   function scheduleResolutionRefresh(){
     clearTimeout(resolutionTimer);
-    resolutionTimer=setTimeout(()=>syncSurface(false),140);
+    resolutionTimer=setTimeout(()=>syncSurface(false),180);
   }
 
   function installResolutionHooks(){
@@ -380,7 +390,7 @@
   }
 
   function boot(){
-    document.title='Pad Grade Mapper v0.6.10 DEV';
+    document.title='Pad Grade Mapper v0.7.0 DEV';
     cleanupLegacyGridLayers();
     installMapControls();
     relabelToggle();
@@ -392,7 +402,7 @@
     syncTimer=setInterval(()=>{installMapClick();installResolutionHooks();syncSurface(false);syncLaserMarker();},700);
     window.addEventListener('beforeunload',()=>{if(syncTimer)clearInterval(syncTimer);syncTimer=null;if(resolutionTimer)clearTimeout(resolutionTimer);resolutionTimer=null;removeMapSurface();if(laserMapMarker)try{laserMapMarker.remove();}catch(e){}},{once:true});
     window.__padGradeHeatmapLocation='gps-map-geojson-mesh';
-    window.__padGradeHeatmapResolution='adaptive-96-160-long-axis';
+    window.__padGradeHeatmapResolution='adaptive-304-512-long-axis-grouped-multipolygon';
     window.__padGradeLaserPlacementLocation='gps-map';
   }
 
