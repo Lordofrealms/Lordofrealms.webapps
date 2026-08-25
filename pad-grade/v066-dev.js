@@ -11,8 +11,6 @@
   const SURFACE_LAYER='pad-grade-interpolated-surface-layer';
   const $=id=>document.getElementById(id);
 
-  // v0.6.1 intentionally forced existing installs to opt in while the renderer
-  // was unstable. The renderer is now proven; migrate exactly once to default ON.
   try{
     if(localStorage.getItem(DEFAULT_ON_MIGRATION)!=='1'){
       localStorage.setItem(HEATMAP_OPTIN_KEY,'1');
@@ -47,9 +45,6 @@
     return t<=.5?lerp(center,mid,t*2):lerp(mid,end,(t-.5)*2);
   }
 
-  // Override only the display color mapping. Interpolation remains the existing
-  // magnitude-aware IDW² calculation. CUT and FILL scale independently so the
-  // deepest measured cut and deepest measured fill each reach their full color.
   window.pgSurfaceColor=function(diff,_legacyMaxAbs,tol){
     tol=Math.max(0,Number(tol)||0);
     if(Math.abs(diff)<=tol)return [GRADE[0],GRADE[1],GRADE[2],92];
@@ -117,6 +112,9 @@
   }
 
   function applyOpacity(){
+    try{
+      if(typeof window.pgApplyHeatmapOpacity==='function'&&window.pgApplyHeatmapOpacity())return true;
+    }catch(e){}
     const map=window.__padGradeMapInstance;
     if(!map)return false;
     try{
@@ -142,8 +140,6 @@
     const block=settings&&settings.querySelector('.devSettingsBlock');
     if(!block)return;
 
-    // Fast ON/OFF now lives beneath the map. Keep the checkbox as the persisted
-    // state owner so older project files remain compatible, but hide its label.
     const oldToggle=toggle();
     const oldLabel=oldToggle&&oldToggle.closest('label');
     if(oldLabel)oldLabel.style.display='none';
@@ -192,7 +188,6 @@
     updateScaleLegend();
   }
 
-  // Persist transparency in the same dev payload as the other project options.
   const basePayload=window.pgDevPayload;
   if(typeof basePayload==='function'){
     window.pgDevPayload=function(){
@@ -213,7 +208,7 @@
   }
 
   function boot(){
-    document.title='Pad Grade Mapper v0.7.3 DEV';
+    document.title='Pad Grade Mapper v0.7.4 DEV';
     installSettingsSlider();
     installMapHeatmapUi();
     removeHeatmapDebug();
