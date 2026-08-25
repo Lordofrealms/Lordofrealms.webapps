@@ -73,7 +73,7 @@ jobs:
           grep -F 'src="map-instance-hook-v064.js' pad-grade/index.html
           grep -F 'src="v063-dev.js' pad-grade/index.html
           grep -F "new Worker(WORKER_URL)" pad-grade/v063-dev.js
-          grep -F "stable set of row-band GeoJSON sources/layers" pad-grade/v063-dev.js
+          grep -F "SOURCE_PREFIX='pad-grade-interpolated-surface-band-source-'" pad-grade/v063-dev.js
           grep -F "progressive-adaptive-528-888-long-axis-about-3x-v070-cells" pad-grade/v063-dev.js
           grep -F "stable-band-replacement-no-downgrade" pad-grade/v063-dev.js
           grep -F "stableBandSlots:true" pad-grade/v063-dev.js
