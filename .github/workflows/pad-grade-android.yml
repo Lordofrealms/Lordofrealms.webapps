@@ -49,8 +49,12 @@ jobs:
           node --check pad-grade/v053.js
           node --check pad-grade/v060-dev.js
           node --check pad-grade/v061-dev.js
+          node --check pad-grade/dev-selftest.js
           node --check pad-grade/migration-core.js
           node --check pad-grade/grid-core.js
+
+      - name: Run Pad Grade dev self-tests
+        run: node pad-grade/dev-selftest.js
 
       - uses: actions/setup-java@v5
         with:
