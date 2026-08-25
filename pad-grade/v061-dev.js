@@ -85,7 +85,82 @@
   }
 
   const baseUpdateLaserSummary=pgUpdateLaserSummary;
-  pgUpdateLaserSummary=function(){baseUpdateLaserSummary();syncLaserInputs();};
+  pgUpdateLaserSummary=function(){
+    baseUpdateLaserSummary();
+    const el=$('laserSummary'),s=cfg();
+    if(el&&!padGradeLaser&&pgRouteMode()==='away')el.textContent='Not placed — away route uses serpentine until set';
+    if(el&&padGradeLaser&&(padGradeLaser.xFt<0||padGradeLaser.xFt>s.width||padGradeLaser.yFt<0||padGradeLaser.yFt>s.length))el.textContent+=' • outside pad';
+    syncLaserInputs();
+  };
+
+  function manualSerpentineRoute(){
+    const s=cfg(),start=s.refCorner||'SW',rs=[...Array(s.rows).keys()],cs=[...Array(s.cols).keys()];
+    if(start.includes('N'))rs.reverse();
+    const firstCols=start.includes('E')?[...cs].reverse():cs;
+    const route=[];
+    rs.forEach((r,i)=>{
+      const rowCols=i%2===0?firstCols:[...firstCols].reverse();
+      rowCols.forEach(c=>route.push(indexFromPoint(r,c)));
+    });
+    return route;
+  }
+
+  function manualAwayRoute(){
+    if(!padGradeLaser)return manualSerpentineRoute();
+    const s=cfg(),rs=[...Array(s.rows).keys()];
+    const rowDistance=r=>{
+      const y=r*s.length/(s.rows-1),x=Math.max(0,Math.min(s.width,padGradeLaser.xFt));
+      return Math.hypot(x-padGradeLaser.xFt,y-padGradeLaser.yFt);
+    };
+    rs.sort((a,b)=>rowDistance(a)-rowDistance(b));
+    const route=[];
+    for(const r of rs){
+      let cs=[...Array(s.cols).keys()];
+      if(pgDistToLaser(r,s.cols-1)<pgDistToLaser(r,0))cs.reverse();
+      cs.forEach(c=>route.push(indexFromPoint(r,c)));
+    }
+    return route;
+  }
+
+  function manualSurveyRoute(){
+    return pgRouteMode()==='away'&&padGradeLaser?manualAwayRoute():manualSerpentineRoute();
+  }
+
+  function activeEntryRoute(){
+    if(measureMode==='gps'){
+      const route=gpsRoute();
+      if(route&&route.length)return route;
+    }
+    return manualSurveyRoute();
+  }
+
+  function routeStep(fromIndex,direction,emptyOnly){
+    const route=activeEntryRoute();if(!route.length)return null;
+    let pos=route.indexOf(fromIndex);
+    if(pos<0)pos=direction>0?-1:0;
+    for(let step=1;step<=route.length;step++){
+      const idx=route[(pos+direction*step+route.length*2)%route.length],p=pointFromIndex(idx);
+      if(!emptyOnly||!Number.isFinite(readings[k(p.r,p.c)]))return idx;
+    }
+    return null;
+  }
+
+  // Manual Save & Next previously ignored the survey-route selector and simply
+  // walked row-major. Make all entry-dialog navigation honor the chosen route.
+  nextPoint=function(emptyOnly=false){
+    const idx=routeStep(currentIndex,1,emptyOnly);
+    if(idx==null){if(emptyOnly)alert('All grid points have readings.');return;}
+    const p=pointFromIndex(idx);openPoint(p.r,p.c);
+  };
+  prevPoint=function(){
+    const idx=routeStep(currentIndex,-1,false);if(idx==null)return;
+    const p=pointFromIndex(idx);openPoint(p.r,p.c);
+  };
+  nextEmpty=function(){
+    const route=activeEntryRoute();
+    for(const idx of route){const p=pointFromIndex(idx);if(!Number.isFinite(readings[k(p.r,p.c)])){openPoint(p.r,p.c);return;}}
+    alert('All grid points have readings.');
+  };
 
   installLaserCoordinateInputs();
   pgRefreshUnitLabels();
