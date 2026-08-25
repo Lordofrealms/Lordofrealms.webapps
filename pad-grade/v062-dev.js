@@ -165,3 +165,14 @@
   clearHeatmapCanvas();
   window.__padGradeDev061StabilityGate=true;
 })();
+
+/* v0.6.2 is deliberately loaded after the stability gate. It removes the old
+ * bottom-grid interpolation architecture and installs the continuous surface on
+ * the calibrated GPS map instead. */
+(function loadPadGrade063(){
+  const script=document.createElement('script');
+  script.src='v063-dev.js?v=20260825-1';
+  script.dataset.padgradeV063='1';
+  script.onerror=()=>console.error('Pad Grade v0.6.2 GPS heat-map module failed to load');
+  document.body.appendChild(script);
+})();
