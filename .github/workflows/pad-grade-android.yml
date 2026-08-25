@@ -58,36 +58,34 @@ jobs:
           node --check pad-grade/v067-dev.js
           node --check pad-grade/v069-dev.js
           node --check pad-grade/v070-dev.js
+          node --check pad-grade/v071-dev.js
+          node --check pad-grade/v071-map-ui.js
+          node --check pad-grade/heatmap-worker-v071.js
           node --check pad-grade/dev-selftest.js
           node --check pad-grade/migration-core.js
           node --check pad-grade/grid-core.js
 
-      - name: Verify v0.7.0 stability and map-feature gates
+      - name: Verify v0.7.1 recovery and progressive heatmap gates
         run: |
           grep -F "padGradeHeatmapOptInV061" pad-grade/v062-dev.js
           grep -F "platform.precisionGeolocation" pad-grade/platform.js
-          grep -F "dev-v0.6.1-stability" pad-grade/v062-dev.js
           grep -F 'src="map-instance-hook-v064.js' pad-grade/index.html
           grep -F 'src="v063-dev.js' pad-grade/index.html
-          grep -F 'src="v064-dev.js' pad-grade/index.html
-          grep -F 'src="v065-dev.js' pad-grade/index.html
-          grep -F 'src="v067-dev.js' pad-grade/index.html
-          grep -F "window.__padGradeMapInstance=this" pad-grade/map-instance-hook-v064.js
-          grep -F "type:'geojson'" pad-grade/v063-dev.js
-          grep -F "type:'MultiPolygon'" pad-grade/v063-dev.js
-          grep -F "fill-antialias':false" pad-grade/v063-dev.js
-          grep -F "window.__padGradeHeatmapLocation='gps-map-geojson-mesh'" pad-grade/v063-dev.js
-          grep -F "window.__padGradeHeatmapResolution='adaptive-304-512-long-axis-grouped-multipolygon'" pad-grade/v063-dev.js
-          grep -F "window.__padGradeLaserPlacementLocation='gps-map'" pad-grade/v063-dev.js
-          grep -F "window.__padGradeNotesUi='top-level-dialog'" pad-grade/v064-dev.js
-          grep -F "window.__padGradeMapControlsLocation='below-map-key'" pad-grade/v065-dev.js
-          grep -F "v070-dev.js" pad-grade/v065-dev.js
-          grep -F "window.__padGradeHeatmapUiV066=true" pad-grade/v066-dev.js
+          grep -F "new Worker(WORKER_URL)" pad-grade/v063-dev.js
+          grep -F "progressive-adaptive-528-888-long-axis-about-3x-v070-cells" pad-grade/v063-dev.js
+          grep -F "web-worker-banded-backpressure-progressive-no-downgrade" pad-grade/v063-dev.js
+          grep -F "Never downgrade a completed surface" pad-grade/v063-dev.js
+          grep -F "Backpressure is deliberate" pad-grade/heatmap-worker-v071.js
+          grep -F "Math.abs(diff)<=tol" pad-grade/heatmap-worker-v071.js
+          grep -F "window.__padGradeDurableSyncV040=true" pad-grade/v040-sync.js
+          grep -F "padgrade-durable-sync-ready" pad-grade/v040-sync.js
+          grep -F "late-owner-settings-first-then-project-sync" pad-grade/v071-dev.js
+          grep -F "location.reload()" pad-grade/v071-dev.js
+          grep -F "v071-dev.js" pad-grade/v065-dev.js
+          grep -F "v071-map-ui.js" pad-grade/v065-dev.js
+          grep -F "window.__padGradeProgressiveLayerUiV071=true" pad-grade/v071-map-ui.js
           grep -F "Green is categorical" pad-grade/v067-dev.js
           grep -F "#4f8f3a 46%,#4f8f3a 54%" pad-grade/v067-dev.js
-          grep -F "window.__padGradeCategoricalGradeV067=true" pad-grade/v067-dev.js
-          grep -F "background-index-first-read-settings-then-reload" pad-grade/v070-dev.js
-          grep -F "completeProjectFolderRecovery" pad-grade/v070-dev.js
           grep -F "magnitude-aware IDW² zero crossing" pad-grade/dev-selftest.js
 
       - name: Run Pad Grade dev self-tests
@@ -150,25 +148,24 @@ jobs:
           unzip -l "$APK" | grep 'assets/migration-core.js'
           unzip -l "$APK" | grep 'assets/grid-core.js'
           unzip -l "$APK" | grep 'assets/map-instance-hook-v064.js'
-          if [ -f pad-grade/v060-dev.js ]; then unzip -l "$APK" | grep 'assets/v060-dev.js'; unzip -l "$APK" | grep 'assets/v060-dev.css'; fi
-          if [ -f pad-grade/v061-dev.js ]; then unzip -l "$APK" | grep 'assets/v061-dev.js'; unzip -l "$APK" | grep 'assets/v061-dev.css'; fi
-          if [ -f pad-grade/v062-dev.js ]; then unzip -l "$APK" | grep 'assets/v062-dev.js'; fi
-          if [ -f pad-grade/v063-dev.js ]; then unzip -l "$APK" | grep 'assets/v063-dev.js'; fi
-          if [ -f pad-grade/v064-dev.js ]; then unzip -l "$APK" | grep 'assets/v064-dev.js'; fi
-          if [ -f pad-grade/v065-dev.js ]; then unzip -l "$APK" | grep 'assets/v065-dev.js'; fi
-          if [ -f pad-grade/v066-dev.js ]; then unzip -l "$APK" | grep 'assets/v066-dev.js'; fi
-          if [ -f pad-grade/v067-dev.js ]; then unzip -l "$APK" | grep 'assets/v067-dev.js'; fi
-          if [ -f pad-grade/v069-dev.js ]; then unzip -l "$APK" | grep 'assets/v069-dev.js'; fi
-          if [ -f pad-grade/v070-dev.js ]; then unzip -l "$APK" | grep 'assets/v070-dev.js'; fi
+          unzip -l "$APK" | grep 'assets/v060-dev.js'
+          unzip -l "$APK" | grep 'assets/v061-dev.js'
+          unzip -l "$APK" | grep 'assets/v062-dev.js'
+          unzip -l "$APK" | grep 'assets/v063-dev.js'
+          unzip -l "$APK" | grep 'assets/v064-dev.js'
+          unzip -l "$APK" | grep 'assets/v065-dev.js'
+          unzip -l "$APK" | grep 'assets/v066-dev.js'
+          unzip -l "$APK" | grep 'assets/v067-dev.js'
+          unzip -l "$APK" | grep 'assets/v069-dev.js'
+          unzip -l "$APK" | grep 'assets/v070-dev.js'
+          unzip -l "$APK" | grep 'assets/v071-dev.js'
+          unzip -l "$APK" | grep 'assets/v071-map-ui.js'
+          unzip -l "$APK" | grep 'assets/heatmap-worker-v071.js'
           unzip -p "$APK" assets/index.html | grep -F 'src="map-instance-hook-v064.js'
           unzip -p "$APK" assets/index.html | grep -F 'src="v063-dev.js'
-          unzip -p "$APK" assets/index.html | grep -F 'src="v064-dev.js'
-          unzip -p "$APK" assets/index.html | grep -F 'src="v065-dev.js'
-          unzip -p "$APK" assets/index.html | grep -F 'src="v067-dev.js'
-          unzip -p "$APK" assets/v063-dev.js | grep -F "gps-map-geojson-mesh"
-          unzip -p "$APK" assets/v063-dev.js | grep -F "adaptive-304-512-long-axis-grouped-multipolygon"
-          unzip -p "$APK" assets/v067-dev.js | grep -F "Green is categorical"
-          unzip -p "$APK" assets/v070-dev.js | grep -F "background-index-first-read-settings-then-reload"
+          unzip -p "$APK" assets/v063-dev.js | grep -F "web-worker-banded-backpressure-progressive-no-downgrade"
+          unzip -p "$APK" assets/heatmap-worker-v071.js | grep -F "Backpressure is deliberate"
+          unzip -p "$APK" assets/v071-dev.js | grep -F "late-owner-settings-first-then-project-sync"
 
       - name: Verify dev package, launcher icon, and WebP integrity
         run: |
@@ -230,7 +227,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. The bottom survey grid remains discrete/authoritative. Interpolated magnitude-aware IDW² shading exists only on the calibrated GPS map, defaults ON, and now uses roughly ten times the previous polygon density with grouped MultiPolygon features. Heatmap transparency is adjustable in Settings and there is a quick map toggle. Cut and fill use independently scaled spectra, while green is reserved exclusively for the configured on-grade tolerance band. Durable settings recovery now indexes a reselected SAF folder once and restores the saved settings/last project before writes are re-enabled. Laser placement is performed on the GPS map, with its controls below the map/key. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build."
+          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. The bottom survey grid remains discrete/authoritative. The GPS heat map now calculates in a dedicated Web Worker, keeps the last completed surface visible, paints higher-resolution bands progressively, and never downgrades an already-computed surface merely because the user zoomed out. Target heat-map density is about 3x v0.7.0 at the same zoom, reaching up to 888 long-axis divisions. Cut and fill remain magnitude-aware IDW² with independent color scales and a categorical green tolerance band. Clean-install settings recovery is now installed after the legacy durable-project reconciler, fixing the callback-order bug that prevented a reselected folder from restoring Pad-Grade-Settings.pgsettings and the last project. Heatmap transparency, map size, units, and other portable preferences remain durable. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build."
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes "$NOTES" --prerelease
             gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
