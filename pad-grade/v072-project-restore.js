@@ -1,12 +1,12 @@
-/* Pad Grade v0.7.2 DEV — deterministic last-project application.
+/* Pad Grade v0.7.3 DEV — deterministic last-project application.
  *
  * Durable settings recovery already restores app preferences. This module waits
  * for the native SAF folder index, reads the saved lastProjectId, restores that
  * exact .padgrade file into local storage if needed, and explicitly applies it
  * to the live UI. If an older build saved the project under a noncanonical file
  * name, the already-indexed durable folder is searched by embedded project id and
- * then by the saved project name. This removes the remaining startup-order and
- * legacy-filename dependencies from last-project recovery.
+ * then by the saved project name. During the recovery reload the UI remains under
+ * a short visual hold; it is revealed only after the final recovered paint.
  */
 (function installPadGrade072LastProjectRestore(){
   'use strict';
@@ -24,6 +24,7 @@
 
   const parse=(raw,fallback=null)=>{try{return raw?JSON.parse(raw):fallback;}catch(e){return fallback;}};
   const projectKey=id=>`${PROJECT_PREFIX}${id}`;
+  function endVisualHold(delay=0){setTimeout(()=>{try{window.__padGradeEndRecoveryVisualHold?.();}catch(e){}},Math.max(0,delay));}
 
   function indexReady(){
     try{return typeof native.isProjectFolderIndexReady==='function'?!!native.isProjectFolderIndexReady():true;}catch(e){return false;}
@@ -99,21 +100,25 @@
     let settings=null;
     try{settings=parse(native.readProjectFile(SETTINGS_FILE),null);}catch(e){settings=null;}
     const id=settings?.lastProjectId||null;
-    if(!id){done=true;return true;}
+    if(!id){done=true;endVisualHold(80);return true;}
 
     let project=parse(localStorage.getItem(projectKey(id)),null);
     if(!project||project.id!==id||!project.settings)project=findDurableProject(id,settings?.lastProjectName||null);
-    if(!project||!project.settings){done=true;return true;}
+    if(!project||!project.settings){done=true;endVisualHold(80);return true;}
 
     // Preserve the durable project's canonical id. A legacy filename fallback may
     // have found the same project under a noncanonical filename, but the project id
     // remains the identity used by the project manager and future settings saves.
     if(!project.id)project.id=id;
-    if(!storeProject(project)){done=true;return true;}
+    if(!storeProject(project)){done=true;endVisualHold(80);return true;}
 
+    // These repeat applications remain as a startup-order safety net, but v0.7.3's
+    // recovery visual hold keeps all intermediate paints off-screen. Reveal only
+    // after the final pass has had time to settle.
     applyProject(project);
     requestAnimationFrame(()=>applyProject(project));
-    setTimeout(()=>applyProject(project),250);
+    setTimeout(()=>applyProject(project),180);
+    endVisualHold(280);
     done=true;
     window.__padGradeLastProjectRestoredV072=project.id;
     return true;
@@ -122,7 +127,7 @@
   function poll(){
     if(done)return;
     if(restore())return;
-    if(Date.now()>=deadline)return;
+    if(Date.now()>=deadline){endVisualHold(0);return;}
     timer=setTimeout(poll,120);
   }
 
