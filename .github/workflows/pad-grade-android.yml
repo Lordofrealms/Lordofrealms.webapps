@@ -44,6 +44,7 @@ jobs:
           node --check pad-grade/v052.js
           node --check pad-grade/v053.js
           node --check pad-grade/v060-dev.js
+          node --check pad-grade/v061-dev.js
           node --check pad-grade/migration-core.js
           node --check pad-grade/grid-core.js
 
@@ -106,6 +107,10 @@ jobs:
           if [ -f pad-grade/v060-dev.js ]; then
             unzip -l "$APK" | grep 'assets/v060-dev.js'
             unzip -l "$APK" | grep 'assets/v060-dev.css'
+          fi
+          if [ -f pad-grade/v061-dev.js ]; then
+            unzip -l "$APK" | grep 'assets/v061-dev.js'
+            unzip -l "$APK" | grep 'assets/v061-dev.css'
           fi
 
       - name: Verify launcher icon resolves and WebP is intact
