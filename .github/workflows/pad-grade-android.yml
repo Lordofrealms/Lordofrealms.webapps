@@ -60,29 +60,30 @@ jobs:
           node --check pad-grade/v070-dev.js
           node --check pad-grade/v071-dev.js
           node --check pad-grade/v071-map-ui.js
+          node --check pad-grade/v072-project-restore.js
           node --check pad-grade/heatmap-worker-v071.js
           node --check pad-grade/dev-selftest.js
           node --check pad-grade/migration-core.js
           node --check pad-grade/grid-core.js
 
-      - name: Verify v0.7.1 recovery and progressive heatmap gates
+      - name: Verify v0.7.2 recovery and progressive heatmap gates
         run: |
           grep -F "padGradeHeatmapOptInV061" pad-grade/v062-dev.js
           grep -F "platform.precisionGeolocation" pad-grade/platform.js
           grep -F 'src="map-instance-hook-v064.js' pad-grade/index.html
           grep -F 'src="v063-dev.js' pad-grade/index.html
           grep -F "new Worker(WORKER_URL)" pad-grade/v063-dev.js
+          grep -F "stable set of row-band GeoJSON sources/layers" pad-grade/v063-dev.js
           grep -F "progressive-adaptive-528-888-long-axis-about-3x-v070-cells" pad-grade/v063-dev.js
-          grep -F "web-worker-banded-backpressure-progressive-no-downgrade" pad-grade/v063-dev.js
-          grep -F "Never downgrade a completed surface" pad-grade/v063-dev.js
+          grep -F "stable-band-replacement-no-downgrade" pad-grade/v063-dev.js
+          grep -F "stableBandSlots:true" pad-grade/v063-dev.js
           grep -F "Backpressure is deliberate" pad-grade/heatmap-worker-v071.js
           grep -F "Math.abs(diff)<=tol" pad-grade/heatmap-worker-v071.js
           grep -F "window.__padGradeDurableSyncV040=true" pad-grade/v040-sync.js
-          grep -F "padgrade-durable-sync-ready" pad-grade/v040-sync.js
           grep -F "late-owner-settings-first-then-project-sync" pad-grade/v071-dev.js
-          grep -F "location.reload()" pad-grade/v071-dev.js
-          grep -F "v071-dev.js" pad-grade/v065-dev.js
-          grep -F "v071-map-ui.js" pad-grade/v065-dev.js
+          grep -F "findDurableProject" pad-grade/v072-project-restore.js
+          grep -F "window.__padGradeLastProjectRestoredV072" pad-grade/v072-project-restore.js
+          grep -F "v072-project-restore.js" pad-grade/v065-dev.js
           grep -F "window.__padGradeProgressiveLayerUiV071=true" pad-grade/v071-map-ui.js
           grep -F "Green is categorical" pad-grade/v067-dev.js
           grep -F "#4f8f3a 46%,#4f8f3a 54%" pad-grade/v067-dev.js
@@ -133,39 +134,16 @@ jobs:
       - name: Verify canonical web assets packaged
         run: |
           APK=pad-grade-android/app/build/outputs/apk/debug/app-debug.apk
-          unzip -l "$APK" | grep 'assets/index.html'
-          unzip -l "$APK" | grep 'assets/platform.js'
-          unzip -l "$APK" | grep 'assets/v040.js'
-          unzip -l "$APK" | grep 'assets/v040-sync.js'
-          unzip -l "$APK" | grep 'assets/v040.css'
-          unzip -l "$APK" | grep 'assets/v041.js'
-          unzip -l "$APK" | grep 'assets/v041-persist.js'
-          unzip -l "$APK" | grep 'assets/v041.css'
-          unzip -l "$APK" | grep 'assets/v042.js'
-          unzip -l "$APK" | grep 'assets/v042.css'
-          unzip -l "$APK" | grep 'assets/v048.js'
-          unzip -l "$APK" | grep 'assets/v052.js'
-          unzip -l "$APK" | grep 'assets/migration-core.js'
-          unzip -l "$APK" | grep 'assets/grid-core.js'
-          unzip -l "$APK" | grep 'assets/map-instance-hook-v064.js'
-          unzip -l "$APK" | grep 'assets/v060-dev.js'
-          unzip -l "$APK" | grep 'assets/v061-dev.js'
-          unzip -l "$APK" | grep 'assets/v062-dev.js'
-          unzip -l "$APK" | grep 'assets/v063-dev.js'
-          unzip -l "$APK" | grep 'assets/v064-dev.js'
-          unzip -l "$APK" | grep 'assets/v065-dev.js'
-          unzip -l "$APK" | grep 'assets/v066-dev.js'
-          unzip -l "$APK" | grep 'assets/v067-dev.js'
-          unzip -l "$APK" | grep 'assets/v069-dev.js'
-          unzip -l "$APK" | grep 'assets/v070-dev.js'
-          unzip -l "$APK" | grep 'assets/v071-dev.js'
-          unzip -l "$APK" | grep 'assets/v071-map-ui.js'
-          unzip -l "$APK" | grep 'assets/heatmap-worker-v071.js'
+          for asset in index.html platform.js v040.js v040-sync.js v041.js v041-persist.js migration-core.js grid-core.js map-instance-hook-v064.js v060-dev.js v061-dev.js v062-dev.js v063-dev.js v064-dev.js v065-dev.js v066-dev.js v067-dev.js v069-dev.js v070-dev.js v071-dev.js v071-map-ui.js v072-project-restore.js heatmap-worker-v071.js; do
+            unzip -l "$APK" | grep "assets/$asset"
+          done
           unzip -p "$APK" assets/index.html | grep -F 'src="map-instance-hook-v064.js'
           unzip -p "$APK" assets/index.html | grep -F 'src="v063-dev.js'
-          unzip -p "$APK" assets/v063-dev.js | grep -F "web-worker-banded-backpressure-progressive-no-downgrade"
+          unzip -p "$APK" assets/v063-dev.js | grep -F "stable-band-replacement-no-downgrade"
+          unzip -p "$APK" assets/v063-dev.js | grep -F "stableBandSlots:true"
           unzip -p "$APK" assets/heatmap-worker-v071.js | grep -F "Backpressure is deliberate"
           unzip -p "$APK" assets/v071-dev.js | grep -F "late-owner-settings-first-then-project-sync"
+          unzip -p "$APK" assets/v072-project-restore.js | grep -F "findDurableProject"
 
       - name: Verify dev package, launcher icon, and WebP integrity
         run: |
@@ -216,10 +194,7 @@ jobs:
             gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION" --notes "Validated Pad Grade Android v$APP_VERSION stable build from the main branch. This is the version intended for normal use."
             gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
           else
-            gh release create "$RELEASE_TAG" "$APK_NAME" \
-              --target "$GITHUB_SHA" \
-              --title "Pad Grade v$APP_VERSION" \
-              --notes "Validated Pad Grade Android v$APP_VERSION stable build from the main branch. This is the version intended for normal use."
+            gh release create "$RELEASE_TAG" "$APK_NAME" --target "$GITHUB_SHA" --title "Pad Grade v$APP_VERSION" --notes "Validated Pad Grade Android v$APP_VERSION stable build from the main branch. This is the version intended for normal use."
           fi
 
       - name: Publish dev GitHub Pre-release APK
@@ -227,16 +202,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. The bottom survey grid remains discrete/authoritative. The GPS heat map now calculates in a dedicated Web Worker, keeps the last completed surface visible, paints higher-resolution bands progressively, and never downgrades an already-computed surface merely because the user zoomed out. Target heat-map density is about 3x v0.7.0 at the same zoom, reaching up to 888 long-axis divisions. Cut and fill remain magnitude-aware IDW² with independent color scales and a categorical green tolerance band. Clean-install settings recovery is now installed after the legacy durable-project reconciler, fixing the callback-order bug that prevented a reselected folder from restoring Pad-Grade-Settings.pgsettings and the last project. Heatmap transparency, map size, units, and other portable preferences remain durable. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build."
+          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. The bottom survey grid remains discrete/authoritative. The GPS heat map calculates in a dedicated Web Worker and now uses stable row-band slots: each new higher-resolution band replaces only its matching older band, so previously painted bands remain visible and the surface progressively sharpens without flashing back to a single band. Completed resolution is monotonic and remains up to 888 long-axis divisions. Clean-install durable settings recovery remains settings-first; v0.7.2 additionally reads the saved lastProjectId after the SAF index is ready, restores the exact project (with legacy filename fallback), and explicitly applies it to the live UI. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build."
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes "$NOTES" --prerelease
             gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
           else
-            gh release create "$RELEASE_TAG" "$APK_NAME" \
-              --target "$GITHUB_SHA" \
-              --title "Pad Grade v$APP_VERSION — DEV BUILD" \
-              --notes "$NOTES" \
-              --prerelease
+            gh release create "$RELEASE_TAG" "$APK_NAME" --target "$GITHUB_SHA" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes "$NOTES" --prerelease
           fi
 
       - name: Verify stable GitHub Release APK
