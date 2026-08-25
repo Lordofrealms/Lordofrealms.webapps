@@ -20,7 +20,7 @@
   }
 
   function boot(){
-    document.title='Pad Grade Mapper v0.6.5 DEV';
+    document.title='Pad Grade Mapper v0.7.1 DEV';
     positionMapControls();
     const card=$('gpsMapCard');
     if(card&&window.MutationObserver){
@@ -62,16 +62,37 @@ try{
   document.body.appendChild(script);
 })();
 
-/* v0.7.0 keeps the v0.6.9 Advanced Settings UI, then installs the new durable
- * recovery owner after it so only one folder-change handler owns reconnect. */
-(function queuePadGrade070(){
+/* v0.7.1 keeps the v0.6.9 Advanced Settings UI and v0.7.0 portable-state
+ * handoff, then installs the late recovery owner only after those are available.
+ */
+(function queuePadGrade071(){
+  const load071MapUi=()=>{
+    if(document.querySelector('script[data-padgrade-v071-map-ui]'))return;
+    const script=document.createElement('script');
+    script.src='v071-map-ui.js?v=20260825-1';
+    script.async=false;
+    script.dataset.padgradeV071MapUi='1';
+    script.onerror=()=>console.error('Pad Grade v0.7.1 progressive layer UI failed to load');
+    document.body.appendChild(script);
+  };
+  const load071=()=>{
+    if(document.querySelector('script[data-padgrade-v071]')){load071MapUi();return;}
+    const script=document.createElement('script');
+    script.src='v071-dev.js?v=20260825-1';
+    script.async=false;
+    script.dataset.padgradeV071='1';
+    script.onload=load071MapUi;
+    script.onerror=()=>{console.error('Pad Grade v0.7.1 recovery module failed to load');load071MapUi();};
+    document.body.appendChild(script);
+  };
   const load070=()=>{
-    if(document.querySelector('script[data-padgrade-v070]'))return;
+    if(document.querySelector('script[data-padgrade-v070]')){load071();return;}
     const script=document.createElement('script');
     script.src='v070-dev.js?v=20260825-1';
     script.async=false;
     script.dataset.padgradeV070='1';
-    script.onerror=()=>console.error('Pad Grade v0.7.0 recovery module failed to load');
+    script.onload=load071;
+    script.onerror=()=>{console.error('Pad Grade v0.7.0 recovery compatibility module failed to load');load071();};
     document.body.appendChild(script);
   };
   const load069=()=>{
