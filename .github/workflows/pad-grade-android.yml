@@ -51,19 +51,24 @@ jobs:
           node --check pad-grade/v061-dev.js
           node --check pad-grade/v062-dev.js
           node --check pad-grade/v063-dev.js
+          node --check pad-grade/v064-dev.js
           node --check pad-grade/dev-selftest.js
           node --check pad-grade/migration-core.js
           node --check pad-grade/grid-core.js
 
-      - name: Verify v0.6.2 stability and map-surface gates
+      - name: Verify v0.6.3 stability and map-feature gates
         run: |
           grep -F "padGradeHeatmapOptInV061" pad-grade/v062-dev.js
           grep -F "platform.precisionGeolocation" pad-grade/platform.js
           grep -F "dev-v0.6.1-stability" pad-grade/v062-dev.js
-          grep -F "finite grid, continuous GPS-map surface" pad-grade/v063-dev.js
-          grep -F "pad-grade-interpolated-surface" pad-grade/v063-dev.js
-          grep -F "window.pgEnsureGridLayers=ensureLaserLayersOnly" pad-grade/v063-dev.js
-          grep -F "window.__padGradeHeatmapLocation='gps-map'" pad-grade/v063-dev.js
+          grep -F 'src="v063-dev.js' pad-grade/index.html
+          grep -F 'src="v064-dev.js' pad-grade/index.html
+          grep -F "continuous GPS-map surface" pad-grade/v063-dev.js
+          grep -F "type:'image'" pad-grade/v063-dev.js
+          grep -F "window.__padGradeHeatmapLocation='gps-map-image-source'" pad-grade/v063-dev.js
+          grep -F "window.__padGradeLaserPlacementLocation='gps-map'" pad-grade/v063-dev.js
+          grep -F "window.__padGradeNotesUi='top-level-dialog'" pad-grade/v064-dev.js
+          grep -F "magnitude-aware IDW² zero crossing" pad-grade/dev-selftest.js
 
       - name: Run Pad Grade dev self-tests
         run: node pad-grade/dev-selftest.js
@@ -138,6 +143,11 @@ jobs:
           if [ -f pad-grade/v063-dev.js ]; then
             unzip -l "$APK" | grep 'assets/v063-dev.js'
           fi
+          if [ -f pad-grade/v064-dev.js ]; then
+            unzip -l "$APK" | grep 'assets/v064-dev.js'
+          fi
+          unzip -p "$APK" assets/index.html | grep -F 'src="v063-dev.js'
+          unzip -p "$APK" assets/index.html | grep -F 'src="v064-dev.js'
 
       - name: Verify dev package, launcher icon, and WebP integrity
         run: |
@@ -199,7 +209,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. The bottom survey grid remains discrete/authoritative; interpolated IDW² shading exists only on the calibrated GPS map and defaults OFF so core grid/GPS behavior can be tested first. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build."
+          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. The bottom survey grid remains discrete/authoritative. Interpolated magnitude-aware IDW² shading exists only on the calibrated GPS map and defaults OFF. Laser placement is performed on the GPS map. Project Notes has its own top-level button/dialog. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build."
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes "$NOTES" --prerelease
             gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
