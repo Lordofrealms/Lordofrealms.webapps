@@ -1,8 +1,9 @@
-/* Pad Grade v0.6.5 DEV — authoritative finite grid, continuous GPS-map surface.
+/* Pad Grade v0.6.10 DEV — authoritative finite grid, adaptive continuous GPS-map surface.
  *
  * The bottom grid never owns interpolation. The GPS heat map is rendered as a
  * persistent georeferenced GeoJSON mesh so it survives zoom/pan without relying
- * on MapLibre image-source loading state. Laser placement is a GPS-map action.
+ * on MapLibre image-source loading state. Mesh density scales with the pad's
+ * on-screen size and only rebuilds when a resolution tier changes.
  */
 (function installPadGrade063MapSurface(){
   'use strict';
@@ -10,10 +11,14 @@
   const SURFACE_SOURCE='pad-grade-interpolated-surface-mesh';
   const SURFACE_LAYER='pad-grade-interpolated-surface-layer';
   const LEGACY_SOURCE='pad-grade-interpolated-surface';
-  const MESH_MAX=64;
+  const MESH_TIERS=[96,112,128,144,160];
+  const MESH_LONG_MIN=MESH_TIERS[0];
+  const MESH_LONG_MAX=MESH_TIERS[MESH_TIERS.length-1];
+  const TARGET_CELL_PX=5;
   const $=id=>document.getElementById(id);
   let lastSignature='';
   let syncTimer=null;
+  let resolutionTimer=null;
   let laserMapMarker=null;
   let lastPointCount=0;
   let lastCellCount=0;
@@ -77,16 +82,46 @@
     lastCellCount=0;
   }
 
-  function buildSurfaceMesh(){
+  function screenDistance(a,b){
+    if(!a||!b)return 0;
+    const dx=Number(b.x)-Number(a.x),dy=Number(b.y)-Number(a.y);
+    return Number.isFinite(dx)&&Number.isFinite(dy)?Math.hypot(dx,dy):0;
+  }
+
+  function meshResolution(){
+    const s=cfg();
+    const longest=Math.max(s.width,s.length,1);
+    let desired=MESH_LONG_MIN;
+    const map=mapInstance();
+    try{
+      if(map&&typeof map.project==='function'&&typeof fitPointLatLon==='function'&&typeof gpsFit!=='undefined'&&gpsFit){
+        const ll00=fitPointLatLon(0,0),ll10=fitPointLatLon(s.width,0),ll01=fitPointLatLon(0,s.length),ll11=fitPointLatLon(s.width,s.length);
+        if(ll00&&ll10&&ll01&&ll11){
+          const p00=map.project([ll00.lon,ll00.lat]),p10=map.project([ll10.lon,ll10.lat]),p01=map.project([ll01.lon,ll01.lat]),p11=map.project([ll11.lon,ll11.lat]);
+          const widthPx=(screenDistance(p00,p10)+screenDistance(p01,p11))/2;
+          const lengthPx=(screenDistance(p00,p01)+screenDistance(p10,p11))/2;
+          const longPx=Math.max(widthPx,lengthPx);
+          if(Number.isFinite(longPx)&&longPx>0)desired=Math.ceil(longPx/TARGET_CELL_PX);
+        }
+      }
+    }catch(e){}
+    desired=Math.max(MESH_LONG_MIN,Math.min(MESH_LONG_MAX,desired));
+    const tier=MESH_TIERS.find(v=>v>=desired)||MESH_LONG_MAX;
+    return {
+      tier,
+      nx:Math.max(32,Math.round(tier*s.width/longest)),
+      ny:Math.max(32,Math.round(tier*s.length/longest))
+    };
+  }
+
+  function buildSurfaceMesh(resolution){
     const s=cfg();
     const pts=typeof pgMeasuredSurfacePoints==='function'?pgMeasuredSurfacePoints():[];
     const tris=typeof pgDelaunay==='function'?pgDelaunay(pts):[];
     if(pts.length<3||!tris.length)return {ok:false,count:pts.length,cells:0,data:null};
     if(typeof fitPointLatLon!=='function'||typeof gpsFit==='undefined'||!gpsFit)return {ok:false,count:pts.length,cells:0,data:null,needsCalibration:true};
 
-    const longest=Math.max(s.width,s.length,1);
-    const nx=Math.max(24,Math.round(MESH_MAX*s.width/longest));
-    const ny=Math.max(24,Math.round(MESH_MAX*s.length/longest));
+    const {nx,ny}=resolution||meshResolution();
     const maxAbs=Math.max(s.tol*2,...pts.map(p=>Math.abs(p.v-s.target)),1);
 
     // Precompute georeferenced mesh vertices once. This is much cheaper than
@@ -174,10 +209,11 @@
     }
   }
 
-  function signature(){
+  function signature(resolution){
     let fitSig='none';
     try{if(gpsFit)fitSig=[gpsFit.tx,gpsFit.ty,gpsFit.theta,gpsFit.originLat,gpsFit.originLon].map(v=>Number(v).toFixed(8)).join(',');}catch(e){}
-    return JSON.stringify({enabled:heatmapEnabled(),fit:fitSig,readings,settings:cfg()});
+    const r=resolution||meshResolution();
+    return JSON.stringify({enabled:heatmapEnabled(),fit:fitSig,readings,settings:cfg(),mesh:`${r.tier}:${r.nx}x${r.ny}`});
   }
 
   function syncSurface(force=false){
@@ -198,14 +234,15 @@
       return;
     }
 
-    const sig=signature();
+    const resolution=meshResolution();
+    const sig=signature(resolution);
     const layerAlive=(()=>{try{return !!(map.getSource(SURFACE_SOURCE)&&map.getLayer(SURFACE_LAYER));}catch(e){return false;}})();
     if(!force&&sig===lastSignature&&layerAlive){
       setSurfaceStatus(`Heat map active • ${lastPointCount} measured points • ${lastCellCount} cells`);
       return;
     }
 
-    const mesh=buildSurfaceMesh();
+    const mesh=buildSurfaceMesh(resolution);
     if(!mesh.ok){
       removeMapSurface();
       if(mesh.needsCalibration)setSurfaceStatus('Heat map needs four-corner calibration');
@@ -216,8 +253,22 @@
       lastSignature=sig;
       lastPointCount=mesh.count;
       lastCellCount=mesh.cells;
+      window.__padGradeHeatmapMesh={tier:resolution.tier,nx:resolution.nx,ny:resolution.ny,cells:mesh.cells};
       setSurfaceStatus(`Heat map active • ${mesh.count} measured points • ${mesh.cells} cells`);
     }
+  }
+
+  function scheduleResolutionRefresh(){
+    clearTimeout(resolutionTimer);
+    resolutionTimer=setTimeout(()=>syncSurface(false),140);
+  }
+
+  function installResolutionHooks(){
+    const map=mapInstance();
+    if(!map||map.__padGradeAdaptiveHeatmapHooks)return;
+    map.__padGradeAdaptiveHeatmapHooks=true;
+    map.on('zoomend',scheduleResolutionRefresh);
+    map.on('resize',scheduleResolutionRefresh);
   }
 
   function laserLatLon(){
@@ -329,17 +380,19 @@
   }
 
   function boot(){
-    document.title='Pad Grade Mapper v0.6.5 DEV';
+    document.title='Pad Grade Mapper v0.6.10 DEV';
     cleanupLegacyGridLayers();
     installMapControls();
     relabelToggle();
     installMapClick();
+    installResolutionHooks();
     loadNotesModule();
     const toggle=$('heatmapToggle');if(toggle)toggle.addEventListener('change',()=>syncSurface(true));
-    window.addEventListener('padgrade-map-created',()=>setTimeout(()=>{installMapClick();syncSurface(true);syncLaserMarker();},0));
-    syncTimer=setInterval(()=>{installMapClick();syncSurface(false);syncLaserMarker();},700);
-    window.addEventListener('beforeunload',()=>{if(syncTimer)clearInterval(syncTimer);syncTimer=null;removeMapSurface();if(laserMapMarker)try{laserMapMarker.remove();}catch(e){}},{once:true});
+    window.addEventListener('padgrade-map-created',()=>setTimeout(()=>{installMapClick();installResolutionHooks();syncSurface(true);syncLaserMarker();},0));
+    syncTimer=setInterval(()=>{installMapClick();installResolutionHooks();syncSurface(false);syncLaserMarker();},700);
+    window.addEventListener('beforeunload',()=>{if(syncTimer)clearInterval(syncTimer);syncTimer=null;if(resolutionTimer)clearTimeout(resolutionTimer);resolutionTimer=null;removeMapSurface();if(laserMapMarker)try{laserMapMarker.remove();}catch(e){}},{once:true});
     window.__padGradeHeatmapLocation='gps-map-geojson-mesh';
+    window.__padGradeHeatmapResolution='adaptive-96-160-long-axis';
     window.__padGradeLaserPlacementLocation='gps-map';
   }
 
