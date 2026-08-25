@@ -1,6 +1,7 @@
 /* Pad Grade v0.7.1 DEV — progressive heat-map layer UI integration. */
 (function installPadGrade071ProgressiveLayerUi(){
   'use strict';
+  document.title='Pad Grade Mapper v0.7.1 DEV';
   const LAYER_PREFIX='pad-grade-interpolated-surface-layer-';
   const GRID_ANCHORS=['pad-grade-error-fill','pad-grade-grid-lines-layer','pad-grade-pad-outline-layer','pad-grade-route-layer','pad-grade-grid-points-layer','pad-grade-grid-labels','pad-grade-current-fix-layer'];
   const $=id=>document.getElementById(id);
