@@ -1,4 +1,4 @@
-/* Pad Grade v0.6.9 DEV — bottom Notes action, Advanced Settings, configurable GPS map size. */
+/* Pad Grade v0.7.0 DEV — bottom Notes action, Advanced Settings, configurable GPS map size. */
 (function installPadGrade069Ui(){
   'use strict';
 
@@ -66,8 +66,6 @@
     const w=clampWidth(raw)||cssDefaultWidth();
     const card=$('gpsMapCard');
     if(card){
-      // Allow a tablet/desktop map to exceed the normal 760 px app column while
-      // still capping to the actual viewport so phones never scroll sideways.
       card.style.width=`min(${w}px, calc(100vw - 24px))`;
       card.style.maxWidth='none';
       card.style.position='relative';
@@ -148,7 +146,6 @@
   function moveTuningControlsIntoAdvanced(){
     const body=$('v069AdvancedSettingsBody');
     if(!body)return false;
-    // These are visual/tuning controls; keep core pad and workflow settings visible.
     const minFont=$('v040MinGridFont')?.closest('.v040-rangeRow');
     const heat=$('heatmapTransparency')?.closest('.heatmapTransparencySetting');
     if(minFont&&minFont.parentElement!==body)body.insertBefore(minFont,body.firstChild||null);
@@ -169,7 +166,7 @@
   }
 
   function boot(){
-    document.title='Pad Grade Mapper v0.6.10 DEV';
+    document.title='Pad Grade Mapper v0.7.0 DEV';
     moveNotesButton();
     ensureAdvancedSettings();
     installMapSizeSettings();
@@ -184,10 +181,7 @@
     },200);
 
     window.addEventListener('padgrade-map-created',restoreSavedMapSize);
-    window.addEventListener('resize',()=>{
-      // CSS min() handles viewport caps; MapLibre still needs to recalculate its canvas.
-      resizeMapSoon();
-    });
+    window.addEventListener('resize',resizeMapSoon);
     window.addEventListener('beforeunload',()=>{if(retryTimer)clearInterval(retryTimer);retryTimer=null;},{once:true});
     window.__padGradeAdvancedSettingsV069=true;
     window.__padGradeMapSizeSettingV069=true;
@@ -195,91 +189,4 @@
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});
   else boot();
-})();
-
-/* v0.6.10: after a clean uninstall/reinstall, selecting the same SAF folder must
- * recover the surviving settings file before older persistence code is allowed
- * to initialize a new default snapshot over it. */
-(function installPadGrade070FolderRecovery(){
-  'use strict';
-  const SETTINGS_FILE='Pad-Grade-Settings.pgsettings';
-  const INDEX_KEY='padGradeProjectsV5';
-  const ACTIVE_KEY='padGradeActiveProjectIdV5';
-  const PREF_KEY='padGradeAppPrefsV1';
-  const PROJECT_PREFIX='padGradeProjectV5:';
-  const native=window.PadGradeNative;
-  const previous=window.__padGradeProjectFolderChanged;
-  if(!native||typeof native.readProjectFile!=='function'||typeof previous!=='function'||previous.__padGradeV070Recovery)return;
-
-  const parse=(raw,fallback=null)=>{try{return raw?JSON.parse(raw):fallback;}catch(e){return fallback;}};
-  const projectKey=id=>`${PROJECT_PREFIX}${id}`;
-
-  function readSettingsSnapshot(){
-    try{
-      if(typeof native.hasProjectFolder==='function'&&!native.hasProjectFolder())return null;
-      const settings=parse(native.readProjectFile(SETTINGS_FILE),null);
-      return settings&&settings.type==='settings'?settings:null;
-    }catch(e){return null;}
-  }
-
-  function preserveAppPrefs(settings){
-    if(!settings||!settings.appPrefs||typeof settings.appPrefs!=='object')return;
-    try{localStorage.setItem(PREF_KEY,JSON.stringify(settings.appPrefs));}catch(e){}
-  }
-
-  function importLastProject(settings){
-    const id=settings&&settings.lastProjectId;
-    if(!id)return false;
-    let project=parse(localStorage.getItem(projectKey(id)),null);
-    if(!project){
-      try{project=parse(native.readProjectFile(`${id}.padgrade`),null);}catch(e){project=null;}
-      if(project&&project.id===id&&project.settings){
-        try{
-          localStorage.setItem(projectKey(id),JSON.stringify(project));
-          let idx=parse(localStorage.getItem(INDEX_KEY),[]);if(!Array.isArray(idx))idx=[];
-          const meta={id,name:project.settings.name||settings.lastProjectName||'Pad',createdAt:project.createdAt||new Date().toISOString(),modifiedAt:project.modifiedAt||project.exportedAt||new Date().toISOString(),status:project.status==='archived'?'archived':'open'};
-          const found=idx.find(x=>x&&x.id===id);if(found)Object.assign(found,meta);else idx.push(meta);
-          localStorage.setItem(INDEX_KEY,JSON.stringify(idx));
-        }catch(e){}
-      }
-    }
-    if(project&&project.settings&&project.status!=='archived'){
-      try{localStorage.setItem(ACTIVE_KEY,id);}catch(e){}
-      return true;
-    }
-    return false;
-  }
-
-  function handOffRecoveredSettings(settings){
-    preserveAppPrefs(settings);
-    importLastProject(settings);
-    // Now that the old settings snapshot is safely in memory/local storage, let
-    // the normal folder reconciler and v0.6.8 recovery logic run as well.
-    try{previous();}catch(e){}
-    sessionStorage.setItem('padGradeV070FolderRecovery','1');
-    // Give the project reconciler time to import any additional .padgrade files;
-    // a page reload then lets every settings UI module initialize from the restored
-    // appPrefs/active project in its normal startup order.
-    setTimeout(()=>{try{location.reload();}catch(e){}},850);
-  }
-
-  function recoverBeforeHandoff(){
-    const delays=[0,80,160,300,500,800,1200];
-    let attempt=0;
-    const run=()=>{
-      const settings=readSettingsSnapshot();
-      if(settings){handOffRecoveredSettings(settings);return;}
-      if(++attempt<delays.length){setTimeout(run,delays[attempt]);return;}
-      // No surviving settings snapshot was found after the SAF provider had time
-      // to settle. This is a genuinely new folder (or a pre-settings install), so
-      // allow the normal code to initialize one.
-      try{previous();}catch(e){}
-    };
-    setTimeout(run,delays[0]);
-  }
-
-  const wrapped=function(){recoverBeforeHandoff();};
-  wrapped.__padGradeV070Recovery=true;
-  window.__padGradeProjectFolderChanged=wrapped;
-  window.__padGradeFolderRecoveryV070='read-old-settings-before-write';
 })();
