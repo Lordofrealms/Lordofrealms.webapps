@@ -6,7 +6,14 @@
 <meta name="theme-color" content="#0b0f14">
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' https://basemap.nationalmap.gov https://imagery.nationalmap.gov; img-src 'self' data: blob: https://basemap.nationalmap.gov https://imagery.nationalmap.gov; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'self' blob:; child-src 'self' blob:; manifest-src 'none'; form-action 'none'; base-uri 'none';">
-<title>Pad Grade Mapper v0.7.0 DEV</title>
+<title>Pad Grade Mapper v0.7.3 DEV</title>
+<style>
+  html.padGradeRecoveryHold{background:#0b0f14}
+  html.padGradeRecoveryHold body{background:#0b0f14;min-height:100vh}
+  html.padGradeRecoveryHold body>*{visibility:hidden!important}
+  html.padGradeRecoveryHold body::before{content:'Restoring saved project…';visibility:visible!important;position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#0b0f14;color:#c9d1da;font:600 15px system-ui,sans-serif;letter-spacing:.01em}
+</style>
+<script src="recovery-visual-v073.js?v=20260825-1"></script>
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.16.0/dist/maplibre-gl.css">
 <link rel="stylesheet" href="style.css?v=20260821-2">
 <link rel="stylesheet" href="v10.css?v=20260822-3">
@@ -220,9 +227,9 @@
 <script src="v060-dev.js?v=20260825-1"></script>
 <script src="v061-dev.js?v=20260825-1"></script>
 <script src="v062-dev.js?v=20260825-1"></script>
-<script src="v063-dev.js?v=20260825-4"></script>
+<script src="v063-dev.js?v=20260825-5"></script>
 <script src="v064-dev.js?v=20260825-1" data-padgrade-v064="1"></script>
-<script src="v065-dev.js?v=20260825-3"></script>
+<script src="v065-dev.js?v=20260825-4"></script>
 <script src="v067-dev.js?v=20260825-1"></script>
 <script src="init.js?v=20260819-1"></script>
 </body>
