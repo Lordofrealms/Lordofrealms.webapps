@@ -2,14 +2,16 @@ name: Pad Grade Android
 
 on:
   push:
-    branches: [main]
+    branches: [main, pad-grade-dev]
     paths:
-      - 'pad-grade-android/ci-build-trigger.txt'
+      - 'pad-grade/**'
+      - 'pad-grade-android/**'
       - '.github/workflows/pad-grade-android.yml'
   pull_request:
-    branches: [main]
+    branches: [main, pad-grade-dev]
     paths:
-      - 'pad-grade-android/ci-build-trigger.txt'
+      - 'pad-grade/**'
+      - 'pad-grade-android/**'
       - '.github/workflows/pad-grade-android.yml'
   workflow_dispatch:
 
@@ -41,6 +43,7 @@ jobs:
           node --check pad-grade/v051.js
           node --check pad-grade/v052.js
           node --check pad-grade/v053.js
+          node --check pad-grade/v060-dev.js
           node --check pad-grade/migration-core.js
           node --check pad-grade/grid-core.js
 
@@ -59,12 +62,22 @@ jobs:
         with:
           gradle-version: '9.5.0'
 
-      - name: Resolve app version
+      - name: Resolve app version and channel
         run: |
           VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' pad-grade-android/app/build.gradle.kts | head -1)
           test -n "$VERSION"
+          BRANCH="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          if [ "$BRANCH" = "main" ]; then
+            CHANNEL=stable
+          elif [ "$BRANCH" = "pad-grade-dev" ]; then
+            CHANNEL=dev
+          else
+            CHANNEL=pr
+          fi
           echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "BUILD_CHANNEL=$CHANNEL" >> "$GITHUB_ENV"
           echo "APK_NAME=Pad-Grade-v$VERSION.apk" >> "$GITHUB_ENV"
+          echo "ARTIFACT_NAME=pad-grade-$CHANNEL" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=pad-grade-v$VERSION" >> "$GITHUB_ENV"
 
       - name: Build debug APK
@@ -72,20 +85,25 @@ jobs:
 
       - name: Verify canonical web assets packaged
         run: |
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/index.html'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/platform.js'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v040.js'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v040-sync.js'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v040.css'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v041.js'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v041-persist.js'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v041.css'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v042.js'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v042.css'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v048.js'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/v052.js'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/migration-core.js'
-          unzip -l pad-grade-android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/grid-core.js'
+          APK=pad-grade-android/app/build/outputs/apk/debug/app-debug.apk
+          unzip -l "$APK" | grep 'assets/index.html'
+          unzip -l "$APK" | grep 'assets/platform.js'
+          unzip -l "$APK" | grep 'assets/v040.js'
+          unzip -l "$APK" | grep 'assets/v040-sync.js'
+          unzip -l "$APK" | grep 'assets/v040.css'
+          unzip -l "$APK" | grep 'assets/v041.js'
+          unzip -l "$APK" | grep 'assets/v041-persist.js'
+          unzip -l "$APK" | grep 'assets/v041.css'
+          unzip -l "$APK" | grep 'assets/v042.js'
+          unzip -l "$APK" | grep 'assets/v042.css'
+          unzip -l "$APK" | grep 'assets/v048.js'
+          unzip -l "$APK" | grep 'assets/v052.js'
+          unzip -l "$APK" | grep 'assets/migration-core.js'
+          unzip -l "$APK" | grep 'assets/grid-core.js'
+          if [ -f pad-grade/v060-dev.js ]; then
+            unzip -l "$APK" | grep 'assets/v060-dev.js'
+            unzip -l "$APK" | grep 'assets/v060-dev.css'
+          fi
 
       - name: Verify launcher icon resolves and WebP is intact
         run: |
@@ -116,14 +134,14 @@ jobs:
       - name: Name APK
         run: cp pad-grade-android/app/build/outputs/apk/debug/app-debug.apk "$APK_NAME"
 
-      - name: Upload debug APK artifact
+      - name: Upload APK artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: pad-grade-debug
+          name: ${{ env.ARTIFACT_NAME }}
           path: ${{ env.APK_NAME }}
 
-      - name: Publish GitHub Release APK
+      - name: Publish stable GitHub Release APK
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -134,10 +152,10 @@ jobs:
             gh release create "$RELEASE_TAG" "$APK_NAME" \
               --target "$GITHUB_SHA" \
               --title "Pad Grade v$APP_VERSION" \
-              --notes "Validated Pad Grade Android v$APP_VERSION build. Direct APK asset published by the same workflow that compiled and packaged the app."
+              --notes "Validated Pad Grade Android v$APP_VERSION stable build. Direct APK asset published by the same workflow that compiled and packaged the app."
           fi
 
-      - name: Verify GitHub Release APK
+      - name: Verify stable GitHub Release APK
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
