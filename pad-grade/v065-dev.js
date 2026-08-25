@@ -20,7 +20,7 @@
   }
 
   function boot(){
-    document.title='Pad Grade Mapper v0.7.1 DEV';
+    document.title='Pad Grade Mapper v0.7.2 DEV';
     positionMapControls();
     const card=$('gpsMapCard');
     if(card&&window.MutationObserver){
@@ -62,17 +62,27 @@ try{
   document.body.appendChild(script);
 })();
 
-/* v0.7.1 keeps the v0.6.9 Advanced Settings UI and v0.7.0 portable-state
- * handoff, then installs the late recovery owner only after those are available.
+/* v0.7.2 keeps the v0.6.9 Advanced Settings UI and v0.7.0/v0.7.1 durable
+ * recovery stack, then adds a final explicit last-project application pass.
  */
-(function queuePadGrade071(){
+(function queuePadGrade072(){
+  const load072=()=>{
+    if(document.querySelector('script[data-padgrade-v072-project-restore]'))return;
+    const script=document.createElement('script');
+    script.src='v072-project-restore.js?v=20260825-1';
+    script.async=false;
+    script.dataset.padgradeV072ProjectRestore='1';
+    script.onerror=()=>console.error('Pad Grade v0.7.2 last-project restore module failed to load');
+    document.body.appendChild(script);
+  };
   const load071MapUi=()=>{
-    if(document.querySelector('script[data-padgrade-v071-map-ui]'))return;
+    if(document.querySelector('script[data-padgrade-v071-map-ui]')){load072();return;}
     const script=document.createElement('script');
     script.src='v071-map-ui.js?v=20260825-1';
     script.async=false;
     script.dataset.padgradeV071MapUi='1';
-    script.onerror=()=>console.error('Pad Grade v0.7.1 progressive layer UI failed to load');
+    script.onload=load072;
+    script.onerror=()=>{console.error('Pad Grade v0.7.1 progressive layer UI failed to load');load072();};
     document.body.appendChild(script);
   };
   const load071=()=>{
