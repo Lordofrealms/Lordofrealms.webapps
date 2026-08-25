@@ -27,6 +27,8 @@ import java.nio.charset.StandardCharsets;
 public final class PadGradeNativeBridge implements PrecisionLocationClient.Listener, SensorEventListener {
     private static final String PREFS = "pad_grade_native";
     private static final String PROJECT_FOLDER_URI = "project_folder_uri";
+    private static final String SETTINGS_FILE = "Pad-Grade-Settings.pgsettings";
+    private static final long FOLDER_SELECTION_SETTINGS_WRITE_GRACE_MS = 3000L;
 
     private final MainActivity activity;
     private final WebView webView;
@@ -38,6 +40,7 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
     private double lastLongitude = Double.NaN;
     private double lastAltitude = 0.0;
     private long lastLocationTimeMs = 0L;
+    private long projectFolderSelectedAtMs = 0L;
     private float smoothedHeading = Float.NaN;
 
     public PadGradeNativeBridge(MainActivity activity, WebView webView) {
@@ -82,6 +85,11 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
 
     @JavascriptInterface public boolean writeProjectFile(String filename, String text) {
         DocumentFile folder = getProjectFolder(); if (folder == null) return false;
+        // A freshly re-selected SAF folder can take a moment to expose its existing
+        // children. Do not let the new install overwrite the surviving settings file
+        // with defaults during that short reconnect window.
+        if (SETTINGS_FILE.equals(filename) && projectFolderSelectedAtMs > 0L &&
+                System.currentTimeMillis() - projectFolderSelectedAtMs < FOLDER_SELECTION_SETTINGS_WRITE_GRACE_MS) return false;
         try {
             DocumentFile file = findProjectFile(filename); if (file == null) file = folder.createFile("application/octet-stream", filename); if (file == null) return false;
             try (OutputStream out = activity.getContentResolver().openOutputStream(file.getUri(), "wt")) { if (out == null) return false; out.write((text == null ? "" : text).getBytes(StandardCharsets.UTF_8)); out.flush(); return true; }
@@ -89,7 +97,7 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
     }
 
     @JavascriptInterface public boolean deleteProjectFile(String filename) { DocumentFile file = findProjectFile(filename); return file != null && file.delete(); }
-    public void onProjectFolderSelected(Uri uri) { if (uri == null) return; activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(PROJECT_FOLDER_URI, uri.toString()).apply(); evaluate("window.__padGradeProjectFolderChanged && window.__padGradeProjectFolderChanged();"); }
+    public void onProjectFolderSelected(Uri uri) { if (uri == null) return; projectFolderSelectedAtMs = System.currentTimeMillis(); activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(PROJECT_FOLDER_URI, uri.toString()).apply(); evaluate("window.__padGradeProjectFolderChanged && window.__padGradeProjectFolderChanged();"); }
     private DocumentFile getProjectFolder() { String raw = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(PROJECT_FOLDER_URI, null); if (raw == null || raw.isBlank()) return null; try { DocumentFile folder = DocumentFile.fromTreeUri(activity, Uri.parse(raw)); return folder != null && folder.exists() && folder.canRead() && folder.canWrite() ? folder : null; } catch (Exception ex) { return null; } }
     private DocumentFile findProjectFile(String filename) { DocumentFile folder = getProjectFolder(); if (folder == null || filename == null) return null; for (DocumentFile file : folder.listFiles()) if (filename.equals(file.getName())) return file; return null; }
     public void destroy() { stopHeadingUpdates(); precisionClient.release(); }
