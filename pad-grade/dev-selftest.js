@@ -60,7 +60,6 @@ function near(a,b,tol=1e-9,msg=''){
   assert.ok(Math.abs(a-b)<=tol,`${msg} expected ${b}, got ${a}`);
 }
 
-// All unit modes must round-trip the unchanged canonical representation.
 for(const mode of ['inches','tenths','metric']){
   padGradeUnitMode=mode;
   const ft=63.75,inch=71.375,tolIn=0.625;
@@ -69,7 +68,6 @@ for(const mode of ['inches','tenths','metric']){
   near(pgTolInputToIn(pgTolInToInput(tolIn,mode),mode),tolIn,1e-9,`${mode} tolerance`);
 }
 
-// A flat measured surface should recommend its own reading with zero earthwork.
 padGradeUnitMode='inches';
 $('width').value='40';$('length').value='20';$('cols').value='3';$('rows').value='3';$('target').value='100';$('tol').value='1';
 readings={};
@@ -80,7 +78,6 @@ near(calc.neutral,100,1e-9,'flat neutral');
 near(calc.neutralWork.cutYd3,0,1e-9,'flat cut');
 near(calc.neutralWork.fillYd3,0,1e-9,'flat fill');
 
-// On a sloped surface the net-zero target must balance true cut and fill.
 readings={};
 for(let r=0;r<3;r++)for(let c=0;c<3;c++)readings[k(r,c)]=96+2*c+3*r;
 calc=pgCalculateTargets();
@@ -88,17 +85,23 @@ assert.ok(!calc.error,calc.error);
 near(calc.neutralWork.signedNetYd3,0,1e-9,'neutral signed volume');
 near(calc.neutralWork.cutYd3,calc.neutralWork.fillYd3,1e-7,'neutral cut/fill');
 
-// The minimum-area target must never disturb more sampled area than neutral under the same tolerance.
 const neutralTol=pgEarthworkAt(calc.neutral,calc.surface,calc.tolerance);
 assert.ok(calc.minAreaWork.disturbedFt2<=neutralTol.disturbedFt2+1e-9,'minimum-area optimizer increased disturbed area');
 
-// Three measured rectangle corners support only the triangular half they span.
 $('cols').value='2';$('rows').value='2';$('width').value='40';$('length').value='20';
 readings={'0,0':100,'0,1':101,'1,0':102};
 const surface=pgSurfaceSamples(100);
 assert.ok(surface.coveredFt2>340&&surface.coveredFt2<460,`three-corner coverage should be about 400 ft², got ${surface.coveredFt2}`);
 
-// With a laser outside the west edge, every row is measured west-to-east in one outward pass.
+// Heatmap transitions must be based on the magnitude of the actual readings,
+// never categorical CUT/FILL colors. Target=100: one point CUT 50 (reading 50)
+// and the other FILL 2 (reading 102). At the midpoint the surface must still be
+// deeply cut; the zero crossing for pure IDW² occurs 5/6 of the way toward fill.
+const asymmetric=[{x:0,y:0,v:50},{x:1,y:0,v:102}];
+near(pgIdw2(.5,0,asymmetric),76,1e-9,'asymmetric midpoint reading');
+assert.ok(pgIdw2(.5,0,asymmetric)-100<-20,'asymmetric midpoint must remain cut');
+near(pgIdw2(5/6,0,asymmetric),100,1e-9,'magnitude-aware IDW² zero crossing');
+
 $('cols').value='5';$('rows').value='3';$('width').value='40';$('length').value='20';$('routeMode').value='away';
 padGradeLaser={xFt:-10,yFt:10};
 let route=gpsRoute().map(pointFromIndex);
@@ -106,7 +109,6 @@ for(let r=0;r<3;r++){
   assert.deepStrictEqual(route.filter(p=>p.r===r).map(p=>p.c),[0,1,2,3,4],`outside-laser row ${r}`);
 }
 
-// If the laser lies inside a row, each measurement leg walks outward; a decrease can only be the reset near the laser.
 padGradeLaser={xFt:20,yFt:10};
 route=gpsRoute().map(pointFromIndex);
 for(let i=1;i<route.length;i++){
