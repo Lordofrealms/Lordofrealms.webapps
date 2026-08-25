@@ -49,9 +49,16 @@ jobs:
           node --check pad-grade/v053.js
           node --check pad-grade/v060-dev.js
           node --check pad-grade/v061-dev.js
+          node --check pad-grade/v062-dev.js
           node --check pad-grade/dev-selftest.js
           node --check pad-grade/migration-core.js
           node --check pad-grade/grid-core.js
+
+      - name: Verify v0.6.1 stability gates
+        run: |
+          grep -F "padGradeHeatmapOptInV061" pad-grade/v062-dev.js
+          grep -F "platform.precisionGeolocation" pad-grade/platform.js
+          grep -F "dev-v0.6.1-stability" pad-grade/v062-dev.js
 
       - name: Run Pad Grade dev self-tests
         run: node pad-grade/dev-selftest.js
@@ -120,6 +127,9 @@ jobs:
             unzip -l "$APK" | grep 'assets/v061-dev.js'
             unzip -l "$APK" | grep 'assets/v061-dev.css'
           fi
+          if [ -f pad-grade/v062-dev.js ]; then
+            unzip -l "$APK" | grep 'assets/v062-dev.js'
+          fi
 
       - name: Verify dev package, launcher icon, and WebP integrity
         run: |
@@ -181,9 +191,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build. Use this build for testing the current development work only."
+          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. Heat-map shading defaults OFF in this build so core grid/GPS behavior can be tested first. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build."
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" -f sha="$GITHUB_SHA" -F force=true >/dev/null
             gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes "$NOTES" --prerelease
             gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
           else
@@ -208,5 +217,3 @@ jobs:
         run: |
           test "$(gh release view "$RELEASE_TAG" --json isPrerelease --jq '.isPrerelease')" = "true"
           gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | grep -Fx "$APK_NAME"
-          TAG_SHA=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')
-          test "$TAG_SHA" = "$GITHUB_SHA"
