@@ -1,4 +1,4 @@
-/* Pad Grade v0.6.4 DEV — map controls live below the GPS map/key. */
+/* Pad Grade v0.6.5 DEV — map controls live below the GPS map/key. */
 (function installPadGrade065Ui(){
   'use strict';
   const $=id=>document.getElementById(id);
@@ -20,7 +20,7 @@
   }
 
   function boot(){
-    document.title='Pad Grade Mapper v0.6.4 DEV';
+    document.title='Pad Grade Mapper v0.6.5 DEV';
     positionMapControls();
     const card=$('gpsMapCard');
     if(card&&window.MutationObserver){
