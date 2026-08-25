@@ -32,11 +32,13 @@
     const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
     const nodes=[];let n;while((n=walker.nextNode()))nodes.push(n);
     for(const node of nodes){
-      node.nodeValue=node.nodeValue.replace(/([±]?)(-?\d+(?:\.\d+)?)\s*ft\b/g,(m,prefix,num)=>{
+      const before=node.nodeValue;
+      const after=before.replace(/([±]?)(-?\d+(?:\.\d+)?)\s*ft\b/g,(m,prefix,num)=>{
         const meters=Number(num)*M_PER_FT;
         if(!Number.isFinite(meters))return m;
         return `${prefix}${meters.toFixed(Math.abs(meters)<10?1:0)} m`;
       });
+      if(after!==before)node.nodeValue=after;
     }
   }
 
