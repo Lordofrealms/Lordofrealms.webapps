@@ -1,9 +1,11 @@
-/* Pad Grade v0.7.2 DEV — late durable settings recovery owner.
+/* Pad Grade v0.7.3 DEV — late durable settings recovery owner.
  *
  * The folder-change handler is installed after the legacy project-manager stack,
  * so it cannot be overwritten. Recovery is settings-first: before native writes
  * are re-enabled we resolve the saved last project by canonical filename, embedded
  * project id, or saved project name. Only then do we reload into recovered state.
+ * A visual hold masks the intentional reload so intermediate default/project paints
+ * are not shown to the user.
  */
 (function installPadGrade071RecoveryOwner(){
   'use strict';
@@ -26,6 +28,8 @@
   const parse=(raw,fallback=null)=>{try{return raw?JSON.parse(raw):fallback;}catch(e){return fallback;}};
   const projectKey=id=>`${PROJECT_PREFIX}${id}`;
 
+  function beginVisualHold(){try{window.__padGradeBeginRecoveryVisualHold?.();}catch(e){}}
+  function endVisualHold(){try{window.__padGradeEndRecoveryVisualHold?.();}catch(e){}}
   function completeNativeRecovery(){
     try{if(typeof native.completeProjectFolderRecovery==='function')native.completeProjectFolderRecovery();}catch(e){}
   }
@@ -75,6 +79,7 @@
   }
 
   function fallThroughToProjectSync(){
+    endVisualHold();
     completeNativeRecovery();
     recovering=false;
     if(pollTimer){clearTimeout(pollTimer);pollTimer=null;}
@@ -106,10 +111,13 @@
     recovering=false;
     if(pollTimer){clearTimeout(pollTimer);pollTimer=null;}
 
-    // Reload before the legacy reconciler is allowed to select/create another
-    // active project. The recovered ACTIVE_KEY is therefore present when v040
-    // initializes on the fresh page.
-    setTimeout(()=>{try{location.reload();}catch(e){}},40);
+    // The correct ACTIVE_KEY and portable settings are already stored. Hide the
+    // one intentional reload and reveal only after v0.7.2's explicit final apply.
+    beginVisualHold();
+    setTimeout(()=>{
+      try{location.reload();}
+      catch(e){endVisualHold();}
+    },40);
   }
 
   function indexReady(){
@@ -137,7 +145,7 @@
     legacyFolderChanged=current;
     window.__padGradeProjectFolderChanged=onFolderChanged;
     ownerInstalled=true;
-    window.__padGradeFolderRecoveryV071='late-owner-settings-first-then-project-sync';
+    window.__padGradeFolderRecoveryV071='late-owner-settings-first-then-project-sync-visual-hold';
     return true;
   }
 
