@@ -91,7 +91,7 @@
   }
 
   function boot(){
-    document.title='Pad Grade Mapper v0.6.7 DEV';
+    document.title='Pad Grade Mapper v0.6.8 DEV';
     let tries=0;
     const timer=setInterval(()=>{
       updateLegend();
@@ -108,6 +108,291 @@
     },100);
     setInterval(updateLegend,700);
     window.__padGradeCategoricalGradeV067=true;
+  }
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});
+  else boot();
+})();
+
+/* Pad Grade v0.6.8 DEV — durable app settings/last-project recovery plus
+ * invariant GPS-map layer ordering. No new UI is introduced here.
+ *
+ * Durable settings are stored beside .padgrade project files in the user-selected
+ * durable project folder. The file intentionally uses a .pgsettings extension so
+ * it can never be mistaken for a project by the project-file enumerator.
+ */
+(function installPadGrade068DurabilityAndLayerOrder(){
+  'use strict';
+
+  const SETTINGS_FILE='Pad-Grade-Settings.pgsettings';
+  const SETTINGS_SCHEMA=1;
+  const INDEX_KEY='padGradeProjectsV5';
+  const ACTIVE_KEY='padGradeActiveProjectIdV5';
+  const PREF_KEY='padGradeAppPrefsV1';
+  const PROJECT_PREFIX='padGradeProjectV5:';
+  const SURFACE_LAYER='pad-grade-interpolated-surface-layer';
+  const GRID_ANCHORS=['pad-grade-grid-lines-layer','pad-grade-pad-outline-layer','pad-grade-route-layer','pad-grade-grid-points-layer','pad-grade-grid-labels'];
+  let saveTimer=null;
+  let lastWrittenSignature='';
+  let restoreBusy=false;
+  let layerGuardTimer=null;
+
+  function nativeFolderAvailable(){
+    try{
+      return !!(window.PadGradeNative&&
+        typeof PadGradeNative.hasProjectFolder==='function'&&PadGradeNative.hasProjectFolder()&&
+        typeof PadGradeNative.readProjectFile==='function'&&
+        typeof PadGradeNative.writeProjectFile==='function');
+    }catch(e){return false;}
+  }
+
+  function parseJson(raw,fallback){
+    try{return raw?JSON.parse(raw):fallback;}catch(e){return fallback;}
+  }
+
+  function activeId(){return localStorage.getItem(ACTIVE_KEY)||null;}
+  function projectKey(id){return `${PROJECT_PREFIX}${id}`;}
+
+  function appPrefs(){
+    const raw=parseJson(localStorage.getItem(PREF_KEY),{});
+    return raw&&typeof raw==='object'?raw:{};
+  }
+
+  function currentSettings(){
+    try{return typeof cfg==='function'?cfg():null;}catch(e){return null;}
+  }
+
+  function currentPortablePrefs(){
+    let unitMode='inches';
+    try{if(typeof pgUnitMode==='function')unitMode=pgUnitMode();}catch(e){}
+    const heatmap=document.getElementById('heatmapToggle');
+    const route=document.getElementById('routeMode');
+    const opacity=document.getElementById('heatmapTransparency');
+    return {
+      unitMode,
+      heatmap:heatmap?!!heatmap.checked:true,
+      routeMode:route?String(route.value||'serpentine'):'serpentine',
+      heatmapTransparency:opacity?Math.max(0,Math.min(90,Number(opacity.value)||0)):42
+    };
+  }
+
+  function durablePayload(){
+    const id=activeId();
+    let projectName=null;
+    try{
+      const p=parseJson(id&&localStorage.getItem(projectKey(id)),null);
+      projectName=p?.settings?.name||currentSettings()?.name||null;
+    }catch(e){}
+    return {
+      app:'Pad Grade Mapper',
+      type:'settings',
+      schemaVersion:SETTINGS_SCHEMA,
+      savedAt:new Date().toISOString(),
+      lastProjectId:id,
+      lastProjectName:projectName,
+      appPrefs:appPrefs(),
+      lastSettings:currentSettings(),
+      portablePrefs:currentPortablePrefs()
+    };
+  }
+
+  function payloadSignature(p){
+    if(!p)return '';
+    return JSON.stringify({
+      lastProjectId:p.lastProjectId||null,
+      appPrefs:p.appPrefs||{},
+      lastSettings:p.lastSettings||null,
+      portablePrefs:p.portablePrefs||{}
+    });
+  }
+
+  function flushDurableSettings(force=false){
+    if(!nativeFolderAvailable())return false;
+    const p=durablePayload(),sig=payloadSignature(p);
+    if(!force&&sig===lastWrittenSignature)return true;
+    try{
+      const ok=!!PadGradeNative.writeProjectFile(SETTINGS_FILE,JSON.stringify(p,null,2));
+      if(ok)lastWrittenSignature=sig;
+      return ok;
+    }catch(e){return false;}
+  }
+
+  function scheduleDurableSettings(){
+    clearTimeout(saveTimer);
+    saveTimer=setTimeout(()=>flushDurableSettings(false),500);
+  }
+
+  function normalizeIndexItem(p){
+    return {
+      id:p.id,
+      name:p.settings?.name||'Pad',
+      createdAt:p.createdAt||new Date().toISOString(),
+      modifiedAt:p.modifiedAt||p.exportedAt||new Date().toISOString(),
+      status:p.status==='archived'?'archived':'open'
+    };
+  }
+
+  function putRecoveredProject(p){
+    if(!p||typeof p!=='object'||!p.id||!p.settings)return false;
+    let idx=parseJson(localStorage.getItem(INDEX_KEY),[]);
+    if(!Array.isArray(idx))idx=[];
+    const meta=normalizeIndexItem(p),found=idx.find(x=>x&&x.id===p.id);
+    if(found)Object.assign(found,meta);else idx.push(meta);
+    localStorage.setItem(projectKey(p.id),JSON.stringify(p));
+    localStorage.setItem(INDEX_KEY,JSON.stringify(idx));
+    return true;
+  }
+
+  function restoreProjectFromDurable(id){
+    if(!id||!nativeFolderAvailable())return null;
+    try{
+      const raw=PadGradeNative.readProjectFile(`${id}.padgrade`);
+      if(!raw)return null;
+      const incoming=parseJson(raw,null);
+      if(!incoming||incoming.id!==id||!incoming.settings)return null;
+      const local=parseJson(localStorage.getItem(projectKey(id)),null);
+      const incomingMs=Date.parse(incoming.modifiedAt||incoming.exportedAt||'')||0;
+      const localMs=Date.parse(local?.modifiedAt||local?.exportedAt||'')||0;
+      if(!local||incomingMs>=localMs)putRecoveredProject(incoming);
+      return incoming;
+    }catch(e){return null;}
+  }
+
+  function applyPortableFallback(settings){
+    if(!settings||typeof settings!=='object')return;
+    const portable=settings.portablePrefs&&typeof settings.portablePrefs==='object'?settings.portablePrefs:{};
+    try{
+      if(settings.appPrefs&&typeof settings.appPrefs==='object')localStorage.setItem(PREF_KEY,JSON.stringify(settings.appPrefs));
+    }catch(e){}
+    try{
+      if(portable.unitMode&&typeof pgSetUnitMode==='function')pgSetUnitMode(portable.unitMode);
+      if(settings.lastSettings&&typeof pgWriteCanonicalSettings==='function')pgWriteCanonicalSettings(settings.lastSettings,portable.unitMode||undefined);
+      const heatmap=document.getElementById('heatmapToggle');if(heatmap&&typeof portable.heatmap==='boolean')heatmap.checked=portable.heatmap;
+      const route=document.getElementById('routeMode');if(route&&portable.routeMode)route.value=portable.routeMode;
+      const opacity=document.getElementById('heatmapTransparency');if(opacity&&Number.isFinite(+portable.heatmapTransparency)){
+        opacity.value=Math.max(0,Math.min(90,+portable.heatmapTransparency));
+        opacity.dispatchEvent(new Event('input',{bubbles:true}));
+      }
+      if(typeof renderGrid==='function')renderGrid();
+      if(typeof updateGpsUI==='function')updateGpsUI();
+    }catch(e){}
+  }
+
+  function loadDurableSettingsAndLastProject(){
+    if(restoreBusy||!nativeFolderAvailable())return false;
+    restoreBusy=true;
+    try{
+      const raw=PadGradeNative.readProjectFile(SETTINGS_FILE);
+      if(!raw){
+        flushDurableSettings(true);
+        return false;
+      }
+      const settings=parseJson(raw,null);
+      if(!settings||settings.type!=='settings')return false;
+      lastWrittenSignature=payloadSignature(settings);
+
+      // Restore app-level preferences even when the last project is unavailable.
+      if(settings.appPrefs&&typeof settings.appPrefs==='object'){
+        try{localStorage.setItem(PREF_KEY,JSON.stringify(settings.appPrefs));}catch(e){}
+      }
+
+      const desired=settings.lastProjectId||null;
+      if(desired){
+        const recovered=restoreProjectFromDurable(desired);
+        if(recovered){
+          const current=activeId();
+          if(current!==desired){
+            localStorage.setItem(ACTIVE_KEY,desired);
+            sessionStorage.setItem('padGradeV068RestoredProject',desired);
+            setTimeout(()=>location.reload(),30);
+            return true;
+          }
+        }
+      }
+
+      // If there was no recoverable project, the settings snapshot still restores
+      // the user's last custom configuration without requiring new UI.
+      if(!desired||!localStorage.getItem(projectKey(desired)))applyPortableFallback(settings);
+      return true;
+    }catch(e){return false;}
+    finally{restoreBusy=false;}
+  }
+
+  function enforceHeatmapBelowSurveyGrid(){
+    const map=window.__padGradeMapInstance;
+    if(!map)return false;
+    try{
+      if(!map.getLayer(SURFACE_LAYER))return false;
+      const style=map.getStyle&&map.getStyle();
+      if(!style||!Array.isArray(style.layers))return false;
+      const ids=style.layers.map(x=>x.id),surfaceIndex=ids.indexOf(SURFACE_LAYER);
+      if(surfaceIndex<0)return false;
+      let anchor=null,anchorIndex=Infinity;
+      for(const id of GRID_ANCHORS){
+        const i=ids.indexOf(id);
+        if(i>=0&&i<anchorIndex){anchor=id;anchorIndex=i;}
+      }
+      if(anchor&&surfaceIndex>anchorIndex){map.moveLayer(SURFACE_LAYER,anchor);map.triggerRepaint();}
+      return true;
+    }catch(e){return false;}
+  }
+
+  function installLayerGuard(){
+    const wrap=name=>{
+      const base=window[name];
+      if(typeof base!=='function'||base.__v068LayerGuard)return;
+      const guarded=function(){
+        const out=base.apply(this,arguments);
+        requestAnimationFrame(enforceHeatmapBelowSurveyGrid);
+        return out;
+      };
+      guarded.__v068LayerGuard=true;
+      window[name]=guarded;
+    };
+    wrap('pgDrawSurface');
+    wrap('pgScheduleSurfaceDraw');
+    if(!layerGuardTimer)layerGuardTimer=setInterval(enforceHeatmapBelowSurveyGrid,500);
+  }
+
+  function installPersistenceHooks(){
+    const baseSave=window.saveLocal;
+    if(typeof baseSave==='function'&&!baseSave.__v068DurableSettings){
+      const wrapped=function(){const out=baseSave.apply(this,arguments);scheduleDurableSettings();return out;};
+      wrapped.__v068DurableSettings=true;window.saveLocal=wrapped;
+    }
+    const apply=document.getElementById('applySettings');
+    if(apply&&!apply.dataset.v068DurableSettings){apply.dataset.v068DurableSettings='1';apply.addEventListener('click',scheduleDurableSettings);}
+
+    const previousFolderChanged=window.__padGradeProjectFolderChanged;
+    if(!window.__padGradeFolderChangedV068){
+      window.__padGradeFolderChangedV068=true;
+      window.__padGradeProjectFolderChanged=function(){
+        try{previousFolderChanged?.();}catch(e){}
+        setTimeout(()=>loadDurableSettingsAndLastProject(),0);
+      };
+    }
+
+    window.addEventListener('pagehide',()=>flushDurableSettings(true));
+    window.addEventListener('beforeunload',()=>flushDurableSettings(true));
+    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')flushDurableSettings(true);});
+    setInterval(scheduleDurableSettings,3000);
+  }
+
+  function boot(){
+    document.title='Pad Grade Mapper v0.6.8 DEV';
+    installLayerGuard();
+    installPersistenceHooks();
+    // v0.6.x modules initialize asynchronously; give them one turn to finish
+    // applying the locally cached project before consulting the durable snapshot.
+    setTimeout(()=>{
+      installLayerGuard();
+      loadDurableSettingsAndLastProject();
+      enforceHeatmapBelowSurveyGrid();
+      scheduleDurableSettings();
+    },250);
+    window.addEventListener('padgrade-map-created',()=>setTimeout(()=>{installLayerGuard();enforceHeatmapBelowSurveyGrid();},0));
+    window.__padGradeDurableSettingsFile=SETTINGS_FILE;
+    window.__padGradeLayerOrder='imagery<heatmap<survey-grid<current-fix';
   }
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});
