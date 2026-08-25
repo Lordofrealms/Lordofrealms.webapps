@@ -1,4 +1,8 @@
-/* Pad Grade v0.7.0 DEV — bottom Notes action, Advanced Settings, configurable GPS map size. */
+/* Pad Grade v0.7.5 DEV — bottom Notes action, Advanced Settings, configurable GPS map size.
+ * Startup sizing is pre-applied by v075-startup.js before MapLibre is created.
+ * Runtime width/height changes are coalesced into one resize and unchanged startup
+ * dimensions no longer trigger redundant map resizes/repaints.
+ */
 (function installPadGrade069Ui(){
   'use strict';
 
@@ -10,6 +14,8 @@
   const STEP=10;
   const $=id=>document.getElementById(id);
   let retryTimer=null;
+  let resizeRaf1=null;
+  let resizeRaf2=null;
 
   function readPrefs(){
     try{
@@ -45,28 +51,39 @@
   }
 
   function resizeMapSoon(){
-    requestAnimationFrame(()=>requestAnimationFrame(()=>{
-      try{window.__padGradeMapInstance?.resize();}catch(e){}
-    }));
+    if(resizeRaf1)cancelAnimationFrame(resizeRaf1);
+    if(resizeRaf2)cancelAnimationFrame(resizeRaf2);
+    resizeRaf1=requestAnimationFrame(()=>{
+      resizeRaf1=null;
+      resizeRaf2=requestAnimationFrame(()=>{
+        resizeRaf2=null;
+        try{window.__padGradeMapInstance?.resize();}catch(e){}
+      });
+    });
   }
 
   function applyMapHeight(raw,persist=false){
     const h=clampHeight(raw)||cssDefaultHeight();
     const wrap=document.querySelector('.gpsMapWrap');
-    if(wrap)wrap.style.height=`${h}px`;
+    const next=`${h}px`;
+    const changed=!!(wrap&&wrap.style.height!==next);
+    if(wrap)wrap.style.height=next;
     const slider=$('v069MapHeight'),out=$('v069MapHeightValue');
     if(slider&&+slider.value!==h)slider.value=String(h);
     if(out)out.textContent=`${h} px`;
     if(persist)writePrefs({mapHeightPx:h});
-    resizeMapSoon();
+    if(changed)resizeMapSoon();
     return h;
   }
 
   function applyMapWidth(raw,persist=false){
     const w=clampWidth(raw)||cssDefaultWidth();
     const card=$('gpsMapCard');
+    const nextWidth=`min(${w}px, calc(100vw - 24px))`;
+    let changed=false;
     if(card){
-      card.style.width=`min(${w}px, calc(100vw - 24px))`;
+      changed=card.style.width!==nextWidth||card.style.maxWidth!=='none'||card.style.position!=='relative'||card.style.left!=='50%'||card.style.transform!=='translateX(-50%)';
+      card.style.width=nextWidth;
       card.style.maxWidth='none';
       card.style.position='relative';
       card.style.left='50%';
@@ -76,7 +93,7 @@
     if(slider&&+slider.value!==w)slider.value=String(w);
     if(out)out.textContent=`${w} px`;
     if(persist)writePrefs({mapWidthPx:w});
-    resizeMapSoon();
+    if(changed)resizeMapSoon();
     return w;
   }
 
@@ -160,13 +177,15 @@
   function restoreSavedMapSize(){
     const p=readPrefs();
     const width=clampWidth(p.mapWidthPx),height=clampHeight(p.mapHeightPx);
+    // v0.7.5 pre-applies both dimensions before MapLibre construction. These
+    // calls therefore update controls but do not resize unless something truly
+    // changed after construction.
     if(width)applyMapWidth(width,false);
     if(height)applyMapHeight(height,false);
-    if(!width&&!height)resizeMapSoon();
   }
 
   function boot(){
-    document.title='Pad Grade Mapper v0.7.0 DEV';
+    document.title='Pad Grade Mapper v0.7.5 DEV';
     moveNotesButton();
     ensureAdvancedSettings();
     installMapSizeSettings();
@@ -182,9 +201,14 @@
 
     window.addEventListener('padgrade-map-created',restoreSavedMapSize);
     window.addEventListener('resize',resizeMapSoon);
-    window.addEventListener('beforeunload',()=>{if(retryTimer)clearInterval(retryTimer);retryTimer=null;},{once:true});
+    window.addEventListener('beforeunload',()=>{
+      if(retryTimer)clearInterval(retryTimer);retryTimer=null;
+      if(resizeRaf1)cancelAnimationFrame(resizeRaf1);
+      if(resizeRaf2)cancelAnimationFrame(resizeRaf2);
+    },{once:true});
     window.__padGradeAdvancedSettingsV069=true;
     window.__padGradeMapSizeSettingV069=true;
+    window.__padGradeMapResizeV075='preapply-before-map-coalesced-runtime-resize';
   }
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});
