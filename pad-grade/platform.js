@@ -11,9 +11,6 @@
 
   const nativeBridge=window.PadGradeNative;
 
-  // Android has its own canonical native Terms/Safety acceptance screen. The
-  // shared web build retains the browser Terms gate, but the Android wrapper
-  // suppresses that older duplicate so users are not asked to accept twice.
   if(nativeBridge){
     try{ localStorage.setItem('padGradeTermsAcceptedVersion','2026-08-19-v1'); }catch(e){}
     const removeLegacyTerms=()=>{
@@ -199,6 +196,10 @@
     }
   };
 
+  // Expose the Precision Location-backed provider so later dev compatibility
+  // layers can restore it after temporary fallbacks without reimplementing IPC.
+  platform.precisionGeolocation=nativeGeolocation;
+
   window.__padGradeNativeLocation=function(payload){
     let pos;
     try{ pos=positionFromPayload(payload); }catch(e){ pos=null; }
@@ -228,9 +229,6 @@
     setPrecisionState('STOPPED',platform.lastLocationMeta.solutionMode||'Precision Location');
   };
 
-  // Navigator.geolocation is normally inherited from Navigator.prototype. An
-  // own-property shadows that getter inside the Android WebView without changing
-  // anything in the browser build.
   try{
     Object.defineProperty(navigator,'geolocation',{
       value:nativeGeolocation,
@@ -238,8 +236,6 @@
       enumerable:true
     });
   }catch(e){
-    // If a future WebView makes Navigator non-configurable, expose the provider
-    // explicitly so Pad Grade can switch to it with a tiny compatibility change.
     platform.geolocation=nativeGeolocation;
   }
 })();

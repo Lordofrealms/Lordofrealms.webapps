@@ -1,0 +1,6 @@
+/* Pad Grade Mapper v0.6.1-dev refinements */
+.laserCoords{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px}
+.laserCoords label{font-size:.7rem;color:var(--muted)}
+.laserCoords input{width:100%;margin-top:4px;padding:8px;border-radius:9px;border:1px solid #3a4756;background:#0d1218;color:var(--ink);font:inherit}
+.laserCoordHelp{margin-top:6px;line-height:1.3}
+@media(max-width:520px){.laserCoords{grid-template-columns:1fr}}

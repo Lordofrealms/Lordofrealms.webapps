@@ -62,6 +62,13 @@
   }
 
   window.__padGradeProjectFolderChanged=function(){let attempts=0;const run=()=>{attempts++;try{const names=JSON.parse(native.listProjectFiles()||'[]');if(names.length||attempts>=5){reconcile();return;}}catch(e){if(attempts>=5){try{reconcile();}catch(ignore){}return;}}setTimeout(run,180);};setTimeout(run,60);};
+
+  // v0.7.1 installs a settings-first recovery owner only after this legacy
+  // reconciler has finished installing its callback. Emitting readiness here
+  // avoids the callback-overwrite race that broke clean-install settings restore.
+  window.__padGradeDurableSyncV040=true;
+  try{window.dispatchEvent(new Event('padgrade-durable-sync-ready'));}catch(e){}
+
   let connected=false;try{connected=!!native.hasProjectFolder();}catch(e){}
   if(connected)setTimeout(()=>{try{reconcile();}catch(e){}},250);else if(!localStorage.getItem(PROMPT_KEY)){localStorage.setItem(PROMPT_KEY,'1');setTimeout(()=>{const ok=confirm('Choose a durable Pad Grade project folder now? Projects in that folder survive app uninstall/reinstall. You can also do this later from Projects.');if(ok&&typeof native.chooseProjectFolder==='function'){try{native.chooseProjectFolder();}catch(e){}}},700);}
 })();

@@ -1,0 +1,28 @@
+/* Pad Grade Mapper v0.6.0-dev feature layer */
+.settingsGrid select,.devSettingsBlock select{
+  width:100%;margin-top:4px;padding:9px;border-radius:9px;border:1px solid #3a4756;
+  background:#0d1218;color:var(--ink);font:inherit
+}
+.field textarea{
+  width:100%;resize:vertical;min-height:88px;background:#0d1218;color:var(--ink);
+  border:1px solid #3a4756;border-radius:11px;padding:10px;font:inherit;line-height:1.35
+}
+.devSettingsBlock{margin-top:12px;padding:11px;border:1px solid var(--line);border-radius:12px;background:#0d1218}
+.devSettingsBlock>label{display:block;font-size:.72rem;color:var(--muted);margin-bottom:10px}
+.checkLine{display:flex!important;align-items:center;gap:8px;color:var(--ink)!important}
+.checkLine input{width:18px;height:18px;margin:0}
+.laserRow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:8px;border-top:1px solid var(--line)}
+.laserRow>div:last-child{display:flex;gap:6px}.laserRow button{padding:7px 9px;font-size:.75rem}
+.notesSummary{margin-top:7px;white-space:pre-wrap;color:#cbd5df;font-size:.78rem;line-height:1.4}
+.gradeMapStack{position:relative;min-width:600px}
+.gradeMapStack #grid{position:relative;z-index:1}
+.gradeHeatmap{position:absolute;inset:0;z-index:2;pointer-events:none;border-radius:8px}
+.laserMarker{position:absolute;z-index:4;transform:translate(-50%,-50%);display:none;pointer-events:none;text-align:center;filter:drop-shadow(0 2px 3px #000)}
+.laserMarker.show{display:flex;flex-direction:column;align-items:center}.laserMarker span{font-size:1.7rem;line-height:1;color:#fff176;text-shadow:0 0 7px #f7b500}.laserMarker b{font-size:.55rem;background:rgba(11,15,20,.88);padding:2px 4px;border-radius:4px;color:#fff176}
+.laserPlacementLayer{position:absolute;inset:0;z-index:5;pointer-events:none;border:0}
+.laserPlacementLayer.active{pointer-events:auto;cursor:crosshair;background:rgba(255,241,118,.08);outline:2px dashed rgba(255,241,118,.8);outline-offset:-2px}
+.laserPlacementLayer.active::after{content:'Tap where the laser level is located';position:sticky;display:block;top:8px;margin:8px auto;width:max-content;max-width:90%;padding:7px 10px;background:rgba(11,15,20,.94);border:1px solid #c8ae3d;border-radius:8px;color:#fff2a8;font-size:.72rem;font-weight:800}
+.calcOption{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.calcOption:last-of-type{border-bottom:0}.calcOption b{display:block;font-size:.85rem}.calcOption span{display:block;margin-top:3px;color:var(--muted);font-size:.72rem;line-height:1.35}.calcOption button{padding:8px 11px;font-size:.75rem}
+.warnText{color:#ffb088;font-size:.78rem;line-height:1.35}
+@media(max-width:520px){.laserRow{align-items:flex-start;flex-direction:column}.calcOption{grid-template-columns:1fr}.calcOption button{width:100%}}
