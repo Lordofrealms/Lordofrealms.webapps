@@ -1,12 +1,11 @@
-/* Pad Grade v0.7.3 DEV — deterministic last-project application.
+/* Pad Grade v0.7.5 DEV — deterministic last-project application with settled reveal.
  *
- * Durable settings recovery already restores app preferences. This module waits
- * for the native SAF folder index, reads the saved lastProjectId, restores that
- * exact .padgrade file into local storage if needed, and explicitly applies it
- * to the live UI. If an older build saved the project under a noncanonical file
- * name, the already-indexed durable folder is searched by embedded project id and
- * then by the saved project name. During the recovery reload the UI remains under
- * a short visual hold; it is revealed only after the final recovered paint.
+ * Durable settings recovery restores app preferences and the desired project into
+ * local storage before the intentional reload. v075-startup.js now primes that
+ * project before init.js performs its first render, so this module only needs one
+ * final compatibility/application pass. The recovery curtain is then released by
+ * the v0.7.5 startup coordinator after the final layout/map has settled instead of
+ * after a fixed repaint timeout.
  */
 (function installPadGrade072LastProjectRestore(){
   'use strict';
@@ -24,7 +23,14 @@
 
   const parse=(raw,fallback=null)=>{try{return raw?JSON.parse(raw):fallback;}catch(e){return fallback;}};
   const projectKey=id=>`${PROJECT_PREFIX}${id}`;
-  function endVisualHold(delay=0){setTimeout(()=>{try{window.__padGradeEndRecoveryVisualHold?.();}catch(e){}},Math.max(0,delay));}
+  function endVisualHold(delay=0){
+    setTimeout(()=>{
+      try{
+        if(typeof window.__padGradeRequestSettledStartupReveal==='function')window.__padGradeRequestSettledStartupReveal();
+        else window.__padGradeEndRecoveryVisualHold?.();
+      }catch(e){}
+    },Math.max(0,delay));
+  }
 
   function indexReady(){
     try{return typeof native.isProjectFolderIndexReady==='function'?!!native.isProjectFolderIndexReady():true;}catch(e){return false;}
@@ -59,7 +65,7 @@
       gpsRef=project.gps?.reference||null;
       gpsOpposite=project.gps?.opposite||null;
       gpsTargetIndex=Number.isInteger(project.gps?.targetIndex)?project.gps.targetIndex:null;
-      if(typeof gpsCorners!=='undefined')gpsCorners=(project.gps?.corners&&typeof project.gps.corners==='object')?project.gps.corners:{};
+      if(typeof gpsCorners!=='undefined')gpsCorners=(project.gps?.corners&&typeof project.gps.corners==='object')?{...project.gps.corners}:{};
       if(typeof gpsCaptureIndex!=='undefined')gpsCaptureIndex=Number.isInteger(project.gps?.captureIndex)?project.gps.captureIndex:Object.keys(project.gps?.corners||{}).length;
       if(typeof syncLegacyCalibration==='function')syncLegacyCalibration();
       measureMode=project.measureMode==='gps'?'gps':'manual';
@@ -100,27 +106,26 @@
     let settings=null;
     try{settings=parse(native.readProjectFile(SETTINGS_FILE),null);}catch(e){settings=null;}
     const id=settings?.lastProjectId||null;
-    if(!id){done=true;endVisualHold(80);return true;}
+    if(!id){done=true;endVisualHold(40);return true;}
 
     let project=parse(localStorage.getItem(projectKey(id)),null);
     if(!project||project.id!==id||!project.settings)project=findDurableProject(id,settings?.lastProjectName||null);
-    if(!project||!project.settings){done=true;endVisualHold(80);return true;}
+    if(!project||!project.settings){done=true;endVisualHold(40);return true;}
 
     // Preserve the durable project's canonical id. A legacy filename fallback may
     // have found the same project under a noncanonical filename, but the project id
     // remains the identity used by the project manager and future settings saves.
     if(!project.id)project.id=id;
-    if(!storeProject(project)){done=true;endVisualHold(80);return true;}
+    if(!storeProject(project)){done=true;endVisualHold(40);return true;}
 
-    // These repeat applications remain as a startup-order safety net, but v0.7.3's
-    // recovery visual hold keeps all intermediate paints off-screen. Reveal only
-    // after the final pass has had time to settle.
+    // v0.7.5 already prepainted this exact project before init.js. Keep one final
+    // compatibility pass for dev payload, notes, calibration, and overlays, but do
+    // not repeat the full project render on rAF + timeout as older builds did.
     applyProject(project);
-    requestAnimationFrame(()=>applyProject(project));
-    setTimeout(()=>applyProject(project),180);
-    endVisualHold(280);
+    window.__padGradeProjectStartupSettledV075=project.id;
     done=true;
     window.__padGradeLastProjectRestoredV072=project.id;
+    endVisualHold(0);
     return true;
   }
 
