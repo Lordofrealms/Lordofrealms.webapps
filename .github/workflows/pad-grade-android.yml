@@ -69,16 +69,19 @@ jobs:
           BRANCH="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
           if [ "$BRANCH" = "main" ]; then
             CHANNEL=stable
+            RELEASE_TAG="pad-grade-v$VERSION"
           elif [ "$BRANCH" = "pad-grade-dev" ]; then
             CHANNEL=dev
+            RELEASE_TAG="pad-grade-dev-v$VERSION"
           else
             CHANNEL=pr
+            RELEASE_TAG="pad-grade-pr-v$VERSION"
           fi
           echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "BUILD_CHANNEL=$CHANNEL" >> "$GITHUB_ENV"
           echo "APK_NAME=Pad-Grade-v$VERSION.apk" >> "$GITHUB_ENV"
           echo "ARTIFACT_NAME=pad-grade-$CHANNEL" >> "$GITHUB_ENV"
-          echo "RELEASE_TAG=pad-grade-v$VERSION" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
 
       - name: Build debug APK
         run: gradle -p pad-grade-android :app:assembleDebug --stacktrace
@@ -142,22 +145,49 @@ jobs:
           path: ${{ env.APK_NAME }}
 
       - name: Publish stable GitHub Release APK
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --target "$GITHUB_SHA" --title "Pad Grade v$APP_VERSION" --notes "Validated Pad Grade Android v$APP_VERSION stable build from the main branch. This is the version intended for normal use."
             gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
           else
             gh release create "$RELEASE_TAG" "$APK_NAME" \
               --target "$GITHUB_SHA" \
               --title "Pad Grade v$APP_VERSION" \
-              --notes "Validated Pad Grade Android v$APP_VERSION stable build. Direct APK asset published by the same workflow that compiled and packaged the app."
+              --notes "Validated Pad Grade Android v$APP_VERSION stable build from the main branch. This is the version intended for normal use."
           fi
 
-      - name: Verify stable GitHub Release APK
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - name: Publish dev GitHub Pre-release APK
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/pad-grade-dev'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build. Use this build for testing the current development work only."
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --target "$GITHUB_SHA" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes "$NOTES" --prerelease
+            gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$APK_NAME" \
+              --target "$GITHUB_SHA" \
+              --title "Pad Grade v$APP_VERSION — DEV BUILD" \
+              --notes "$NOTES" \
+              --prerelease
+          fi
+
+      - name: Verify stable GitHub Release APK
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | grep -Fx "$APK_NAME"
+
+      - name: Verify dev GitHub Pre-release APK
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/pad-grade-dev'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$RELEASE_TAG" --json isPrerelease,assets --jq '.isPrerelease, .assets[].name'
+          test "$(gh release view "$RELEASE_TAG" --json isPrerelease --jq '.isPrerelease')" = "true"
           gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | grep -Fx "$APK_NAME"
