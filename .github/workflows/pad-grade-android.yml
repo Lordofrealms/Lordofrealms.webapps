@@ -121,10 +121,14 @@ jobs:
             unzip -l "$APK" | grep 'assets/v061-dev.css'
           fi
 
-      - name: Verify launcher icon resolves and WebP is intact
+      - name: Verify dev package, launcher icon, and WebP integrity
         run: |
           APK=pad-grade-android/app/build/outputs/apk/debug/app-debug.apk
           AAPT="$ANDROID_HOME/build-tools/36.0.0/aapt"
+          if [ "$BUILD_CHANNEL" = "dev" ]; then
+            "$AAPT" dump badging "$APK" | grep "package: name='com.lordofrealms.padgrade.dev'"
+            "$AAPT" dump badging "$APK" | grep "application-label:'Pad Grade DEV'"
+          fi
           unzip -l "$APK" | grep 'res/mipmap-nodpi-v4/ic_launcher.webp'
           unzip -l "$APK" | grep 'res/mipmap-nodpi-v4/ic_launcher_round.webp'
           if unzip -l "$APK" | grep -q 'res/mipmap-anydpi-v26/ic_launcher.xml'; then
@@ -177,7 +181,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build. Use this build for testing the current development work only."
+          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build. Use this build for testing the current development work only."
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" -f sha="$GITHUB_SHA" -F force=true >/dev/null
             gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes "$NOTES" --prerelease
