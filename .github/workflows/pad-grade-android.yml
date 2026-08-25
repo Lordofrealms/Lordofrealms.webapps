@@ -31,6 +31,7 @@ jobs:
       - name: Validate web scripts
         run: |
           node --check pad-grade/capture-fix.js
+          node --check pad-grade/map-instance-hook-v064.js
           node --check pad-grade/v030.js
           node --check pad-grade/v031.js
           node --check pad-grade/v040.js
@@ -52,22 +53,27 @@ jobs:
           node --check pad-grade/v062-dev.js
           node --check pad-grade/v063-dev.js
           node --check pad-grade/v064-dev.js
+          node --check pad-grade/v065-dev.js
           node --check pad-grade/dev-selftest.js
           node --check pad-grade/migration-core.js
           node --check pad-grade/grid-core.js
 
-      - name: Verify v0.6.3 stability and map-feature gates
+      - name: Verify v0.6.4 stability and map-feature gates
         run: |
           grep -F "padGradeHeatmapOptInV061" pad-grade/v062-dev.js
           grep -F "platform.precisionGeolocation" pad-grade/platform.js
           grep -F "dev-v0.6.1-stability" pad-grade/v062-dev.js
+          grep -F 'src="map-instance-hook-v064.js' pad-grade/index.html
           grep -F 'src="v063-dev.js' pad-grade/index.html
           grep -F 'src="v064-dev.js' pad-grade/index.html
+          grep -F 'src="v065-dev.js' pad-grade/index.html
+          grep -F "window.__padGradeMapInstance=this" pad-grade/map-instance-hook-v064.js
           grep -F "continuous GPS-map surface" pad-grade/v063-dev.js
           grep -F "type:'image'" pad-grade/v063-dev.js
           grep -F "window.__padGradeHeatmapLocation='gps-map-image-source'" pad-grade/v063-dev.js
           grep -F "window.__padGradeLaserPlacementLocation='gps-map'" pad-grade/v063-dev.js
           grep -F "window.__padGradeNotesUi='top-level-dialog'" pad-grade/v064-dev.js
+          grep -F "window.__padGradeMapControlsLocation='below-map-key'" pad-grade/v065-dev.js
           grep -F "magnitude-aware IDW² zero crossing" pad-grade/dev-selftest.js
 
       - name: Run Pad Grade dev self-tests
@@ -129,6 +135,7 @@ jobs:
           unzip -l "$APK" | grep 'assets/v052.js'
           unzip -l "$APK" | grep 'assets/migration-core.js'
           unzip -l "$APK" | grep 'assets/grid-core.js'
+          unzip -l "$APK" | grep 'assets/map-instance-hook-v064.js'
           if [ -f pad-grade/v060-dev.js ]; then
             unzip -l "$APK" | grep 'assets/v060-dev.js'
             unzip -l "$APK" | grep 'assets/v060-dev.css'
@@ -146,8 +153,13 @@ jobs:
           if [ -f pad-grade/v064-dev.js ]; then
             unzip -l "$APK" | grep 'assets/v064-dev.js'
           fi
+          if [ -f pad-grade/v065-dev.js ]; then
+            unzip -l "$APK" | grep 'assets/v065-dev.js'
+          fi
+          unzip -p "$APK" assets/index.html | grep -F 'src="map-instance-hook-v064.js'
           unzip -p "$APK" assets/index.html | grep -F 'src="v063-dev.js'
           unzip -p "$APK" assets/index.html | grep -F 'src="v064-dev.js'
+          unzip -p "$APK" assets/index.html | grep -F 'src="v065-dev.js'
 
       - name: Verify dev package, launcher icon, and WebP integrity
         run: |
@@ -209,7 +221,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. The bottom survey grid remains discrete/authoritative. Interpolated magnitude-aware IDW² shading exists only on the calibrated GPS map and defaults OFF. Laser placement is performed on the GPS map. Project Notes has its own top-level button/dialog. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build."
+          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. The bottom survey grid remains discrete/authoritative. Interpolated magnitude-aware IDW² shading exists only on the calibrated GPS map and defaults OFF. Laser placement is performed on the GPS map, with its controls below the map/key. Project Notes has its own top-level button/dialog. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build."
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes "$NOTES" --prerelease
             gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
