@@ -62,18 +62,28 @@ jobs:
           node --check pad-grade/v071-dev.js
           node --check pad-grade/v071-map-ui.js
           node --check pad-grade/v072-project-restore.js
+          node --check pad-grade/v075-startup.js
           node --check pad-grade/heatmap-raster-worker-v073.js
           node --check pad-grade/dev-selftest.js
           node --check pad-grade/migration-core.js
           node --check pad-grade/grid-core.js
 
-      - name: Verify v0.7.4 recovery and atomic CanvasSource heatmap gates
+      - name: Verify v0.7.5 settled startup and CanvasSource heatmap gates
         run: |
           grep -F "padGradeHeatmapOptInV061" pad-grade/v062-dev.js
           grep -F "platform.precisionGeolocation" pad-grade/platform.js
           grep -F 'src="recovery-visual-v073.js' pad-grade/index.html
           grep -F 'src="map-instance-hook-v064.js' pad-grade/index.html
           grep -F 'src="v063-dev.js?v=20260825-6' pad-grade/index.html
+          grep -F 'src="v075-startup.js?v=20260825-1' pad-grade/index.html
+          grep -F "__padGradePreloadedProjectId" pad-grade/v075-startup.js
+          grep -F "__padGradeStartupMapSizePreapplied" pad-grade/v075-startup.js
+          grep -F "__padGradeRequestSettledStartupReveal" pad-grade/v075-startup.js
+          grep -F "map.on('idle',mapIdleHandler)" pad-grade/v075-startup.js
+          grep -F "setTimeout(finishReveal,4000)" pad-grade/v075-startup.js
+          grep -F "preapply-before-map-coalesced-runtime-resize" pad-grade/v069-dev.js
+          grep -F "__padGradeRequestSettledStartupReveal" pad-grade/v072-project-restore.js
+          grep -F "do not repeat the full project render" pad-grade/v072-project-restore.js
           grep -F "new Worker(WORKER_URL)" pad-grade/v063-dev.js
           grep -F "CANVAS_SOURCE_PREFIX='pad-grade-interpolated-surface-canvas-source-'" pad-grade/v063-dev.js
           grep -F "type:'canvas',canvas" pad-grade/v063-dev.js
@@ -90,7 +100,6 @@ jobs:
           grep -F "window.__padGradeDurableSyncV040=true" pad-grade/v040-sync.js
           grep -F "late-owner-settings-first-then-project-sync-visual-hold" pad-grade/v071-dev.js
           grep -F "__padGradeBeginRecoveryVisualHold" pad-grade/v071-dev.js
-          grep -F "__padGradeEndRecoveryVisualHold" pad-grade/v072-project-restore.js
           grep -F "findDurableProject" pad-grade/v072-project-restore.js
           grep -F "window.__padGradeLastProjectRestoredV072" pad-grade/v072-project-restore.js
           grep -F "v072-project-restore.js" pad-grade/v065-dev.js
@@ -143,18 +152,21 @@ jobs:
       - name: Verify canonical web assets packaged
         run: |
           APK=pad-grade-android/app/build/outputs/apk/debug/app-debug.apk
-          for asset in index.html platform.js v040.js v040-sync.js v041.js v041-persist.js migration-core.js grid-core.js map-instance-hook-v064.js recovery-visual-v073.js v060-dev.js v061-dev.js v062-dev.js v063-dev.js v064-dev.js v065-dev.js v066-dev.js v067-dev.js v069-dev.js v070-dev.js v071-dev.js v071-map-ui.js v072-project-restore.js heatmap-raster-worker-v073.js; do
+          for asset in index.html platform.js v040.js v040-sync.js v041.js v041-persist.js migration-core.js grid-core.js map-instance-hook-v064.js recovery-visual-v073.js v060-dev.js v061-dev.js v062-dev.js v063-dev.js v064-dev.js v065-dev.js v066-dev.js v067-dev.js v069-dev.js v070-dev.js v071-dev.js v071-map-ui.js v072-project-restore.js v075-startup.js heatmap-raster-worker-v073.js; do
             unzip -l "$APK" | grep "assets/$asset"
           done
           unzip -p "$APK" assets/index.html | grep -F 'src="recovery-visual-v073.js'
           unzip -p "$APK" assets/index.html | grep -F 'src="map-instance-hook-v064.js'
           unzip -p "$APK" assets/index.html | grep -F 'src="v063-dev.js?v=20260825-6'
+          unzip -p "$APK" assets/index.html | grep -F 'src="v075-startup.js?v=20260825-1'
+          unzip -p "$APK" assets/v075-startup.js | grep -F "__padGradeRequestSettledStartupReveal"
+          unzip -p "$APK" assets/v069-dev.js | grep -F "preapply-before-map-coalesced-runtime-resize"
+          unzip -p "$APK" assets/v072-project-restore.js | grep -F "__padGradeRequestSettledStartupReveal"
           unzip -p "$APK" assets/v063-dev.js | grep -F "CANVAS_SOURCE_PREFIX='pad-grade-interpolated-surface-canvas-source-'"
           unzip -p "$APK" assets/v063-dev.js | grep -F "canvasSource:true"
           unzip -p "$APK" assets/v063-dev.js | grep -F "whole-raster-low-304-then-high-888-no-zoom-recalc"
           unzip -p "$APK" assets/heatmap-raster-worker-v073.js | grep -F "never publishes partial map bands"
           unzip -p "$APK" assets/v071-dev.js | grep -F "late-owner-settings-first-then-project-sync-visual-hold"
-          unzip -p "$APK" assets/v072-project-restore.js | grep -F "__padGradeEndRecoveryVisualHold"
 
       - name: Verify dev package, launcher icon, and WebP integrity
         run: |
@@ -213,7 +225,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. The bottom survey grid remains discrete/authoritative. v0.7.4 keeps the whole-surface low-then-high heat-map pipeline but replaces the unreliable dynamically-created Blob ImageSource with a direct MapLibre CanvasSource. A complete 304-long-axis surface is calculated off-thread and displayed as one canvas; the complete 888-long-axis surface is then calculated lazily and double-buffer swapped over it as a whole. No partial bands are displayed, zooming does not recalculate or downgrade the heat map, and only survey/grade-setting changes invalidate the completed high-resolution surface. Heatmap transparency remains live and the survey grid/points remain above the raster. Durable settings and last-project recovery remain unchanged from the working v0.7.3 path. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build."
+          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. v0.7.5 keeps the working v0.7.4 CanvasSource heat map and smooths durable settings/project startup. The recovered active project is primed before init.js performs its first grid/GPS render, so the app no longer intentionally paints the default/manual project first. Saved GPS map width and height are applied before MapLibre is constructed, redundant startup resize calls are suppressed/coalesced, and the recovery curtain is released only after the final GPS/manual layout is established and the map reaches a settled idle frame after one hidden final resize (with a four-second failsafe). The older repeated project application passes are reduced to one final compatibility pass. No separate map-loading panel is shown. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build."
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes "$NOTES" --prerelease
             gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
