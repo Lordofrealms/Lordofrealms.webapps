@@ -1,20 +1,22 @@
-/* Pad Grade v0.6.3 DEV — authoritative finite grid, continuous GPS-map surface.
+/* Pad Grade v0.6.5 DEV — authoritative finite grid, continuous GPS-map surface.
  *
- * The bottom grid never owns interpolation. The heat map is rendered to a PNG
- * data image and geographically pinned to the calibrated pad footprint. Laser
- * placement is also a GPS-map interaction and may be outside the pad.
+ * The bottom grid never owns interpolation. The GPS heat map is rendered as a
+ * persistent georeferenced GeoJSON mesh so it survives zoom/pan without relying
+ * on MapLibre image-source loading state. Laser placement is a GPS-map action.
  */
 (function installPadGrade063MapSurface(){
   'use strict';
 
-  const SURFACE_SOURCE='pad-grade-interpolated-surface';
+  const SURFACE_SOURCE='pad-grade-interpolated-surface-mesh';
   const SURFACE_LAYER='pad-grade-interpolated-surface-layer';
-  const CANVAS_ID='padGradeGpsHeatmapCanvas';
-  const RESOLUTION=240;
+  const LEGACY_SOURCE='pad-grade-interpolated-surface';
+  const MESH_MAX=64;
   const $=id=>document.getElementById(id);
   let lastSignature='';
   let syncTimer=null;
   let laserMapMarker=null;
+  let lastPointCount=0;
+  let lastCellCount=0;
 
   function heatmapEnabled(){
     const toggle=$('heatmapToggle');
@@ -29,7 +31,7 @@
       if(grid.parentElement===stack)shell.insertBefore(grid,stack);
       stack.remove();
     }
-    for(const id of ['gradeHeatmap','laserMarker','laserPlacementLayer'])$(id)?.remove();
+    for(const id of ['gradeHeatmap','laserMarker','laserPlacementLayer','padGradeGpsHeatmapCanvas'])$(id)?.remove();
     if(grid&&shell&&grid.parentElement!==shell)shell.insertBefore(grid,shell.firstChild||null);
   }
 
@@ -37,86 +39,137 @@
 
   function mapInstance(){return window.__padGradeMapInstance||null;}
 
+  function mapUsable(map){
+    if(!map)return false;
+    try{
+      // Do not use isStyleLoaded(): MapLibre can report false again while zoomed
+      // imagery tiles are loading even though the existing style/layers are alive.
+      const style=map.getStyle&&map.getStyle();
+      return !!(style&&Array.isArray(style.layers)&&style.layers.length);
+    }catch(e){return false;}
+  }
+
   function setSurfaceStatus(text){
     const el=$('mapSurfaceStatus');
     if(el)el.textContent=text;
   }
 
-  function surfaceCoordinates(){
-    if(typeof gpsFit==='undefined'||!gpsFit||typeof fitPointLatLon!=='function')return null;
-    const s=cfg();
-    const nw=fitPointLatLon(0,s.length),ne=fitPointLatLon(s.width,s.length);
-    const se=fitPointLatLon(s.width,0),sw=fitPointLatLon(0,0);
-    if(!nw||!ne||!se||!sw)return null;
-    return [[nw.lon,nw.lat],[ne.lon,ne.lat],[se.lon,se.lat],[sw.lon,sw.lat]];
+  function colorHex(col){
+    return '#'+col.slice(0,3).map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join('');
   }
 
-  function canvas(){
-    let c=$(CANVAS_ID);
-    if(c)return c;
-    c=document.createElement('canvas');
-    c.id=CANVAS_ID;c.width=RESOLUTION;c.height=RESOLUTION;
-    c.setAttribute('aria-hidden','true');
-    Object.assign(c.style,{position:'fixed',left:'-10000px',top:'-10000px',width:'1px',height:'1px',pointerEvents:'none'});
-    document.body.appendChild(c);
-    return c;
+  function removeSourceAndLayer(map,sourceId,layerId){
+    if(!map)return;
+    try{if(layerId&&map.getLayer(layerId))map.removeLayer(layerId);}catch(e){}
+    try{if(sourceId&&map.getSource(sourceId))map.removeSource(sourceId);}catch(e){}
   }
 
   function removeMapSurface(){
     const map=mapInstance();
     if(map){
-      try{if(map.getLayer(SURFACE_LAYER))map.removeLayer(SURFACE_LAYER);}catch(e){}
-      try{if(map.getSource(SURFACE_SOURCE))map.removeSource(SURFACE_SOURCE);}catch(e){}
+      removeSourceAndLayer(map,SURFACE_SOURCE,SURFACE_LAYER);
+      // Clean up the v0.6.3/v0.6.4 image source if an upgraded process still has it.
+      try{if(map.getSource(LEGACY_SOURCE))map.removeSource(LEGACY_SOURCE);}catch(e){}
       try{map.triggerRepaint();}catch(e){}
     }
-    $(CANVAS_ID)?.remove();
     lastSignature='';
+    lastPointCount=0;
+    lastCellCount=0;
   }
 
-  function drawRaster(c){
-    const ctx=c.getContext('2d',{alpha:true});
-    if(!ctx)return {ok:false,count:0};
-    ctx.clearRect(0,0,c.width,c.height);
+  function buildSurfaceMesh(){
     const s=cfg();
     const pts=typeof pgMeasuredSurfacePoints==='function'?pgMeasuredSurfacePoints():[];
     const tris=typeof pgDelaunay==='function'?pgDelaunay(pts):[];
-    if(pts.length<3||!tris.length)return {ok:false,count:pts.length};
+    if(pts.length<3||!tris.length)return {ok:false,count:pts.length,cells:0,data:null};
+    if(typeof fitPointLatLon!=='function'||typeof gpsFit==='undefined'||!gpsFit)return {ok:false,count:pts.length,cells:0,data:null,needsCalibration:true};
 
-    const image=ctx.createImageData(c.width,c.height);
+    const longest=Math.max(s.width,s.length,1);
+    const nx=Math.max(24,Math.round(MESH_MAX*s.width/longest));
+    const ny=Math.max(24,Math.round(MESH_MAX*s.length/longest));
     const maxAbs=Math.max(s.tol*2,...pts.map(p=>Math.abs(p.v-s.target)),1);
-    for(let py=0;py<c.height;py++){
-      const y=(1-(py+.5)/c.height)*s.length;
-      for(let px=0;px<c.width;px++){
-        const x=(px+.5)/c.width*s.width;
+
+    // Precompute georeferenced mesh vertices once. This is much cheaper than
+    // converting four corners independently for every colored cell.
+    const verts=Array.from({length:ny+1},()=>Array(nx+1));
+    for(let iy=0;iy<=ny;iy++){
+      const y=iy/ny*s.length;
+      for(let ix=0;ix<=nx;ix++){
+        const x=ix/nx*s.width,ll=fitPointLatLon(x,y);
+        if(!ll)return {ok:false,count:pts.length,cells:0,data:null,needsCalibration:true};
+        verts[iy][ix]=[ll.lon,ll.lat];
+      }
+    }
+
+    const features=[];
+    for(let iy=0;iy<ny;iy++){
+      const y=(iy+.5)/ny*s.length;
+      for(let ix=0;ix<nx;ix++){
+        const x=(ix+.5)/nx*s.width;
         if(!pgTriangleAt(x,y,pts,tris))continue;
         const v=pgIdw2(x,y,pts);
         if(!Number.isFinite(v))continue;
         const col=pgSurfaceColor(v-s.target,maxAbs,s.tol);
-        const i=(py*c.width+px)*4;
-        image.data[i]=col[0];image.data[i+1]=col[1];image.data[i+2]=col[2];
-        image.data[i+3]=Math.min(165,Math.max(115,col[3]||0));
+        const a=verts[iy][ix],b=verts[iy][ix+1],c=verts[iy+1][ix+1],d=verts[iy+1][ix];
+        features.push({
+          type:'Feature',
+          properties:{color:colorHex(col)},
+          geometry:{type:'Polygon',coordinates:[[a,b,c,d,a]]}
+        });
       }
     }
-    ctx.putImageData(image,0,0);
-    return {ok:true,count:pts.length};
+    return {ok:features.length>0,count:pts.length,cells:features.length,data:{type:'FeatureCollection',features}};
   }
 
-  function installImageSource(c,coords){
-    const map=mapInstance();
-    if(!map||!map.isStyleLoaded())return false;
+  function layerAnchor(map){
     try{
-      if(map.getLayer(SURFACE_LAYER))map.removeLayer(SURFACE_LAYER);
-      if(map.getSource(SURFACE_SOURCE))map.removeSource(SURFACE_SOURCE);
-      const url=c.toDataURL('image/png');
-      map.addSource(SURFACE_SOURCE,{type:'image',url,coordinates:coords});
-      const before=map.getLayer('pad-grade-error-fill')?'pad-grade-error-fill':
-        (map.getLayer('pad-grade-grid-lines-layer')?'pad-grade-grid-lines-layer':undefined);
-      map.addLayer({id:SURFACE_LAYER,type:'raster',source:SURFACE_SOURCE,paint:{'raster-opacity':0.78,'raster-fade-duration':0}},before);
+      if(map.getLayer('pad-grade-error-fill'))return 'pad-grade-error-fill';
+      if(map.getLayer('pad-grade-grid-lines-layer'))return 'pad-grade-grid-lines-layer';
+      if(map.getLayer('pad-grade-current-fix-layer'))return 'pad-grade-current-fix-layer';
+    }catch(e){}
+    return undefined;
+  }
+
+  function installOrUpdateMesh(data){
+    const map=mapInstance();
+    if(!mapUsable(map))return false;
+    try{
+      // Remove only the old image source. The layer id is reused by the mesh, so
+      // remove it first if it is still attached to the old source type.
+      const existingLayer=map.getLayer(SURFACE_LAYER);
+      const meshSource=map.getSource(SURFACE_SOURCE);
+      if(existingLayer&&!meshSource)map.removeLayer(SURFACE_LAYER);
+      if(map.getSource(LEGACY_SOURCE))map.removeSource(LEGACY_SOURCE);
+
+      let source=map.getSource(SURFACE_SOURCE);
+      if(!source){
+        map.addSource(SURFACE_SOURCE,{type:'geojson',data});
+        source=map.getSource(SURFACE_SOURCE);
+      }else if(typeof source.setData==='function'){
+        source.setData(data);
+      }
+
+      const before=layerAnchor(map);
+      if(!map.getLayer(SURFACE_LAYER)){
+        map.addLayer({
+          id:SURFACE_LAYER,
+          type:'fill',
+          source:SURFACE_SOURCE,
+          paint:{
+            'fill-color':['get','color'],
+            'fill-opacity':0.58,
+            'fill-outline-color':['get','color'],
+            'fill-antialias':false
+          }
+        },before);
+      }else if(before){
+        try{map.moveLayer(SURFACE_LAYER,before);}catch(e){}
+      }
       map.triggerRepaint();
-      return true;
+      return !!(map.getSource(SURFACE_SOURCE)&&map.getLayer(SURFACE_LAYER));
     }catch(e){
-      console.warn('Pad Grade GPS heat map image update failed',e);
-      setSurfaceStatus('Heat map error — see app log');
+      console.warn('Pad Grade GPS heat map mesh update failed',e);
+      setSurfaceStatus('Heat map map-layer error — retrying');
       return false;
     }
   }
@@ -135,27 +188,35 @@
       return;
     }
     const map=mapInstance();
-    if(!map||!map.isStyleLoaded()){
+    if(!mapUsable(map)){
       setSurfaceStatus('Heat map waiting for GPS map');
       return;
     }
-    const coords=surfaceCoordinates();
-    if(!coords){
+    if(typeof gpsFit==='undefined'||!gpsFit){
       removeMapSurface();
       setSurfaceStatus('Heat map needs four-corner calibration');
       return;
     }
+
     const sig=signature();
-    if(!force&&sig===lastSignature)return;
-    const c=canvas(),draw=drawRaster(c);
-    if(!draw.ok){
-      removeMapSurface();
-      setSurfaceStatus(`Heat map needs 3+ measured points (${draw.count})`);
+    const layerAlive=(()=>{try{return !!(map.getSource(SURFACE_SOURCE)&&map.getLayer(SURFACE_LAYER));}catch(e){return false;}})();
+    if(!force&&sig===lastSignature&&layerAlive){
+      setSurfaceStatus(`Heat map active • ${lastPointCount} measured points • ${lastCellCount} cells`);
       return;
     }
-    if(installImageSource(c,coords)){
+
+    const mesh=buildSurfaceMesh();
+    if(!mesh.ok){
+      removeMapSurface();
+      if(mesh.needsCalibration)setSurfaceStatus('Heat map needs four-corner calibration');
+      else setSurfaceStatus(`Heat map needs 3+ measured points (${mesh.count})`);
+      return;
+    }
+    if(installOrUpdateMesh(mesh.data)){
       lastSignature=sig;
-      setSurfaceStatus(`Heat map active • ${draw.count} measured points`);
+      lastPointCount=mesh.count;
+      lastCellCount=mesh.cells;
+      setSurfaceStatus(`Heat map active • ${mesh.count} measured points • ${mesh.cells} cells`);
     }
   }
 
@@ -268,7 +329,7 @@
   }
 
   function boot(){
-    document.title='Pad Grade Mapper v0.6.3 DEV';
+    document.title='Pad Grade Mapper v0.6.5 DEV';
     cleanupLegacyGridLayers();
     installMapControls();
     relabelToggle();
@@ -278,7 +339,7 @@
     window.addEventListener('padgrade-map-created',()=>setTimeout(()=>{installMapClick();syncSurface(true);syncLaserMarker();},0));
     syncTimer=setInterval(()=>{installMapClick();syncSurface(false);syncLaserMarker();},700);
     window.addEventListener('beforeunload',()=>{if(syncTimer)clearInterval(syncTimer);syncTimer=null;removeMapSurface();if(laserMapMarker)try{laserMapMarker.remove();}catch(e){}},{once:true});
-    window.__padGradeHeatmapLocation='gps-map-image-source';
+    window.__padGradeHeatmapLocation='gps-map-geojson-mesh';
     window.__padGradeLaserPlacementLocation='gps-map';
   }
 
