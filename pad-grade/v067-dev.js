@@ -31,24 +31,28 @@
     };
   }
 
-  window.pgSurfaceColor=function(diff,_legacyMaxAbs,tol){
-    diff=Number(diff)||0;
-    tol=Math.max(0,Number(tol)||0);
-    if(Math.abs(diff)<=tol)return [GRADE[0],GRADE[1],GRADE[2],92];
+  function installColorMapping(){
+    window.pgSurfaceColor=function(diff,_legacyMaxAbs,tol){
+      diff=Number(diff)||0;
+      tol=Math.max(0,Number(tol)||0);
+      // Green is categorical: ONLY the accepted tolerance band can be green.
+      if(Math.abs(diff)<=tol)return [GRADE[0],GRADE[1],GRADE[2],92];
 
-    const s=scale();
-    if(diff<0){
-      const span=Math.max(s.maxCut-tol,1e-9);
-      const t=(Math.abs(diff)-tol)/span;
-      const c=spectrum(CUT_NEAR,CUT_MID,CUT_MAX,t);
+      const s=scale();
+      if(diff<0){
+        const span=Math.max(s.maxCut-tol,1e-9);
+        const t=(Math.abs(diff)-tol)/span;
+        const c=spectrum(CUT_NEAR,CUT_MID,CUT_MAX,t);
+        return [c[0],c[1],c[2],92];
+      }
+
+      const span=Math.max(s.maxFill-tol,1e-9);
+      const t=(diff-tol)/span;
+      const c=spectrum(FILL_NEAR,FILL_MID,FILL_MAX,t);
       return [c[0],c[1],c[2],92];
-    }
-
-    const span=Math.max(s.maxFill-tol,1e-9);
-    const t=(diff-tol)/span;
-    const c=spectrum(FILL_NEAR,FILL_MID,FILL_MAX,t);
-    return [c[0],c[1],c[2],92];
-  };
+    };
+  }
+  installColorMapping();
 
   function fmtTol(){
     try{return pgFmtGrade(cfg().tol,1);}catch(e){return 'tolerance';}
@@ -59,26 +63,18 @@
     if(!legend)return false;
     if(legend.dataset.categoricalGrade!=='1'){
       legend.dataset.categoricalGrade='1';
+      // The green band lives inside the bar, but with HARD boundaries. Neither
+      // the cut nor fill spectrum blends into green.
       legend.innerHTML=`
-        <div style="display:grid;grid-template-columns:minmax(70px,1fr) auto minmax(70px,1fr);align-items:center;gap:6px">
-          <div>
-            <div style="height:8px;border-radius:5px;background:linear-gradient(90deg,#b42d23 0%,#e67e2d 52%,#f7c45c 100%)"></div>
-            <div id="heatmapLegendCut" style="font-size:10px;margin-top:2px">CUT —</div>
-          </div>
-          <div id="heatmapGradeBand" style="display:flex;align-items:center;gap:4px;padding:3px 6px;border:1px solid rgba(255,255,255,.16);border-radius:6px;font-size:10px;white-space:nowrap">
-            <i style="width:9px;height:9px;border-radius:2px;background:#4f8f3a;display:inline-block"></i><span>GRADE</span>
-          </div>
-          <div>
-            <div style="height:8px;border-radius:5px;background:linear-gradient(90deg,#67cddc 0%,#3689cd 52%,#2850c8 100%)"></div>
-            <div id="heatmapLegendFill" style="font-size:10px;margin-top:2px;text-align:right">FILL —</div>
-          </div>
+        <div style="height:9px;border-radius:5px;background:linear-gradient(90deg,#b42d23 0%,#e67e2d 24%,#f7c45c 46%,#4f8f3a 46%,#4f8f3a 54%,#67cddc 54%,#3689cd 76%,#2850c8 100%)"></div>
+        <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:start;gap:8px;font-size:10px;margin-top:3px">
+          <span id="heatmapLegendCut">CUT —</span>
+          <span id="heatmapGradeBand" style="font-weight:700;white-space:nowrap">GRADE</span>
+          <span id="heatmapLegendFill" style="text-align:right">FILL —</span>
         </div>`;
     }
     const band=$('heatmapGradeBand');
-    if(band){
-      const span=band.querySelector('span');
-      if(span)span.textContent=`GRADE ±${fmtTol()}`;
-    }
+    if(band)band.textContent=`GRADE ±${fmtTol()}`;
     const s=scale();
     const cut=$('heatmapLegendCut'),fill=$('heatmapLegendFill');
     if(cut){
@@ -100,6 +96,9 @@
     const timer=setInterval(()=>{
       updateLegend();
       if(window.__padGradeHeatmapUiV066){
+        // v0.6.6 may have loaded after this file and installed its older color
+        // function, so assert the v0.6.7 categorical mapping again here.
+        installColorMapping();
         clearInterval(timer);
         updateLegend();
         forceRedraw();
