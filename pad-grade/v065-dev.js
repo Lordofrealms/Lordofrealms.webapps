@@ -39,3 +39,14 @@
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});
   else boot();
 })();
+
+/* v0.6.6 usability layer: default-on heatmap, transparency control, quick map
+ * toggle, independent CUT/GRADE/FILL color scales, and compact scale legend. */
+(function loadPadGrade066(){
+  if(document.querySelector('script[data-padgrade-v066]'))return;
+  const script=document.createElement('script');
+  script.src='v066-dev.js?v=20260825-1';
+  script.dataset.padgradeV066='1';
+  script.onerror=()=>console.error('Pad Grade v0.6.6 heatmap UI module failed to load');
+  document.body.appendChild(script);
+})();
