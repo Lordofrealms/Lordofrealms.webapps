@@ -53,6 +53,15 @@
   const baseUpdateGpsUI=updateGpsUI;
   updateGpsUI=function(){
     baseUpdateGpsUI();
+    if(measureMode==='gps'&&pgRouteMode()==='away'&&padGradeLaser&&gpsTargetIndex!=null){
+      const route=gpsRoute(),pos=route.indexOf(gpsTargetIndex);
+      if(pos>0){
+        const prev=pointFromIndex(route[pos-1]),next=pointFromIndex(route[pos]);
+        if(pgDistToLaser(next.r,next.c)+0.01<pgDistToLaser(prev.r,prev.c)&&$('gpsInstruction')){
+          $('gpsInstruction').textContent=`Return to ${label(next.r,next.c)} without taking measurements; then continue walking away from the laser.`;
+        }
+      }
+    }
     if(pgUnitMode()==='metric'){
       metricizeText($('gpsCard'));
       metricizeText($('gpsMapCard'));
@@ -105,25 +114,44 @@
     return route;
   }
 
-  function manualAwayRoute(){
+  function awaySurveyRoute(){
     if(!padGradeLaser)return manualSerpentineRoute();
-    const s=cfg(),rs=[...Array(s.rows).keys()];
-    const rowDistance=r=>{
-      const y=r*s.length/(s.rows-1),x=Math.max(0,Math.min(s.width,padGradeLaser.xFt));
-      return Math.hypot(x-padGradeLaser.xFt,y-padGradeLaser.yFt);
-    };
-    rs.sort((a,b)=>rowDistance(a)-rowDistance(b));
+    const s=cfg(),rows=[];
+    for(let r=0;r<s.rows;r++){
+      let nearestC=0,nearestD=Infinity;
+      for(let c=0;c<s.cols;c++){
+        const d=pgDistToLaser(r,c);
+        if(d<nearestD){nearestD=d;nearestC=c;}
+      }
+      rows.push({r,nearestC,nearestD});
+    }
+    rows.sort((a,b)=>a.nearestD-b.nearestD||a.r-b.r);
     const route=[];
-    for(const r of rs){
-      let cs=[...Array(s.cols).keys()];
-      if(pgDistToLaser(r,s.cols-1)<pgDistToLaser(r,0))cs.reverse();
-      cs.forEach(c=>route.push(indexFromPoint(r,c)));
+    for(const row of rows){
+      const r=row.r,c0=row.nearestC;
+      if(c0===0){for(let c=0;c<s.cols;c++)route.push(indexFromPoint(r,c));continue;}
+      if(c0===s.cols-1){for(let c=s.cols-1;c>=0;c--)route.push(indexFromPoint(r,c));continue;}
+
+      const leftFar=pgDistToLaser(r,0),rightFar=pgDistToLaser(r,s.cols-1);
+      if(leftFar<=rightFar){
+        for(let c=c0;c>=0;c--)route.push(indexFromPoint(r,c));
+        for(let c=c0+1;c<s.cols;c++)route.push(indexFromPoint(r,c));
+      }else{
+        for(let c=c0;c<s.cols;c++)route.push(indexFromPoint(r,c));
+        for(let c=c0-1;c>=0;c--)route.push(indexFromPoint(r,c));
+      }
     }
     return route;
   }
 
+  const baseGpsRoute061=gpsRoute;
+  gpsRoute=function(){
+    if(pgRouteMode()==='away'&&padGradeLaser)return awaySurveyRoute();
+    return baseGpsRoute061();
+  };
+
   function manualSurveyRoute(){
-    return pgRouteMode()==='away'&&padGradeLaser?manualAwayRoute():manualSerpentineRoute();
+    return pgRouteMode()==='away'&&padGradeLaser?awaySurveyRoute():manualSerpentineRoute();
   }
 
   function activeEntryRoute(){
@@ -163,6 +191,7 @@
   };
 
   installLaserCoordinateInputs();
+  if($('routeMode'))$('routeMode').addEventListener('change',pgUpdateLaserSummary);
   pgRefreshUnitLabels();
 
   // map.js owns this field on a polling timer, so convert it whenever it changes.
