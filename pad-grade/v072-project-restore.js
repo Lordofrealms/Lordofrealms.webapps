@@ -3,8 +3,10 @@
  * Durable settings recovery already restores app preferences. This module waits
  * for the native SAF folder index, reads the saved lastProjectId, restores that
  * exact .padgrade file into local storage if needed, and explicitly applies it
- * to the live UI. This removes the remaining startup-order dependency between
- * init.js defaults, the asynchronous v040 project manager, and folder recovery.
+ * to the live UI. If an older build saved the project under a noncanonical file
+ * name, the already-indexed durable folder is searched by embedded project id and
+ * then by the saved project name. This removes the remaining startup-order and
+ * legacy-filename dependencies from last-project recovery.
  */
 (function installPadGrade072LastProjectRestore(){
   'use strict';
@@ -71,6 +73,24 @@
     }catch(e){console.warn('Pad Grade last project apply failed',e);return false;}
   }
 
+  function findDurableProject(id,projectName){
+    let project=null;
+    try{project=parse(native.readProjectFile(`${id}.padgrade`),null);}catch(e){project=null;}
+    if(project&&project.id===id&&project.settings)return project;
+
+    let names=[];
+    try{if(typeof native.listProjectFiles==='function')names=parse(native.listProjectFiles(),[])||[];}catch(e){names=[];}
+    let nameMatch=null;
+    for(const filename of names){
+      if(typeof filename!=='string')continue;
+      let candidate=null;try{candidate=parse(native.readProjectFile(filename),null);}catch(e){candidate=null;}
+      if(!candidate||!candidate.settings)continue;
+      if(candidate.id===id)return candidate;
+      if(!nameMatch&&projectName&&candidate.settings.name===projectName)nameMatch=candidate;
+    }
+    return nameMatch;
+  }
+
   function restore(){
     if(done)return true;
     if(!hasFolder())return false;
@@ -82,19 +102,20 @@
     if(!id){done=true;return true;}
 
     let project=parse(localStorage.getItem(projectKey(id)),null);
-    if(!project||project.id!==id||!project.settings){
-      try{project=parse(native.readProjectFile(`${id}.padgrade`),null);}catch(e){project=null;}
-    }
-    if(!project||project.id!==id||!project.settings){done=true;return true;}
+    if(!project||project.id!==id||!project.settings)project=findDurableProject(id,settings?.lastProjectName||null);
+    if(!project||!project.settings){done=true;return true;}
+
+    // Preserve the durable project's canonical id. A legacy filename fallback may
+    // have found the same project under a noncanonical filename, but the project id
+    // remains the identity used by the project manager and future settings saves.
+    if(!project.id)project.id=id;
     if(!storeProject(project)){done=true;return true;}
 
-    // Apply after the asynchronous project manager has had a chance to initialize;
-    // repeat once on the next frame so its own initial paint cannot win a race.
     applyProject(project);
     requestAnimationFrame(()=>applyProject(project));
     setTimeout(()=>applyProject(project),250);
     done=true;
-    window.__padGradeLastProjectRestoredV072=id;
+    window.__padGradeLastProjectRestoredV072=project.id;
     return true;
   }
 
