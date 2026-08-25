@@ -58,7 +58,7 @@ jobs:
           node --check pad-grade/migration-core.js
           node --check pad-grade/grid-core.js
 
-      - name: Verify v0.6.4 stability and map-feature gates
+      - name: Verify v0.6.5 stability and map-feature gates
         run: |
           grep -F "padGradeHeatmapOptInV061" pad-grade/v062-dev.js
           grep -F "platform.precisionGeolocation" pad-grade/platform.js
@@ -68,9 +68,11 @@ jobs:
           grep -F 'src="v064-dev.js' pad-grade/index.html
           grep -F 'src="v065-dev.js' pad-grade/index.html
           grep -F "window.__padGradeMapInstance=this" pad-grade/map-instance-hook-v064.js
-          grep -F "continuous GPS-map surface" pad-grade/v063-dev.js
-          grep -F "type:'image'" pad-grade/v063-dev.js
-          grep -F "window.__padGradeHeatmapLocation='gps-map-image-source'" pad-grade/v063-dev.js
+          grep -F "persistent georeferenced GeoJSON mesh" pad-grade/v063-dev.js
+          grep -F "type:'geojson'" pad-grade/v063-dev.js
+          grep -F "fill-antialias':false" pad-grade/v063-dev.js
+          grep -F "Do not use isStyleLoaded()" pad-grade/v063-dev.js
+          grep -F "window.__padGradeHeatmapLocation='gps-map-geojson-mesh'" pad-grade/v063-dev.js
           grep -F "window.__padGradeLaserPlacementLocation='gps-map'" pad-grade/v063-dev.js
           grep -F "window.__padGradeNotesUi='top-level-dialog'" pad-grade/v064-dev.js
           grep -F "window.__padGradeMapControlsLocation='below-map-key'" pad-grade/v065-dev.js
@@ -160,6 +162,8 @@ jobs:
           unzip -p "$APK" assets/index.html | grep -F 'src="v063-dev.js'
           unzip -p "$APK" assets/index.html | grep -F 'src="v064-dev.js'
           unzip -p "$APK" assets/index.html | grep -F 'src="v065-dev.js'
+          unzip -p "$APK" assets/v063-dev.js | grep -F "gps-map-geojson-mesh"
+          unzip -p "$APK" assets/v063-dev.js | grep -F "Do not use isStyleLoaded()"
 
       - name: Verify dev package, launcher icon, and WebP integrity
         run: |
@@ -221,7 +225,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. The bottom survey grid remains discrete/authoritative. Interpolated magnitude-aware IDW² shading exists only on the calibrated GPS map and defaults OFF. Laser placement is performed on the GPS map, with its controls below the map/key. Project Notes has its own top-level button/dialog. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build."
+          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. The bottom survey grid remains discrete/authoritative. Interpolated magnitude-aware IDW² shading exists only on the calibrated GPS map, defaults OFF, and is rendered as a persistent GeoJSON mesh so zooming/panning does not depend on imagery tile load state. Laser placement is performed on the GPS map, with its controls below the map/key. Project Notes has its own top-level button/dialog. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build."
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes "$NOTES" --prerelease
             gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
