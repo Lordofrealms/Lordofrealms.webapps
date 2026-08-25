@@ -62,18 +62,28 @@ try{
   document.body.appendChild(script);
 })();
 
-/* v0.6.9 is loaded after the parser finishes so all earlier dev modules have
- * created their controls before Advanced Settings reorganizes them. */
-(function queuePadGrade069(){
-  const load=()=>{
-    if(document.querySelector('script[data-padgrade-v069]'))return;
+/* v0.7.0 keeps the v0.6.9 Advanced Settings UI, then installs the new durable
+ * recovery owner after it so only one folder-change handler owns reconnect. */
+(function queuePadGrade070(){
+  const load070=()=>{
+    if(document.querySelector('script[data-padgrade-v070]'))return;
     const script=document.createElement('script');
-    script.src='v069-dev.js?v=20260825-1';
+    script.src='v070-dev.js?v=20260825-1';
     script.async=false;
-    script.dataset.padgradeV069='1';
-    script.onerror=()=>console.error('Pad Grade v0.6.9 UI module failed to load');
+    script.dataset.padgradeV070='1';
+    script.onerror=()=>console.error('Pad Grade v0.7.0 recovery module failed to load');
     document.body.appendChild(script);
   };
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',load,{once:true});
-  else setTimeout(load,0);
+  const load069=()=>{
+    if(document.querySelector('script[data-padgrade-v069]')){load070();return;}
+    const script=document.createElement('script');
+    script.src='v069-dev.js?v=20260825-2';
+    script.async=false;
+    script.dataset.padgradeV069='1';
+    script.onload=load070;
+    script.onerror=()=>{console.error('Pad Grade Advanced Settings UI module failed to load');load070();};
+    document.body.appendChild(script);
+  };
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',load069,{once:true});
+  else setTimeout(load069,0);
 })();
