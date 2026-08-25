@@ -54,11 +54,13 @@ jobs:
           node --check pad-grade/v063-dev.js
           node --check pad-grade/v064-dev.js
           node --check pad-grade/v065-dev.js
+          node --check pad-grade/v066-dev.js
+          node --check pad-grade/v067-dev.js
           node --check pad-grade/dev-selftest.js
           node --check pad-grade/migration-core.js
           node --check pad-grade/grid-core.js
 
-      - name: Verify v0.6.5 stability and map-feature gates
+      - name: Verify v0.6.7 stability and map-feature gates
         run: |
           grep -F "padGradeHeatmapOptInV061" pad-grade/v062-dev.js
           grep -F "platform.precisionGeolocation" pad-grade/platform.js
@@ -67,6 +69,7 @@ jobs:
           grep -F 'src="v063-dev.js' pad-grade/index.html
           grep -F 'src="v064-dev.js' pad-grade/index.html
           grep -F 'src="v065-dev.js' pad-grade/index.html
+          grep -F 'src="v067-dev.js' pad-grade/index.html
           grep -F "window.__padGradeMapInstance=this" pad-grade/map-instance-hook-v064.js
           grep -F "persistent georeferenced GeoJSON mesh" pad-grade/v063-dev.js
           grep -F "type:'geojson'" pad-grade/v063-dev.js
@@ -76,6 +79,10 @@ jobs:
           grep -F "window.__padGradeLaserPlacementLocation='gps-map'" pad-grade/v063-dev.js
           grep -F "window.__padGradeNotesUi='top-level-dialog'" pad-grade/v064-dev.js
           grep -F "window.__padGradeMapControlsLocation='below-map-key'" pad-grade/v065-dev.js
+          grep -F "window.__padGradeHeatmapUiV066=true" pad-grade/v066-dev.js
+          grep -F "Green is categorical" pad-grade/v067-dev.js
+          grep -F "#4f8f3a 46%,#4f8f3a 54%" pad-grade/v067-dev.js
+          grep -F "window.__padGradeCategoricalGradeV067=true" pad-grade/v067-dev.js
           grep -F "magnitude-aware IDW² zero crossing" pad-grade/dev-selftest.js
 
       - name: Run Pad Grade dev self-tests
@@ -138,32 +145,22 @@ jobs:
           unzip -l "$APK" | grep 'assets/migration-core.js'
           unzip -l "$APK" | grep 'assets/grid-core.js'
           unzip -l "$APK" | grep 'assets/map-instance-hook-v064.js'
-          if [ -f pad-grade/v060-dev.js ]; then
-            unzip -l "$APK" | grep 'assets/v060-dev.js'
-            unzip -l "$APK" | grep 'assets/v060-dev.css'
-          fi
-          if [ -f pad-grade/v061-dev.js ]; then
-            unzip -l "$APK" | grep 'assets/v061-dev.js'
-            unzip -l "$APK" | grep 'assets/v061-dev.css'
-          fi
-          if [ -f pad-grade/v062-dev.js ]; then
-            unzip -l "$APK" | grep 'assets/v062-dev.js'
-          fi
-          if [ -f pad-grade/v063-dev.js ]; then
-            unzip -l "$APK" | grep 'assets/v063-dev.js'
-          fi
-          if [ -f pad-grade/v064-dev.js ]; then
-            unzip -l "$APK" | grep 'assets/v064-dev.js'
-          fi
-          if [ -f pad-grade/v065-dev.js ]; then
-            unzip -l "$APK" | grep 'assets/v065-dev.js'
-          fi
+          if [ -f pad-grade/v060-dev.js ]; then unzip -l "$APK" | grep 'assets/v060-dev.js'; unzip -l "$APK" | grep 'assets/v060-dev.css'; fi
+          if [ -f pad-grade/v061-dev.js ]; then unzip -l "$APK" | grep 'assets/v061-dev.js'; unzip -l "$APK" | grep 'assets/v061-dev.css'; fi
+          if [ -f pad-grade/v062-dev.js ]; then unzip -l "$APK" | grep 'assets/v062-dev.js'; fi
+          if [ -f pad-grade/v063-dev.js ]; then unzip -l "$APK" | grep 'assets/v063-dev.js'; fi
+          if [ -f pad-grade/v064-dev.js ]; then unzip -l "$APK" | grep 'assets/v064-dev.js'; fi
+          if [ -f pad-grade/v065-dev.js ]; then unzip -l "$APK" | grep 'assets/v065-dev.js'; fi
+          if [ -f pad-grade/v066-dev.js ]; then unzip -l "$APK" | grep 'assets/v066-dev.js'; fi
+          if [ -f pad-grade/v067-dev.js ]; then unzip -l "$APK" | grep 'assets/v067-dev.js'; fi
           unzip -p "$APK" assets/index.html | grep -F 'src="map-instance-hook-v064.js'
           unzip -p "$APK" assets/index.html | grep -F 'src="v063-dev.js'
           unzip -p "$APK" assets/index.html | grep -F 'src="v064-dev.js'
           unzip -p "$APK" assets/index.html | grep -F 'src="v065-dev.js'
+          unzip -p "$APK" assets/index.html | grep -F 'src="v067-dev.js'
           unzip -p "$APK" assets/v063-dev.js | grep -F "gps-map-geojson-mesh"
           unzip -p "$APK" assets/v063-dev.js | grep -F "Do not use isStyleLoaded()"
+          unzip -p "$APK" assets/v067-dev.js | grep -F "Green is categorical"
 
       - name: Verify dev package, launcher icon, and WebP integrity
         run: |
@@ -225,7 +222,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. The bottom survey grid remains discrete/authoritative. Interpolated magnitude-aware IDW² shading exists only on the calibrated GPS map, defaults OFF, and is rendered as a persistent GeoJSON mesh so zooming/panning does not depend on imagery tile load state. Laser placement is performed on the GPS map, with its controls below the map/key. Project Notes has its own top-level button/dialog. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build."
+          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. The bottom survey grid remains discrete/authoritative. Interpolated magnitude-aware IDW² shading exists only on the calibrated GPS map, defaults ON, and is rendered as a persistent GeoJSON mesh. Heatmap transparency is adjustable in Settings and there is a quick map toggle. Cut and fill use independently scaled spectra, while green is reserved exclusively for the configured on-grade tolerance band. Laser placement is performed on the GPS map, with its controls below the map/key. Project Notes has its own top-level button/dialog. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build."
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes "$NOTES" --prerelease
             gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
