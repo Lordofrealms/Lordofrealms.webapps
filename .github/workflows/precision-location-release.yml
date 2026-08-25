@@ -10,11 +10,11 @@ on:
       ref:
         description: 'Precision Location branch/tag to release'
         required: false
-        default: 'precision-location-v0.4.4'
+        default: 'precision-location-v0.4.5'
       version:
         description: 'Release version'
         required: false
-        default: '0.4.4'
+        default: '0.4.5'
 
 permissions:
   contents: write
@@ -23,8 +23,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     env:
-      RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || 'precision-location-v0.4.4' }}
-      VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '0.4.4' }}
+      RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || 'precision-location-v0.4.5' }}
+      VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '0.4.5' }}
     steps:
       - name: Check out Precision Location source
         uses: actions/checkout@v4
@@ -60,6 +60,11 @@ jobs:
           test "$(stat -c%s /tmp/ic_launcher_foreground.webp)" -gt 5000
           file /tmp/ic_launcher_foreground.webp | grep -qi 'Web/P\|WebP'
 
+      - name: Verify Pad Grade IPC allowlist
+        run: |
+          grep -F 'com.lordofrealms.padgrade"' precision-location-android/app/src/main/java/com/lordofrealms/precisionlocation/PrecisionLocationService.java
+          grep -F 'com.lordofrealms.padgrade.dev"' precision-location-android/app/src/main/java/com/lordofrealms/precisionlocation/PrecisionLocationService.java
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -69,15 +74,15 @@ jobs:
           cat > release-notes.md <<EOF
           Precision Location v${VERSION}
 
-          - Uses the user-approved Android launcher/adaptive icon composition exactly as previewed, with the satellite on the left and its signal waves nearly touching the smaller location marker.
-          - Uses a compact launcher WebP resource without regenerating or restyling the artwork.
+          - Whitelists both approved Pad Grade Android clients: com.lordofrealms.padgrade and com.lordofrealms.padgrade.dev.
+          - Keeps the Precision Location external Messenger interface restricted to those two package IDs.
+          - Uses the existing approved Android launcher/adaptive icon artwork without regeneration or restyling.
           - Carrier-phase-smoothed pseudorange processing.
           - TDCP-aided range-rate estimation.
           - Smartphone uncertainty/CN0 weighting for broadcast SPP and Galileo HAS PPP.
           - Conservative cycle-slip, reset, half-cycle, clock-discontinuity, and outlier handling.
           - Enhanced GNSS minimum reported horizontal uncertainty floor: 0.5 m.
           - Galileo HAS remains the only signup-based precision correction path.
-          - Replay tooling remains intentionally deferred.
           EOF
 
           if gh release view "$TAG" >/dev/null 2>&1; then
