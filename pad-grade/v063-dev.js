@@ -1,26 +1,23 @@
-/* Pad Grade v0.7.1 DEV — authoritative finite grid, progressive continuous GPS surface.
+/* Pad Grade v0.7.2 DEV — authoritative finite grid, progressive continuous GPS surface.
  *
- * Heat-map interpolation runs in a dedicated Web Worker. The currently completed
- * surface remains visible while the worker calculates a sharper one in bounded
- * row bands. Each band is handed to MapLibre separately, so the map stays usable
- * and visibly refines over time rather than freezing for one giant GeoJSON build.
- *
- * Resolution is ~3x the v0.7.0 cell density at the same zoom. For an unchanged
- * survey, completed resolution is monotonic: zooming out never replaces an
- * already-calculated sharper surface with a lower-resolution one.
+ * Heat-map interpolation runs in a dedicated Web Worker. The map owns a stable
+ * set of row-band GeoJSON sources/layers. A newly calculated band replaces only
+ * the matching older band, so all previously painted bands remain visible while
+ * refinement continues. This also means a higher-resolution completed surface is
+ * never replaced by a lower-resolution one simply because the user zoomed out.
  */
-(function installPadGrade071MapSurface(){
+(function installPadGrade072MapSurface(){
   'use strict';
 
-  const SOURCE_PREFIX='pad-grade-interpolated-surface-mesh';
-  const LAYER_PREFIX='pad-grade-interpolated-surface-layer';
+  const SOURCE_PREFIX='pad-grade-interpolated-surface-band-source-';
+  const LAYER_PREFIX='pad-grade-interpolated-surface-layer-band-';
   const LEGACY_SOURCE='pad-grade-interpolated-surface';
   const LEGACY_EXACT_SOURCE='pad-grade-interpolated-surface-mesh';
   const LEGACY_EXACT_LAYER='pad-grade-interpolated-surface-layer';
   const BASE_TIER=304;
-  // sqrt(3) × the old 304–512 long-axis tiers gives ~3x as many cells.
   const MESH_TIERS=[528,608,696,792,888];
   const TARGET_CELL_PX=.90;
+  const BAND_TARGET=24;
   const WORKER_URL='heatmap-worker-v071.js?v=20260825-1';
   const $=id=>document.getElementById(id);
 
@@ -29,11 +26,12 @@
   let laserMapMarker=null;
   let worker=null;
   let activeJob=null;
-  let completedGroup=null;
   let jobSerial=0;
-  let groupSerial=0;
   let currentDataKey='';
   let desiredTier=BASE_TIER;
+  let completedTier=0;
+  let completedKey='';
+  const bandSlots=new Map();
 
   function heatmapEnabled(){const toggle=$('heatmapToggle');return !!(toggle&&toggle.checked);}
   function mapInstance(){return window.__padGradeMapInstance||null;}
@@ -85,43 +83,53 @@
     try{if(layerId&&map.getLayer(layerId))map.removeLayer(layerId);}catch(e){}
     try{if(sourceId&&map.getSource(sourceId))map.removeSource(sourceId);}catch(e){}
   }
-  function removeGroup(group){
-    const map=mapInstance();if(!group||!map)return;
-    for(let i=group.parts.length-1;i>=0;i--){const p=group.parts[i];removeSourceLayer(map,p.sourceId,p.layerId);}
-    try{map.triggerRepaint();}catch(e){}
-  }
   function cleanupLegacyMapSurface(){
     const map=mapInstance();if(!map)return;
     try{if(map.getLayer(LEGACY_EXACT_LAYER))map.removeLayer(LEGACY_EXACT_LAYER);}catch(e){}
     try{if(map.getSource(LEGACY_EXACT_SOURCE))map.removeSource(LEGACY_EXACT_SOURCE);}catch(e){}
     try{if(map.getSource(LEGACY_SOURCE))map.removeSource(LEGACY_SOURCE);}catch(e){}
   }
-  function cancelActiveJob(removePartial=true){
+  function cancelActiveJob(){
     if(worker){try{worker.terminate();}catch(e){}worker=null;}
-    if(activeJob&&removePartial)removeGroup(activeJob.group);
     activeJob=null;
   }
+  function removeBands(){
+    const map=mapInstance();
+    if(map){
+      const slots=[...bandSlots.values()];
+      for(let i=slots.length-1;i>=0;i--)removeSourceLayer(map,slots[i].sourceId,slots[i].layerId);
+      try{map.triggerRepaint();}catch(e){}
+    }
+    bandSlots.clear();
+  }
   function removeMapSurface(){
-    cancelActiveJob(true);
-    if(completedGroup){removeGroup(completedGroup);completedGroup=null;}
-    cleanupLegacyMapSurface();
-    currentDataKey='';desiredTier=BASE_TIER;
+    cancelActiveJob();removeBands();cleanupLegacyMapSurface();
+    currentDataKey='';desiredTier=BASE_TIER;completedTier=0;completedKey='';
+  }
+  function bandsAlive(){
+    const map=mapInstance();if(!map||!bandSlots.size)return false;
+    try{for(const slot of bandSlots.values())if(map.getSource(slot.sourceId)&&map.getLayer(slot.layerId))return true;}catch(e){}
+    return false;
   }
 
-  function installChunk(group,msg){
-    const map=mapInstance();if(!mapUsable(map)||!group||!msg?.data)return false;
-    const sourceId=`${SOURCE_PREFIX}-${group.token}-${msg.chunkIndex}`;
-    const layerId=`${LAYER_PREFIX}-${group.token}-${msg.chunkIndex}`;
+  function installOrUpdateBand(msg,job){
+    const map=mapInstance();if(!mapUsable(map)||!msg?.data||!job)return false;
+    const index=Math.max(0,+msg.chunkIndex|0),sourceId=`${SOURCE_PREFIX}${index}`,layerId=`${LAYER_PREFIX}${index}`;
     try{
-      map.addSource(sourceId,{type:'geojson',data:msg.data});
-      map.addLayer({id:layerId,type:'fill',source:sourceId,paint:{'fill-color':['get','color'],'fill-opacity':opacity(),'fill-antialias':false}},layerAnchor(map));
-      group.parts.push({sourceId,layerId,cells:msg.cells||0});
-      group.cells+=(msg.cells||0);
+      let source=map.getSource(sourceId);
+      if(!source){map.addSource(sourceId,{type:'geojson',data:msg.data});source=map.getSource(sourceId);}
+      else if(typeof source.setData==='function')source.setData(msg.data);
+      if(!map.getLayer(layerId))map.addLayer({id:layerId,type:'fill',source:sourceId,paint:{'fill-color':['get','color'],'fill-opacity':opacity(),'fill-antialias':false}},layerAnchor(map));
+      else{
+        try{map.setPaintProperty(layerId,'fill-opacity',opacity());}catch(e){}
+        const before=layerAnchor(map);if(before)try{map.moveLayer(layerId,before);}catch(e){}
+      }
+      bandSlots.set(index,{index,sourceId,layerId,tier:job.tier,key:job.key,cells:msg.cells||0,jobId:job.id});
+      job.seen.add(index);job.cells+=(msg.cells||0);
       map.triggerRepaint();
       return true;
     }catch(e){
-      console.warn('Pad Grade progressive heat-map chunk install failed',e);
-      removeSourceLayer(map,sourceId,layerId);
+      console.warn('Pad Grade progressive heat-map band update failed',e);
       return false;
     }
   }
@@ -135,42 +143,44 @@
   function buildTier(tier,points,key){
     if(activeJob||!heatmapEnabled())return;
     const map=mapInstance();if(!mapUsable(map))return;
-    const r=resolutionForTier(tier),token=`g${++groupSerial}t${tier}`;
-    const group={token,tier,key,parts:[],cells:0,complete:false};
-    const jobId=++jobSerial;
+    const r=resolutionForTier(tier),jobId=++jobSerial;
     let w;
     try{w=new Worker(WORKER_URL);}catch(e){console.warn('Pad Grade heat-map worker could not start',e);return;}
-    worker=w;activeJob={id:jobId,key,tier,resolution:r,group};
+    const job={id:jobId,key,tier,resolution:r,seen:new Set(),cells:0};
+    worker=w;activeJob=job;
 
     w.onmessage=event=>{
       const msg=event.data||{};
-      if(!activeJob||msg.jobId!==activeJob.id)return;
+      if(!activeJob||activeJob.id!==jobId||msg.jobId!==jobId)return;
       if(msg.type==='chunk'){
-        installChunk(group,msg);
+        installOrUpdateBand(msg,job);
         try{w.postMessage({type:'ack',jobId});}catch(e){}
         return;
       }
       if(msg.type==='empty'||msg.type==='error'){
         if(msg.type==='error')console.warn('Pad Grade heat-map worker error',msg.message||'unknown');
-        cancelActiveJob(true);return;
+        cancelActiveJob();return;
       }
       if(msg.type==='complete'){
-        group.complete=true;group.cells=msg.cells||group.cells;
         try{w.terminate();}catch(e){}worker=null;activeJob=null;
-        const previous=completedGroup;
-        completedGroup=group;
-        if(previous&&previous!==group)removeGroup(previous);
-        window.__padGradeHeatmapMesh={tier,rnx:r.nx,rny:r.ny,nx:r.nx,ny:r.ny,cells:group.cells,progressive:true};
+        // Remove any stale extra band slots only after every replacement band has
+        // arrived. Existing bands therefore remain visible throughout refinement.
+        for(const [index,slot] of [...bandSlots.entries()]){
+          if(job.seen.has(index))continue;
+          removeSourceLayer(mapInstance(),slot.sourceId,slot.layerId);bandSlots.delete(index);
+        }
+        completedTier=tier;completedKey=key;
+        window.__padGradeHeatmapMesh={tier,nx:r.nx,ny:r.ny,cells:msg.cells||job.cells,progressive:true,bands:job.seen.size,stableBandSlots:true};
         const next=nextTierAfter(tier,desiredTier);
         if(next&&next>tier)setTimeout(()=>buildTier(next,measuredPoints(),currentDataKey),80);
       }
     };
-    w.onerror=event=>{console.warn('Pad Grade heat-map worker crashed',event?.message||event);cancelActiveJob(true);};
+    w.onerror=event=>{console.warn('Pad Grade heat-map worker crashed',event?.message||event);cancelActiveJob();};
 
-    const chunkRows=Math.max(8,Math.ceil(r.ny/24));
+    const chunkRows=Math.max(8,Math.ceil(r.ny/BAND_TARGET));
     try{
       w.postMessage({type:'build',jobId,tier,nx:r.nx,ny:r.ny,chunkRows,settings:{width:cfg().width,length:cfg().length,target:cfg().target,tol:cfg().tol},points,fit:{originLat:gpsFit.originLat,originLon:gpsFit.originLon,theta:gpsFit.theta,tx:gpsFit.tx,ty:gpsFit.ty}});
-    }catch(e){console.warn('Pad Grade heat-map worker request failed',e);cancelActiveJob(true);}
+    }catch(e){console.warn('Pad Grade heat-map worker request failed',e);cancelActiveJob();}
   }
 
   function syncSurface(){
@@ -179,34 +189,34 @@
     const map=mapInstance();if(!mapUsable(map))return;
     cleanupLegacyMapSurface();
     if(typeof gpsFit==='undefined'||!gpsFit){removeMapSurface();return;}
-    const points=measuredPoints();
-    if(points.length<3){removeMapSurface();return;}
+    const points=measuredPoints();if(points.length<3){removeMapSurface();return;}
+
+    if(bandSlots.size&&!bandsAlive()){
+      bandSlots.clear();completedTier=0;completedKey='';
+    }
 
     const key=dataKey(points),zoomTier=zoomDesiredTier();
     if(key!==currentDataKey){
-      // Keep the last completed surface visible as a temporary visual placeholder
-      // while the new survey state is recalculated. Recompute at least the same
-      // completed tier, so a data edit never forces a visible resolution downgrade.
-      cancelActiveJob(true);
+      cancelActiveJob();
       currentDataKey=key;
-      desiredTier=Math.max(zoomTier,completedGroup?.tier||BASE_TIER);
-      const firstTier=completedGroup?.tier||BASE_TIER;
-      buildTier(firstTier,points,key);
+      desiredTier=Math.max(zoomTier,completedTier||BASE_TIER);
+      // Keep the old stable bands on screen and replace them in-place. If no
+      // surface exists yet, first paint the fast 304-tier baseline progressively.
+      buildTier(completedTier||BASE_TIER,points,key);
       return;
     }
 
-    desiredTier=Math.max(desiredTier,zoomTier,completedGroup?.tier||BASE_TIER);
+    desiredTier=Math.max(desiredTier,zoomTier,completedTier||BASE_TIER);
     if(activeJob)return;
-    if(!completedGroup||completedGroup.key!==key){buildTier(BASE_TIER,points,key);return;}
-    if(completedGroup.tier>=desiredTier)return; // Never downgrade a completed surface.
-    const next=nextTierAfter(completedGroup.tier,desiredTier);
-    if(next)buildTier(next,points,key);
+    if(completedKey!==key||!completedTier){buildTier(completedTier||BASE_TIER,points,key);return;}
+    if(completedTier>=desiredTier)return;
+    const next=nextTierAfter(completedTier,desiredTier);if(next)buildTier(next,points,key);
   }
 
   function scheduleResolutionRefresh(){clearTimeout(resolutionTimer);resolutionTimer=setTimeout(syncSurface,140);}
   function installResolutionHooks(){
-    const map=mapInstance();if(!map||map.__padGradeAdaptiveHeatmapHooksV071)return;
-    map.__padGradeAdaptiveHeatmapHooksV071=true;
+    const map=mapInstance();if(!map||map.__padGradeAdaptiveHeatmapHooksV072)return;
+    map.__padGradeAdaptiveHeatmapHooksV072=true;
     map.on('zoomend',scheduleResolutionRefresh);map.on('resize',scheduleResolutionRefresh);
   }
 
@@ -263,14 +273,14 @@
   function loadNotesModule(){if(document.querySelector('script[data-padgrade-v064]'))return;const script=document.createElement('script');script.src='v064-dev.js?v=20260825-1';script.setAttribute('data-padgrade-v064','1');document.body.appendChild(script);}
 
   function boot(){
-    document.title='Pad Grade Mapper v0.7.1 DEV';cleanupLegacyGridLayers();installMapControls();relabelToggle();installMapClick();installResolutionHooks();loadNotesModule();
+    document.title='Pad Grade Mapper v0.7.2 DEV';cleanupLegacyGridLayers();installMapControls();relabelToggle();installMapClick();installResolutionHooks();loadNotesModule();
     const toggle=$('heatmapToggle');if(toggle)toggle.addEventListener('change',syncSurface);
-    window.addEventListener('padgrade-map-created',()=>setTimeout(()=>{installMapClick();installResolutionHooks();syncSurface();syncLaserMarker();},0));
+    window.addEventListener('padgrade-map-created',()=>setTimeout(()=>{bandSlots.clear();completedTier=0;completedKey='';installMapClick();installResolutionHooks();syncSurface();syncLaserMarker();},0));
     syncTimer=setInterval(()=>{installMapClick();installResolutionHooks();syncSurface();syncLaserMarker();},900);
-    window.addEventListener('beforeunload',()=>{if(syncTimer)clearInterval(syncTimer);if(resolutionTimer)clearTimeout(resolutionTimer);cancelActiveJob(true);if(completedGroup)removeGroup(completedGroup);if(laserMapMarker)try{laserMapMarker.remove();}catch(e){}},{once:true});
-    window.__padGradeHeatmapLocation='gps-map-progressive-geojson-worker';
+    window.addEventListener('beforeunload',()=>{if(syncTimer)clearInterval(syncTimer);if(resolutionTimer)clearTimeout(resolutionTimer);cancelActiveJob();removeBands();if(laserMapMarker)try{laserMapMarker.remove();}catch(e){}},{once:true});
+    window.__padGradeHeatmapLocation='gps-map-progressive-stable-band-slots';
     window.__padGradeHeatmapResolution='progressive-adaptive-528-888-long-axis-about-3x-v070-cells';
-    window.__padGradeHeatmapThreading='web-worker-banded-backpressure-progressive-no-downgrade';
+    window.__padGradeHeatmapThreading='web-worker-banded-backpressure-stable-band-replacement-no-downgrade';
     window.__padGradeLaserPlacementLocation='gps-map';
     syncSurface();
   }
