@@ -106,6 +106,9 @@ jobs:
           grep -F "Green is categorical" pad-grade/v067-dev.js
           grep -F "#4f8f3a 46%,#4f8f3a 54%" pad-grade/v067-dev.js
           grep -F "magnitude-aware IDW² zero crossing" pad-grade/dev-selftest.js
+          grep -F "Metric units" pad-grade/README.md
+          grep -F "Feet and tenths" pad-grade/README.md
+          grep -F "Laser-avoidance pathing" pad-grade/README.md
 
       - name: Run Pad Grade dev self-tests
         run: node pad-grade/dev-selftest.js
@@ -147,7 +150,12 @@ jobs:
           echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
 
       - name: Build debug APK
-        run: gradle -p pad-grade-android :app:assembleDebug --stacktrace
+        run: |
+          if [ "$BUILD_CHANNEL" = "dev" ]; then
+            gradle -p pad-grade-android :app:assembleDebug -PpadGradeDevBuild=true --stacktrace
+          else
+            gradle -p pad-grade-android :app:assembleDebug --stacktrace
+          fi
 
       - name: Verify canonical web assets packaged
         run: |
@@ -168,13 +176,16 @@ jobs:
           unzip -p "$APK" assets/heatmap-raster-worker-v073.js | grep -F "never publishes partial map bands"
           unzip -p "$APK" assets/v071-dev.js | grep -F "late-owner-settings-first-then-project-sync-visual-hold"
 
-      - name: Verify dev package, launcher icon, and WebP integrity
+      - name: Verify package channel, launcher icon, and WebP integrity
         run: |
           APK=pad-grade-android/app/build/outputs/apk/debug/app-debug.apk
           AAPT="$ANDROID_HOME/build-tools/36.0.0/aapt"
           if [ "$BUILD_CHANNEL" = "dev" ]; then
             "$AAPT" dump badging "$APK" | grep "package: name='com.lordofrealms.padgrade.dev'"
             "$AAPT" dump badging "$APK" | grep "application-label:'Pad Grade DEV'"
+          elif [ "$BUILD_CHANNEL" = "stable" ]; then
+            "$AAPT" dump badging "$APK" | grep "package: name='com.lordofrealms.padgrade'"
+            "$AAPT" dump badging "$APK" | grep "application-label:'Pad Grade'"
           fi
           unzip -l "$APK" | grep 'res/mipmap-nodpi-v4/ic_launcher.webp'
           unzip -l "$APK" | grep 'res/mipmap-nodpi-v4/ic_launcher_round.webp'
@@ -213,11 +224,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          NOTES="Validated Pad Grade Android v$APP_VERSION stable build from the main branch. This is the version intended for normal use. Feature-status note: Metric units, Feet and tenths, and Laser-avoidance pathing are included but remain field-untested as of this promotion."
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION" --notes "Validated Pad Grade Android v$APP_VERSION stable build from the main branch. This is the version intended for normal use."
+            gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION" --notes "$NOTES"
             gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
           else
-            gh release create "$RELEASE_TAG" "$APK_NAME" --target "$GITHUB_SHA" --title "Pad Grade v$APP_VERSION" --notes "Validated Pad Grade Android v$APP_VERSION stable build from the main branch. This is the version intended for normal use."
+            gh release create "$RELEASE_TAG" "$APK_NAME" --target "$GITHUB_SHA" --title "Pad Grade v$APP_VERSION" --notes "$NOTES"
           fi
 
       - name: Publish dev GitHub Pre-release APK
@@ -225,7 +237,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. v0.7.5 keeps the working v0.7.4 CanvasSource heat map and smooths durable settings/project startup. The recovered active project is primed before init.js performs its first grid/GPS render, so the app no longer intentionally paints the default/manual project first. Saved GPS map width and height are applied before MapLibre is constructed, redundant startup resize calls are suppressed/coalesced, and the recovery curtain is released only after the final GPS/manual layout is established and the map reaches a settled idle frame after one hidden final resize (with a four-second failsafe). The older repeated project application passes are reduced to one final compatibility pass. No separate map-loading panel is shown. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build."
+          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. v0.7.5 keeps the working v0.7.4 CanvasSource heat map and smooths durable settings/project startup. The recovered active project is primed before init.js performs its first grid/GPS render, so the app no longer intentionally paints the default/manual project first. Saved GPS map width and height are applied before MapLibre is constructed, redundant startup resize calls are suppressed/coalesced, and the recovery curtain is released only after the final GPS/manual layout is established and the map reaches a settled idle frame after one hidden final resize (with a four-second failsafe). The older repeated project application passes are reduced to one final compatibility pass. No separate map-loading panel is shown. Metric units, Feet and tenths, and Laser-avoidance pathing are included but remain field-untested. This APK may contain incomplete or experimental features and is not the stable release."
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes "$NOTES" --prerelease
             gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
