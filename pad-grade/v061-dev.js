@@ -200,3 +200,110 @@
     new MutationObserver(()=>metricizeText(mapAccuracy)).observe(mapAccuracy,{childList:true,characterData:true,subtree:true});
   }
 })();
+/* Pad Grade v0.6.0-dev hotfix — keep stable grid ownership intact and avoid Precision Location STARTING hangs in side-by-side DEV builds. */
+(function installPadGrade062Hotfix(){
+  'use strict';
+
+  function overlayHost(){
+    const g=document.getElementById('grid');
+    if(!g)return null;
+    const stack=document.getElementById('gradeMapStack');
+    let shell=g.closest('.gridShell');
+    if(stack&&stack.parentElement&&stack.parentElement.classList.contains('gridShell'))shell=stack.parentElement;
+    if(!shell)return null;
+
+    // v0.6.0 originally wrapped #grid in gradeMapStack before the stable v0.5.4
+    // grid core loaded. That changed grid.parentElement, so grid-core revealed the
+    // wrapper instead of .gridShell and the real grid stayed visibility:hidden.
+    // Put #grid and all overlays back under the original shell and never reparent
+    // the production grid again.
+    if(stack){
+      if(g.parentElement===stack)shell.insertBefore(g,stack);
+      for(const id of ['gradeHeatmap','laserMarker','laserPlacementLayer']){
+        const el=document.getElementById(id);if(el&&el.parentElement===stack)shell.appendChild(el);
+      }
+      stack.remove();
+    }
+    shell.classList.add('gradeLayerHost');
+    return {g,shell};
+  }
+
+  const style=document.createElement('style');
+  style.textContent=`
+    .gridShell.gradeLayerHost{position:relative}
+    .gridShell.gradeLayerHost>.gradeHeatmap,
+    .gridShell.gradeLayerHost>.laserPlacementLayer{inset:auto!important}
+    .gridShell.gradeLayerHost>#grid{position:relative;z-index:1}
+  `;
+  document.head.appendChild(style);
+
+  function positionOverlays(){
+    const host=overlayHost();if(!host)return null;
+    const {g,shell}=host,left=g.offsetLeft,top=g.offsetTop,width=g.offsetWidth,height=g.offsetHeight;
+    for(const id of ['gradeHeatmap','laserPlacementLayer']){
+      const el=document.getElementById(id);if(!el)continue;
+      el.style.inset='auto';el.style.left=left+'px';el.style.top=top+'px';el.style.width=width+'px';el.style.height=height+'px';
+    }
+    return {g,shell,left,top,width,height};
+  }
+
+  pgEnsureGridLayers=function(){
+    const host=overlayHost();if(!host)return;
+    const {shell,g}=host;
+    if(!document.getElementById('gradeHeatmap')){
+      const canvas=document.createElement('canvas');canvas.id='gradeHeatmap';canvas.className='gradeHeatmap';shell.appendChild(canvas);
+    }
+    if(!document.getElementById('laserMarker')){
+      const marker=document.createElement('div');marker.id='laserMarker';marker.className='laserMarker';marker.innerHTML='<span>✦</span><b>LASER</b>';shell.appendChild(marker);
+    }
+    if(!document.getElementById('laserPlacementLayer')){
+      const layer=document.createElement('div');layer.id='laserPlacementLayer';layer.className='laserPlacementLayer';shell.appendChild(layer);
+      layer.addEventListener('pointerdown',ev=>{
+        if(!padGradePlacingLaser)return;
+        const rect=layer.getBoundingClientRect(),s=cfg();
+        const x=Math.max(0,Math.min(1,(ev.clientX-rect.left)/rect.width));
+        const y=Math.max(0,Math.min(1,(ev.clientY-rect.top)/rect.height));
+        padGradeLaser={xFt:x*s.width,yFt:(1-y)*s.length};padGradePlacingLaser=false;
+        layer.classList.remove('active');pgUpdateLaserSummary();saveLocal();renderGrid();
+      });
+    }
+    if(!g.__padGradeDevOverlayObserver&&window.MutationObserver){
+      g.__padGradeDevOverlayObserver=new MutationObserver(()=>requestAnimationFrame(()=>{positionOverlays();pgDrawSurface();pgDrawLaser();}));
+      g.__padGradeDevOverlayObserver.observe(g,{childList:true,attributes:true,attributeFilter:['class','style']});
+    }
+    positionOverlays();
+  };
+
+  const drawSurface060=pgDrawSurface;
+  pgDrawSurface=function(){positionOverlays();return drawSurface060();};
+  pgDrawLaser=function(){
+    const marker=document.getElementById('laserMarker'),layout=positionOverlays();
+    if(!marker||!layout)return;
+    if(!padGradeLaser){marker.classList.remove('show');return;}
+    const s=cfg();
+    marker.style.left=(layout.left+padGradeLaser.xFt/s.width*layout.width)+'px';
+    marker.style.top=(layout.top+(1-padGradeLaser.yFt/s.length)*layout.height)+'px';
+    marker.classList.add('show');
+  };
+
+  // The side-by-side DEV package has a different Android application ID. The
+  // current Precision Location companion can report itself installed yet never
+  // complete registration for that client, leaving Pad Grade at STARTING. Keep
+  // stable untouched; DEV uses the WebView/Android native geolocation provider
+  // until the companion explicitly supports the DEV package too.
+  if(window.PadGradeNative&&window.PadGradePlatform){
+    try{
+      const desc=Object.getOwnPropertyDescriptor(Navigator.prototype,'geolocation');
+      const nativeGeo=desc&&typeof desc.get==='function'?desc.get.call(navigator):null;
+      if(nativeGeo){
+        Object.defineProperty(navigator,'geolocation',{value:nativeGeo,configurable:true,enumerable:true});
+        window.PadGradePlatform.nativePrecisionLocation=false;
+        window.PadGradePlatform.lastLocationMeta={provider:'native',solutionMode:'Native GPS (DEV)',solutionState:'UNKNOWN',fixAgeMs:0,timestamp:0};
+      }
+    }catch(e){console.warn('Pad Grade DEV native GPS fallback could not be installed',e);}
+  }
+
+  pgEnsureGridLayers();
+  pgScheduleSurfaceDraw();
+  window.__padGradeDev062Hotfix=true;
+})();
