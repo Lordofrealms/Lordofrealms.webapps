@@ -28,8 +28,9 @@ import java.util.List;
  * does not terminate an active precision session.
  *
  * The service also exposes a deliberately tiny cross-app Messenger interface for
- * Pad Grade. Only the Pad Grade package is allowed to subscribe, and subscribers
- * receive solution/status data rather than GNSS configuration or raw measurements.
+ * Pad Grade. Only the approved stable and dev Pad Grade packages are allowed to
+ * subscribe, and subscribers receive solution/status data rather than GNSS
+ * configuration or raw measurements.
  */
 public final class PrecisionLocationService extends Service
         implements PositionEngine.Listener, GnssCollector.Listener, MockLocationPublisher.Listener {
@@ -45,6 +46,7 @@ public final class PrecisionLocationService extends Service
             "com.lordofrealms.precisionlocation.EXTERNAL_BIND";
 
     private static final String PAD_GRADE_PACKAGE = "com.lordofrealms.padgrade";
+    private static final String PAD_GRADE_DEV_PACKAGE = "com.lordofrealms.padgrade.dev";
     private static final int IPC_REGISTER = 1;
     private static final int IPC_UNREGISTER = 2;
     private static final int IPC_SOLUTION = 100;
@@ -158,7 +160,8 @@ public final class PrecisionLocationService extends Service
         String[] packages = getPackageManager().getPackagesForUid(uid);
         if (packages == null) return false;
         for (String packageName : packages) {
-            if (PAD_GRADE_PACKAGE.equals(packageName)) return true;
+            if (PAD_GRADE_PACKAGE.equals(packageName)
+                    || PAD_GRADE_DEV_PACKAGE.equals(packageName)) return true;
         }
         return false;
     }
