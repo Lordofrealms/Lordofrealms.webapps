@@ -67,24 +67,26 @@ jobs:
           node --check pad-grade/migration-core.js
           node --check pad-grade/grid-core.js
 
-      - name: Verify v0.7.3 recovery and atomic raster heatmap gates
+      - name: Verify v0.7.4 recovery and atomic CanvasSource heatmap gates
         run: |
           grep -F "padGradeHeatmapOptInV061" pad-grade/v062-dev.js
           grep -F "platform.precisionGeolocation" pad-grade/platform.js
           grep -F 'src="recovery-visual-v073.js' pad-grade/index.html
           grep -F 'src="map-instance-hook-v064.js' pad-grade/index.html
-          grep -F 'src="v063-dev.js' pad-grade/index.html
+          grep -F 'src="v063-dev.js?v=20260825-6' pad-grade/index.html
           grep -F "new Worker(WORKER_URL)" pad-grade/v063-dev.js
-          grep -F "RASTER_SOURCE='pad-grade-interpolated-surface-raster'" pad-grade/v063-dev.js
+          grep -F "CANVAS_SOURCE_PREFIX='pad-grade-interpolated-surface-canvas-source-'" pad-grade/v063-dev.js
+          grep -F "type:'canvas',canvas" pad-grade/v063-dev.js
+          grep -F "ctx.createImageData" pad-grade/v063-dev.js
           grep -F "LOW_TIER=304" pad-grade/v063-dev.js
           grep -F "HIGH_TIER=888" pad-grade/v063-dev.js
-          grep -F "raster-fade-duration" pad-grade/v063-dev.js
           grep -F "atomicSwap:true" pad-grade/v063-dev.js
+          grep -F "canvasSource:true" pad-grade/v063-dev.js
           grep -F "whole-raster-low-304-then-high-888-no-zoom-recalc" pad-grade/v063-dev.js
-          grep -F "web-worker-whole-raster-lazy-low-then-high-atomic-swap-no-band-repaint" pad-grade/v063-dev.js
+          grep -F "web-worker-whole-raster-double-buffered-canvas-atomic-swap-no-band-repaint" pad-grade/v063-dev.js
           grep -F "never publishes partial map bands" pad-grade/heatmap-raster-worker-v073.js
           grep -F "Math.abs(diff)<=tol" pad-grade/heatmap-raster-worker-v073.js
-          grep -F "layer.type==='raster'?'raster-opacity':'fill-opacity'" pad-grade/v066-dev.js
+          grep -F "pgApplyHeatmapOpacity" pad-grade/v066-dev.js
           grep -F "window.__padGradeDurableSyncV040=true" pad-grade/v040-sync.js
           grep -F "late-owner-settings-first-then-project-sync-visual-hold" pad-grade/v071-dev.js
           grep -F "__padGradeBeginRecoveryVisualHold" pad-grade/v071-dev.js
@@ -146,9 +148,10 @@ jobs:
           done
           unzip -p "$APK" assets/index.html | grep -F 'src="recovery-visual-v073.js'
           unzip -p "$APK" assets/index.html | grep -F 'src="map-instance-hook-v064.js'
-          unzip -p "$APK" assets/index.html | grep -F 'src="v063-dev.js'
+          unzip -p "$APK" assets/index.html | grep -F 'src="v063-dev.js?v=20260825-6'
+          unzip -p "$APK" assets/v063-dev.js | grep -F "CANVAS_SOURCE_PREFIX='pad-grade-interpolated-surface-canvas-source-'"
+          unzip -p "$APK" assets/v063-dev.js | grep -F "canvasSource:true"
           unzip -p "$APK" assets/v063-dev.js | grep -F "whole-raster-low-304-then-high-888-no-zoom-recalc"
-          unzip -p "$APK" assets/v063-dev.js | grep -F "atomicSwap:true"
           unzip -p "$APK" assets/heatmap-raster-worker-v073.js | grep -F "never publishes partial map bands"
           unzip -p "$APK" assets/v071-dev.js | grep -F "late-owner-settings-first-then-project-sync-visual-hold"
           unzip -p "$APK" assets/v072-project-restore.js | grep -F "__padGradeEndRecoveryVisualHold"
@@ -210,7 +213,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. The bottom survey grid remains discrete/authoritative. The GPS heat map is now a single georeferenced raster rather than progressive GeoJSON bands. A complete 304-long-axis low-resolution image is calculated in a Web Worker and swapped onto the map atomically; the worker then lazily calculates the complete 888-long-axis high-resolution image and swaps that whole image in at once. No partial bands are ever displayed, zooming does not recalculate the surface, and once the high-resolution image is complete it remains until the survey or grade settings actually change. Transparency remains live and the grid/points stay above the raster. Clean-install durable settings and last-project recovery remain deterministic; v0.7.3 adds a short recovery visual hold so the intermediate startup/reload paints are hidden and only the settled recovered project is revealed. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build."
+          NOTES="DEVELOPMENT / TEST BUILD from the pad-grade-dev branch. Built from commit $GITHUB_SHA. Installs separately as Pad Grade DEV so it does not replace the stable app or its local data. The bottom survey grid remains discrete/authoritative. v0.7.4 keeps the whole-surface low-then-high heat-map pipeline but replaces the unreliable dynamically-created Blob ImageSource with a direct MapLibre CanvasSource. A complete 304-long-axis surface is calculated off-thread and displayed as one canvas; the complete 888-long-axis surface is then calculated lazily and double-buffer swapped over it as a whole. No partial bands are displayed, zooming does not recalculate or downgrade the heat map, and only survey/grade-setting changes invalidate the completed high-resolution surface. Heatmap transparency remains live and the survey grid/points remain above the raster. Durable settings and last-project recovery remain unchanged from the working v0.7.3 path. This APK may contain incomplete or experimental features and is not the stable release. The main branch remains the last known-good Pad Grade build."
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes "$NOTES" --prerelease
             gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
