@@ -20,7 +20,7 @@
   }
 
   function boot(){
-    document.title='Pad Grade Mapper v0.7.2 DEV';
+    document.title='Pad Grade Mapper v0.7.3 DEV';
     positionMapControls();
     const card=$('gpsMapCard');
     if(card&&window.MutationObserver){
@@ -40,7 +40,7 @@
   else boot();
 })();
 
-/* v0.6.6 restores heatmap-as-default now that the mesh renderer is proven.
+/* v0.6.6 restores heatmap-as-default now that the renderer is proven.
  * Do this synchronously before init.js loads project state, so the older v0.6.1
  * safety gate cannot force the first v0.6.6 session back off. */
 try{
@@ -55,24 +55,24 @@ try{
 (function loadPadGrade066(){
   if(document.querySelector('script[data-padgrade-v066]'))return;
   const script=document.createElement('script');
-  script.src='v066-dev.js?v=20260825-2';
+  script.src='v066-dev.js?v=20260825-3';
   script.async=false;
   script.dataset.padgradeV066='1';
   script.onerror=()=>console.error('Pad Grade v0.6.6 heatmap UI module failed to load');
   document.body.appendChild(script);
 })();
 
-/* v0.7.2 keeps the v0.6.9 Advanced Settings UI and v0.7.0/v0.7.1 durable
- * recovery stack, then adds a final explicit last-project application pass.
+/* v0.7.3 keeps the v0.6.9 Advanced Settings UI and v0.7.0/v0.7.1 durable
+ * recovery stack, then applies the recovered last project behind a visual hold.
  */
-(function queuePadGrade072(){
+(function queuePadGrade073(){
   const load072=()=>{
     if(document.querySelector('script[data-padgrade-v072-project-restore]'))return;
     const script=document.createElement('script');
-    script.src='v072-project-restore.js?v=20260825-1';
+    script.src='v072-project-restore.js?v=20260825-2';
     script.async=false;
     script.dataset.padgradeV072ProjectRestore='1';
-    script.onerror=()=>console.error('Pad Grade v0.7.2 last-project restore module failed to load');
+    script.onerror=()=>{console.error('Pad Grade v0.7.3 last-project restore module failed to load');try{window.__padGradeEndRecoveryVisualHold?.();}catch(e){}};
     document.body.appendChild(script);
   };
   const load071MapUi=()=>{
@@ -88,11 +88,11 @@ try{
   const load071=()=>{
     if(document.querySelector('script[data-padgrade-v071]')){load071MapUi();return;}
     const script=document.createElement('script');
-    script.src='v071-dev.js?v=20260825-1';
+    script.src='v071-dev.js?v=20260825-2';
     script.async=false;
     script.dataset.padgradeV071='1';
     script.onload=load071MapUi;
-    script.onerror=()=>{console.error('Pad Grade v0.7.1 recovery module failed to load');load071MapUi();};
+    script.onerror=()=>{console.error('Pad Grade v0.7.3 recovery module failed to load');load071MapUi();};
     document.body.appendChild(script);
   };
   const load070=()=>{
