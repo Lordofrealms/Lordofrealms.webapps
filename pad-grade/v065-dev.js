@@ -64,6 +64,8 @@ try{
 
 /* v0.7.3 keeps the v0.6.9 Advanced Settings UI and v0.7.0/v0.7.1 durable
  * recovery stack, then applies the recovered last project behind a visual hold.
+ * The old v0.7.1 progressive-band maintenance module is intentionally not loaded;
+ * the v0.7.3 renderer owns one atomic raster layer instead.
  */
 (function queuePadGrade073(){
   const load072=()=>{
@@ -75,24 +77,14 @@ try{
     script.onerror=()=>{console.error('Pad Grade v0.7.3 last-project restore module failed to load');try{window.__padGradeEndRecoveryVisualHold?.();}catch(e){}};
     document.body.appendChild(script);
   };
-  const load071MapUi=()=>{
-    if(document.querySelector('script[data-padgrade-v071-map-ui]')){load072();return;}
-    const script=document.createElement('script');
-    script.src='v071-map-ui.js?v=20260825-1';
-    script.async=false;
-    script.dataset.padgradeV071MapUi='1';
-    script.onload=load072;
-    script.onerror=()=>{console.error('Pad Grade v0.7.1 progressive layer UI failed to load');load072();};
-    document.body.appendChild(script);
-  };
   const load071=()=>{
-    if(document.querySelector('script[data-padgrade-v071]')){load071MapUi();return;}
+    if(document.querySelector('script[data-padgrade-v071]')){load072();return;}
     const script=document.createElement('script');
     script.src='v071-dev.js?v=20260825-2';
     script.async=false;
     script.dataset.padgradeV071='1';
-    script.onload=load071MapUi;
-    script.onerror=()=>{console.error('Pad Grade v0.7.3 recovery module failed to load');load071MapUi();};
+    script.onload=load072;
+    script.onerror=()=>{console.error('Pad Grade v0.7.3 recovery module failed to load');load072();};
     document.body.appendChild(script);
   };
   const load070=()=>{
