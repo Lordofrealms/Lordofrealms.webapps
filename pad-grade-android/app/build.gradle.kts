@@ -7,7 +7,10 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.lordofrealms.padgrade"
+        // Dev builds intentionally use a different package so they can be
+        // installed beside the stable main-branch app without replacing its
+        // local project data or blocking a rollback to the stable version.
+        applicationId = "com.lordofrealms.padgrade.dev"
         minSdk = 31
         targetSdk = 36
         versionCode = 27
