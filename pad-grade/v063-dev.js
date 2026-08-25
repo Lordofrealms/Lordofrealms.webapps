@@ -33,7 +33,6 @@
     if(grid&&shell&&grid.parentElement!==shell)shell.insertBefore(grid,shell.firstChild||null);
   }
 
-  // From here forward the production grid has no overlay children at all.
   window.pgEnsureGridLayers=cleanupLegacyGridLayers;
 
   function mapInstance(){return window.__padGradeMapInstance||null;}
@@ -106,8 +105,6 @@
     const map=mapInstance();
     if(!map||!map.isStyleLoaded())return false;
     try{
-      // CanvasSource proved unreliable in Android WebView. Recreate a small
-      // image source only when survey/calibration data actually changes.
       if(map.getLayer(SURFACE_LAYER))map.removeLayer(SURFACE_LAYER);
       if(map.getSource(SURFACE_SOURCE))map.removeSource(SURFACE_SOURCE);
       const url=c.toDataURL('image/png');
@@ -194,15 +191,12 @@
   function finishLaserPlacement(p){
     if(!p)return;
     padGradeLaser={xFt:p.xFt,yFt:p.yFt};
-    // Leave placement true through the current map click dispatch so the point
-    // layer cannot also open a grade-entry dialog for the same tap.
     setTimeout(()=>{padGradePlacingLaser=false;},0);
     const map=mapInstance();if(map)map.getCanvas().style.cursor='';
     try{saveLocal();}catch(e){}
     try{pgUpdateLaserSummary();}catch(e){}
     syncLaserMarker();
-    const status=$('laserMapStatus');
-    if(status)status.textContent='Laser placed';
+    const status=$('laserMapStatus');if(status)status.textContent='Laser placed';
   }
 
   function installMapClick(){
@@ -227,7 +221,6 @@
     const status=$('laserMapStatus');if(status)status.textContent='Tap the GPS map to place laser';
   }
 
-  // Guard all authoritative grid/map point entry while a map laser tap is armed.
   const baseOpenPoint=window.openPoint;
   if(typeof baseOpenPoint==='function')window.openPoint=function(r,c){if(padGradePlacingLaser)return;return baseOpenPoint(r,c);};
 
@@ -266,11 +259,21 @@
     if(label){const text=[...label.childNodes].find(n=>n.nodeType===Node.TEXT_NODE);if(text)text.nodeValue=' Show interpolated IDW² heat map on GPS map';}
   }
 
+  function loadNotesModule(){
+    if(document.querySelector('script[data-padgrade-v064]'))return;
+    const script=document.createElement('script');
+    script.src='v064-dev.js?v=20260825-1';
+    script.setAttribute('data-padgrade-v064','1');
+    document.body.appendChild(script);
+  }
+
   function boot(){
+    document.title='Pad Grade Mapper v0.6.3 DEV';
     cleanupLegacyGridLayers();
     installMapControls();
     relabelToggle();
     installMapClick();
+    loadNotesModule();
     const toggle=$('heatmapToggle');if(toggle)toggle.addEventListener('change',()=>syncSurface(true));
     window.addEventListener('padgrade-map-created',()=>setTimeout(()=>{installMapClick();syncSurface(true);syncLaserMarker();},0));
     syncTimer=setInterval(()=>{installMapClick();syncSurface(false);syncLaserMarker();},700);
