@@ -120,8 +120,12 @@
     const map=window.__padGradeMapInstance;
     if(!map)return false;
     try{
-      if(!map.getLayer(SURFACE_LAYER))return false;
-      map.setPaintProperty(SURFACE_LAYER,'fill-opacity',heatmapOpacity());
+      const layer=map.getLayer(SURFACE_LAYER);if(!layer)return false;
+      const prop=layer.type==='raster'?'raster-opacity':'fill-opacity';
+      const target=heatmapOpacity();
+      let current=null;try{current=map.getPaintProperty(SURFACE_LAYER,prop);}catch(e){}
+      if(typeof current==='number'&&Math.abs(current-target)<1e-6)return true;
+      map.setPaintProperty(SURFACE_LAYER,prop,target);
       map.triggerRepaint();
       return true;
     }catch(e){return false;}
@@ -209,7 +213,7 @@
   }
 
   function boot(){
-    document.title='Pad Grade Mapper v0.6.6 DEV';
+    document.title='Pad Grade Mapper v0.7.3 DEV';
     installSettingsSlider();
     installMapHeatmapUi();
     removeHeatmapDebug();
