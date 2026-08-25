@@ -1,41 +1,45 @@
-/* Pad Grade v0.7.2 DEV — authoritative finite grid, progressive continuous GPS surface.
+/* Pad Grade v0.7.3 DEV — authoritative finite grid, atomic continuous GPS surface.
  *
- * Heat-map interpolation runs in a dedicated Web Worker. The map owns a stable
- * set of row-band GeoJSON sources/layers. A newly calculated band replaces only
- * the matching older band, so all previously painted bands remain visible while
- * refinement continues. This also means a higher-resolution completed surface is
- * never replaced by a lower-resolution one simply because the user zoomed out.
+ * The heat map is now rendered as one georeferenced raster image rather than many
+ * GeoJSON bands. A complete low-resolution image is calculated off-thread and
+ * swapped onto the map in one operation. Then the worker lazily calculates the
+ * complete high-resolution image and swaps that whole image in at once. Zooming
+ * never triggers a recalculation, and a completed high-resolution image remains
+ * in use until the survey/settings actually change.
  */
-(function installPadGrade072MapSurface(){
+(function installPadGrade073MapSurface(){
   'use strict';
 
-  const SOURCE_PREFIX='pad-grade-interpolated-surface-band-source-';
-  const LAYER_PREFIX='pad-grade-interpolated-surface-layer-band-';
+  const RASTER_SOURCE='pad-grade-interpolated-surface-raster';
+  const RASTER_LAYER='pad-grade-interpolated-surface-layer';
+  const OLD_BAND_SOURCE_PREFIX='pad-grade-interpolated-surface-band-source-';
+  const OLD_BAND_LAYER_PREFIX='pad-grade-interpolated-surface-layer-band-';
   const LEGACY_SOURCE='pad-grade-interpolated-surface';
-  const LEGACY_EXACT_SOURCE='pad-grade-interpolated-surface-mesh';
-  const LEGACY_EXACT_LAYER='pad-grade-interpolated-surface-layer';
-  const BASE_TIER=304;
-  const MESH_TIERS=[528,608,696,792,888];
-  const TARGET_CELL_PX=.90;
-  const BAND_TARGET=24;
-  const WORKER_URL='heatmap-worker-v071.js?v=20260825-1';
+  const LEGACY_MESH_SOURCE='pad-grade-interpolated-surface-mesh';
+  const LOW_TIER=304;
+  const HIGH_TIER=888;
+  const WORKER_URL='heatmap-raster-worker-v073.js?v=20260825-1';
   const $=id=>document.getElementById(id);
 
   let syncTimer=null;
-  let resolutionTimer=null;
   let laserMapMarker=null;
   let worker=null;
   let activeJob=null;
+  let highTimer=null;
   let jobSerial=0;
-  let currentDataKey='';
-  let desiredTier=BASE_TIER;
-  let completedTier=0;
-  let completedKey='';
-  const bandSlots=new Map();
+  let currentSurfaceKey='';
+  let displayedKey='';
+  let displayedTier=0;
+  let displayedNx=0;
+  let displayedNy=0;
+  let currentObjectUrl=null;
+  let lastCoordinateSignature='';
 
   function heatmapEnabled(){const toggle=$('heatmapToggle');return !!(toggle&&toggle.checked);}
   function mapInstance(){return window.__padGradeMapInstance||null;}
   function mapUsable(map){try{const style=map&&map.getStyle&&map.getStyle();return !!(style&&Array.isArray(style.layers)&&style.layers.length);}catch(e){return false;}}
+  function measuredPoints(){try{return typeof pgMeasuredSurfacePoints==='function'?pgMeasuredSurfacePoints():[];}catch(e){return [];}}
+  function opacity(){try{return typeof window.pgHeatmapOpacity==='function'?window.pgHeatmapOpacity():.58;}catch(e){return .58;}}
 
   function cleanupLegacyGridLayers(){
     const grid=$('grid'),shell=grid&&grid.closest('.gridShell'),stack=$('gradeMapStack');
@@ -45,31 +49,23 @@
   }
   window.pgEnsureGridLayers=cleanupLegacyGridLayers;
 
-  function screenDistance(a,b){if(!a||!b)return 0;const dx=Number(b.x)-Number(a.x),dy=Number(b.y)-Number(a.y);return Number.isFinite(dx)&&Number.isFinite(dy)?Math.hypot(dx,dy):0;}
-  function resolutionForTier(tier){const s=cfg(),longest=Math.max(s.width,s.length,1);return {tier,nx:Math.max(64,Math.round(tier*s.width/longest)),ny:Math.max(64,Math.round(tier*s.length/longest))};}
-  function zoomDesiredTier(){
-    const s=cfg(),map=mapInstance();let desired=MESH_TIERS[0];
-    try{
-      if(map&&typeof map.project==='function'&&typeof fitPointLatLon==='function'&&typeof gpsFit!=='undefined'&&gpsFit){
-        const ll00=fitPointLatLon(0,0),ll10=fitPointLatLon(s.width,0),ll01=fitPointLatLon(0,s.length),ll11=fitPointLatLon(s.width,s.length);
-        if(ll00&&ll10&&ll01&&ll11){
-          const p00=map.project([ll00.lon,ll00.lat]),p10=map.project([ll10.lon,ll10.lat]),p01=map.project([ll01.lon,ll01.lat]),p11=map.project([ll11.lon,ll11.lat]);
-          const widthPx=(screenDistance(p00,p10)+screenDistance(p01,p11))/2;
-          const lengthPx=(screenDistance(p00,p01)+screenDistance(p10,p11))/2;
-          const raw=Math.ceil(Math.max(widthPx,lengthPx)/TARGET_CELL_PX);
-          desired=MESH_TIERS.find(v=>v>=raw)||MESH_TIERS[MESH_TIERS.length-1];
-        }
-      }
-    }catch(e){}
-    return desired;
+  function resolutionForTier(tier){
+    const s=cfg(),longest=Math.max(s.width,s.length,1);
+    return {tier,nx:Math.max(64,Math.round(tier*s.width/longest)),ny:Math.max(64,Math.round(tier*s.length/longest))};
   }
-
-  function measuredPoints(){try{return typeof pgMeasuredSurfacePoints==='function'?pgMeasuredSurfacePoints():[];}catch(e){return [];}}
-  function fitSignature(){try{return gpsFit?[gpsFit.tx,gpsFit.ty,gpsFit.theta,gpsFit.originLat,gpsFit.originLon].map(v=>Number(v).toFixed(10)).join(','):'none';}catch(e){return 'none';}}
-  function dataKey(points){
+  function surfaceKey(points){
     const s=cfg();
-    return JSON.stringify({fit:fitSignature(),settings:{width:s.width,length:s.length,target:s.target,tol:s.tol},points:(points||[]).map(p=>[p.x,p.y,p.v])});
+    return JSON.stringify({settings:{width:s.width,length:s.length,target:s.target,tol:s.tol},points:(points||[]).map(p=>[p.x,p.y,p.v])});
   }
+  function imageCoordinates(){
+    try{
+      if(typeof fitPointLatLon!=='function'||typeof gpsFit==='undefined'||!gpsFit)return null;
+      const s=cfg(),tl=fitPointLatLon(0,s.length),tr=fitPointLatLon(s.width,s.length),br=fitPointLatLon(s.width,0),bl=fitPointLatLon(0,0);
+      if(!tl||!tr||!br||!bl)return null;
+      return [[tl.lon,tl.lat],[tr.lon,tr.lat],[br.lon,br.lat],[bl.lon,bl.lat]];
+    }catch(e){return null;}
+  }
+  function coordinateSignature(coords){return coords?JSON.stringify(coords.map(p=>p.map(v=>Number(v).toFixed(10)))):'';}
 
   function layerAnchor(map){
     try{
@@ -77,147 +73,209 @@
     }catch(e){}
     return undefined;
   }
-  function opacity(){try{return typeof window.pgHeatmapOpacity==='function'?window.pgHeatmapOpacity():.58;}catch(e){return .58;}}
 
   function removeSourceLayer(map,sourceId,layerId){
     try{if(layerId&&map.getLayer(layerId))map.removeLayer(layerId);}catch(e){}
     try{if(sourceId&&map.getSource(sourceId))map.removeSource(sourceId);}catch(e){}
   }
+
   function cleanupLegacyMapSurface(){
     const map=mapInstance();if(!map)return;
-    try{if(map.getLayer(LEGACY_EXACT_LAYER))map.removeLayer(LEGACY_EXACT_LAYER);}catch(e){}
-    try{if(map.getSource(LEGACY_EXACT_SOURCE))map.removeSource(LEGACY_EXACT_SOURCE);}catch(e){}
-    try{if(map.getSource(LEGACY_SOURCE))map.removeSource(LEGACY_SOURCE);}catch(e){}
+    try{
+      const style=map.getStyle&&map.getStyle();
+      const layers=Array.isArray(style?.layers)?style.layers.slice():[];
+      for(let i=layers.length-1;i>=0;i--){
+        const layer=layers[i],id=layer&&layer.id;
+        if(!id)continue;
+        if(id.startsWith(OLD_BAND_LAYER_PREFIX)||(id===RASTER_LAYER&&layer.source!==RASTER_SOURCE))try{map.removeLayer(id);}catch(e){}
+      }
+      const sources=style?.sources&&typeof style.sources==='object'?Object.keys(style.sources):[];
+      for(const id of sources){
+        if(id.startsWith(OLD_BAND_SOURCE_PREFIX)||id===LEGACY_SOURCE||id===LEGACY_MESH_SOURCE){
+          if(id!==RASTER_SOURCE)try{if(map.getSource(id))map.removeSource(id);}catch(e){}
+        }
+      }
+    }catch(e){}
   }
+
+  function setLayerVisible(visible){
+    const map=mapInstance();if(!map)return;
+    try{if(map.getLayer(RASTER_LAYER))map.setLayoutProperty(RASTER_LAYER,'visibility',visible?'visible':'none');}catch(e){}
+  }
+  function applyRasterOpacity(){
+    const map=mapInstance();if(!map)return false;
+    try{
+      if(!map.getLayer(RASTER_LAYER))return false;
+      map.setPaintProperty(RASTER_LAYER,'raster-opacity',opacity());
+      map.triggerRepaint();return true;
+    }catch(e){return false;}
+  }
+  window.pgApplyHeatmapOpacity=applyRasterOpacity;
+
   function cancelActiveJob(){
+    if(highTimer){clearTimeout(highTimer);highTimer=null;}
     if(worker){try{worker.terminate();}catch(e){}worker=null;}
     activeJob=null;
   }
-  function removeBands(){
-    const map=mapInstance();
-    if(map){
-      const slots=[...bandSlots.values()];
-      for(let i=slots.length-1;i>=0;i--)removeSourceLayer(map,slots[i].sourceId,slots[i].layerId);
-      try{map.triggerRepaint();}catch(e){}
-    }
-    bandSlots.clear();
-  }
-  function removeMapSurface(){
-    cancelActiveJob();removeBands();cleanupLegacyMapSurface();
-    currentDataKey='';desiredTier=BASE_TIER;completedTier=0;completedKey='';
-  }
-  function bandsAlive(){
-    const map=mapInstance();if(!map||!bandSlots.size)return false;
-    try{for(const slot of bandSlots.values())if(map.getSource(slot.sourceId)&&map.getLayer(slot.layerId))return true;}catch(e){}
-    return false;
+
+  function retireObjectUrl(url){
+    if(!url)return;
+    // ImageSource may still be finishing an asynchronous decode when updateImage
+    // returns, so keep the previous Blob URL alive briefly before releasing it.
+    setTimeout(()=>{try{URL.revokeObjectURL(url);}catch(e){}},12000);
   }
 
-  function installOrUpdateBand(msg,job){
-    const map=mapInstance();if(!mapUsable(map)||!msg?.data||!job)return false;
-    const index=Math.max(0,+msg.chunkIndex|0),sourceId=`${SOURCE_PREFIX}${index}`,layerId=`${LAYER_PREFIX}${index}`;
+  function removeRaster(){
+    cancelActiveJob();
+    const map=mapInstance();if(map)removeSourceLayer(map,RASTER_SOURCE,RASTER_LAYER);
+    if(currentObjectUrl){try{URL.revokeObjectURL(currentObjectUrl);}catch(e){}currentObjectUrl=null;}
+    currentSurfaceKey='';displayedKey='';displayedTier=0;displayedNx=0;displayedNy=0;lastCoordinateSignature='';
+  }
+
+  function rasterUrlFromBuffer(msg){
+    return new Promise((resolve,reject)=>{
+      try{
+        const canvas=document.createElement('canvas');canvas.width=msg.nx;canvas.height=msg.ny;
+        const ctx=canvas.getContext('2d',{alpha:true});if(!ctx)throw new Error('2D canvas unavailable');
+        const rgba=new Uint8ClampedArray(msg.buffer);
+        ctx.putImageData(new ImageData(rgba,msg.nx,msg.ny),0,0);
+        canvas.toBlob(blob=>{
+          if(!blob){reject(new Error('PNG conversion failed'));return;}
+          try{resolve(URL.createObjectURL(blob));}catch(e){reject(e);}
+        },'image/png');
+      }catch(e){reject(e);}
+    });
+  }
+
+  function installRasterUrl(url,key,tier,nx,ny){
+    const map=mapInstance(),coords=imageCoordinates();
+    if(!mapUsable(map)||!coords)return false;
+    cleanupLegacyMapSurface();
     try{
-      let source=map.getSource(sourceId);
-      if(!source){map.addSource(sourceId,{type:'geojson',data:msg.data});source=map.getSource(sourceId);}
-      else if(typeof source.setData==='function')source.setData(msg.data);
-      if(!map.getLayer(layerId))map.addLayer({id:layerId,type:'fill',source:sourceId,paint:{'fill-color':['get','color'],'fill-opacity':opacity(),'fill-antialias':false}},layerAnchor(map));
+      let source=map.getSource(RASTER_SOURCE);
+      if(!source){
+        map.addSource(RASTER_SOURCE,{type:'image',url,coordinates:coords});
+        source=map.getSource(RASTER_SOURCE);
+      }else if(typeof source.updateImage==='function')source.updateImage({url,coordinates:coords});
+      else return false;
+
+      if(!map.getLayer(RASTER_LAYER))map.addLayer({id:RASTER_LAYER,type:'raster',source:RASTER_SOURCE,paint:{'raster-opacity':opacity(),'raster-fade-duration':0}},layerAnchor(map));
       else{
-        try{map.setPaintProperty(layerId,'fill-opacity',opacity());}catch(e){}
-        const before=layerAnchor(map);if(before)try{map.moveLayer(layerId,before);}catch(e){}
+        map.setPaintProperty(RASTER_LAYER,'raster-opacity',opacity());
+        try{map.setPaintProperty(RASTER_LAYER,'raster-fade-duration',0);}catch(e){}
+        const before=layerAnchor(map);if(before)try{map.moveLayer(RASTER_LAYER,before);}catch(e){}
       }
-      bandSlots.set(index,{index,sourceId,layerId,tier:job.tier,key:job.key,cells:msg.cells||0,jobId:job.id});
-      job.seen.add(index);job.cells+=(msg.cells||0);
-      map.triggerRepaint();
-      return true;
+      map.setLayoutProperty(RASTER_LAYER,'visibility',heatmapEnabled()?'visible':'none');
+      const old=currentObjectUrl;currentObjectUrl=url;if(old&&old!==url)retireObjectUrl(old);
+      displayedKey=key;displayedTier=tier;displayedNx=nx;displayedNy=ny;lastCoordinateSignature=coordinateSignature(coords);
+      window.__padGradeHeatmapMesh={tier,nx,ny,cells:nx*ny,raster:true,atomicSwap:true,lowThenHigh:true};
+      map.triggerRepaint();return true;
     }catch(e){
-      console.warn('Pad Grade progressive heat-map band update failed',e);
+      console.warn('Pad Grade atomic heat-map image install failed',e);
       return false;
     }
   }
 
-  function nextTierAfter(tier,target){
-    if(tier<BASE_TIER)return BASE_TIER;
-    for(const v of MESH_TIERS)if(v>tier&&v<=target)return v;
-    return target>tier?target:null;
+  function ensureDisplayedRaster(){
+    const map=mapInstance(),coords=imageCoordinates();if(!mapUsable(map)||!coords||!currentObjectUrl)return false;
+    cleanupLegacyMapSurface();
+    try{
+      let source=map.getSource(RASTER_SOURCE);
+      if(!source){
+        map.addSource(RASTER_SOURCE,{type:'image',url:currentObjectUrl,coordinates:coords});
+        source=map.getSource(RASTER_SOURCE);
+      }
+      if(!map.getLayer(RASTER_LAYER))map.addLayer({id:RASTER_LAYER,type:'raster',source:RASTER_SOURCE,paint:{'raster-opacity':opacity(),'raster-fade-duration':0}},layerAnchor(map));
+      const sig=coordinateSignature(coords);
+      if(sig!==lastCoordinateSignature){
+        if(typeof source.setCoordinates==='function')source.setCoordinates(coords);
+        else if(typeof source.updateImage==='function')source.updateImage({url:currentObjectUrl,coordinates:coords});
+        lastCoordinateSignature=sig;
+      }
+      const before=layerAnchor(map);if(before)try{map.moveLayer(RASTER_LAYER,before);}catch(e){}
+      map.setPaintProperty(RASTER_LAYER,'raster-opacity',opacity());
+      map.setLayoutProperty(RASTER_LAYER,'visibility',heatmapEnabled()?'visible':'none');
+      return true;
+    }catch(e){return false;}
   }
 
-  function buildTier(tier,points,key){
-    if(activeJob||!heatmapEnabled())return;
+  function scheduleHigh(points,key){
+    if(highTimer||activeJob||displayedKey!==key||displayedTier>=HIGH_TIER)return;
+    highTimer=setTimeout(()=>{
+      highTimer=null;
+      if(currentSurfaceKey!==key||activeJob||displayedKey!==key||displayedTier>=HIGH_TIER)return;
+      buildRaster(HIGH_TIER,measuredPoints(),key);
+    },180);
+  }
+
+  function buildRaster(tier,points,key){
+    if(activeJob||!points||points.length<3)return;
     const map=mapInstance();if(!mapUsable(map))return;
     const r=resolutionForTier(tier),jobId=++jobSerial;
     let w;
-    try{w=new Worker(WORKER_URL);}catch(e){console.warn('Pad Grade heat-map worker could not start',e);return;}
-    const job={id:jobId,key,tier,resolution:r,seen:new Set(),cells:0};
-    worker=w;activeJob=job;
+    try{w=new Worker(WORKER_URL);}catch(e){console.warn('Pad Grade heat-map raster worker could not start',e);return;}
+    const job={id:jobId,key,tier,resolution:r};worker=w;activeJob=job;
 
     w.onmessage=event=>{
       const msg=event.data||{};
       if(!activeJob||activeJob.id!==jobId||msg.jobId!==jobId)return;
-      if(msg.type==='chunk'){
-        installOrUpdateBand(msg,job);
-        try{w.postMessage({type:'ack',jobId});}catch(e){}
-        return;
-      }
       if(msg.type==='empty'||msg.type==='error'){
-        if(msg.type==='error')console.warn('Pad Grade heat-map worker error',msg.message||'unknown');
-        cancelActiveJob();return;
+        if(msg.type==='error')console.warn('Pad Grade heat-map raster worker error',msg.message||'unknown');
+        try{w.terminate();}catch(e){}worker=null;activeJob=null;return;
       }
-      if(msg.type==='complete'){
-        try{w.terminate();}catch(e){}worker=null;activeJob=null;
-        // Remove any stale extra band slots only after every replacement band has
-        // arrived. Existing bands therefore remain visible throughout refinement.
-        for(const [index,slot] of [...bandSlots.entries()]){
-          if(job.seen.has(index))continue;
-          removeSourceLayer(mapInstance(),slot.sourceId,slot.layerId);bandSlots.delete(index);
-        }
-        completedTier=tier;completedKey=key;
-        window.__padGradeHeatmapMesh={tier,nx:r.nx,ny:r.ny,cells:msg.cells||job.cells,progressive:true,bands:job.seen.size,stableBandSlots:true};
-        const next=nextTierAfter(tier,desiredTier);
-        if(next&&next>tier)setTimeout(()=>buildTier(next,measuredPoints(),currentDataKey),80);
-      }
+      if(msg.type!=='complete')return;
+      try{w.terminate();}catch(e){}worker=null;
+      rasterUrlFromBuffer(msg).then(url=>{
+        if(!activeJob||activeJob.id!==jobId||currentSurfaceKey!==key){try{URL.revokeObjectURL(url);}catch(e){}return;}
+        const installed=installRasterUrl(url,key,tier,msg.nx,msg.ny);
+        if(!installed){try{URL.revokeObjectURL(url);}catch(e){}}
+        activeJob=null;
+        if(installed&&tier===LOW_TIER)scheduleHigh(measuredPoints(),key);
+      }).catch(error=>{
+        console.warn('Pad Grade heat-map raster conversion failed',error);
+        if(activeJob&&activeJob.id===jobId)activeJob=null;
+      });
     };
-    w.onerror=event=>{console.warn('Pad Grade heat-map worker crashed',event?.message||event);cancelActiveJob();};
+    w.onerror=event=>{
+      console.warn('Pad Grade heat-map raster worker crashed',event?.message||event);
+      try{w.terminate();}catch(e){}worker=null;if(activeJob&&activeJob.id===jobId)activeJob=null;
+    };
 
-    const chunkRows=Math.max(8,Math.ceil(r.ny/BAND_TARGET));
     try{
-      w.postMessage({type:'build',jobId,tier,nx:r.nx,ny:r.ny,chunkRows,settings:{width:cfg().width,length:cfg().length,target:cfg().target,tol:cfg().tol},points,fit:{originLat:gpsFit.originLat,originLon:gpsFit.originLon,theta:gpsFit.theta,tx:gpsFit.tx,ty:gpsFit.ty}});
-    }catch(e){console.warn('Pad Grade heat-map worker request failed',e);cancelActiveJob();}
+      w.postMessage({type:'build',jobId,tier,nx:r.nx,ny:r.ny,rowsPerSlice:tier===LOW_TIER?18:10,settings:{width:cfg().width,length:cfg().length,target:cfg().target,tol:cfg().tol},points});
+    }catch(e){
+      console.warn('Pad Grade heat-map raster request failed',e);
+      try{w.terminate();}catch(ignore){}worker=null;activeJob=null;
+    }
   }
 
   function syncSurface(){
     cleanupLegacyGridLayers();
-    if(!heatmapEnabled()){removeMapSurface();return;}
     const map=mapInstance();if(!mapUsable(map))return;
     cleanupLegacyMapSurface();
-    if(typeof gpsFit==='undefined'||!gpsFit){removeMapSurface();return;}
-    const points=measuredPoints();if(points.length<3){removeMapSurface();return;}
 
-    if(bandSlots.size&&!bandsAlive()){
-      bandSlots.clear();completedTier=0;completedKey='';
+    if(!heatmapEnabled()){
+      setLayerVisible(false);
+      return;
     }
+    setLayerVisible(true);
+    if(typeof gpsFit==='undefined'||!gpsFit){removeRaster();return;}
+    const points=measuredPoints();if(points.length<3){removeRaster();return;}
 
-    const key=dataKey(points),zoomTier=zoomDesiredTier();
-    if(key!==currentDataKey){
-      cancelActiveJob();
-      currentDataKey=key;
-      desiredTier=Math.max(zoomTier,completedTier||BASE_TIER);
-      // Keep the old stable bands on screen and replace them in-place. If no
-      // surface exists yet, first paint the fast 304-tier baseline progressively.
-      buildTier(completedTier||BASE_TIER,points,key);
+    const key=surfaceKey(points);
+    if(key!==currentSurfaceKey){
+      // A real data/settings change is the ONLY reason to leave a completed high
+      // resolution result. Keep the old image visible until the complete new low
+      // resolution raster is ready, then atomically swap low -> high.
+      cancelActiveJob();currentSurfaceKey=key;
+      buildRaster(LOW_TIER,points,key);
       return;
     }
 
-    desiredTier=Math.max(desiredTier,zoomTier,completedTier||BASE_TIER);
-    if(activeJob)return;
-    if(completedKey!==key||!completedTier){buildTier(completedTier||BASE_TIER,points,key);return;}
-    if(completedTier>=desiredTier)return;
-    const next=nextTierAfter(completedTier,desiredTier);if(next)buildTier(next,points,key);
-  }
-
-  function scheduleResolutionRefresh(){clearTimeout(resolutionTimer);resolutionTimer=setTimeout(syncSurface,140);}
-  function installResolutionHooks(){
-    const map=mapInstance();if(!map||map.__padGradeAdaptiveHeatmapHooksV072)return;
-    map.__padGradeAdaptiveHeatmapHooksV072=true;
-    map.on('zoomend',scheduleResolutionRefresh);map.on('resize',scheduleResolutionRefresh);
+    ensureDisplayedRaster();
+    if(activeJob||highTimer)return;
+    if(displayedKey!==key||!displayedTier){buildRaster(LOW_TIER,points,key);return;}
+    if(displayedTier<HIGH_TIER)scheduleHigh(points,key);
   }
 
   function laserLatLon(){if(!padGradeLaser||typeof gpsFit==='undefined'||!gpsFit||typeof fitPointLatLon!=='function')return null;return fitPointLatLon(+padGradeLaser.xFt,+padGradeLaser.yFt);}
@@ -273,14 +331,18 @@
   function loadNotesModule(){if(document.querySelector('script[data-padgrade-v064]'))return;const script=document.createElement('script');script.src='v064-dev.js?v=20260825-1';script.setAttribute('data-padgrade-v064','1');document.body.appendChild(script);}
 
   function boot(){
-    document.title='Pad Grade Mapper v0.7.2 DEV';cleanupLegacyGridLayers();installMapControls();relabelToggle();installMapClick();installResolutionHooks();loadNotesModule();
+    document.title='Pad Grade Mapper v0.7.3 DEV';cleanupLegacyGridLayers();installMapControls();relabelToggle();installMapClick();loadNotesModule();
     const toggle=$('heatmapToggle');if(toggle)toggle.addEventListener('change',syncSurface);
-    window.addEventListener('padgrade-map-created',()=>setTimeout(()=>{bandSlots.clear();completedTier=0;completedKey='';installMapClick();installResolutionHooks();syncSurface();syncLaserMarker();},0));
-    syncTimer=setInterval(()=>{installMapClick();installResolutionHooks();syncSurface();syncLaserMarker();},900);
-    window.addEventListener('beforeunload',()=>{if(syncTimer)clearInterval(syncTimer);if(resolutionTimer)clearTimeout(resolutionTimer);cancelActiveJob();removeBands();if(laserMapMarker)try{laserMapMarker.remove();}catch(e){}},{once:true});
-    window.__padGradeHeatmapLocation='gps-map-progressive-stable-band-slots';
-    window.__padGradeHeatmapResolution='progressive-adaptive-528-888-long-axis-about-3x-v070-cells';
-    window.__padGradeHeatmapThreading='web-worker-banded-backpressure-stable-band-replacement-no-downgrade';
+    window.addEventListener('padgrade-map-created',()=>setTimeout(()=>{installMapClick();syncSurface();syncLaserMarker();},0));
+    syncTimer=setInterval(()=>{installMapClick();syncSurface();syncLaserMarker();},900);
+    window.addEventListener('beforeunload',()=>{
+      if(syncTimer)clearInterval(syncTimer);cancelActiveJob();
+      if(currentObjectUrl)try{URL.revokeObjectURL(currentObjectUrl);}catch(e){}
+      if(laserMapMarker)try{laserMapMarker.remove();}catch(e){}
+    },{once:true});
+    window.__padGradeHeatmapLocation='gps-map-single-georeferenced-raster';
+    window.__padGradeHeatmapResolution='whole-raster-low-304-then-high-888-no-zoom-recalc';
+    window.__padGradeHeatmapThreading='web-worker-whole-raster-lazy-low-then-high-atomic-swap-no-band-repaint';
     window.__padGradeLaserPlacementLocation='gps-map';
     syncSurface();
   }
