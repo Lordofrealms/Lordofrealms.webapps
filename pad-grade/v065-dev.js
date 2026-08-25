@@ -61,3 +61,19 @@ try{
   script.onerror=()=>console.error('Pad Grade v0.6.6 heatmap UI module failed to load');
   document.body.appendChild(script);
 })();
+
+/* v0.6.9 is loaded after the parser finishes so all earlier dev modules have
+ * created their controls before Advanced Settings reorganizes them. */
+(function queuePadGrade069(){
+  const load=()=>{
+    if(document.querySelector('script[data-padgrade-v069]'))return;
+    const script=document.createElement('script');
+    script.src='v069-dev.js?v=20260825-1';
+    script.async=false;
+    script.dataset.padgradeV069='1';
+    script.onerror=()=>console.error('Pad Grade v0.6.9 UI module failed to load');
+    document.body.appendChild(script);
+  };
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',load,{once:true});
+  else setTimeout(load,0);
+})();
