@@ -1,13 +1,9 @@
-/* Pad Grade v0.7.1 DEV — late durable settings recovery owner.
+/* Pad Grade v0.7.2 DEV — late durable settings recovery owner.
  *
- * v0.7.0 correctly protected and indexed the durable settings file, but its
- * folder-change handler was installed before the legacy project-manager stack.
- * v040.js/v040-sync.js then replaced that global callback at window.load, so a
- * clean-install folder selection never reached the settings recovery code.
- *
- * This module waits until durable-project sync is fully installed, then becomes
- * the FINAL folder-change owner. It restores settings + last project first and
- * only allows normal reconciliation to run when no settings snapshot exists.
+ * The folder-change handler is installed after the legacy project-manager stack,
+ * so it cannot be overwritten. Recovery is settings-first: before native writes
+ * are re-enabled we resolve the saved last project by canonical filename, embedded
+ * project id, or saved project name. Only then do we reload into recovered state.
  */
 (function installPadGrade071RecoveryOwner(){
   'use strict';
@@ -55,6 +51,25 @@
     }catch(e){return false;}
   }
 
+  function findDurableProject(id,name){
+    if(!id)return null;
+    let project=null;
+    try{project=parse(native.readProjectFile(`${id}.padgrade`),null);}catch(e){project=null;}
+    if(project&&project.id===id&&project.settings)return project;
+
+    let names=[];
+    try{if(typeof native.listProjectFiles==='function')names=parse(native.listProjectFiles(),[])||[];}catch(e){names=[];}
+    let nameMatch=null;
+    for(const filename of names){
+      if(typeof filename!=='string')continue;
+      let candidate=null;try{candidate=parse(native.readProjectFile(filename),null);}catch(e){candidate=null;}
+      if(!candidate||!candidate.settings)continue;
+      if(candidate.id===id)return candidate;
+      if(!nameMatch&&name&&candidate.settings.name===name)nameMatch=candidate;
+    }
+    return nameMatch;
+  }
+
   function saveRecoveryHandoff(settings,recoveredProject){
     try{sessionStorage.setItem(SESSION_KEY,JSON.stringify({settings,recoveredProject:!!recoveredProject}));}catch(e){}
   }
@@ -71,7 +86,6 @@
     try{raw=native.readProjectFile(SETTINGS_FILE);}catch(e){raw=null;}
     const settings=parse(raw,null);
     if(!settings||settings.type!=='settings'){
-      // No settings snapshot means this is an ordinary project-folder selection.
       fallThroughToProjectSync();
       return;
     }
@@ -81,24 +95,20 @@
     }catch(e){}
 
     let recoveredProject=false;
-    const id=settings.lastProjectId||null;
-    if(id){
-      let project=null;
-      try{project=parse(native.readProjectFile(`${id}.padgrade`),null);}catch(e){project=null;}
-      if(project&&project.id===id&&project.settings)recoveredProject=putRecoveredProject(project,settings);
+    const desired=settings.lastProjectId||null;
+    if(desired){
+      const project=findDurableProject(desired,settings.lastProjectName||null);
+      if(project)recoveredProject=putRecoveredProject(project,settings);
     }
 
-    // v0.7.0 already owns the post-reload application of portable settings
-    // (units, route, heatmap state/transparency, and lastSettings fallback).
-    // Reuse that handoff rather than creating another competing UI restorer.
     saveRecoveryHandoff(settings,recoveredProject);
     completeNativeRecovery();
     recovering=false;
     if(pollTimer){clearTimeout(pollTimer);pollTimer=null;}
 
-    // Reload BEFORE v040-sync reconciles. On the fresh page the recovered active
-    // project/appPrefs exist before the project manager initializes, and normal
-    // connected-folder reconciliation then runs from a warm native folder cache.
+    // Reload before the legacy reconciler is allowed to select/create another
+    // active project. The recovered ACTIVE_KEY is therefore present when v040
+    // initializes on the fresh page.
     setTimeout(()=>{try{location.reload();}catch(e){}},40);
   }
 
