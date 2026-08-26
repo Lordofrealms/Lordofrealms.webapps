@@ -1,15 +1,16 @@
-/* Pad Grade v0.7.8 DEV — locality-first surface interpolation with local rectangle promotion.
+/* Pad Grade v0.7.9 DEV — locality-first IDW² with edge-locked local elements.
  *
- * Every interpolated sample first chooses the containing measured-point triangle by:
- *   1) nearest farthest vertex to the sample,
+ * Support selection remains unchanged from v0.7.8:
+ *   1) nearest farthest triangle vertex,
  *   2) then smallest total sample-to-vertex distance,
- *   3) then smallest triangle area.
- * If a winning triangle is three grid corners of a rectangle and the fourth corner
- * is measured, that local support is promoted to one 4-point IDW² calculation.
- * Complete-score ties are averaged after identical promoted supports are deduplicated.
- * Exact measured locations return that measured reading directly.
+ *   3) then smallest triangle area,
+ *   4) promote a winning 3-corner grid triangle to its measured 4th rectangle corner.
  *
- * Pure module: safe in Window, Web Worker, and Node validation contexts.
+ * Interpolation is now value-continuous at element edges. Within the nearest 1/6
+ * of an element's depth/altitude, the ordinary 3- or 4-point IDW² result is
+ * smoothly corrected so the boundary itself is exactly the 2-point IDW² result
+ * of that edge's measured endpoints. The correction fades to zero at 1/6 depth,
+ * leaving the element interior as ordinary local IDW².
  */
 (function(root,factory){
   'use strict';
@@ -24,6 +25,7 @@
   const SCORE_REL_TOL=1e-9;
   const SCORE_ABS_TOL=1e-10;
   const EXACT_D2=1e-12;
+  const EDGE_BAND_FRACTION=1/6;
 
   function area2(a,b,c){
     return Math.abs((b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x));
@@ -76,7 +78,6 @@
   }
 
   function betterMetric(a,b){return a<b&&!metricTied(a,b);}
-
   function gridKey(r,c){return `${r},${c}`;}
 
   function gridPointMap(points){
@@ -109,6 +110,102 @@
   }
 
   function supportKey(support){return support.map(p=>p.index).sort((a,b)=>a-b).join(',');}
+
+  function reverseSmoothstep(fraction){
+    if(!(fraction>0))return 1;
+    if(fraction>=EDGE_BAND_FRACTION)return 0;
+    const q=Math.max(0,Math.min(1,fraction/EDGE_BAND_FRACTION));
+    const smooth=q*q*(3-2*q);
+    return 1-smooth;
+  }
+
+  function lineDistance(x,y,a,b){
+    const dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy);
+    if(len<=AREA_EPS)return Infinity;
+    return Math.abs(dx*(y-a.y)-dy*(x-a.x))/len;
+  }
+
+  function projectToSegment(x,y,a,b){
+    const dx=b.x-a.x,dy=b.y-a.y,len2=dx*dx+dy*dy;
+    if(len2<=AREA_EPS)return {x:a.x,y:a.y};
+    let t=((x-a.x)*dx+(y-a.y)*dy)/len2;
+    t=Math.max(0,Math.min(1,t));
+    return {x:a.x+t*dx,y:a.y+t*dy};
+  }
+
+  function edgeCorrection(x,y,support,a,b,opposite){
+    const altitude=lineDistance(opposite.x,opposite.y,a,b);
+    if(!Number.isFinite(altitude)||altitude<=AREA_EPS)return 0;
+    const fraction=lineDistance(x,y,a,b)/altitude;
+    const taper=reverseSmoothstep(fraction);
+    if(!(taper>0))return 0;
+    const edgePoint=projectToSegment(x,y,a,b);
+    const required=idw2Points(edgePoint.x,edgePoint.y,[a,b]);
+    const uncorrected=idw2Points(edgePoint.x,edgePoint.y,support);
+    if(!Number.isFinite(required)||!Number.isFinite(uncorrected))return 0;
+    return taper*(required-uncorrected);
+  }
+
+  function rectangleEdges(support){
+    if(!support||support.length!==4||support.some(p=>!Number.isInteger(p.r)||!Number.isInteger(p.c)))return null;
+    const rows=[...new Set(support.map(p=>p.r))].sort((a,b)=>a-b);
+    const cols=[...new Set(support.map(p=>p.c))].sort((a,b)=>a-b);
+    if(rows.length!==2||cols.length!==2)return null;
+    const map=new Map(support.map(p=>[gridKey(p.r,p.c),p]));
+    const p00=map.get(gridKey(rows[0],cols[0])),p01=map.get(gridKey(rows[0],cols[1]));
+    const p10=map.get(gridKey(rows[1],cols[0])),p11=map.get(gridKey(rows[1],cols[1]));
+    if(!p00||!p01||!p10||!p11)return null;
+    return [
+      [p00,p01,p10],
+      [p10,p11,p00],
+      [p00,p10,p01],
+      [p01,p11,p00]
+    ];
+  }
+
+  function barycentric(x,y,a,b,c){
+    const den=(b.y-c.y)*(a.x-c.x)+(c.x-b.x)*(a.y-c.y);
+    if(Math.abs(den)<=AREA_EPS)return null;
+    const wa=((b.y-c.y)*(x-c.x)+(c.x-b.x)*(y-c.y))/den;
+    const wb=((c.y-a.y)*(x-c.x)+(a.x-c.x)*(y-c.y))/den;
+    const wc=1-wa-wb;
+    return [wa,wb,wc];
+  }
+
+  function triangleEdgeCorrection(x,y,support,a,b,wa,wb,wOpp){
+    const taper=reverseSmoothstep(Math.max(0,wOpp));
+    if(!(taper>0))return 0;
+    const sum=wa+wb;
+    if(!(sum>AREA_EPS))return 0;
+    const ta=Math.max(0,wa)/sum,tb=Math.max(0,wb)/sum;
+    const edgePoint={x:ta*a.x+tb*b.x,y:ta*a.y+tb*b.y};
+    const required=idw2Points(edgePoint.x,edgePoint.y,[a,b]);
+    const uncorrected=idw2Points(edgePoint.x,edgePoint.y,support);
+    if(!Number.isFinite(required)||!Number.isFinite(uncorrected))return 0;
+    return taper*(required-uncorrected);
+  }
+
+  function edgeLockedSupportValue(x,y,support,type){
+    const base=idw2Points(x,y,support);
+    if(!Number.isFinite(base))return base;
+    let correction=0;
+    if(type==='rectangle4'){
+      const edges=rectangleEdges(support);
+      if(!edges)return base;
+      for(const [a,b,opposite] of edges)correction+=edgeCorrection(x,y,support,a,b,opposite);
+      return base+correction;
+    }
+    if(type==='triangle3'&&support.length===3){
+      const [a,b,c]=support,weights=barycentric(x,y,a,b,c);
+      if(!weights)return base;
+      const [wa,wb,wc]=weights;
+      correction+=triangleEdgeCorrection(x,y,support,a,b,wa,wb,wc);
+      correction+=triangleEdgeCorrection(x,y,support,b,c,wb,wc,wa);
+      correction+=triangleEdgeCorrection(x,y,support,c,a,wc,wa,wb);
+      return base+correction;
+    }
+    return base;
+  }
 
   function interpolateNormalized(x,y,points,includeTriangles=false){
     if(points.length<3)return null;
@@ -172,7 +269,7 @@
           const refs=includeTriangles?[]:null;
           const types=[];
           for(const entry of uniqueSupports.values()){
-            const v=idw2Points(x,y,entry.support);if(!Number.isFinite(v))continue;
+            const v=edgeLockedSupportValue(x,y,entry.support,entry.type);if(!Number.isFinite(v))continue;
             sumValue+=v;count++;types.push(entry.type);
             if(refs)refs.push(entry.support.map(p=>p.index));
           }
@@ -246,7 +343,8 @@
   }
 
   return {
-    AREA_EPS,CONTAIN_EPS,SCORE_REL_TOL,area2,metricTied,pointInTriangle,idw2Points,idw2Triangle,
+    AREA_EPS,CONTAIN_EPS,SCORE_REL_TOL,EDGE_BAND_FRACTION,area2,metricTied,pointInTriangle,
+    idw2Points,idw2Triangle,reverseSmoothstep,lineDistance,projectToSegment,barycentric,edgeLockedSupportValue,
     promoteTriangleToRectangle,interpolateAt,convexHull,pointInConvex,rasterize
   };
 });
