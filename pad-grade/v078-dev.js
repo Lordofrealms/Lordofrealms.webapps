@@ -1,35 +1,35 @@
-/* Pad Grade v0.7.8 DEV — local rectangle promotion activation layer.
+/* Pad Grade v0.7.9 DEV — edge-locked local surface activation layer.
  *
  * v0.7.6 owns the probe UI and shared surface consumers. This layer redirects
- * the heat-map worker to the v0.7.8 surface model and marks the active version
- * after surface-local-v078.js has replaced the shared interpolation math.
+ * the heat-map worker to the edge-locked local surface and marks v0.7.9 active.
  */
-(function installPadGrade078(){
+(function installPadGrade079(){
   'use strict';
 
-  const VERSION='v0.7.8 DEV';
-  const MODEL='locality-triangle-then-local-grid-rectangle-promotion-idw2-full-score-tie-average';
-  const WORKER_MATCH=/heatmap-raster-worker-v0(?:73|76|77)\.js(?:\?|$)/;
-  const WORKER_NEW='heatmap-raster-worker-v078.js?v=20260826-2';
+  const VERSION='v0.7.9 DEV';
+  const MODEL='locality-triangle-local-rectangle-idw2-edge-locked-one-sixth-depth';
+  const WORKER_MATCH=/heatmap-raster-worker-v0(?:73|76|77|78)\.js(?:\?|$)/;
+  const WORKER_NEW='heatmap-raster-worker-v078.js?v=20260826-3';
 
   function installWorkerRedirect(){
     const NativeWorker=window.Worker;
-    if(typeof NativeWorker!=='function'||NativeWorker.__padGrade078Redirect)return;
-    function PadGradeWorker078(url,options){
+    if(typeof NativeWorker!=='function'||NativeWorker.__padGrade079Redirect)return;
+    function PadGradeWorker079(url,options){
       let next=url;
       try{if(WORKER_MATCH.test(String(url)))next=WORKER_NEW;}catch(e){}
       return new NativeWorker(next,options);
     }
-    PadGradeWorker078.prototype=NativeWorker.prototype;
-    try{Object.setPrototypeOf(PadGradeWorker078,NativeWorker);}catch(e){}
-    PadGradeWorker078.__padGrade078Redirect=true;
-    PadGradeWorker078.__padGrade078Previous=NativeWorker;
-    window.Worker=PadGradeWorker078;
+    PadGradeWorker079.prototype=NativeWorker.prototype;
+    try{Object.setPrototypeOf(PadGradeWorker079,NativeWorker);}catch(e){}
+    PadGradeWorker079.__padGrade079Redirect=true;
+    PadGradeWorker079.__padGrade079Previous=NativeWorker;
+    window.Worker=PadGradeWorker079;
   }
 
   function markActive(){
     window.__padGradeSurfaceModel=MODEL;
-    window.__padGradeDevVersion078=VERSION;
+    window.__padGradeSurfaceLocalVersion='0.7.9';
+    window.__padGradeDevVersion079=VERSION;
     document.title=`Pad Grade Mapper ${VERSION}`;
   }
 
