@@ -105,27 +105,38 @@ try{
   else setTimeout(load069,0);
 })();
 
-/* v0.7.6 installs the authoritative smallest-containing-triangle surface model
- * and interactive map probe. The shared math module loads first so both the main
- * thread and the v0.7.6 raster worker use the same interpolation rules.
+/* v0.7.7 keeps the v0.7.6 probe UI but replaces the shared interpolation math
+ * with locality-first triangle selection. Load the new shared math first, then the
+ * proven probe/surface consumer, then the v0.7.7 worker/version activation layer.
  */
-(function loadPadGrade076(){
-  const loadApp=()=>{
-    if(document.querySelector('script[data-padgrade-v076]'))return;
+(function loadPadGrade077(){
+  const loadActivation=()=>{
+    if(document.querySelector('script[data-padgrade-v077]'))return;
+    const script=document.createElement('script');
+    script.src='v077-dev.js?v=20260826-1';
+    script.async=false;
+    script.dataset.padgradeV077='1';
+    script.onerror=()=>console.error('Pad Grade v0.7.7 locality activation module failed to load');
+    document.body.appendChild(script);
+  };
+  const loadProbe=()=>{
+    if(document.querySelector('script[data-padgrade-v076]')){loadActivation();return;}
     const script=document.createElement('script');
     script.src='v076-dev.js?v=20260826-1';
     script.async=false;
     script.dataset.padgradeV076='1';
-    script.onerror=()=>console.error('Pad Grade v0.7.6 local surface/probe module failed to load');
+    script.onload=loadActivation;
+    script.onerror=()=>{console.error('Pad Grade v0.7.6 probe module failed to load');loadActivation();};
     document.body.appendChild(script);
   };
-  if(window.PadGradeLocalSurface){loadApp();return;}
-  if(document.querySelector('script[data-padgrade-surface-v076]'))return;
+  if(window.PadGradeLocalSurface&&window.__padGradeSurfaceLocalVersion==='0.7.7'){loadProbe();return;}
+  const old=document.querySelector('script[data-padgrade-surface-v077]');
+  if(old)return;
   const shared=document.createElement('script');
-  shared.src='surface-local-v076.js?v=20260826-1';
+  shared.src='surface-local-v077.js?v=20260826-1';
   shared.async=false;
-  shared.dataset.padgradeSurfaceV076='1';
-  shared.onload=loadApp;
-  shared.onerror=()=>console.error('Pad Grade v0.7.6 shared surface module failed to load');
+  shared.dataset.padgradeSurfaceV077='1';
+  shared.onload=()=>{window.__padGradeSurfaceLocalVersion='0.7.7';loadProbe();};
+  shared.onerror=()=>console.error('Pad Grade v0.7.7 shared surface module failed to load');
   document.body.appendChild(shared);
 })();
