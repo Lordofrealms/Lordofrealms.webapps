@@ -31,6 +31,9 @@
   window.__padGradeDevVersion077=VERSION;
 
   const setTitle=()=>{document.title=`Pad Grade Mapper ${VERSION}`;};
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',setTitle,{once:true});
-  else setTitle();
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',()=>{setTimeout(setTitle,60);setTimeout(setTitle,500);},{once:true});
+  }else{
+    setTitle();setTimeout(setTitle,100);
+  }
 })();
