@@ -104,3 +104,28 @@ try{
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',load069,{once:true});
   else setTimeout(load069,0);
 })();
+
+/* v0.7.6 installs the authoritative smallest-containing-triangle surface model
+ * and interactive map probe. The shared math module loads first so both the main
+ * thread and the v0.7.6 raster worker use the same interpolation rules.
+ */
+(function loadPadGrade076(){
+  const loadApp=()=>{
+    if(document.querySelector('script[data-padgrade-v076]'))return;
+    const script=document.createElement('script');
+    script.src='v076-dev.js?v=20260826-1';
+    script.async=false;
+    script.dataset.padgradeV076='1';
+    script.onerror=()=>console.error('Pad Grade v0.7.6 local surface/probe module failed to load');
+    document.body.appendChild(script);
+  };
+  if(window.PadGradeLocalSurface){loadApp();return;}
+  if(document.querySelector('script[data-padgrade-surface-v076]'))return;
+  const shared=document.createElement('script');
+  shared.src='surface-local-v076.js?v=20260826-1';
+  shared.async=false;
+  shared.dataset.padgradeSurfaceV076='1';
+  shared.onload=loadApp;
+  shared.onerror=()=>console.error('Pad Grade v0.7.6 shared surface module failed to load');
+  document.body.appendChild(shared);
+})();
