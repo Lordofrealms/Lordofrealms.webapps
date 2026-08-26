@@ -1,12 +1,13 @@
-/* Pad Grade v0.7.8 DEV — locality-first IDW² raster worker with local 4-corner promotion.
+/* Pad Grade v0.7.9 DEV — locality-first IDW² raster worker with 1/6-depth edge locking.
  *
  * Each raster sample first chooses the most-local containing measured triangle.
  * If those three points are grid-corners of a rectangle whose fourth corner is
- * measured, the sample uses all four local corners in one IDW² calculation.
- * True complete-score ties are averaged after duplicate supports are removed.
+ * measured, the sample uses that local four-corner support. The shared surface
+ * evaluator then edge-locks the nearest 1/6 of each element so a shared boundary
+ * is exactly the 2-point IDW² result of its measured endpoints.
  */
 'use strict';
-importScripts('surface-local-v078.js?v=20260826-1');
+importScripts('surface-local-v078.js?v=20260826-2');
 
 const GRADE=[79,143,58];
 const CUT_NEAR=[247,196,92];
