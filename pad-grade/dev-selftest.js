@@ -118,4 +118,35 @@ for(let i=1;i<route.length;i++){
   if(db+1e-9<da)assert.ok(Math.abs(b.c-2)<=1,'interior reset must return near the laser before second outward leg');
 }
 
+// v0.7.7 locality selector: a long skinny lattice triangle may have the same
+// area as the obvious local triangle, but it must lose on farthest-vertex distance.
+const localSurface=require(path.join(root,'surface-local-v077.js'));
+const localityPoints=[
+  {x:0,y:0,v:10,label:'E5'},
+  {x:1,y:0,v:20,label:'E6'},
+  {x:0,y:1,v:30,label:'F5'},
+  {x:4,y:1,v:90,label:'F9'}
+];
+let localResult=localSurface.interpolateAt(.2,.2,localityPoints,true);
+assert.ok(localResult&&localResult.tieCount===1,'local point should have one winning triangle');
+assert.deepStrictEqual(localResult.triangles[0],[0,1,2],'local point must use E5/E6/F5, not distant F9');
+
+// Exact center of a four-point square remains the intended genuine tie case:
+// all four equally-local three-corner interpretations are averaged.
+const squarePoints=[
+  {x:0,y:0,v:10,label:'SW'},
+  {x:1,y:0,v:20,label:'SE'},
+  {x:1,y:1,v:30,label:'NE'},
+  {x:0,y:1,v:40,label:'NW'}
+];
+localResult=localSurface.interpolateAt(.5,.5,squarePoints,true);
+assert.ok(localResult&&localResult.tieCount===4,'square center should retain four genuine locality ties');
+near(localResult.value,25,1e-9,'square-center tie average');
+
+// A probe exactly on a measured point should report that measured point as the
+// sole contributor instead of expanding its reference list through zero-weight ties.
+localResult=localSurface.interpolateAt(0,0,squarePoints,true);
+assert.ok(localResult&&localResult.exact,'measured point should be exact');
+assert.deepStrictEqual(localResult.triangles,[[0]],'exact point should list only its contributing measurement');
+
 console.log('Pad Grade dev self-test PASS');
