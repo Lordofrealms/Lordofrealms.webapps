@@ -8,8 +8,9 @@
   'use strict';
 
   const VERSION='v0.7.8 DEV';
+  const MODEL='locality-triangle-then-local-grid-rectangle-promotion-idw2-full-score-tie-average';
   const WORKER_MATCH=/heatmap-raster-worker-v0(?:73|76|77)\.js(?:\?|$)/;
-  const WORKER_NEW='heatmap-raster-worker-v078.js?v=20260826-1';
+  const WORKER_NEW='heatmap-raster-worker-v078.js?v=20260826-2';
 
   function installWorkerRedirect(){
     const NativeWorker=window.Worker;
@@ -26,14 +27,17 @@
     window.Worker=PadGradeWorker078;
   }
 
-  installWorkerRedirect();
-  window.__padGradeSurfaceModel='locality-triangle-then-local-grid-rectangle-promotion-idw2-full-score-tie-average';
-  window.__padGradeDevVersion078=VERSION;
+  function markActive(){
+    window.__padGradeSurfaceModel=MODEL;
+    window.__padGradeDevVersion078=VERSION;
+    document.title=`Pad Grade Mapper ${VERSION}`;
+  }
 
-  const setTitle=()=>{document.title=`Pad Grade Mapper ${VERSION}`;};
+  installWorkerRedirect();
+  markActive();
   if(document.readyState==='loading'){
-    document.addEventListener('DOMContentLoaded',()=>{setTimeout(setTitle,60);setTimeout(setTitle,500);},{once:true});
+    document.addEventListener('DOMContentLoaded',()=>{setTimeout(markActive,60);setTimeout(markActive,500);},{once:true});
   }else{
-    setTitle();setTimeout(setTitle,100);
+    setTimeout(markActive,100);
   }
 })();
