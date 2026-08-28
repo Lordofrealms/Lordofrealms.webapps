@@ -10,11 +10,11 @@ android {
         applicationId = "com.lordofrealms.precisionlocation"
         minSdk = 31
         targetSdk = 36
-        versionCode = 11
-        versionName = "0.4.5"
+        versionCode = 12
+        versionName = "0.4.6"
 
         ndk {
-            abiFilters += listOf("arm64-v8a")
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
 
         externalNativeBuild {
