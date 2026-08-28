@@ -10,11 +10,11 @@ on:
       ref:
         description: 'Precision Location branch/tag to release'
         required: false
-        default: 'precision-location-v0.4.5'
+        default: 'precision-location-v0.4.6'
       version:
         description: 'Release version'
         required: false
-        default: '0.4.5'
+        default: '0.4.6'
 
 permissions:
   contents: write
@@ -23,8 +23,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     env:
-      RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || 'precision-location-v0.4.5' }}
-      VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '0.4.5' }}
+      RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || 'precision-location-v0.4.6' }}
+      VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '0.4.6' }}
     steps:
       - name: Check out Precision Location source
         uses: actions/checkout@v4
@@ -53,6 +53,11 @@ jobs:
           cp precision-location-android/app/build/outputs/apk/debug/app-debug.apk "precision-location-v${VERSION}.apk"
           sha256sum "precision-location-v${VERSION}.apk" > "precision-location-v${VERSION}.apk.sha256"
 
+      - name: Verify ARM ABI compatibility
+        run: |
+          unzip -l "precision-location-v${VERSION}.apk" | grep 'lib/arm64-v8a/libprecision_location.so'
+          unzip -l "precision-location-v${VERSION}.apk" | grep 'lib/armeabi-v7a/libprecision_location.so'
+
       - name: Verify launcher artwork is packaged
         run: |
           unzip -l "precision-location-v${VERSION}.apk" | grep 'res/drawable-nodpi-v4/ic_launcher_foreground.webp'
@@ -74,6 +79,7 @@ jobs:
           cat > release-notes.md <<EOF
           Precision Location v${VERSION}
 
+          - Stable compatibility release: adds 32-bit ARM (armeabi-v7a) support while retaining 64-bit ARM (arm64-v8a) support; positioning functionality is unchanged from v0.4.5.
           - Whitelists both approved Pad Grade Android clients: com.lordofrealms.padgrade and com.lordofrealms.padgrade.dev.
           - Keeps the Precision Location external Messenger interface restricted to those two package IDs.
           - Uses the existing approved Android launcher/adaptive icon artwork without regeneration or restyling.
