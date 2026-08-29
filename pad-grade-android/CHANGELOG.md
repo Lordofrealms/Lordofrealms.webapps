@@ -6,6 +6,16 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v0.8.2 — development build
+
+### Changed
+- Packaged the reviewed comparison corrections: Compare is beside Clear Readings, project dimensions must match, corresponding GPS corners must be within 20 ft, and the comparison grid uses point-by-point midpoint geometry from the two fitted rectangular project grids.
+- Bumped the DEV Android package to version 0.8.2 / versionCode 49.
+- Release descriptions continue to use the short Pad Grade functionality header followed by the matching canonical changelog section.
+
+### Known issues
+- The comparison feature remains development-only pending field testing.
+
 ## v0.8.1 — development build
 
 ### Added
