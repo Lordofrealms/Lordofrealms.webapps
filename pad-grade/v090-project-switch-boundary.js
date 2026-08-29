@@ -10,6 +10,7 @@
 
   const ACTIVE_KEY='padGradeActiveProjectIdV5';
   const PROJECT_PREFIX='padGradeProjectV5:';
+  const SETTINGS_FILE='Pad-Grade-Settings.pgsettings';
   const EMPTY={type:'FeatureCollection',features:[]};
   let switching=false;
 
@@ -26,6 +27,8 @@
 
   function clearProjectOwnedMapState(){
     const map=window.__padGradeMapInstance||null;
+    // Preserve the MapLibre object, imagery sources/layers, map controls, live GPS
+    // marker, and the surrounding UI. Only project-owned overlays are cleared.
     for(const id of ['pad-grade-grid-points','pad-grade-grid-lines','pad-grade-pad-outline','pad-grade-route'])clearGeoJsonSource(map,id);
 
     if(map){
@@ -41,6 +44,8 @@
       try{map.triggerRepaint();}catch(e){}
     }
 
+    // Probe state is surface/project specific. Drive the existing controls so the
+    // probe module clears its private marker, popup, and navigation state too.
     try{document.getElementById('surfaceProbeClearBtn')?.click();}catch(e){}
     try{const probe=document.getElementById('surfaceProbeBtn');if(probe?.getAttribute('aria-pressed')==='true')probe.click();}catch(e){}
   }
@@ -129,6 +134,26 @@
     }catch(e){console.warn('Pad Grade in-place project apply failed',e);return false;}
   }
 
+  function persistLastProject(project){
+    try{
+      const native=window.PadGradeNative;
+      if(!native||typeof native.hasProjectFolder!=='function'||!native.hasProjectFolder())return;
+      if(typeof native.isProjectFolderIndexReady==='function'&&!native.isProjectFolderIndexReady())return;
+      if(typeof native.readProjectFile!=='function'||typeof native.writeProjectFile!=='function')return;
+      const settings=parse(native.readProjectFile(SETTINGS_FILE),null);
+      if(!settings||typeof settings!=='object'||settings.type!=='settings')return;
+      settings.lastProjectId=project.id;
+      settings.lastProjectName=project.settings?.name||settings.lastProjectName||'Pad';
+      settings.modifiedAt=new Date().toISOString();
+      native.writeProjectFile(SETTINGS_FILE,JSON.stringify(settings));
+    }catch(e){}
+  }
+
+  function closeProjectsDialog(){
+    const dlg=document.getElementById('projectsDlg');
+    if(dlg?.open)try{dlg.close();}catch(e){dlg.removeAttribute('open');}
+  }
+
   function switchProject(id){
     if(switching||!id||id===activeId())return false;
     const project=projectFor(id);if(!project)return false;
@@ -141,7 +166,7 @@
 
     localStorage.setItem(ACTIVE_KEY,id);
     // v040 keeps a private activeId. Its public refresh path re-reads ACTIVE_KEY,
-    // so use it rather than recreating the project manager or document.
+    // so use it rather than reconstructing the project manager or the document.
     try{window.__padGradeRefreshProjectIndex?.();}catch(e){}
 
     const applied=applyProjectRuntime(project);
@@ -158,10 +183,15 @@
     // projects can legitimately have identical readings/settings at different GPS
     // coordinates and therefore produce the same legacy signature.
     refreshExistingProjectSources();
+    // Direct surface refresh makes v063 compare the new project key immediately;
+    // that synchronously cancels any old heat-map worker before queued output can
+    // repaint the just-cleared old project surface.
     try{if(typeof window.pgDrawSurface==='function')window.pgDrawSurface();}catch(e){}
     try{window.__padGradeFrameSavedPad?.(true);}catch(e){}
+    persistLastProject(project);
     try{window.dispatchEvent(new CustomEvent('padgrade-active-project-applied',{detail:{id,from,inPlace:true}}));}catch(e){}
     try{window.dispatchEvent(new CustomEvent('padgrade-after-project-switch',{detail:{from,to:id,project}}));}catch(e){}
+    closeProjectsDialog();
 
     switching=false;window.__padGradeProjectSwitchInProgress=false;
     window.__padGradeProjectMapBoundaryState='in-place-overlay-swap-complete';
@@ -169,8 +199,12 @@
   }
 
   document.addEventListener('click',event=>{
-    const target=openTarget(event);if(!target||target===activeId())return;
-    event.preventDefault();event.stopImmediatePropagation();switchProject(target);
+    const target=openTarget(event);if(!target)return;
+    // Always stop the legacy v041 Open handler: even clicking the already-current
+    // project would otherwise call location.reload() and rebuild the whole UI.
+    event.preventDefault();event.stopImmediatePropagation();
+    if(target===activeId()){closeProjectsDialog();return;}
+    switchProject(target);
   },true);
 
   window.__padGradeSwitchProjectInPlace=switchProject;
