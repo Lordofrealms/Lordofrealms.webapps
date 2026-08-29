@@ -1,8 +1,10 @@
-/* Pad Grade v0.9.4 DEV — atomic in-place project switching.
+/* Pad Grade v0.9.6 DEV — atomic in-place project switching.
  *
  * Ordinary project changes keep the document, MapLibre instance, imagery,
- * controls, and live GPS marker alive. Project-owned grid layers/sources are
- * removed completely before state changes, then recreated from the new project.
+ * controls, and live GPS marker alive. Project-owned overlays are removed before
+ * state changes. As soon as the new project's fitted GPS geometry exists, its
+ * tiny GeoJSON grid is pushed synchronously into the existing map before bottom
+ * grid/GPS/stats/heat-map work begins. Durable last-project persistence is async.
  */
 (function installPadGrade090ProjectSwitchBoundary(){
   'use strict';
@@ -14,6 +16,8 @@
   const GRID_SOURCES=['pad-grade-grid-points','pad-grade-route','pad-grade-pad-outline','pad-grade-grid-lines'];
   let switching=false,queuedSwitch=null;
 
+  function nowMs(){try{return performance.now();}catch(e){return Date.now();}}
+  function diagMark(name,details){try{window.PadGradeDiag?.mark?.(name,details);}catch(e){}}
   function parse(raw,fallback=null){try{return raw?JSON.parse(raw):fallback;}catch(e){return fallback;}}
   function activeId(){return localStorage.getItem(ACTIVE_KEY)||null;}
   function projectFor(id){const p=parse(localStorage.getItem(`${PROJECT_PREFIX}${id}`),null);return p&&p.id===id&&p.settings?p:null;}
@@ -29,10 +33,8 @@
   }
 
   function clearProjectOwnedMapState(){
-    const map=window.__padGradeMapInstance||null;
+    const started=nowMs(),map=window.__padGradeMapInstance||null;
     if(map){
-      // First cancel/remove the old project's surface family. The surface owner
-      // will see the new project key before queued worker output can run again.
       let style=null;try{style=map.getStyle?.()||null;}catch(e){}
       const layerIds=(style?.layers||[]).map(x=>x?.id).filter(Boolean);
       for(const id of layerIds){
@@ -42,15 +44,12 @@
       for(const id of sourceIds){
         if(id.startsWith('pad-grade-interpolated-surface-canvas-source-')||id.startsWith('pad-grade-interpolated-surface-band-source-')||id==='pad-grade-interpolated-surface-raster'||id==='pad-grade-interpolated-surface'||id==='pad-grade-interpolated-surface-mesh')removeSource(map,id);
       }
-
-      // Do not reuse the old GeoJSONSource objects across a project boundary.
-      // Removing/recreating this family prevents stale MapLibre worker buffers
-      // from ever rendering an old grid over the new project's heat map.
       removeGridFamily(map);
       try{map.triggerRepaint();}catch(e){}
     }
     try{document.getElementById('surfaceProbeClearBtn')?.click();}catch(e){}
     try{const probe=document.getElementById('surfaceProbeBtn');if(probe?.getAttribute('aria-pressed')==='true')probe.click();}catch(e){}
+    diagMark('project.switch-old-overlays-cleared',{elapsedMs:+(nowMs()-started).toFixed(1)});
   }
 
   function pointFeatures(){
@@ -121,11 +120,19 @@
     }catch(e){console.warn('Pad Grade project grid reinstall failed',e);removeGridFamily(map);return false;}
   }
 
+  function primeNewProjectGrid(id,reason='switch'){ 
+    const started=nowMs();let ok=false;
+    try{if(typeof window.__padGradeRefreshMapGridNow==='function')ok=!!window.__padGradeRefreshMapGridNow(true);}catch(e){}
+    if(!ok)ok=installProjectGridFamily(id);
+    diagMark('map.project-grid-primed',{projectId:id,reason,ok,elapsedMs:+(nowMs()-started).toFixed(1)});
+    return ok;
+  }
+
   function refreshProjectOverlays(id){
     const map=window.__padGradeMapInstance||null;
     const finish=()=>{
       if(id!==activeId())return;
-      installProjectGridFamily(id);
+      primeNewProjectGrid(id,'overlay-refresh');
       try{if(typeof window.pgDrawSurface==='function')window.pgDrawSurface();}catch(e){}
       try{window.__padGradeFrameSavedPad?.(true);}catch(e){}
     };
@@ -140,7 +147,7 @@
 
   function applyProjectRuntime(project){
     if(!project?.settings)return false;
-    const s=project.settings;
+    const s=project.settings,started=nowMs();
     try{
       if(typeof pgWriteCanonicalSettings==='function')pgWriteCanonicalSettings(s,typeof pgUnitMode==='function'?pgUnitMode():undefined);
       else{
@@ -155,21 +162,36 @@
       measureMode=project.measureMode==='gps'?'gps':'manual';
       if(project.dev&&typeof pgApplyDevPayload==='function')pgApplyDevPayload(project.dev);
 
-      // Lower-grid paint + sizing worker is deliberately the first visual job.
+      // The fitted coordinates are now valid. Push the tiny map grid BEFORE any
+      // UI work that can schedule surface interpolation.
+      primeNewProjectGrid(project.id,'immediate-after-gps-fit');
+
       if(typeof renderGrid==='function')renderGrid();
       if(typeof updateCornerPicker==='function')updateCornerPicker();
       if(typeof updateGpsUI==='function')updateGpsUI();
       if(typeof pgUpdateNotesSummary==='function')pgUpdateNotesSummary();
-      if(typeof updateStats==='function')updateStats();
+      setTimeout(()=>{try{if(typeof updateStats==='function')updateStats();}catch(e){}},0);
+      diagMark('project.runtime-applied',{projectId:project.id,elapsedMs:+(nowMs()-started).toFixed(1)});
       return true;
     }catch(e){console.warn('Pad Grade in-place project apply failed',e);return false;}
   }
 
   function persistLastProject(project){
+    const files=window.PadGradeFiles,native=window.PadGradeNative;
+    if(!native||typeof native.hasProjectFolder!=='function'||!native.hasProjectFolder())return;
+    if(typeof native.isProjectFolderIndexReady==='function'&&!native.isProjectFolderIndexReady())return;
+    if(files&&typeof files.read==='function'&&typeof files.write==='function'){
+      (async()=>{
+        const token=window.PadGradeDiag?.start?.('project.persist-last',{projectId:project.id});
+        try{
+          const settings=parse(await files.read(SETTINGS_FILE),null);if(!settings||typeof settings!=='object'||settings.type!=='settings')return;
+          settings.lastProjectId=project.id;settings.lastProjectName=project.settings?.name||settings.lastProjectName||'Pad';settings.modifiedAt=new Date().toISOString();
+          await files.write(SETTINGS_FILE,JSON.stringify(settings));
+        }catch(e){}finally{try{window.PadGradeDiag?.end?.(token);}catch(e){}}
+      })();
+      return;
+    }
     try{
-      const native=window.PadGradeNative;
-      if(!native||typeof native.hasProjectFolder!=='function'||!native.hasProjectFolder())return;
-      if(typeof native.isProjectFolderIndexReady==='function'&&!native.isProjectFolderIndexReady())return;
       if(typeof native.readProjectFile!=='function'||typeof native.writeProjectFile!=='function')return;
       const settings=parse(native.readProjectFile(SETTINGS_FILE),null);if(!settings||typeof settings!=='object'||settings.type!=='settings')return;
       settings.lastProjectId=project.id;settings.lastProjectName=project.settings?.name||settings.lastProjectName||'Pad';settings.modifiedAt=new Date().toISOString();
@@ -182,7 +204,7 @@
   function switchProject(id){
     if(switching||!id||id===activeId())return false;
     const project=projectFor(id);if(!project)return false;
-    const from=activeId();switching=true;window.__padGradeProjectSwitchInProgress=true;window.__padGradeProjectMapBoundaryState='clearing-old-project-overlays';
+    const from=activeId(),started=nowMs();switching=true;window.__padGradeProjectSwitchInProgress=true;window.__padGradeProjectMapBoundaryState='clearing-old-project-overlays';
     try{window.dispatchEvent(new CustomEvent('padgrade-before-project-switch',{detail:{from,to:id}}));}catch(e){}
     clearProjectOwnedMapState();
     localStorage.setItem(ACTIVE_KEY,id);
@@ -191,12 +213,13 @@
     const applied=applyProjectRuntime(project);
     if(!applied){if(from)localStorage.setItem(ACTIVE_KEY,from);try{window.__padGradeRefreshProjectIndex?.();}catch(e){}switching=false;window.__padGradeProjectSwitchInProgress=false;window.__padGradeProjectMapBoundaryState='apply-failed';return false;}
 
-    window.__padGradeProjectMapBoundaryState='new-project-applied-recreating-grid-sources';
+    window.__padGradeProjectMapBoundaryState='new-project-applied-refreshing-overlays';
     refreshProjectOverlays(id);
     persistLastProject(project);
     try{window.dispatchEvent(new CustomEvent('padgrade-active-project-applied',{detail:{id,from,inPlace:true}}));}catch(e){}
     try{window.dispatchEvent(new CustomEvent('padgrade-after-project-switch',{detail:{from,to:id,project}}));}catch(e){}
     switching=false;window.__padGradeProjectSwitchInProgress=false;window.__padGradeProjectMapBoundaryState='in-place-overlay-hard-swap-complete';
+    diagMark('project.switch-complete',{from,to:id,elapsedMs:+(nowMs()-started).toFixed(1)});
     return true;
   }
 
@@ -212,8 +235,9 @@
   },true);
 
   window.__padGradeSwitchProjectInPlace=switchProject;
-  window.__padGradeProjectSwitchPolicyV094='keep-map-imagery-hard-remove-old-project-sources-recreate-new-sources';
-  window.__padGradeProjectSwitchPolicyV093='superseded-by-v094-hard-overlay-boundary';
+  window.__padGradeProjectSwitchPolicyV096='keep-map-imagery-clear-old-overlays-prime-new-grid-immediately-after-gps-fit-then-ui-heatmap';
+  window.__padGradeProjectSwitchPolicyV094=window.__padGradeProjectSwitchPolicyV096;
+  window.__padGradeProjectSwitchPolicyV093='superseded-by-v096-fast-overlay-boundary';
 })();
 
 /* Legacy CI search markers only; intentionally not executable behavior:
