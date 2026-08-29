@@ -1,5 +1,6 @@
 name: Pad Grade v0.9.7 Changelog One Shot
 
+# One-shot helper: remove after the v0.9.7 canonical entry is committed.
 on:
   push:
     branches: [pad-grade-dev]
