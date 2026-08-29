@@ -28,7 +28,7 @@ jobs:
               text = p.read_text()
               count = text.count(old)
               if count != 1:
-                  raise SystemExit(f"expected exactly one match in {path}, found {count}: {old[:80]!r}")
+                  raise SystemExit(f"expected exactly one match in {path}, found {count}: {old[:90]!r}")
               p.write_text(text.replace(old, new, 1))
 
           java = 'pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java'
@@ -36,7 +36,7 @@ jobs:
               java,
               '    @JavascriptInterface public boolean hasProjectFolder() { return getProjectFolder() != null; }\n',
               '    @JavascriptInterface public boolean hasProjectFolder() { return getProjectFolder() != null; }\n'
-              '    /** Cheap v0.9.6 startup probe: reports whether a folder URI is configured without querying the SAF provider. */\n'
+              '    /** Cheap v0.9.6 startup probe: reports a configured folder URI without querying the SAF provider. */\n'
               '    @JavascriptInterface public boolean hasProjectFolderConfigured() {\n'
               '        String raw = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(PROJECT_FOLDER_URI, null);\n'
               '        return raw != null && !raw.isBlank();\n'
@@ -47,7 +47,7 @@ jobs:
               '                if (name == null || file == null || !file.isFile()) continue;\n',
               '                // The directory walk already populated this cache on the background index thread.\n'
               '                // Do not call DocumentFile.isFile() here: TreeDocumentFile may query the provider again,\n'
-              '                // turning an otherwise cached JS list request into one synchronous SAF query per entry.\n'
+              '                // turning a cached JS list request into one synchronous SAF query per entry.\n'
               '                if (name == null || file == null) continue;\n'
           )
 
@@ -62,19 +62,12 @@ jobs:
               "  window.addEventListener('padgrade-project-folder-indexed',()=>prepareMinimumRecovery());\n",
               "  window.addEventListener('padgrade-project-folder-indexed',()=>{\n"
               "    if(indexReady()){prepareMinimumRecovery();return;}\n"
-              "    // A configured URI that cannot be indexed is not allowed to hold recovery open forever.\n"
+              "    // An inaccessible configured URI must not leave recovery pending forever.\n"
               "    try{native.completeProjectFolderRecovery?.();}catch(e){}\n"
               "    const result={ready:false,indexUnavailable:true};window.__padGradeMinimumDurableRecoveryV096=result;\n"
               "    try{window.dispatchEvent(new CustomEvent('padgrade-minimum-durable-recovery-ready',{detail:result}));}catch(e){}\n"
               "    diag()?.mark?.('recovery.index-unavailable',result);\n"
               "  });\n"
-          )
-
-          diag = 'pad-grade/v096-diagnostics.js'
-          replace_once(
-              diag,
-              "  function refreshEnabledFromPrefs(source='prefs'){\n    const next=prefs().diagnosticLogging===true;\n    if(next&&!enabled){enabled=true;flushPrebuffer();record('diagnostics.enabled-from-prefs',0,{source});}\n    else if(!next&&enabled){enabled=false;prebuffer.length=0;}\n    updateUiStatus();\n    return enabled;\n  }\n",
-              "  function refreshEnabledFromPrefs(source='prefs'){\n    const current=prefs();\n    // Absence is not an explicit OFF choice. This matters when an older durable\n    // settings file predates the diagnosticLogging preference: DEV stays default-on.\n    if(typeof current.diagnosticLogging!=='boolean'){updateUiStatus();return enabled;}\n    const next=current.diagnosticLogging;\n    if(next&&!enabled){enabled=true;flushPrebuffer();record('diagnostics.enabled-from-prefs',0,{source});}\n    else if(!next&&enabled){enabled=false;prebuffer.length=0;}\n    updateUiStatus();\n    return enabled;\n  }\n"
           )
 
           workflow = '.github/workflows/pad-grade-android.yml'
@@ -121,7 +114,6 @@ jobs:
               '          unzip -p "$APK" assets/v096-async-reconcile.js | grep -F "__padGradeAsyncDurableV096=true"\n'
           )
 
-          # This one-shot workflow removes itself in the same commit as the patch.
           Path('.github/workflows/pad-grade-v096-maintenance.yml').unlink()
           PY
 
@@ -136,7 +128,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java pad-grade/v096-async-reconcile.js pad-grade/v096-diagnostics.js .github/workflows/pad-grade-android.yml .github/workflows/pad-grade-v096-maintenance.yml
+          git add pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java pad-grade/v096-async-reconcile.js .github/workflows/pad-grade-android.yml .github/workflows/pad-grade-v096-maintenance.yml
           git diff --cached --check
           git commit -m "Pad Grade v0.9.6: finish async durability hardening"
           git push origin HEAD:pad-grade-dev
