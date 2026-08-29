@@ -4,6 +4,25 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v0.9.8 — development build
+
+### Changed
+- Durable-folder recovery now releases the **Restoring saved project…** curtain as soon as the recovered project has been applied, the lower grid has painted, and any saved GPS survey grid exists. Final grid-font sizing, MapLibre render/idle state, raster imagery, heat-map work, full-folder reconciliation, and File-ID maintenance are no longer reveal prerequisites.
+- Full durable-folder reconciliation and File-ID maintenance are deferred until after the visible project is usable and an idle slice is available instead of starting immediately behind first paint.
+- The v0.9.5 MapLibre survey-grid fast path is now the single active lightweight grid owner. Generic lower-grid/GPS UI calls use signature-based no-op refreshes, transient style readiness gets only a bounded animation-frame retry, and the older parallel polling overlay is no longer loaded.
+- Identical lower-grid rebuild requests from legacy startup timers are collapsed for a short startup window while real project, settings, reading, and unit changes still rebuild immediately.
+- The fixed bottom control bar is measured at runtime and the page reserves that measured height plus scroll clearance so the final project/grid controls cannot sit underneath it.
+
+### Fixed
+- Recovery now treats an existing six-character durable filename prefix as the recovered project's authoritative File ID when the project payload does not yet contain one, preventing recovery from inventing a second ID for the same project.
+- Durable project writes/deletes issued through the asynchronous file bridge are temporarily rejected while first-run/recovery-curtain restoration is still active, preventing partially initialized runtime state from overwriting or duplicating the recovered project before it is painted.
+- A genuinely empty selected durable folder explicitly releases the recovery write lock before its first default project is created, preserving the v0.9.7 empty-folder first-use behavior.
+- Removed the v0.9.7 visual-settle path that could hold the recovery curtain until a long safety timeout even though settings, the active project, and the lower grid were already available in well under a second.
+- Removed the parallel MapLibre grid polling/styledata workload and immediate post-recovery maintenance scheduling that could starve WebView timers and delay otherwise-fast native file-operation callbacks by many seconds.
+
+### Known issues
+- This remains a development build for device verification. Diagnostic logging stays enabled by default in DEV; recovery curtain duration, main-thread stall entries, file callback delay, project switching, and the bottom-grid/button clearance should be checked on-device before stable promotion.
+
 ## v0.9.7 — development build
 
 ### Changed
