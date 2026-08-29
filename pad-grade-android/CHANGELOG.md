@@ -6,6 +6,18 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v0.8.1 — development build
+
+### Added
+- Packaged the temporary two-project comparison view, shared averaged GPS grid, elevation-change heat map, and map probe in the separately installable `Pad Grade DEV` package.
+
+### Changed
+- Bumped the DEV Android package to version 0.8.1 / versionCode 48.
+- Release descriptions continue to use the short Pad Grade functionality header followed by the matching canonical changelog section.
+
+### Known issues
+- The comparison feature is development-only pending field testing.
+
 ## v0.8.0 — stable
 
 ### Changed
