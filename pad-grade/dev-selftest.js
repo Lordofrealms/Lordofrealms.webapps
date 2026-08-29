@@ -149,4 +149,18 @@ localResult=localSurface.interpolateAt(0,0,squarePoints,true);
 assert.ok(localResult&&localResult.exact,'measured point should be exact');
 assert.deepStrictEqual(localResult.triangles,[[0]],'exact point should list only its contributing measurement');
 
+// v0.9.3 regression guards for the field-reported startup/layout issues.
+const gridCoreText=fs.readFileSync(path.join(root,'grid-core.js'),'utf8');
+assert.ok(gridCoreText.includes('ctx.measureText'),'lower grid must use canvas text measurement');
+assert.ok(gridCoreText.includes('canvas-measuretext-no-per-string-layout-reflow'),'lower grid fast-measure policy marker missing');
+const firstRunText=fs.readFileSync(path.join(root,'v090-first-run-guard.js'),'utf8');
+assert.ok(firstRunText.includes('launchFolderPickerAfterCoverPaint'),'folder picker must be launched after recovery-cover paint');
+assert.ok(firstRunText.includes('startPickerCoverKeepalive'),'recovery cover must stay armed while native picker is open');
+const switchText=fs.readFileSync(path.join(root,'v090-project-switch-boundary.js'),'utf8');
+assert.ok(switchText.includes('closeProjectsDialog();\n    if(target===activeId())return;'),'Open must close Projects before project work starts');
+assert.ok(switchText.includes('requestAnimationFrame'),'project switch must give dialog close a paint frame');
+const styleText=fs.readFileSync(path.join(root,'style.css'),'utf8');
+assert.ok(styleText.includes('padding-bottom:1.18rem'),'project rows must reserve File-ID height before hydration');
+assert.ok(styleText.includes('.pgFileIdInline{\n  position:absolute'),'File-ID text must live inside the pre-reserved slot');
+
 console.log('Pad Grade dev self-test PASS');
