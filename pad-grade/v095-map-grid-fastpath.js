@@ -4,6 +4,9 @@
  * It attaches at primary-map capture or map-created, waits for MapLibre's style
  * to be ready, and uses at most one animation-frame retry for a transient style
  * transition. Generic lower-grid/GPS UI calls no longer force four setData calls.
+ * No-op refresh requests preserve ready/owner state without publishing a new
+ * "updatedAt" pulse, so diagnostics cannot mistake compatibility chatter for
+ * real map work and amplify it into a WebView backlog.
  */
 (function installPadGrade095MapGridFastPath(){
   'use strict';
@@ -11,7 +14,7 @@
   const VERSION='v0.9.8 DEV';
   const SOURCE_IDS=new Set(['pad-grade-grid-lines','pad-grade-pad-outline','pad-grade-route','pad-grade-grid-points']);
   const LAYER_IDS=new Set(['pad-grade-grid-lines-layer','pad-grade-pad-outline-layer','pad-grade-route-layer','pad-grade-grid-points-layer','pad-grade-grid-labels']);
-  let lastSignature='',lastRefreshAt=0;
+  let lastSignature='',lastRefreshAt=0,lastAnnouncedProjectId='';
   let retryRaf=0,retryUsed=false;
 
   const fc=features=>({type:'FeatureCollection',features:features||[]});
@@ -77,10 +80,16 @@
     if(retryRaf||retryUsed)return;retryUsed=true;
     retryRaf=requestAnimationFrame(()=>{retryRaf=0;refreshNow(true);});
   }
-  function announce(map){
-    const pid=activeId();window.__padGradeProjectGridSourceOwnerV094=pid;window.__padGradeProjectGridReadyV094=true;
-    window.__padGradeMapGridFastPathV095={projectId:pid,updatedAt:Date.now(),styleLoad:true,singleOwner:true};
-    try{window.dispatchEvent(new CustomEvent('padgrade-project-grid-ready',{detail:{map,projectId:pid,fastPath:'v098'}}));}catch(e){}
+  function announce(map,changed=false){
+    const pid=activeId();
+    window.__padGradeProjectGridSourceOwnerV094=pid;
+    window.__padGradeProjectGridReadyV094=true;
+    const current=window.__padGradeMapGridFastPathV095;
+    if(!changed&&current?.projectId===pid){return;}
+    const updatedAt=Date.now();
+    lastAnnouncedProjectId=pid;
+    window.__padGradeMapGridFastPathV095={projectId:pid,updatedAt,styleLoad:true,singleOwner:true,actualRefresh:!!changed};
+    try{window.dispatchEvent(new CustomEvent('padgrade-project-grid-ready',{detail:{map,projectId:pid,fastPath:'v098',actualRefresh:!!changed}}));}catch(e){}
   }
   function refreshNow(force=false){
     const map=mapInstance();if(!map)return false;
@@ -89,21 +98,22 @@
     retryUsed=false;
     const sig=signature(),now=Date.now();
     // Project switching can request the same forced refresh twice in one frame
-    // (immediate fit + overlay follow-up). Collapse that duplicate as well.
-    if(sig===lastSignature&&(!force||now-lastRefreshAt<160)){announce(map);return true;}
+    // (immediate fit + overlay follow-up). Collapse that duplicate as well. A
+    // collapsed request must not publish a fresh updatedAt pulse.
+    if(sig===lastSignature&&(!force||now-lastRefreshAt<160)){announce(map,false);return true;}
     lastSignature=sig;lastRefreshAt=now;
     try{
       map.getSource('pad-grade-grid-lines')?.setData(fc(lineFeatures()));
       map.getSource('pad-grade-pad-outline')?.setData(fc(outlineFeatures()));
       map.getSource('pad-grade-route')?.setData(fc(routeFeatures()));
       map.getSource('pad-grade-grid-points')?.setData(fc(pointFeatures()));
-      map.triggerRepaint?.();announce(map);return true;
+      map.triggerRepaint?.();announce(map,true);return true;
     }catch(e){scheduleSingleRetry();return false;}
   }
   function attach(map){
     if(!map||map.__padGrade095FastGridAttached)return;
     map.__padGrade095FastGridAttached=true;installDuplicateTolerance(map);
-    try{map.on('style.load',()=>{retryUsed=false;lastSignature='';refreshNow(true);});}catch(e){}
+    try{map.on('style.load',()=>{retryUsed=false;lastSignature='';lastAnnouncedProjectId='';refreshNow(true);});}catch(e){}
     if(styleReady(map))refreshNow(true);else scheduleSingleRetry();
   }
   function wrap(name){
@@ -119,8 +129,11 @@
   window.addEventListener('padgrade-active-project-applied',()=>refreshNow(false));
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{wrapFastPaths();document.title=`Pad Grade Mapper ${VERSION}`;},{once:true});else{wrapFastPaths();document.title=`Pad Grade Mapper ${VERSION}`;}
 
+  // Compatibility modules can replace renderGrid/updateGpsUI during startup. Keep
+  // this bounded to three seconds; it only checks function identity and never
+  // refreshes the map unless an actual call later occurs.
   let wraps=0;const wrapTimer=setInterval(()=>{wrapFastPaths();if(++wraps>=30)clearInterval(wrapTimer);},100);
-  window.__padGradeMapGridPriorityV098='single-owner-style-ready-one-frame-retry-signature-dedupe-no-generic-force-refresh';
+  window.__padGradeMapGridPriorityV098='single-owner-style-ready-one-frame-retry-signature-dedupe-noop-does-not-publish-activity';
   window.__padGradeMapGridPriorityV097=window.__padGradeMapGridPriorityV098;
   window.__padGradeMapGridPriorityV095=window.__padGradeMapGridPriorityV098;
 })();
