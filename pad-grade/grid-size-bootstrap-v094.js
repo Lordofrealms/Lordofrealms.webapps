@@ -1,12 +1,9 @@
-/* Pad Grade v0.9.6 DEV — early project bootstrap work.
+/* Pad Grade v0.9.7 DEV — early project bootstrap work.
  * Runs immediately after init.js has restored/rendered the active project, before
  * the legacy project-management chain and map loader finish.
  *
- * v0.9.6 fixes an important ownership bug: earlier builds started an early text
- * sizing worker here but never actually loaded grid-core.js, leaving the visible
- * bottom grid owned by an older forced-layout renderer. Load the authoritative
- * immediate-paint/worker grid core first, then let the map-grid fast path wrap
- * that final renderGrid implementation.
+ * Load the authoritative immediate-paint/worker grid core first, then let the
+ * map-grid fast path wrap that final renderGrid implementation.
  */
 (function startPadGradeEarlyProjectWork(){
   'use strict';
@@ -40,7 +37,7 @@
   }
 
   function loadAfterGridCore(){
-    loadScriptOnce('v095-map-grid-fastpath.js?v=20260829-3','data-padgrade-v095-map-grid-fastpath','Pad Grade v0.9.5 map-grid fast path failed to load',()=>{
+    loadScriptOnce('v095-map-grid-fastpath.js?v=20260829-4','data-padgrade-v095-map-grid-fastpath','Pad Grade v0.9.7 map-grid fast path failed to load',()=>{
       try{window.__padGradeRefreshMapGridNow?.(true);}catch(e){}
       diagMark('map.fast-grid-owner-ready');
     });
@@ -59,5 +56,6 @@
     });
   }
 
-  window.__padGradeEarlyProjectBootstrapV096='authoritative-grid-core-first-then-map-grid-fastpath-and-local-file-ids';
+  window.__padGradeEarlyProjectBootstrapV097='authoritative-grid-core-first-then-live-style-map-grid-fastpath-and-local-file-ids';
+  window.__padGradeEarlyProjectBootstrapV096=window.__padGradeEarlyProjectBootstrapV097;
 })();
