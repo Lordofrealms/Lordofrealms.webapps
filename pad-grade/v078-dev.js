@@ -73,19 +73,42 @@
   document.body.appendChild(script);
 })();
 
-/* v0.8.1 adds read-only, temporary two-project elevation-change comparison. */
+/* v0.8.1 adds read-only, temporary two-project elevation-change comparison.
+ * v0.8.3 applies the reviewed geometry/UI correction only after both the core and
+ * comparison UI have loaded. Comparison features therefore stay outside the
+ * recovery/durable-folder bootstrap path.
+ */
 (function loadPadGrade081Comparison(){
+  const loadFix=()=>{
+    if(document.querySelector('script[data-padgrade-v083-compare-fix]'))return;
+    const fix=document.createElement('script');
+    fix.src='v083-project-compare-fix.js?v=20260829-1';
+    fix.async=false;
+    fix.dataset.padgradeV083CompareFix='1';
+    fix.onerror=()=>console.error('Pad Grade v0.8.3 comparison correction failed to load');
+    document.body.appendChild(fix);
+  };
   const loadUi=()=>{
-    if(document.querySelector('script[data-padgrade-v081-compare]'))return;
+    const existing=document.querySelector('script[data-padgrade-v081-compare]');
+    if(existing){
+      if(window.PadGradeProjectCompare)loadFix();
+      else existing.addEventListener('load',loadFix,{once:true});
+      return;
+    }
     const ui=document.createElement('script');
     ui.src='v081-project-compare.js?v=20260829-1';
     ui.async=false;
     ui.dataset.padgradeV081Compare='1';
+    ui.onload=loadFix;
     ui.onerror=()=>console.error('Pad Grade v0.8.1 project comparison UI failed to load');
     document.body.appendChild(ui);
   };
   if(window.PadGradeProjectCompareCore){loadUi();return;}
-  if(document.querySelector('script[data-padgrade-compare-core]'))return;
+  const existingCore=document.querySelector('script[data-padgrade-compare-core]');
+  if(existingCore){
+    existingCore.addEventListener('load',loadUi,{once:true});
+    return;
+  }
   const core=document.createElement('script');
   core.src='project-compare-core.js?v=20260829-1';
   core.async=false;
