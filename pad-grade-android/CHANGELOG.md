@@ -6,6 +6,20 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v0.8.6 — development build
+
+### Fixed
+- Packaged the non-blocking startup/recovery change so Android durable-folder indexing no longer holds the visible project for up to 60 seconds.
+- Packaged immediate saved-pad framing so the GPS map can show the restored calibrated grid without waiting for a fresh location fix.
+
+### Changed
+- Bumped the DEV Android package to version 0.8.6 / versionCode 53.
+- Packaged comparison point colors/labels matching the normal project map and the new comparison heat-map color key below the map.
+- Cache-busted the restored-project/map activation files used by the WebView after an APK upgrade.
+
+### Known issues
+- This development build needs device verification of restored-project startup speed, early GPS-grid visibility, and comparison presentation before stable promotion.
+
 ## v0.8.4 — development build
 
 ### Fixed
