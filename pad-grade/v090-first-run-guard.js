@@ -71,8 +71,6 @@
     }
     armed=false;
     window.__padGradeFirstRunPending=false;
-    // A clean reload gives the normal project manager one ordinary project from
-    // its very first read, with no sentinel or partial first-run state left over.
     location.reload();
   }
   function chooseRestoredProjectOrDefault(){
@@ -92,11 +90,8 @@
     writeDefaultProject(true);
   }
   function finalizeAfterIndex(){
-    if(!armed||!hasFolder())return;
-    if(!indexReady())return;
+    if(!armed||!hasFolder()||!indexReady())return;
     clearTimeout(finalizeTimer);
-    // Give durable reconciliation/settings restore a short same-device pass to
-    // populate the local project index before deciding the selected folder is empty.
     finalizeTimer=setTimeout(chooseRestoredProjectOrDefault,450);
   }
   function waitForIndex(){
@@ -112,6 +107,10 @@
     if(!armed||pickerRequested)return;
     if(hasFolder()){waitForIndex();return;}
     pickerRequested=true;
+    // Start watching before the Android picker returns. A successful selection
+    // changes hasProjectFolder()/index readiness; cancellation is delivered by
+    // MainActivity through __padGradeProjectFolderSelectionCancelled.
+    waitForIndex();
     try{native.chooseProjectFolder();}
     catch(e){window.__padGradeProjectFolderSelectionCancelled?.();}
   }
@@ -130,8 +129,6 @@
     armed=true;
     window.__padGradeFirstRunPending=true;
     installSentinel();
-    // Suppress the older confirm-based durable-folder prompt. This clean-install
-    // flow owns the one folder decision and treats picker cancellation as decline.
     localStorage.setItem(PROMPT_KEY,'1');
     if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(requestFolder,120),{once:true});
     else setTimeout(requestFolder,120);
