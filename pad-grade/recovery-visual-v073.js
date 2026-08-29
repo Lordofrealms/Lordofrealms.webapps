@@ -1,9 +1,9 @@
-/* Pad Grade v0.8.10 DEV — prepaint recovery/project-transition curtain.
+/* Pad Grade v0.9.0 DEV — prepaint project/recovery transition curtain.
  *
- * The hold is installed in <head>, before any project manager can paint. A
- * project switch also carries its intended target through the navigation in
- * sessionStorage so an older beforeunload autosave cannot rewrite the active
- * project back to the project we are leaving.
+ * The hold is installed in <head>, before any project manager can paint. Normal
+ * startup with an existing active project gets a brief local-project cover. A
+ * project switch also carries its intended target through navigation so an older
+ * beforeunload autosave cannot rewrite the active project back to the one left.
  */
 (function installPadGradeRecoveryVisualHold(){
   'use strict';
@@ -32,17 +32,22 @@
     try{
       const id=sessionStorage.getItem(TARGET_KEY)||'';
       if(!id)return null;
-      // Only honor a target that is already a real local project. This marker
-      // is never allowed to manufacture or select an unknown project.
       const raw=localStorage.getItem(`${PROJECT_PREFIX}${id}`);
       if(!raw)return null;
       localStorage.setItem(ACTIVE_KEY,id);
       return id;
     }catch(e){return null;}
   }
+  function hasLocalActiveProject(){
+    try{
+      const id=localStorage.getItem(ACTIVE_KEY)||'';
+      return !!(id&&localStorage.getItem(`${PROJECT_PREFIX}${id}`));
+    }catch(e){return false;}
+  }
   function applyMode(mode){
     const root=document.documentElement;
     root.classList.toggle('padGradeProjectSwitchHold',mode==='project-switch');
+    root.classList.toggle('padGradeProjectLoadHold',mode==='project-load');
   }
   function armFailsafe(){
     if(failsafe)clearTimeout(failsafe);
@@ -64,7 +69,7 @@
       sessionStorage.removeItem(TARGET_KEY);
     }catch(e){}
     window.__padGradeProjectSwitchInProgress=false;
-    document.documentElement.classList.remove('padGradeRecoveryHold','padGradeProjectSwitchHold');
+    document.documentElement.classList.remove('padGradeRecoveryHold','padGradeProjectSwitchHold','padGradeProjectLoadHold');
     if(failsafe){clearTimeout(failsafe);failsafe=null;}
   }
   function armProjectSwitch(id){
@@ -88,7 +93,9 @@
     document.documentElement.classList.add('padGradeRecoveryHold');
     applyMode(mode);
     armFailsafe();
+  }else if(hasLocalActiveProject()){
+    begin('project-load');
   }else end();
 
-  window.__padGradeRecoveryVisualPolicyV091='head-cover-switch-target-before-project-managers';
+  window.__padGradeRecoveryVisualPolicyV091='head-cover-normal-load-and-switch-before-project-managers';
 })();
