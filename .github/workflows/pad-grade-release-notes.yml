@@ -47,40 +47,33 @@ jobs:
           version = os.environ['APP_VERSION']
           channel = os.environ['BUILD_CHANNEL']
           preferred = 'development' if channel == 'dev' else 'stable'
+          path = Path('pad-grade/CHANGELOG.md')
+          if not path.exists():
+              raise SystemExit('Canonical pad-grade/CHANGELOG.md is missing')
 
-          def version_section(path):
-              if not path.exists():
-                  return None
-              lines = path.read_text(encoding='utf-8').splitlines()
-              starts = []
-              version_re = re.compile(rf'^## v{re.escape(version)}(?:\s+—\s+.*)?$', re.I)
-              for i, line in enumerate(lines):
-                  if version_re.match(line.strip()):
-                      starts.append(i)
-              start = None
-              for i in starts:
-                  if preferred in lines[i].lower():
-                      start = i
-                      break
-              if start is None and starts:
-                  start = starts[0]
-              if start is None:
-                  return None
-              end = len(lines)
-              for i in range(start + 1, len(lines)):
-                  if lines[i].startswith('## '):
-                      end = i
-                      break
-              return '\n'.join(lines[start:end]).strip()
+          lines = path.read_text(encoding='utf-8').splitlines()
+          starts = []
+          version_re = re.compile(rf'^## v{re.escape(version)}(?:\s+—\s+.*)?$', re.I)
+          for i, line in enumerate(lines):
+              if version_re.match(line.strip()):
+                  starts.append(i)
 
-          # Canonical web changelog is authoritative when it has this version.
-          # Android packaging changelog is a deliberate fallback for a just-built
-          # Android DEV version whose canonical entry has not been backfilled yet.
-          changes = version_section(Path('pad-grade/CHANGELOG.md'))
-          if not changes:
-              changes = version_section(Path('pad-grade-android/CHANGELOG.md'))
-          if not changes:
-              changes = f'## v{version}\n\nSee the repository changelogs for this build.'
+          start = None
+          for i in starts:
+              if preferred in lines[i].lower():
+                  start = i
+                  break
+          if start is None and starts:
+              start = starts[0]
+          if start is None:
+              raise SystemExit(f'Canonical CHANGELOG.md has no v{version} entry; refusing placeholder release notes')
+
+          end = len(lines)
+          for i in range(start + 1, len(lines)):
+              if lines[i].startswith('## '):
+                  end = i
+                  break
+          changes = '\n'.join(lines[start:end]).strip()
 
           header = (
               '# Pad Grade Mapper\n\n'
@@ -104,3 +97,4 @@ jobs:
         run: |
           gh release view "$RELEASE_TAG" >/dev/null
           gh release edit "$RELEASE_TAG" --notes-file /tmp/pad-grade-release-notes.md
+          gh release view "$RELEASE_TAG" --json body --jq '.body' | grep -F "## v$APP_VERSION"
