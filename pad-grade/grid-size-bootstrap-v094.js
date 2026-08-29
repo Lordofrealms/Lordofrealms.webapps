@@ -1,15 +1,27 @@
-/* Pad Grade v0.9.4 DEV — early project bootstrap work.
+/* Pad Grade v0.9.5 DEV — early project bootstrap work.
  * Runs immediately after init.js has restored/rendered the active project, before
  * the legacy project-management chain and map loader finish.
  *
- * Two independent background jobs start here:
- * 1) OffscreenCanvas lower-grid text measurement.
- * 2) Local File-ID normalization/UI module. Visible IDs never wait for durable
+ * Independent early jobs start here:
+ * 1) Load the v0.9.5 map-grid fast path so the tiny GeoJSON grid can attach at
+ *    MapLibre style.load and refresh before heavier GPS/heat-map UI work.
+ * 2) OffscreenCanvas lower-grid text measurement.
+ * 3) Local File-ID normalization/UI module. Visible IDs never wait for durable
  *    SAF folder indexing; only durable filename migration may trail later.
  */
 (function startPadGradeEarlyProjectWork(){
   'use strict';
   const WORKER_URL='grid-size-worker-v094.js?v=20260829-1';
+
+  function loadMapGridFastPath(){
+    if(document.querySelector('script[data-padgrade-v095-map-grid-fastpath]'))return;
+    const script=document.createElement('script');
+    script.src='v095-map-grid-fastpath.js?v=20260829-1';
+    script.async=false;
+    script.dataset.padgradeV095MapGridFastpath='1';
+    script.onerror=()=>console.error('Pad Grade v0.9.5 map-grid fast path failed to load');
+    document.body.appendChild(script);
+  }
 
   function loadFileIdsEarly(){
     if(document.querySelector('script[data-padgrade-v080-file-id]'))return;
@@ -34,6 +46,7 @@
     }catch(e){return [];}
   }
 
+  loadMapGridFastPath();
   loadFileIdsEarly();
 
   try{
