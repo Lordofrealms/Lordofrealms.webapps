@@ -4,6 +4,19 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v0.8.4 — development build
+
+### Fixed
+- Isolated the temporary Project Comparison MapLibre instance from the application's primary GPS/project map registration. Creating `pgCompareMap` no longer replaces `window.__padGradeMapInstance` or emits the primary `padgrade-map-created` event.
+- Prevented project-map maintenance hooks from treating the comparison map as the active project map, which could leave the live project's grid/heat-map layers visible or redrawn into the comparison view.
+
+### Changed
+- The comparison map remains a separate MapLibre object with its own imagery, averaged comparison grid, delta heat map, probe handling, and lifecycle; the live project's map remains untouched underneath and is restored unchanged when comparison exits.
+- Added a CI regression test that creates both `gpsMap` and `pgCompareMap` and verifies only `gpsMap` owns the global primary-map registration.
+
+### Known issues
+- This remains a development build intended for device verification before stable promotion.
+
 ## v0.8.3 — development build
 
 ### Fixed
@@ -76,7 +89,7 @@ Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical 
 
 ### Changed
 - Promoted the v0.7.9 development surface model to the stable production build.
-- Kept locality-first support selection: choose the most-local containing 3-point triangle by nearest farthest vertex, then minimum total vertex distance, then area.
+- Kept locality-first support selection: choose the most-local containing 3-point triangle by nearest farthest vertex, then minimum total reference distance, then area.
 - Promote a local 3-point support set to a 4-point rectangle when the corresponding fourth corner is measured.
 - Lock shared rectangle and fallback-triangle edges to the 2-point inverse-distance-squared (IDW²) result of the edge endpoints.
 - Fade the edge-lock correction smoothly to zero over the nearest one-sixth of the rectangle depth or triangle altitude, leaving the interior as ordinary local IDW².
