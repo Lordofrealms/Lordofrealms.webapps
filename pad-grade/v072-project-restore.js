@@ -1,9 +1,9 @@
-/* Pad Grade v0.9.0 DEV — non-blocking last-project restore with settled reveal.
+/* Pad Grade v0.9.1 DEV — non-blocking last-project restore.
  *
  * The locally cached active project is authoritative for first paint. Durable SAF
  * indexing/reconciliation happens later and never blocks local project loading.
- * When a recovery/project-transition curtain is active, however, it is released
- * only by the settled-render owner instead of immediately after applyProject().
+ * This module never starts the recovery curtain itself; it only releases a hold
+ * already armed by the first durable-folder recovery flow.
  */
 (function installPadGrade072LastProjectRestore(){
   'use strict';
@@ -32,7 +32,6 @@
       }catch(e){}
       requestAnimationFrame(()=>requestAnimationFrame(()=>{
         try{window.__padGradeEndRecoveryVisualHold?.();}catch(e){}
-        window.__padGradeStartupRevealV091='fallback-double-frame';
       }));
     },Math.max(0,delay));
   }
@@ -45,8 +44,7 @@
     const portable=settings.portablePrefs&&typeof settings.portablePrefs==='object'?settings.portablePrefs:{};
     try{
       if(portable.unitMode&&typeof pgSetUnitMode==='function')pgSetUnitMode(portable.unitMode);
-      const heat=document.getElementById('heatmapToggle');
-      if(heat&&typeof portable.heatmap==='boolean')heat.checked=portable.heatmap;
+      const heat=document.getElementById('heatmapToggle');if(heat&&typeof portable.heatmap==='boolean')heat.checked=portable.heatmap;
       const route=document.getElementById('routeMode');if(route&&portable.routeMode)route.value=String(portable.routeMode);
       const opacity=document.getElementById('heatmapTransparency');if(opacity&&Number.isFinite(+portable.heatmapTransparency))opacity.value=String(Math.max(0,Math.min(90,+portable.heatmapTransparency)));
     }catch(e){}
@@ -71,10 +69,7 @@
     const s=project.settings;
     try{
       if(typeof pgWriteCanonicalSettings==='function')pgWriteCanonicalSettings(s,typeof pgUnitMode==='function'?pgUnitMode():undefined);
-      else{
-        const vals={width:s.width,length:s.length,cols:s.cols,rows:s.rows,target:s.target,tol:s.tol,refCorner:s.refCorner,projectName:s.name};
-        for(const [id,val] of Object.entries(vals)){const el=document.getElementById(id);if(el&&val!==undefined)el.value=val;}
-      }
+      else for(const [id,val] of Object.entries({width:s.width,length:s.length,cols:s.cols,rows:s.rows,target:s.target,tol:s.tol,refCorner:s.refCorner,projectName:s.name})){const el=document.getElementById(id);if(el&&val!==undefined)el.value=val;}
       readings={...(project.readings||{})};
       readingMeta={...(project.readingMeta||{})};
       gpsRef=project.gps?.reference||null;
@@ -97,15 +92,13 @@
 
   function findDurableProject(id,projectName){
     if(!indexReady())return null;
-    let project=null;
-    try{project=parse(native.readProjectFile(`${id}.padgrade`),null);}catch(e){project=null;}
+    let project=null;try{project=parse(native.readProjectFile(`${id}.padgrade`),null);}catch(e){}
     if(project&&project.id===id&&project.settings)return project;
-    let names=[];
-    try{if(typeof native.listProjectFiles==='function')names=parse(native.listProjectFiles(),[])||[];}catch(e){names=[];}
+    let names=[];try{if(typeof native.listProjectFiles==='function')names=parse(native.listProjectFiles(),[])||[];}catch(e){}
     let nameMatch=null;
     for(const filename of names){
       if(typeof filename!=='string')continue;
-      let candidate=null;try{candidate=parse(native.readProjectFile(filename),null);}catch(e){candidate=null;}
+      let candidate=null;try{candidate=parse(native.readProjectFile(filename),null);}catch(e){}
       if(!candidate||!candidate.settings)continue;
       if(candidate.id===id)return candidate;
       if(!nameMatch&&projectName&&candidate.settings.name===projectName)nameMatch=candidate;
@@ -114,8 +107,7 @@
   }
 
   function activeLocalProject(){
-    const id=localStorage.getItem(ACTIVE_KEY)||null;
-    if(!id)return null;
+    const id=localStorage.getItem(ACTIVE_KEY)||null;if(!id)return null;
     const project=parse(localStorage.getItem(projectKey(id)),null);
     return project&&project.id===id&&project.settings?project:null;
   }
@@ -123,24 +115,20 @@
   function revealLocalImmediately(){
     if(done)return;
     const project=activeLocalProject();
-    if(project){
-      applyProject(project);
-      window.__padGradeProjectStartupSettledV091=project.id;
-    }
+    if(project){applyProject(project);window.__padGradeProjectStartupSettledV091=project.id;}
     done=true;
+    // If first durable recovery armed the stable-style hold before reload, let
+    // v075 release it after the recovered local project has settled. Otherwise
+    // this is a no-op because no hold is active.
     requestSettledVisualReveal(0);
   }
 
   function reconcileDurableWhenReady(){
     if(durableReconciled||!hasFolder()||!indexReady())return false;
     durableReconciled=true;
-    let settings=null;
-    try{settings=parse(native.readProjectFile(SETTINGS_FILE),null);}catch(e){settings=null;}
+    let settings=null;try{settings=parse(native.readProjectFile(SETTINGS_FILE),null);}catch(e){}
     applyPortableSettings(settings);
 
-    // Once a local active project exists, it is authoritative. A durable settings
-    // file can lag one save behind during a project switch; using it first here
-    // can re-activate the project we just left and mix old grid/new heat-map state.
     const currentActive=localStorage.getItem(ACTIVE_KEY)||null;
     const id=currentActive||settings?.lastProjectId||null;
     if(!id){try{native.completeProjectFolderRecovery?.();}catch(e){}return true;}
@@ -154,13 +142,7 @@
     }
     if(project&&project.settings&&storeProject(project)){
       const current=localStorage.getItem(ACTIVE_KEY);
-      if(current===project.id){
-        const alreadyCovered=document.documentElement.classList.contains('padGradeRecoveryHold');
-        if(!alreadyCovered)try{window.__padGradeBeginRecoveryVisualHold?.('project-load');}catch(e){}
-        applyProject(project);
-        window.__padGradeLastProjectRestoredV091=project.id;
-        if(!alreadyCovered)setTimeout(()=>requestAnimationFrame(()=>requestAnimationFrame(()=>{try{window.__padGradeEndRecoveryVisualHold?.();}catch(e){}})),180);
-      }
+      if(current===project.id){applyProject(project);window.__padGradeLastProjectRestoredV091=project.id;}
     }
     try{native.completeProjectFolderRecovery?.();}catch(e){}
     return true;
@@ -174,5 +156,5 @@
   window.addEventListener('padgrade-projects-reconciled',()=>setTimeout(reconcileDurableWhenReady,0));
   setTimeout(reconcileDurableWhenReady,0);
 
-  window.__padGradeStartupFolderIndexPolicy='background-never-block-visible-grid-settled-cover-release-active-local-authoritative';
+  window.__padGradeStartupFolderIndexPolicy='background-never-block-visible-grid-curtain-never-armed-here-active-local-authoritative';
 })();
