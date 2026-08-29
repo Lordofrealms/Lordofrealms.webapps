@@ -1,20 +1,23 @@
-/* Pad Grade v0.9.5 DEV — map-grid fast path.
+/* Pad Grade v0.9.7 DEV — map-grid fast path.
  *
  * The project grid is tiny GeoJSON and must never wait on raster imagery or on
- * heat-map interpolation. Install/refresh it as soon as the MapLibre style is
- * ready and before lower-grid/GPS UI work can wake heavier map work.
+ * heat-map interpolation. On an existing map, a transient isStyleLoaded()==false
+ * after layer/source mutation is not treated as a reason to defer the grid: if a
+ * live style object exists we attempt the install immediately and retry briefly
+ * on animation frames only if MapLibre actually rejects the operation.
  */
 (function installPadGrade095MapGridFastPath(){
   'use strict';
 
-  const VERSION='v0.9.5 DEV';
+  const VERSION='v0.9.7 DEV';
   const SOURCE_IDS=new Set(['pad-grade-grid-lines','pad-grade-pad-outline','pad-grade-route','pad-grade-grid-points']);
   const LAYER_IDS=new Set(['pad-grade-grid-lines-layer','pad-grade-pad-outline-layer','pad-grade-route-layer','pad-grade-grid-points-layer','pad-grade-grid-labels']);
   let lastSignature='';
+  let retryRaf=0,retryBudget=0;
 
   const fc=features=>({type:'FeatureCollection',features:features||[]});
   const mapInstance=()=>window.__padGradeMapInstance||null;
-  function styleReady(map){try{return !!(map&&map.getStyle?.()&&map.isStyleLoaded?.());}catch(e){return false;}}
+  function styleReady(map){try{const style=map?.getStyle?.();return !!(map&&style&&Array.isArray(style.layers));}catch(e){return false;}}
   function activeId(){try{return localStorage.getItem('padGradeActiveProjectIdV5')||'';}catch(e){return '';}}
 
   function installDuplicateTolerance(map){
@@ -101,27 +104,36 @@
       if(!map.getLayer('pad-grade-grid-points-layer'))map.addLayer({id:'pad-grade-grid-points-layer',type:'circle',source:'pad-grade-grid-points',paint:{'circle-radius':['case',['==',['get','status'],'target'],9,6],'circle-color':['match',['get','status'],'target','#ffd166','cut','#a83a2b','fill','#315fa8','grade','#4f8f3a','#66717d'],'circle-stroke-color':'#ffffff','circle-stroke-width':['case',['==',['get','status'],'target'],3,1]}});
       if(!map.getLayer('pad-grade-grid-labels'))map.addLayer({id:'pad-grade-grid-labels',type:'symbol',source:'pad-grade-grid-points',minzoom:18,layout:{'text-field':['get','label'],'text-size':10,'text-offset':[0,1.2],'text-anchor':'top'},paint:{'text-color':'#ffffff','text-halo-color':'#111820','text-halo-width':1.5}});
       return true;
-    }catch(e){console.warn('Pad Grade v0.9.5 fast grid install failed',e);return false;}
+    }catch(e){console.warn('Pad Grade v0.9.7 fast grid install deferred',e);return false;}
+  }
+
+  function scheduleRetry(){
+    if(retryRaf||retryBudget>=4)return;
+    retryBudget++;
+    retryRaf=requestAnimationFrame(()=>{retryRaf=0;refreshNow(true);});
   }
 
   function refreshNow(force=false){
-    const map=mapInstance();if(!map||!ensureFamily(map))return false;
-    const sig=signature();if(!force&&sig===lastSignature)return true;lastSignature=sig;
+    const map=mapInstance();if(!map)return false;
+    if(!ensureFamily(map)){scheduleRetry();return false;}
+    const sig=signature();if(!force&&sig===lastSignature){retryBudget=0;return true;}lastSignature=sig;
     try{
       map.getSource('pad-grade-grid-lines')?.setData(fc(lineFeatures()));
       map.getSource('pad-grade-pad-outline')?.setData(fc(outlineFeatures()));
       map.getSource('pad-grade-route')?.setData(fc(routeFeatures()));
       map.getSource('pad-grade-grid-points')?.setData(fc(pointFeatures()));
       map.triggerRepaint?.();
+      retryBudget=0;
       window.__padGradeMapGridFastPathV095={projectId:activeId(),updatedAt:Date.now(),styleLoad:true,beforeGridAndGpsUi:true};
+      try{window.dispatchEvent(new CustomEvent('padgrade-project-grid-ready',{detail:{map,projectId:activeId(),fastPath:'v097'}}));}catch(e){}
       return true;
-    }catch(e){console.warn('Pad Grade v0.9.5 fast grid refresh failed',e);return false;}
+    }catch(e){console.warn('Pad Grade v0.9.7 fast grid refresh failed',e);scheduleRetry();return false;}
   }
 
   function attach(map){
     if(!map||map.__padGrade095FastGridAttached)return;
     map.__padGrade095FastGridAttached=true;installDuplicateTolerance(map);
-    try{map.on('style.load',()=>refreshNow(true));}catch(e){}
+    try{map.on('style.load',()=>refreshNow(true));map.on('styledata',()=>refreshNow(false));}catch(e){}
     if(styleReady(map))refreshNow(true);
   }
 
@@ -148,5 +160,6 @@
   // Compatibility modules may replace renderGrid/updateGpsUI later; re-wrap them
   // briefly during startup without polling the map forever.
   let wraps=0;const wrapTimer=setInterval(()=>{wrapFastPaths();if(++wraps>=30)clearInterval(wrapTimer);},100);
-  window.__padGradeMapGridPriorityV095='style-load-before-renderGrid-before-updateGpsUI-no-heatmap-delay';
+  window.__padGradeMapGridPriorityV097='live-style-attempt-immediately-retry-on-actual-add-failure-no-heatmap-delay';
+  window.__padGradeMapGridPriorityV095=window.__padGradeMapGridPriorityV097;
 })();
