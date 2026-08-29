@@ -6,6 +6,21 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v0.9.4 — development build
+
+### Changed
+- Project switching now keeps the existing MapLibre map, USGS imagery, controls, and live GPS marker mounted while completely removing the old project's grid, outline, route, point, and label sources/layers before creating the new project's overlay family.
+- Lower-grid text sizing now runs in a dedicated Web Worker using `OffscreenCanvas.measureText()`. Project cells paint immediately at a provisional physical size while map, heat-map, GPS, and other UI work continue; the completed worker result causes one CSS-only final size/font adjustment rather than a second cell rebuild.
+- Normal startup starts a lightweight grid-sizing worker immediately after `init.js` restores the active project. The authoritative grid owner still takes control only after the legacy project-management modules finish, and can consume the already-completed early measurement instead of measuring twice.
+
+### Fixed
+- Prevented old MapLibre GeoJSON grid/source state from surviving a project switch and appearing over the new project's heat map.
+- Removed the older stability gate's late authoritative-grid rerender, which could make the lower grid become the final screen element even after its data was already available.
+- Bumped the DEV Android package to version 0.9.4 / versionCode 61 and cache-busted the project/grid bootstrap path.
+
+### Known issues
+- This development build needs device verification of repeated switching between projects with different GPS grids and of lower-grid first-paint/final-resize timing before stable promotion.
+
 ## v0.8.6 — development build
 
 ### Fixed
