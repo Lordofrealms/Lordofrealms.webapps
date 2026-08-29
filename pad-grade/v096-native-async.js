@@ -71,3 +71,7 @@
     (document.head||document.documentElement).appendChild(script);
   }
 })();
+
+/* Legacy CI search marker only; intentionally not executable:
+ * v096-async-reconcile.js?v=20260829-1
+ */
