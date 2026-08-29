@@ -9,11 +9,18 @@
   installWorkerRedirect();loadFreshSurface();
 })();
 
+/* v0.9.4: visible/local File IDs must never wait for SAF indexing. The module's
+ * durable migration pass is safe to trail in the background; native folder APIs
+ * return not-ready/empty rather than blocking the WebView while indexing. */
 (function loadPadGrade080FileIds(){
-  let timer=null;
-  const ready=()=>{try{const n=window.PadGradeNative;if(!n||typeof n.hasProjectFolder!=='function'||!n.hasProjectFolder())return true;return typeof n.isProjectFolderIndexReady!=='function'||!!n.isProjectFolderIndexReady();}catch(e){return false;}};
-  const load=()=>{if(document.querySelector('script[data-padgrade-v080-file-id]'))return;const script=document.createElement('script');script.src='v080-file-id.js?v=20260828-1';script.async=false;script.dataset.padgradeV080FileId='1';script.onerror=()=>console.error('Pad Grade file-ID module failed to load');document.body.appendChild(script);};
-  if(ready()){load();return;}timer=setInterval(()=>{if(ready()){clearInterval(timer);load();}},100);window.addEventListener('beforeunload',()=>{if(timer)clearInterval(timer);},{once:true});
+  if(document.querySelector('script[data-padgrade-v080-file-id]'))return;
+  const script=document.createElement('script');
+  script.src='v080-file-id.js?v=20260829-2';
+  script.async=false;
+  script.dataset.padgradeV080FileId='1';
+  script.onerror=()=>console.error('Pad Grade file-ID module failed to load');
+  document.body.appendChild(script);
+  window.__padGradeFileIdDurableDecouplingV094='visible-local-ids-immediate-durable-migration-background';
 })();
 
 (function loadPadGrade081Comparison(){
