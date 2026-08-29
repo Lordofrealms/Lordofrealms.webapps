@@ -1,0 +1,43 @@
+name: Pad Grade Changelog Splice
+
+on:
+  push:
+    branches: [pad-grade-dev]
+    paths:
+      - '.github/workflows/pad-grade-changelog-splice.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  splice:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pad-grade-dev
+          fetch-depth: 0
+      - name: Splice staged changelog entries
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          changelog = Path('pad-grade/CHANGELOG.md')
+          staged = Path('pad-grade/.changelog-v095-v096.tmp')
+          text = changelog.read_text()
+          addition = staged.read_text()
+          marker = '## v0.9.4 — development build\n'
+          if '## v0.9.6 — development build' in text:
+              raise SystemExit('v0.9.6 entry already exists')
+          if marker not in text:
+              raise SystemExit('v0.9.4 marker missing')
+          changelog.write_text(text.replace(marker, addition + marker, 1))
+          staged.unlink()
+          PY
+      - name: Commit changelog
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pad-grade/CHANGELOG.md pad-grade/.changelog-v095-v096.tmp
+          git diff --cached --check
+          git commit -m "Pad Grade: document v0.9.5 and v0.9.6 development builds"
+          git push origin HEAD:pad-grade-dev
