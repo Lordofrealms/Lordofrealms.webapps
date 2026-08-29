@@ -46,34 +46,41 @@ jobs:
 
           version = os.environ['APP_VERSION']
           channel = os.environ['BUILD_CHANNEL']
-          changelog_path = Path('pad-grade/CHANGELOG.md')
-          changelog = changelog_path.read_text(encoding='utf-8') if changelog_path.exists() else ''
-          lines = changelog.splitlines()
-
-          starts = []
-          version_re = re.compile(rf'^## v{re.escape(version)}(?:\s+—\s+.*)?$', re.I)
-          for i, line in enumerate(lines):
-              if version_re.match(line.strip()):
-                  starts.append(i)
-
           preferred = 'development' if channel == 'dev' else 'stable'
-          start = None
-          for i in starts:
-              if preferred in lines[i].lower():
-                  start = i
-                  break
-          if start is None and starts:
-              start = starts[0]
 
-          if start is not None:
+          def version_section(path):
+              if not path.exists():
+                  return None
+              lines = path.read_text(encoding='utf-8').splitlines()
+              starts = []
+              version_re = re.compile(rf'^## v{re.escape(version)}(?:\s+—\s+.*)?$', re.I)
+              for i, line in enumerate(lines):
+                  if version_re.match(line.strip()):
+                      starts.append(i)
+              start = None
+              for i in starts:
+                  if preferred in lines[i].lower():
+                      start = i
+                      break
+              if start is None and starts:
+                  start = starts[0]
+              if start is None:
+                  return None
               end = len(lines)
               for i in range(start + 1, len(lines)):
                   if lines[i].startswith('## '):
                       end = i
                       break
-              changes = '\n'.join(lines[start:end]).strip()
-          else:
-              changes = f'## v{version}\n\nSee the repository changelog for this build.'
+              return '\n'.join(lines[start:end]).strip()
+
+          # Canonical web changelog is authoritative when it has this version.
+          # Android packaging changelog is a deliberate fallback for a just-built
+          # Android DEV version whose canonical entry has not been backfilled yet.
+          changes = version_section(Path('pad-grade/CHANGELOG.md'))
+          if not changes:
+              changes = version_section(Path('pad-grade-android/CHANGELOG.md'))
+          if not changes:
+              changes = f'## v{version}\n\nSee the repository changelogs for this build.'
 
           header = (
               '# Pad Grade Mapper\n\n'
