@@ -4,6 +4,23 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v0.9.2 — development build
+
+### Changed
+- During a true first-run durable-folder recovery, the black **Restoring saved project…** curtain now begins immediately when Android returns the selected folder, before the background SAF index/reconciliation work starts. It remains through the saved-project recovery reload; an empty selected folder drops the temporary cover before creating/loading a new default project.
+- Ordinary project Open actions now switch in place. The existing document, MapLibre object, USGS imagery, map controls, live GPS marker, cards, legends, and other static display groups stay mounted. Only project-owned state and overlays are replaced.
+- The lower grade-grid cells are rebuilt for the selected project's dimensions/readings, while the surrounding grid card and other UI groups remain intact.
+
+### Fixed
+- Removed the v0.9.1 project-switch `location.reload()` path that unnecessarily destroyed and reconstructed the entire display and GPS map.
+- Project switching now clears the old project's GPS grid/route/outline, heat-map canvas sources, and probe state before applying the selected project, then writes the new geometry into the same existing MapLibre sources immediately.
+- The new project's heat-map refresh runs immediately after the state swap so the surface owner cancels any old worker before queued old-project output can repaint.
+- Switching persists the newly selected project as the durable settings `lastProjectId`/`lastProjectName` when the durable folder is ready, preserving the expected in-work project for a later reinstall/recovery.
+- Clicking **Open** on the already-current project no longer falls through to the older reload-based project manager.
+
+### Known issues
+- This remains a development build intended for device verification of immediate recovery-cover timing and repeated in-place switching between projects with different grids, GPS locations, and heat maps before stable promotion.
+
 ## v0.9.1 — development build
 
 ### Changed
