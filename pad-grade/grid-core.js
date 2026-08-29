@@ -1,9 +1,10 @@
-/* Pad Grade v0.9.4 DEV — immediate lower-grid paint + background sizing.
+/* Pad Grade v0.9.6 DEV — immediate lower-grid paint + background sizing.
  *
- * The grid is visible immediately with a sane physical provisional layout. Text
- * measurement runs in grid-size-worker-v094.js while map/heatmap/GPS work can
- * proceed in parallel. When sizing completes, this owner changes layout/font CSS
- * once; it never rebuilds the cell contents a second time just to resize them.
+ * The grid cells are built and shown immediately at a sane provisional physical
+ * size. Text measurement then runs in grid-size-worker-v094.js while map,
+ * heat-map, GPS, stats, and other UI work continue. When sizing completes, this
+ * owner changes layout/font CSS once; it never rebuilds the cell contents merely
+ * to resize them.
  */
 (function installPadGradeGridCore(){
   'use strict';
@@ -18,6 +19,8 @@
 
   window.__padGradeGridOwned=true;
 
+  function nowMs(){try{return performance.now();}catch(e){return Date.now();}}
+  function diagMark(name,details){try{window.PadGradeDiag?.mark?.(name,details);}catch(e){}}
   function prefs(){try{return {minGridFont:2,...(JSON.parse(localStorage.getItem(PREF_KEY)||'{}')||{})};}catch(e){return {minGridFont:2};}}
   function px(value){const n=parseFloat(value);return Number.isFinite(n)?n:0;}
   function projectId(){try{return localStorage.getItem('padGradeActiveProjectIdV5')||'';}catch(e){return '';}}
@@ -92,6 +95,7 @@
     if(!activeJob||job.id!==activeJob.id||job.generation!==generation||job.projectId!==projectId())return;
     const grid=$('grid'),shell=grid?.parentElement;if(!grid||!shell)return;
     const solved=solveFromNeed(job,Math.max(1,Number(needWidthPerPx)||1));
+    const started=nowMs();
     grid.className=solved.className;
     grid.style.width=solved.width;
     grid.style.gridTemplateColumns=solved.columns;
@@ -101,6 +105,7 @@
     shell.classList.toggle('fit',solved.fit);
     const stats=window.__padGradeGridStats||(window.__padGradeGridStats={renders:0,lastReason:'',lastFont:0,lastWidth:0,widthLimit:0,heightLimit:0,lastDurationMs:0});
     stats.lastFont=solved.font;stats.lastWidth=job.geom.availableWidth;stats.widthLimit=solved.widthFontLimit;stats.heightLimit=solved.heightFontLimit;stats.measureSource=source;stats.finalResizeAt=Date.now();
+    diagMark('grid.final-resize',{projectId:job.projectId,reason:job.reason,source,fit:solved.fit,font:+solved.font.toFixed(3),cssMs:+(nowMs()-started).toFixed(1),workerElapsedMs:job.workerStartedAt?+(nowMs()-job.workerStartedAt).toFixed(1):undefined});
     activeJob=null;
   }
 
@@ -114,10 +119,15 @@
   function ensureWorker(){
     if(worker||typeof Worker!=='function')return worker;
     try{
+      const started=nowMs();
       worker=new Worker(WORKER_URL);
+      diagMark('grid.worker-created',{createMs:+(nowMs()-started).toFixed(1)});
       worker.onmessage=event=>{
         const msg=event.data||{},job=activeJob;if(!job||msg.jobId!==job.id)return;
-        if(msg.type==='complete'){applyFinal(job,msg.needWidthPerPx,'worker-offscreen-canvas');return;}
+        if(msg.type==='complete'){
+          diagMark('grid.worker-complete',{projectId:job.projectId,reason:job.reason,elapsedMs:job.workerStartedAt?+(nowMs()-job.workerStartedAt).toFixed(1):undefined});
+          applyFinal(job,msg.needWidthPerPx,'worker-offscreen-canvas');return;
+        }
         if(msg.type==='unsupported')setTimeout(()=>{if(activeJob===job)applyFinal(job,measureOnMain(job.samples,job.geom.family),'main-thread-canvas-fallback');},0);
       };
       worker.onerror=()=>{try{worker?.terminate();}catch(e){}worker=null;const job=activeJob;if(job)setTimeout(()=>{if(activeJob===job)applyFinal(job,measureOnMain(job.samples,job.geom.family),'main-thread-canvas-fallback');},0);};
@@ -125,46 +135,69 @@
     return worker;
   }
 
+  function scheduleSecondaryUi(){
+    setTimeout(()=>{
+      try{updateStats();}catch(e){}
+      try{if(typeof window.pgScheduleSurfaceDraw==='function')window.pgScheduleSurfaceDraw();}catch(e){}
+    },0);
+  }
+
   function startSizing(reason='explicit',rebuild=true){
     const grid=$('grid'),shell=grid?.parentElement;if(!grid||!shell)return;
     const s=cfg();generation++;
-    const started=performance.now?.()||Date.now();
+    const started=nowMs(),pid=projectId();
+    diagMark('grid.render-start',{projectId:pid,reason,rows:s.rows,cols:s.cols,rebuild});
+
     if(rebuild){
+      const cellsStarted=nowMs();
       grid.replaceChildren(buildCells(s));
       $('v040GridMode')?.remove();
-      try{updateStats();}catch(e){}
-    }
-    const geom=geometryInputs(s,grid,shell);
-    if(rebuild)applyProvisional(s,grid,shell,geom);
-    const samples=textSamples(s),sampleKey=JSON.stringify(samples);
-    const job={id:`g${generation}-${Date.now()}`,generation,projectId:projectId(),reason,s:{width:s.width,length:s.length,cols:s.cols,rows:s.rows},geom,samples,sampleKey};
-    activeJob=job;
-    const stats=window.__padGradeGridStats||(window.__padGradeGridStats={renders:0,lastReason:'',lastFont:0,lastWidth:0,widthLimit:0,heightLimit:0,lastDurationMs:0});
-    if(rebuild)stats.renders++;stats.lastReason=reason;stats.provisionalPaintAt=Date.now();stats.lastDurationMs=Math.max(0,(performance.now?.()||Date.now())-started);
+      const geom=geometryInputs(s,grid,shell);
+      applyProvisional(s,grid,shell,geom);
+      const provisionalMs=nowMs()-started;
+      diagMark('grid.provisional-ready',{projectId:pid,reason,cells:s.rows*s.cols,buildMs:+(nowMs()-cellsStarted).toFixed(1),elapsedMs:+provisionalMs.toFixed(1)});
+      requestAnimationFrame(()=>diagMark('grid.provisional-frame',{projectId:pid,reason}));
 
-    // Initial startup may already have completed this exact measurement in the
-    // post-init bootstrap worker while the project-manager chain was loading.
-    const early=window.__padGradeGridEarlySizingResultV094;
-    if(early&&early.projectId===job.projectId&&early.sampleKey===sampleKey&&Number.isFinite(+early.needWidthPerPx)){
-      applyFinal(job,+early.needWidthPerPx,'early-worker-offscreen-canvas');
+      const samples=textSamples(s),sampleKey=JSON.stringify(samples);
+      const job={id:`g${generation}-${Date.now()}`,generation,projectId:pid,reason,s:{width:s.width,length:s.length,cols:s.cols,rows:s.rows},geom,samples,sampleKey,workerStartedAt:0};
+      activeJob=job;
+      const stats=window.__padGradeGridStats||(window.__padGradeGridStats={renders:0,lastReason:'',lastFont:0,lastWidth:0,widthLimit:0,heightLimit:0,lastDurationMs:0});
+      stats.renders++;stats.lastReason=reason;stats.provisionalPaintAt=Date.now();stats.lastDurationMs=Math.max(0,nowMs()-started);
+
+      const early=window.__padGradeGridEarlySizingResultV094;
+      if(early&&early.projectId===job.projectId&&early.sampleKey===sampleKey&&Number.isFinite(+early.needWidthPerPx)){
+        applyFinal(job,+early.needWidthPerPx,'early-worker-offscreen-canvas');
+        scheduleSecondaryUi();
+        return;
+      }
+      const w=ensureWorker();
+      if(w){try{job.workerStartedAt=nowMs();w.postMessage({jobId:job.id,family:geom.family,samples});diagMark('grid.worker-posted',{projectId:pid,reason,samples:samples.length});scheduleSecondaryUi();return;}catch(e){}}
+      setTimeout(()=>{if(activeJob===job)applyFinal(job,measureOnMain(samples,geom.family),'main-thread-canvas-fallback');},0);
+      scheduleSecondaryUi();
       return;
     }
 
+    const geom=geometryInputs(s,grid,shell),samples=textSamples(s),sampleKey=JSON.stringify(samples);
+    const job={id:`g${generation}-${Date.now()}`,generation,projectId:pid,reason,s:{width:s.width,length:s.length,cols:s.cols,rows:s.rows},geom,samples,sampleKey,workerStartedAt:0};
+    activeJob=job;
     const w=ensureWorker();
-    if(w){try{w.postMessage({jobId:job.id,family:geom.family,samples});return;}catch(e){}}
+    if(w){try{job.workerStartedAt=nowMs();w.postMessage({jobId:job.id,family:geom.family,samples});diagMark('grid.worker-posted',{projectId:pid,reason,samples:samples.length,rebuild:false});return;}catch(e){}}
     setTimeout(()=>{if(activeJob===job)applyFinal(job,measureOnMain(samples,geom.family),'main-thread-canvas-fallback');},0);
   }
 
-  function renderGridV094(reason='explicit'){startSizing(reason,true);}
-  window.renderGrid=function(){renderGridV094('explicit');};
-  window.__padGradeRenderGrid=renderGridV094;
+  function renderGridV096(reason='explicit'){startSizing(reason,true);}
+  const publicRender=function(){renderGridV096('explicit');};
+  publicRender.__padGradeWorkerGridCore=true;
+  window.renderGrid=publicRender;
+  window.__padGradeRenderGrid=renderGridV096;
   window.__padGradeStartGridSizing=(reason='external')=>startSizing(reason,false);
 
   ensureWorker();
-  renderGridV094('core-install');
+  renderGridV096('core-install');
 
   const shell=$('grid')?.parentElement;
   if(shell&&typeof ResizeObserver==='function'){
+    try{window.__padGradeGridResizeObserver?.disconnect?.();}catch(e){}
     let lastWidth=Math.round(shell.getBoundingClientRect().width*10)/10,timer=null;
     const observer=new ResizeObserver(entries=>{
       const rect=entries[0]?.contentRect;if(!rect)return;
@@ -174,5 +207,7 @@
     observer.observe(shell);window.__padGradeGridResizeObserver=observer;
   }
 
-  window.__padGradeGridMeasurePolicyV094='paint-cells-first-worker-offscreen-measure-then-one-css-resize';
+  diagMark('grid.authoritative-owner-installed',{policy:'paint-cells-worker-measure-one-css-resize'});
+  window.__padGradeGridMeasurePolicyV096='paint-cells-first-worker-offscreen-measure-then-one-css-resize';
+  window.__padGradeGridMeasurePolicyV094=window.__padGradeGridMeasurePolicyV096;
 })();
