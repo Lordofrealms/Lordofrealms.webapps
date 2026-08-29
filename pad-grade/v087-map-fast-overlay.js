@@ -1,9 +1,9 @@
-/* Pad Grade v0.8.7 DEV — style-ready primary GPS grid overlay.
+/* Pad Grade v0.9.4 DEV — style-ready primary GPS grid overlay.
  *
- * The historical v030 overlay waits for MapLibre's full `load` event, which can
- * be delayed by remote raster imagery. This owner installs the same canonical
- * layer/source IDs at style readiness so the saved project grid is independent
- * of imagery completion. v030 continues to own its other GPS workflow UI.
+ * The project grid is intentionally the first project-owned map visualization.
+ * It attaches on padgrade-primary-map-captured, before the historical
+ * padgrade-map-created event is released to heat-map owners, then installs the
+ * lightweight GeoJSON grid/points at style readiness.
  */
 (function installPadGrade087FastMapOverlay(){
   'use strict';
@@ -98,17 +98,21 @@
   }
 
   function setData(id,data){try{const s=map?.getSource(id);if(s&&typeof s.setData==='function')s.setData(data);}catch(e){}}
+  function announceGridReady(){
+    try{window.dispatchEvent(new CustomEvent('padgrade-project-grid-ready',{detail:{map,projectId:localStorage.getItem('padGradeActiveProjectIdV5')||null}}));}catch(e){}
+  }
   function refresh(force=false){
-    if(!map||!install())return;
+    if(!map||!install())return false;
     let sig='';try{sig=JSON.stringify({fit:gpsFit||null,target:gpsTargetIndex,readings,settings:cfg()});}catch(e){}
-    if(!force&&sig===lastSignature)return;lastSignature=sig;
+    if(!force&&sig===lastSignature)return true;lastSignature=sig;
     setData(POINT_SOURCE,fc(pointFeatures()));
     setData(LINE_SOURCE,fc(lineFeatures()));
     setData(OUTLINE_SOURCE,fc(outlineFeatures()));
     setData(ROUTE_SOURCE,fc(routeFeatures()));
-    // Foreground geometry is explicit: any heat-map owner can anchor before the
-    // grid, and these layers are re-raised after style churn.
     try{for(const id of [LINE_LAYER,OUTLINE_LAYER,ROUTE_LAYER,POINT_LAYER,LABEL_LAYER])if(map.getLayer(id))map.moveLayer(id);}catch(e){}
+    window.__padGradeProjectGridReadyV094=true;
+    announceGridReady();
+    return true;
   }
 
   function attach(next){
@@ -122,10 +126,14 @@
     refresh(true);
   }
 
+  // New priority event: available immediately from the map constructor, before
+  // the historical map-created event is released to the heat-map owner.
+  window.addEventListener('padgrade-primary-map-captured',ev=>attach(ev?.detail?.map||window.__padGradeMapInstance));
   window.addEventListener('padgrade-map-created',ev=>attach(ev?.detail?.map||window.__padGradeMapInstance));
   window.addEventListener('padgrade-active-project-applied',()=>refresh(true));
   if(window.__padGradeMapInstance)attach(window.__padGradeMapInstance);
   timer=setInterval(()=>{if(!map&&window.__padGradeMapInstance)attach(window.__padGradeMapInstance);refresh(false);},300);
   window.addEventListener('beforeunload',()=>clearInterval(timer),{once:true});
+  window.__padGradePrimaryGridReadinessV094='captured-first-style-ready-grid-before-heatmap';
   window.__padGradePrimaryGridReadinessV087='style-ready-not-imagery-load';
 })();
