@@ -3,6 +3,11 @@
  */
 (function installPadGradeDurableSync(){
   'use strict';
+  if(window.PadGradeFiles&&typeof window.PadGradeFiles.read==='function'){
+    window.__padGradeDurableSyncV040='superseded-by-v096-async-reconcile';
+    try{window.dispatchEvent(new Event('padgrade-durable-sync-ready'));}catch(e){}
+    return;
+  }
   const INDEX_KEY='padGradeProjectsV5';
   const ACTIVE_KEY='padGradeActiveProjectIdV5';
   const PROMPT_KEY='padGradeDurableFolderPromptedV1';
