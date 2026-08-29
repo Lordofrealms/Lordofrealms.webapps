@@ -1,10 +1,10 @@
-/* Pad Grade v0.9.1 DEV — first-install durable-storage choice.
+/* Pad Grade v0.9.2 DEV — first-install durable-storage choice.
  *
  * A clean Android install does not create a default project until the user has
  * had a chance to reconnect surviving durable files, and it never opens Android's
- * folder picker without an explanatory opt-in first. The stable-style recovery
- * curtain is armed only when an existing durable project set has actually been
- * recovered and the app performs the one recovery reload.
+ * folder picker without an explanatory opt-in first. Once the user actually
+ * chooses a folder during that first-run recovery flow, the stable-style recovery
+ * curtain begins immediately while the background folder index is being built.
  */
 (function installPadGrade090FirstRunGuard(){
   'use strict';
@@ -19,6 +19,7 @@
   const native=window.PadGradeNative||null;
   let armed=false;
   let pickerRequested=false;
+  let recoveryVisualPending=false;
   let indexTimer=null;
   let finalizeTimer=null;
 
@@ -40,18 +41,35 @@
     try{if(typeof window.cfg==='function')settings={...settings,...window.cfg()};}catch(e){}
     return {app:'Pad Grade Mapper Mobile',schemaVersion:5,version:5,id,createdAt:now,modifiedAt:now,status:'open',settings,readings:{},readingMeta:{},gps:{},measureMode:'manual',migration:{sourceVersion:5},dev:{unitMode:'inches',heatmap:true,routeMode:'serpentine',laser:null,notes:''}};
   }
+
+  function beginRecoveryVisual(){
+    if(!armed||recoveryVisualPending)return;
+    recoveryVisualPending=true;
+    try{window.__padGradeBeginRecoveryVisualHold?.();}catch(e){}
+    window.__padGradeFirstRunRecoveryVisualV092='folder-selected-indexing';
+  }
+  function endRecoveryVisual(){
+    if(!recoveryVisualPending)return;
+    recoveryVisualPending=false;
+    try{window.__padGradeEndRecoveryVisualHold?.();}catch(e){}
+  }
   function reloadNormally(){location.reload();}
   function reloadRecoveredDurable(){
-    try{window.__padGradeBeginRecoveryVisualHold?.();}catch(e){}
-    setTimeout(()=>{try{location.reload();}catch(e){try{window.__padGradeEndRecoveryVisualHold?.();}catch(_){}}},40);
+    // Usually already armed by the folder-selected event. Keep this fallback for
+    // restored Android activity flows where that event might not have painted.
+    beginRecoveryVisual();
+    setTimeout(()=>{try{location.reload();}catch(e){endRecoveryVisual();}},40);
   }
   function writeDefaultProject(durable){
-    if(!armed)return;closeChoice();removeSentinel();if(realIndex().length||localStorage.getItem(ACTIVE_KEY)){armed=false;return;}
+    if(!armed)return;closeChoice();removeSentinel();if(realIndex().length||localStorage.getItem(ACTIVE_KEY)){armed=false;endRecoveryVisual();return;}
     const p=defaultProject();
     localStorage.setItem(`${PROJECT_PREFIX}${p.id}`,JSON.stringify(p));
     localStorage.setItem(INDEX_KEY,JSON.stringify([{id:p.id,name:p.settings.name,createdAt:p.createdAt,modifiedAt:p.modifiedAt,status:'open'}]));
     localStorage.setItem(ACTIVE_KEY,p.id);
     if(durable&&hasFolder()&&indexReady()&&typeof native?.writeProjectFile==='function'){try{native.writeProjectFile(`${p.id}.padgrade`,JSON.stringify(p));}catch(e){}}
+    // An empty chosen folder is not a saved-project recovery. Drop the temporary
+    // first-run recovery cover before loading the newly-created local project.
+    endRecoveryVisual();
     armed=false;window.__padGradeFirstRunPending=false;reloadNormally();
   }
   function chooseRestoredProjectOrDefault(){
@@ -65,7 +83,7 @@
   }
   function finalizeAfterIndex(){if(!armed||!hasFolder()||!indexReady())return;clearTimeout(finalizeTimer);finalizeTimer=setTimeout(chooseRestoredProjectOrDefault,450);}
   function waitForIndex(){if(indexTimer)return;indexTimer=setInterval(()=>{if(!armed){clearInterval(indexTimer);indexTimer=null;return;}if(hasFolder()&&indexReady()){clearInterval(indexTimer);indexTimer=null;finalizeAfterIndex();}},120);}
-  function requestFolder(){if(!armed||pickerRequested)return;if(hasFolder()){waitForIndex();return;}pickerRequested=true;waitForIndex();try{native.chooseProjectFolder();}catch(e){window.__padGradeProjectFolderSelectionCancelled?.();}}
+  function requestFolder(){if(!armed||pickerRequested)return;if(hasFolder()){beginRecoveryVisual();waitForIndex();return;}pickerRequested=true;waitForIndex();try{native.chooseProjectFolder();}catch(e){window.__padGradeProjectFolderSelectionCancelled?.();}}
   function closeChoice(){const dlg=document.getElementById(DIALOG_ID);if(dlg?.open)try{dlg.close();}catch(e){}}
   function showChoice(note=''){
     if(!armed)return;let dlg=document.getElementById(DIALOG_ID);
@@ -80,18 +98,24 @@
     const noteEl=dlg.querySelector('#pgFirstRunStorageNote');if(noteEl)noteEl.textContent=note;if(!dlg.open)try{dlg.showModal();}catch(e){dlg.setAttribute('open','');}
   }
 
-  window.__padGradeProjectFolderSelectionCancelled=function(){if(!armed)return;pickerRequested=false;showChoice('Folder selection was canceled. Choose a folder, or continue locally for now.');};
-  window.addEventListener('padgrade-project-folder-selected',()=>{pickerRequested=false;waitForIndex();});
+  window.__padGradeProjectFolderSelectionCancelled=function(){if(!armed)return;pickerRequested=false;endRecoveryVisual();showChoice('Folder selection was canceled. Choose a folder, or continue locally for now.');};
+  window.addEventListener('padgrade-project-folder-selected',()=>{
+    pickerRequested=false;
+    // This event is emitted immediately after Android returns the selected tree
+    // URI, before the SAF background index has to finish. Cover now, not later.
+    if(armed)beginRecoveryVisual();
+    waitForIndex();
+  });
   window.addEventListener('padgrade-project-folder-indexed',finalizeAfterIndex);
   window.addEventListener('padgrade-projects-reconciled',()=>{if(armed&&hasFolder()&&indexReady())finalizeAfterIndex();});
 
   if(isAndroid()&&!hasExistingLocalState()){
     armed=true;window.__padGradeFirstRunPending=true;installSentinel();localStorage.setItem(PROMPT_KEY,'1');
-    const start=()=>{if(hasFolder())waitForIndex();else showChoice();};
+    const start=()=>{if(hasFolder()){beginRecoveryVisual();waitForIndex();}else showChoice();};
     if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(start,80),{once:true});else setTimeout(start,80);
   }
 
-  window.__padGradeFirstRunPolicyV091='explain-opt-in-before-durable-folder-picker';
-  window.__padGradeFirstRunRecoveryCurtainPolicyV091='only-existing-durable-project-recovery-reload';
+  window.__padGradeFirstRunPolicyV092='explain-opt-in-cover-immediately-after-folder-selection';
+  window.__padGradeFirstRunRecoveryCurtainPolicyV092='first-run-folder-selected-through-saved-project-recovery';
   window.addEventListener('beforeunload',()=>{if(indexTimer)clearInterval(indexTimer);if(finalizeTimer)clearTimeout(finalizeTimer);},{once:true});
 })();
