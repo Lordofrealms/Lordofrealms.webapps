@@ -70,6 +70,13 @@ jobs:
               "  });\n"
           )
 
+          diag = 'pad-grade/v096-diagnostics.js'
+          replace_once(
+              diag,
+              "  function persistEntries(entries){try{localStorage.setItem(LOG_KEY,JSON.stringify(trim(entries)));}catch(e){}\n  function record(name,durationMs,details,kind='mark'){\n",
+              "  function persistEntries(entries){try{localStorage.setItem(LOG_KEY,JSON.stringify(trim(entries)));}catch(e){}}\n  function record(name,durationMs,details,kind='mark'){\n"
+          )
+
           workflow = '.github/workflows/pad-grade-android.yml'
           replace_once(
               workflow,
@@ -128,7 +135,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java pad-grade/v096-async-reconcile.js .github/workflows/pad-grade-android.yml .github/workflows/pad-grade-v096-maintenance.yml
+          git add pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java pad-grade/v096-async-reconcile.js pad-grade/v096-diagnostics.js .github/workflows/pad-grade-android.yml .github/workflows/pad-grade-v096-maintenance.yml
           git diff --cached --check
           git commit -m "Pad Grade v0.9.6: finish async durability hardening"
           git push origin HEAD:pad-grade-dev
