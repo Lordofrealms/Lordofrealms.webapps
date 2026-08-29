@@ -1,4 +1,4 @@
-/* Pad Grade v0.9.6 DEV — Promise-based durable file bridge.
+/* Pad Grade v0.9.7 DEV — Promise-based durable file bridge.
  * Android performs SAF reads/writes/deletes on its background file executor and
  * returns results through one callback. Existing synchronous methods remain only
  * as a compatibility fallback for browser/older native builds.
@@ -63,11 +63,11 @@
     deleteResult:filename=>request('delete',filename),
     list:()=>{try{const x=JSON.parse(native?.listProjectFiles?.()||'[]');return Array.isArray(x)?x:[];}catch(e){return [];}}
   };
-  diag()?.mark?.('file.async-bridge-installed',{nativeAsync:!!(native&&typeof native.readProjectFileAsync==='function')});
+  diag()?.mark?.('file.async-bridge-installed',{nativeAsync:!!(native&&typeof native.readProjectFileAsync==='function'),version:'0.9.7'});
 
   if(!document.querySelector('script[data-padgrade-v096-async-reconcile]')){
-    const script=document.createElement('script');script.src='v096-async-reconcile.js?v=20260829-1';script.async=false;script.dataset.padgradeV096AsyncReconcile='1';
-    script.onerror=()=>console.error('Pad Grade v0.9.6 async reconcile controller failed to load');
+    const script=document.createElement('script');script.src='v096-async-reconcile.js?v=20260829-2';script.async=false;script.dataset.padgradeV096AsyncReconcile='1';
+    script.onerror=()=>console.error('Pad Grade v0.9.7 async reconcile controller failed to load');
     (document.head||document.documentElement).appendChild(script);
   }
 })();
