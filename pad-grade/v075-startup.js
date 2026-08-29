@@ -1,11 +1,10 @@
-/* Pad Grade v0.9.7 DEV — prepaint durable-recovery restore + settled reveal.
+/* Pad Grade v0.9.8 DEV — bounded recovered-project reveal + fixed-bottom reserve.
  *
- * This module only owns release of an already-active durable-recovery curtain.
- * Ordinary startup/project switching never creates a cover here. During covered
- * recovery, keep the curtain alive until the restored project, lower grid sizing,
- * and (when applicable) the current project's map grid have painted and visible
- * layout has been quiet. Background durable reconciliation/File-ID migration are
- * intentionally not reveal prerequisites.
+ * A durable-recovery curtain is released as soon as the recovered project has
+ * been applied, the lower grid has painted, and (for calibrated GPS projects)
+ * the small survey-grid layers exist. Final font sizing, MapLibre idle/render,
+ * raster imagery, heat-map work, folder reconciliation, and File-ID maintenance
+ * are deliberately NOT reveal prerequisites.
  */
 (function installPadGrade075Startup(){
   'use strict';
@@ -15,12 +14,12 @@
   const PREF_KEY='padGradeAppPrefsV1';
   const MOBILE_KEY='padGradeMobile';
   const MIN_HEIGHT=180,MAX_HEIGHT=800,MIN_WIDTH=320,MAX_WIDTH=1400,STEP=10;
-  const QUIET_MS=450,KEEPALIVE_MS=2200,MAX_HOLD_MS=20000;
+  const MAX_HOLD_MS=4000;
   const $=id=>document.getElementById(id);
 
-  let revealRequested=false,revealFinished=false,revealStartedAt=0,lastLayoutActivity=0;
-  let revealPoll=null,revealFailsafe=null,keepaliveTimer=null,resizeObserver=null;
-  let renderedProjectId='',renderAwaitingId='',renderMap=null,renderHandler=null;
+  let revealRequested=false,revealFinished=false,revealStartedAt=0;
+  let revealPoll=null,revealFailsafe=null,mapPrimeProjectId='';
+  let bottomObserver=null;
 
   const parse=(raw,fallback=null)=>{try{return raw?JSON.parse(raw):fallback;}catch(e){return fallback;}};
   const clamp=(v,min,max)=>{const n=Number(v);if(!Number.isFinite(n))return null;return Math.max(min,Math.min(max,Math.round(n/STEP)*STEP));};
@@ -48,34 +47,23 @@
     };
   }
 
+  function installBottomReserve(){
+    const bottom=document.querySelector('.bottom');if(!bottom)return;
+    const apply=()=>{try{const h=Math.ceil(bottom.getBoundingClientRect().height),wrap=document.querySelector('.wrap');if(h>0){document.documentElement.style.setProperty('--pg-bottom-bar-height',`${h}px`);if(wrap)wrap.style.paddingBottom=`${h+24}px`;bottom.style.zIndex='30';}}catch(e){}};
+    apply();requestAnimationFrame(apply);
+    if(typeof ResizeObserver==='function'){
+      try{bottomObserver=new ResizeObserver(apply);bottomObserver.observe(bottom);}catch(e){bottomObserver=null;}
+    }
+    window.addEventListener('resize',apply);
+    window.__padGradeBottomBarReserveV098='measured-fixed-bar-height-plus-scroll-clearance';
+  }
+
   function holdActive(){return document.documentElement.classList.contains('padGradeRecoveryHold');}
-  function touchLayout(){lastLayoutActivity=nowMs();}
-  function startKeepalive(){
-    if(keepaliveTimer||!holdActive())return;
-    keepaliveTimer=setInterval(()=>{
-      if(revealFinished||!holdActive()){stopKeepalive();return;}
-      try{window.__padGradeBeginRecoveryVisualHold?.();}catch(e){}
-    },KEEPALIVE_MS);
-  }
-  function stopKeepalive(){if(keepaliveTimer){clearInterval(keepaliveTimer);keepaliveTimer=null;}}
-  function observeVisibleLayout(){
-    if(resizeObserver||typeof ResizeObserver!=='function')return;
-    try{
-      resizeObserver=new ResizeObserver(touchLayout);
-      for(const el of [$('grid')?.parentElement,$('gpsMapCard'),document.querySelector('.gpsMapWrap'),document.querySelector('.wrap')])if(el)resizeObserver.observe(el);
-    }catch(e){resizeObserver=null;}
-  }
-  function stopObserving(){try{resizeObserver?.disconnect?.();}catch(e){}resizeObserver=null;}
-  function projectApplied(project){
-    if(!project)return false;
-    return window.__padGradeProjectStartupSettledV091===project.id||window.__padGradePreloadedProjectId===project.id;
-  }
+  function projectApplied(project){return !!project&&(window.__padGradeProjectStartupSettledV091===project.id||window.__padGradePreloadedProjectId===project.id);}
   function lowerGridReady(project){
     if(!project?.settings)return false;
     const rows=Math.max(1,Number(project.settings.rows)||0),cols=Math.max(1,Number(project.settings.cols)||0),expected=rows*cols;
-    if(document.querySelectorAll('#grid .cell').length!==expected)return false;
-    const stats=window.__padGradeGridStats||{};
-    return !!stats.provisionalPaintAt&&!!stats.finalResizeAt&&stats.finalResizeAt>=stats.provisionalPaintAt;
+    return expected>0&&document.querySelectorAll('#grid .cell').length===expected;
   }
   function projectNeedsMapGrid(project){
     if(!project||project.measureMode!=='gps')return false;
@@ -88,71 +76,54 @@
     try{
       if(!map.getLayer?.('pad-grade-grid-lines-layer')||!map.getLayer?.('pad-grade-grid-points-layer'))return false;
       const fast=window.__padGradeMapGridFastPathV095,owner=window.__padGradeProjectGridSourceOwnerV094;
-      return fast?.projectId===project.id||owner===project.id;
+      return fast?.projectId===project.id||owner===project.id||window.__padGradeProjectGridReadyV094===true;
     }catch(e){return false;}
   }
-  function requestMapRender(project){
-    if(!projectNeedsMapGrid(project)){renderedProjectId=project.id;return;}
-    if(renderedProjectId===project.id||renderAwaitingId===project.id)return;
-    const map=window.__padGradeMapInstance;if(!map||!mapGridReady(project))return;
-    if(renderMap&&renderHandler){try{renderMap.off('render',renderHandler);}catch(e){}}
-    renderMap=map;renderAwaitingId=project.id;
-    renderHandler=()=>{
-      const id=renderAwaitingId;renderAwaitingId='';renderedProjectId=id;touchLayout();
-      try{renderMap?.off?.('render',renderHandler);}catch(e){}
-      renderMap=null;renderHandler=null;
-    };
-    try{map.once('render',renderHandler);map.triggerRepaint?.();}catch(e){renderedProjectId=project.id;renderAwaitingId='';renderMap=null;renderHandler=null;}
+  function primeMapOnce(project){
+    if(!projectNeedsMapGrid(project)||mapPrimeProjectId===project.id)return;
+    mapPrimeProjectId=project.id;
+    try{window.__padGradeRefreshMapGridNow?.(true);}catch(e){}
   }
-  function cleanup(){
-    if(revealPoll){clearInterval(revealPoll);revealPoll=null;}
-    if(revealFailsafe){clearTimeout(revealFailsafe);revealFailsafe=null;}
-    stopKeepalive();stopObserving();
-    if(renderMap&&renderHandler){try{renderMap.off('render',renderHandler);}catch(e){}}
-    renderMap=null;renderHandler=null;renderAwaitingId='';
+  function unlockRecoveredWrites(){
+    try{
+      const native=window.PadGradeNative;
+      if(native&&typeof native.isProjectFolderRecoveryPending==='function'&&native.isProjectFolderRecoveryPending())native.completeProjectFolderRecovery?.();
+    }catch(e){}
   }
-  function finishReveal(reason='settled'){
-    if(revealFinished)return;revealFinished=true;cleanup();
+  function cleanup(){if(revealPoll){clearInterval(revealPoll);revealPoll=null;}if(revealFailsafe){clearTimeout(revealFailsafe);revealFailsafe=null;}}
+  function finishReveal(reason='ready'){
+    if(revealFinished)return;revealFinished=true;cleanup();unlockRecoveredWrites();
     mark('recovery.visual-settled',{reason,elapsedMs:+(nowMs()-revealStartedAt).toFixed(1),projectId:activeProject()?.id||null});
     requestAnimationFrame(()=>requestAnimationFrame(()=>{
       try{window.__padGradeEndRecoveryVisualHold?.();}catch(e){}
-      window.__padGradeStartupRevealV097=reason==='settled'?'restored-project-grid-map-settled':'safety-release';
+      window.__padGradeStartupRevealV098=reason==='ready'?'project-grid-painted':'safety-release';
+      try{window.dispatchEvent(new CustomEvent('padgrade-recovery-visual-released',{detail:{reason,projectId:activeProject()?.id||null}}));}catch(e){}
     }));
   }
-  function checkSettled(){
+  function checkReady(){
     if(revealFinished)return;
-    if(!holdActive()){revealFinished=true;cleanup();return;}
+    if(!holdActive()){revealFinished=true;cleanup();unlockRecoveredWrites();return;}
     const project=activeProject();if(!project||!projectApplied(project)||!lowerGridReady(project))return;
-    if(!mapGridReady(project))return;
-    requestMapRender(project);
-    if(projectNeedsMapGrid(project)&&renderedProjectId!==project.id)return;
-    if(nowMs()-lastLayoutActivity<QUIET_MS)return;
-    finishReveal('settled');
+    primeMapOnce(project);if(!mapGridReady(project))return;
+    finishReveal('ready');
   }
   function requestSettledReveal(){
     if(revealFinished)return;
-    if(!holdActive()){revealFinished=true;return;}
+    if(!holdActive()){revealFinished=true;unlockRecoveredWrites();return;}
     if(revealRequested)return;
-    revealRequested=true;revealStartedAt=nowMs();lastLayoutActivity=revealStartedAt;
-    startKeepalive();observeVisibleLayout();
+    revealRequested=true;revealStartedAt=nowMs();
     revealFailsafe=setTimeout(()=>finishReveal('safety-timeout'),MAX_HOLD_MS);
-    revealPoll=setInterval(checkSettled,80);
-    checkSettled();
-    mark('recovery.visual-settle-gate-started',{maxHoldMs:MAX_HOLD_MS,quietMs:QUIET_MS});
+    revealPoll=setInterval(checkReady,60);checkReady();
+    mark('recovery.visual-settle-gate-started',{maxHoldMs:MAX_HOLD_MS,policy:'project-applied-lower-grid-map-grid-only'});
   }
 
-  preapplyMapPrefs();
+  preapplyMapPrefs();installBottomReserve();
   window.__padGradeRequestSettledStartupReveal=requestSettledReveal;
-  window.__padGradeStartupPrepaintV097=true;
-  document.title='Pad Grade Mapper v0.9.7 DEV';
-  // The head helper still owns a short anti-stuck failsafe. If this page arrived
-  // from a covered recovery reload, re-arm it immediately so that failsafe cannot
-  // expose intermediate restored UI before v072 requests the settled release.
-  if(holdActive())startKeepalive();
-  window.addEventListener('padgrade-active-project-applied',touchLayout);
-  window.addEventListener('padgrade-project-grid-ready',touchLayout);
-  window.addEventListener('load',touchLayout,{once:true});
-  window.addEventListener('beforeunload',cleanup,{once:true});
+  window.__padGradeStartupPrepaintV098=true;
+  document.title='Pad Grade Mapper v0.9.8 DEV';
+  window.addEventListener('padgrade-active-project-applied',checkReady);
+  window.addEventListener('padgrade-project-grid-ready',checkReady);
+  window.addEventListener('beforeunload',()=>{cleanup();try{bottomObserver?.disconnect?.();}catch(e){}},{once:true});
 })();
 
 /* Legacy CI search markers only; intentionally not current behavior:
