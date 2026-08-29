@@ -11,6 +11,7 @@ on:
       - 'pad-grade/v083-project-compare-fix.js'
       - 'pad-grade/v085-map-render-order.js'
       - 'pad-grade/v086-compare-presentation.js'
+      - 'pad-grade/v087-compare-back.js'
       - 'pad-grade/v072-project-restore.js'
       - 'pad-grade/map.js'
       - 'pad-grade/v078-dev.js'
@@ -27,6 +28,7 @@ on:
       - 'pad-grade/v083-project-compare-fix.js'
       - 'pad-grade/v085-map-render-order.js'
       - 'pad-grade/v086-compare-presentation.js'
+      - 'pad-grade/v087-compare-back.js'
       - 'pad-grade/v072-project-restore.js'
       - 'pad-grade/map.js'
       - 'pad-grade/v078-dev.js'
@@ -49,14 +51,17 @@ jobs:
           node --check pad-grade/v083-project-compare-fix.js
           node --check pad-grade/v085-map-render-order.js
           node --check pad-grade/v086-compare-presentation.js
+          node --check pad-grade/v087-compare-back.js
           node --check pad-grade/v072-project-restore.js
           node --check pad-grade/map.js
           node --check pad-grade/map-instance-hook-v064.js
           grep -F "project-compare-core.js?v=20260829-1" pad-grade/v078-dev.js
           grep -F "v081-project-compare.js?v=20260829-1" pad-grade/v078-dev.js
           grep -F "v083-project-compare-fix.js?v=20260829-1" pad-grade/v078-dev.js
-          grep -F "v085-map-render-order.js?v=20260829-2" pad-grade/v078-dev.js
-          grep -F "v086-compare-presentation.js?v=20260829-1" pad-grade/v085-map-render-order.js
+          grep -F "v085-map-render-order.js?v=20260829-3" pad-grade/v078-dev.js
+          grep -F "v086-compare-presentation.js?v=20260829-2" pad-grade/v085-map-render-order.js
+          grep -F "padgrade-maplibre-ready" pad-grade/v085-map-render-order.js
+          grep -F "padgrade-map-runtime-ready" pad-grade/v085-map-render-order.js
       - name: Verify startup isolation and non-blocking project reveal
         run: |
           grep -F "retired-startup-coupled-comparison-layer" pad-grade/v082-project-compare-fix.js
@@ -105,7 +110,7 @@ jobs:
           grep -F "compareMap.addLayer({id:GRID_LAYER" pad-grade/v081-project-compare.js
           grep -F "compareMap.addLayer({id:POINT_LAYER" pad-grade/v081-project-compare.js
           grep -F "}},GRID_LAYER);" pad-grade/v081-project-compare.js
-      - name: Verify comparison point styling and color key
+      - name: Verify comparison point styling, color key, and Back behavior
         run: |
           grep -F "const CUT='#a83a2b',GRADE='#4f8f3a',FILL='#315fa8'" pad-grade/v086-compare-presentation.js
           grep -F "'circle-radius',6" pad-grade/v086-compare-presentation.js
@@ -114,5 +119,6 @@ jobs:
           grep -F ".pgCompareLegend{display:none!important}" pad-grade/v086-compare-presentation.js
           grep -F "pgCompareLegendBar" pad-grade/v086-compare-presentation.js
           grep -F "GRADE ±" pad-grade/v086-compare-presentation.js
+          grep -F "system-back-exits-compare-before-app" pad-grade/v087-compare-back.js
       - name: Run comparison self-tests
         run: node pad-grade/project-compare-selftest.js
