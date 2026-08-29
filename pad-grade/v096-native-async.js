@@ -80,7 +80,7 @@
   diag()?.mark?.('file.async-bridge-installed',{nativeAsync:!!(native&&typeof native.readProjectFileAsync==='function'),version:'0.9.8',recoveryMutationLock:true});
 
   if(!document.querySelector('script[data-padgrade-v096-async-reconcile]')){
-    const script=document.createElement('script');script.src='v096-async-reconcile.js?v=20260829-3';script.async=false;script.dataset.padgradeV096AsyncReconcile='1';
+    const script=document.createElement('script');script.src='v096-async-reconcile.js?v=20260829-4';script.async=false;script.dataset.padgradeV096AsyncReconcile='1';
     script.onerror=()=>console.error('Pad Grade v0.9.8 async reconcile controller failed to load');
     (document.head||document.documentElement).appendChild(script);
   }
