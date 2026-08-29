@@ -6,6 +6,18 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v0.9.8 — development build
+
+### Changed
+- Bumped the separately installable DEV Android package to version 0.9.8 / versionCode 65.
+- Cache-busted the recovery, async durable bridge/controller, authoritative grid bootstrap, single MapLibre grid owner, and MapLibre loader paths so an upgraded DEV install cannot retain the v0.9.7 startup behavior.
+
+### Fixed
+- Packaged the bounded recovery reveal, recovery-time durable mutation guard, canonical File-ID recovery, idle reconciliation/migration scheduling, duplicate grid-render suppression, single map-grid owner, and measured bottom-bar clearance from the canonical web app.
+
+### Known issues
+- This development build needs device verification of first-install durable recovery, project switching, main-thread responsiveness, Back behavior after startup, and bottom-grid/button clearance before stable promotion.
+
 ## v0.9.4 — development build
 
 ### Changed
