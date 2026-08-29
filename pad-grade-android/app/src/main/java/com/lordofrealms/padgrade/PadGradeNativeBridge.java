@@ -76,6 +76,11 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
     @JavascriptInterface public boolean saveTextFile(String filename, String mimeType, String text) { return activity.requestSaveTextFile(filename, mimeType, text); }
     @JavascriptInterface public void chooseProjectFolder() { activity.requestProjectFolder(); }
     @JavascriptInterface public boolean hasProjectFolder() { return getProjectFolder() != null; }
+    /** Cheap v0.9.6 startup probe: reports a configured folder URI without querying the SAF provider. */
+    @JavascriptInterface public boolean hasProjectFolderConfigured() {
+        String raw = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(PROJECT_FOLDER_URI, null);
+        return raw != null && !raw.isBlank();
+    }
     @JavascriptInterface public boolean isProjectFolderIndexReady() { return projectFileCacheLoaded; }
     @JavascriptInterface public boolean isProjectFolderRecoveryPending() { return projectFolderRecoveryPending; }
     @JavascriptInterface public void completeProjectFolderRecovery() { projectFolderRecoveryPending = false; }
@@ -91,7 +96,10 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
             for (Map.Entry<String, DocumentFile> entry : projectFileCache.entrySet()) {
                 String name = entry.getKey();
                 DocumentFile file = entry.getValue();
-                if (name == null || file == null || !file.isFile()) continue;
+                // The directory walk already populated this cache on the background index thread.
+                // Do not call DocumentFile.isFile() here: TreeDocumentFile may query the provider again,
+                // turning a cached JS list request into one synchronous SAF query per entry.
+                if (name == null || file == null) continue;
                 String lower = name.toLowerCase();
                 if (lower.endsWith(".padgrade") || lower.endsWith(".padgrade.json") || lower.endsWith(".json")) out.put(name);
             }

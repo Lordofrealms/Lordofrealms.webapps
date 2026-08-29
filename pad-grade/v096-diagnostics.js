@@ -50,7 +50,7 @@
     while(raw.length>MAX_BYTES&&entries.length>100){entries=entries.slice(Math.max(1,Math.floor(entries.length*.1)));try{raw=JSON.stringify(entries);}catch(e){break;}}
     return entries;
   }
-  function persistEntries(entries){try{localStorage.setItem(LOG_KEY,JSON.stringify(trim(entries)));}catch(e){}
+  function persistEntries(entries){try{localStorage.setItem(LOG_KEY,JSON.stringify(trim(entries)));}catch(e){}}
   function record(name,durationMs,details,kind='mark'){
     const entry={seq:++sequence,session:sessionId,at:new Date().toISOString(),sinceBootMs:relMs(),kind,event:String(name||'event')};
     if(Number.isFinite(+durationMs))entry.durationMs=Math.round(+durationMs*10)/10;

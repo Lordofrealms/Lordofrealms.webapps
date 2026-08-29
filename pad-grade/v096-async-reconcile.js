@@ -28,7 +28,7 @@
   const nowIso=()=>new Date().toISOString();
   const projectKey=id=>`${PROJECT_PREFIX}${id}`;
   function indexReady(){try{return typeof native.isProjectFolderIndexReady==='function'?!!native.isProjectFolderIndexReady():true;}catch(e){return false;}}
-  function hasFolder(){try{return typeof native.hasProjectFolder==='function'&&!!native.hasProjectFolder();}catch(e){return false;}}
+  function hasFolder(){try{if(typeof native.hasProjectFolderConfigured==='function')return !!native.hasProjectFolderConfigured();return typeof native.hasProjectFolder==='function'&&!!native.hasProjectFolder();}catch(e){return false;}}
   function getIndex(){const x=parse(localStorage.getItem(INDEX_KEY),[]);return Array.isArray(x)?x:[];}
   function setIndex(x){try{localStorage.setItem(INDEX_KEY,JSON.stringify(x));}catch(e){}}
   function getLocal(id){return parse(localStorage.getItem(projectKey(id)),null);}
@@ -156,7 +156,14 @@
   window.__padGradeReconcileDurableAsync=reconcileAll;
   window.__padGradeScheduleAsyncFileIdMigration=scheduleAsyncFileIdMigration;
   window.__padGradeProjectFolderChanged=function(){if(indexReady())prepareMinimumRecovery();};
-  window.addEventListener('padgrade-project-folder-indexed',()=>prepareMinimumRecovery());
+  window.addEventListener('padgrade-project-folder-indexed',()=>{
+    if(indexReady()){prepareMinimumRecovery();return;}
+    // An inaccessible configured URI must not leave recovery pending forever.
+    try{native.completeProjectFolderRecovery?.();}catch(e){}
+    const result={ready:false,indexUnavailable:true};window.__padGradeMinimumDurableRecoveryV096=result;
+    try{window.dispatchEvent(new CustomEvent('padgrade-minimum-durable-recovery-ready',{detail:result}));}catch(e){}
+    diag()?.mark?.('recovery.index-unavailable',result);
+  });
   window.addEventListener('padgrade-durable-sync-ready',()=>{if(indexReady())prepareMinimumRecovery();});
   if(hasFolder()&&indexReady())setTimeout(()=>prepareMinimumRecovery(),0);
   diag()?.mark?.('recovery.async-controller-installed');
