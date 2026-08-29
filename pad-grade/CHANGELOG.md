@@ -4,6 +4,21 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v0.9.1 — development build
+
+### Changed
+- Restored the recovery curtain to the stable v0.8.0 semantics and wording: **Restoring saved project…** is shown only for the intentional reload after an existing durable project folder has been recovered.
+- Ordinary app startup and ordinary project-to-project switching no longer show a loading/recovery curtain.
+
+### Fixed
+- Project switching still uses an atomic reload boundary, but now carries only the intended project ID through session storage. The new document applies that target in its head before project managers run, preventing old/new project layer mixing without reusing the durable-recovery curtain.
+- Removed the v0.9.0 behavior that armed the curtain for every existing-project startup and for each project switch.
+- Removed the late durable-reconciliation path that could independently arm a project-loading curtain after the screen was already visible.
+- Cache-busted the recovery, first-run, project-switch, startup, and last-project-restore modules so an upgraded DEV install cannot keep the v0.9.0 curtain behavior from WebView cache.
+
+### Known issues
+- This remains a development build intended for device verification of first durable-folder recovery and repeated project switching before stable promotion.
+
 ## v0.9.0 — development build
 
 ### Changed
