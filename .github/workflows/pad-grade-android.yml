@@ -71,6 +71,11 @@ jobs:
           node --check pad-grade/v083-project-compare-fix.js
           node --check pad-grade/v085-map-render-order.js
           node --check pad-grade/v086-compare-presentation.js
+          node --check pad-grade/v087-compare-back.js
+          node --check pad-grade/v088-project-list-layout.js
+          node --check pad-grade/v089-imagery-recovery.js
+          node --check pad-grade/v090-first-run-guard.js
+          node --check pad-grade/v090-project-switch-boundary.js
           node --check pad-grade/heatmap-raster-worker-v073.js
           node --check pad-grade/dev-selftest.js
           node --check pad-grade/migration-core.js
@@ -86,6 +91,10 @@ jobs:
           grep -F 'src="v063-dev.js?v=20260825-6' pad-grade/index.html
           grep -F 'src="v065-dev.js?v=20260829-1' pad-grade/index.html
           grep -F 'src="v075-startup.js?v=20260825-1' pad-grade/index.html
+          grep -F 'src="v090-first-run-guard.js?v=20260829-1' pad-grade/index.html
+          grep -F 'src="v088-project-list-layout.js?v=20260829-1' pad-grade/index.html
+          grep -F 'src="v090-project-switch-boundary.js?v=20260829-1' pad-grade/index.html
+          grep -F 'src="v089-imagery-recovery.js?v=20260829-1' pad-grade/index.html
           grep -F "__padGradePreloadedProjectId" pad-grade/v075-startup.js
           grep -F "__padGradeStartupMapSizePreapplied" pad-grade/v075-startup.js
           grep -F "__padGradeRequestSettledStartupReveal" pad-grade/v075-startup.js
@@ -117,8 +126,17 @@ jobs:
           grep -F "__padGradeBeginRecoveryVisualHold" pad-grade/v071-dev.js
           grep -F "v072-project-restore.js?v=20260829-1" pad-grade/v065-dev.js
           grep -F "v078-dev.js?v=20260829-2" pad-grade/v065-dev.js
-          grep -F "v085-map-render-order.js?v=20260829-2" pad-grade/v078-dev.js
-          grep -F "v086-compare-presentation.js?v=20260829-1" pad-grade/v085-map-render-order.js
+          grep -F "v085-map-render-order.js?v=20260829-3" pad-grade/v078-dev.js
+          grep -F "v086-compare-presentation.js?v=20260829-2" pad-grade/v085-map-render-order.js
+          grep -F "padgrade-maplibre-ready" pad-grade/v085-map-render-order.js
+          grep -F "pgCompareLegendBar" pad-grade/v086-compare-presentation.js
+          grep -F "reserved-before-hydration-no-row-shift" pad-grade/v088-project-list-layout.js
+          grep -F "Map imagery unavailable — retrying" pad-grade/v089-imagery-recovery.js
+          grep -F "folder-choice-before-default-project" pad-grade/v090-first-run-guard.js
+          grep -F "teardown-old-map-then-reload-new-project-before-paint" pad-grade/v090-project-switch-boundary.js
+          grep -F "primeProjectFileCacheAsync(); return out.toString();" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
+          grep -F "primeProjectFileCacheAsync(); return null;" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
+          grep -F "__padGradeProjectFolderSelectionCancelled" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/MainActivity.java
           grep -F "Green is categorical" pad-grade/v067-dev.js
           grep -F "#4f8f3a 46%,#4f8f3a 54%" pad-grade/v067-dev.js
           grep -F "magnitude-aware IDW² zero crossing" pad-grade/dev-selftest.js
@@ -176,17 +194,26 @@ jobs:
       - name: Verify canonical web assets packaged
         run: |
           APK=pad-grade-android/app/build/outputs/apk/debug/app-debug.apk
-          for asset in index.html platform.js map.js v040.js v040-sync.js v041.js v041-persist.js migration-core.js grid-core.js map-instance-hook-v064.js recovery-visual-v073.js v060-dev.js v061-dev.js v062-dev.js v063-dev.js v064-dev.js v065-dev.js v066-dev.js v067-dev.js v069-dev.js v070-dev.js v071-dev.js v071-map-ui.js v072-project-restore.js v075-startup.js v078-dev.js project-compare-core.js v081-project-compare.js v082-project-compare-fix.js v083-project-compare-fix.js v085-map-render-order.js v086-compare-presentation.js heatmap-raster-worker-v073.js; do
+          for asset in index.html platform.js map.js maplibre-loader.js v040.js v040-sync.js v041.js v041-persist.js migration-core.js grid-core.js map-instance-hook-v064.js recovery-visual-v073.js v060-dev.js v061-dev.js v062-dev.js v063-dev.js v064-dev.js v065-dev.js v066-dev.js v067-dev.js v069-dev.js v070-dev.js v071-dev.js v071-map-ui.js v072-project-restore.js v075-startup.js v078-dev.js project-compare-core.js v081-project-compare.js v082-project-compare-fix.js v083-project-compare-fix.js v085-map-render-order.js v086-compare-presentation.js v087-compare-back.js v088-project-list-layout.js v089-imagery-recovery.js v090-first-run-guard.js v090-project-switch-boundary.js heatmap-raster-worker-v073.js; do
             unzip -l "$APK" | grep "assets/$asset"
           done
-          unzip -p "$APK" assets/index.html | grep -F 'src="map.js?v=20260829-1'
-          unzip -p "$APK" assets/index.html | grep -F 'src="v065-dev.js?v=20260829-1'
+          unzip -l "$APK" | grep 'assets/vendor/maplibre-gl.js'
+          unzip -l "$APK" | grep 'assets/vendor/maplibre-gl.css'
+          unzip -p "$APK" assets/index.html | grep -F 'src="v090-first-run-guard.js?v=20260829-1'
+          unzip -p "$APK" assets/index.html | grep -F 'src="v088-project-list-layout.js?v=20260829-1'
+          unzip -p "$APK" assets/index.html | grep -F 'src="v090-project-switch-boundary.js?v=20260829-1'
+          unzip -p "$APK" assets/index.html | grep -F 'src="v089-imagery-recovery.js?v=20260829-1'
           unzip -p "$APK" assets/v072-project-restore.js | grep -F "background-never-block-visible-grid"
           ! unzip -p "$APK" assets/v072-project-restore.js | grep -F "Date.now()+60000"
           unzip -p "$APK" assets/map.js | grep -F "map.fitBounds"
           unzip -p "$APK" assets/map.js | grep -F "map.on('style.load',()=>frameSavedPad(false))"
-          unzip -p "$APK" assets/v085-map-render-order.js | grep -F "v086-compare-presentation.js?v=20260829-1"
+          unzip -p "$APK" assets/v085-map-render-order.js | grep -F "v086-compare-presentation.js?v=20260829-2"
+          unzip -p "$APK" assets/v085-map-render-order.js | grep -F "padgrade-maplibre-ready"
           unzip -p "$APK" assets/v086-compare-presentation.js | grep -F "pgCompareLegendBar"
+          unzip -p "$APK" assets/v088-project-list-layout.js | grep -F "reserved-before-hydration-no-row-shift"
+          unzip -p "$APK" assets/v089-imagery-recovery.js | grep -F "Map imagery unavailable — retrying"
+          unzip -p "$APK" assets/v090-first-run-guard.js | grep -F "folder-choice-before-default-project"
+          unzip -p "$APK" assets/v090-project-switch-boundary.js | grep -F "teardown-old-map-then-reload-new-project-before-paint"
           unzip -p "$APK" assets/v063-dev.js | grep -F "CANVAS_SOURCE_PREFIX='pad-grade-interpolated-surface-canvas-source-'"
           unzip -p "$APK" assets/v063-dev.js | grep -F "canvasSource:true"
           unzip -p "$APK" assets/v063-dev.js | grep -F "whole-raster-low-304-then-high-888-no-zoom-recalc"
