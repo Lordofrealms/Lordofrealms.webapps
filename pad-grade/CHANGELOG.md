@@ -4,6 +4,20 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v0.8.5 — development build
+
+### Fixed
+- Prevented the older fallback MapLibre capture hook from wrapping the newer primary-map hook. Project Comparison maps can no longer steal `window.__padGradeMapInstance` through the legacy fallback path, which was still allowing the active project's heat map to be drawn into the comparison map.
+- Added a render-order guard for the normal GPS map so project heat-map layers stay hidden until the survey grid/point layers exist, then remain below the grid, outline, route, points, labels, and current-position marker.
+- Added the same foreground-order enforcement to the temporary comparison map so its averaged comparison grid and points remain above the comparison heat map.
+
+### Changed
+- Start the existing GPS grid-overlay owner at DOM-ready rather than waiting for the full `window.load` event, so the point/grid geometry can appear immediately after map imagery/style readiness instead of arriving late behind slower page resources.
+- The comparison map continues to use its own averaged rectangular grid; the grid lines and points are explicitly kept visible in the foreground over the delta heat map.
+
+### Known issues
+- This remains a development build intended for device verification before stable promotion.
+
 ## v0.8.4 — development build
 
 ### Fixed
