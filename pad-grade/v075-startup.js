@@ -1,9 +1,8 @@
-/* Pad Grade v0.8.10 DEV — prepaint project restore + settled startup reveal.
+/* Pad Grade v0.9.0 DEV — prepaint project restore + settled startup reveal.
  *
  * This module primes the legacy loadLocal() path from the recovered active
- * project and owns curtain release. Recovery may still wait for settled map
- * geometry, but an explicit project switch only waits for the local project/UI
- * state to settle; it never waits on remote map imagery.
+ * project and owns curtain release. Local project loads/switches only wait for
+ * local render/layout passes; they never wait on remote map imagery.
  */
 (function installPadGrade075Startup(){
   'use strict';
@@ -95,7 +94,10 @@
   }
 
   function holdActive(){return document.documentElement.classList.contains('padGradeRecoveryHold');}
-  function projectSwitchHold(){return document.documentElement.classList.contains('padGradeProjectSwitchHold');}
+  function localProjectHold(){
+    const root=document.documentElement;
+    return root.classList.contains('padGradeProjectSwitchHold')||root.classList.contains('padGradeProjectLoadHold');
+  }
 
   function cleanupRevealListeners(){
     if(revealTimer){clearTimeout(revealTimer);revealTimer=null;}
@@ -109,12 +111,13 @@
 
   function finishReveal(){
     if(revealFinished)return;
+    const wasLocalProjectHold=localProjectHold();
     revealFinished=true;
     cleanupRevealListeners();
     if(revealFailsafe){clearTimeout(revealFailsafe);revealFailsafe=null;}
     requestAnimationFrame(()=>requestAnimationFrame(()=>{
       try{window.__padGradeEndRecoveryVisualHold?.();}catch(e){}
-      window.__padGradeStartupRevealV091=projectSwitchHold()?'project-switch-local-settled':'settled-layout-map-idle';
+      window.__padGradeStartupRevealV091=wasLocalProjectHold?'local-project-settled':'settled-layout-map-idle';
     }));
   }
 
@@ -161,10 +164,7 @@
     if(revealRequested)return;
     revealRequested=true;revealStartedAt=Date.now();lastMapActivity=revealStartedAt;
 
-    // Project-to-project transitions already have a fresh document and the
-    // target project was selected in <head>. Keep the old/new UI hidden only
-    // long enough for local render/layout passes; do not wait on USGS imagery.
-    if(projectSwitchHold()){
+    if(localProjectHold()){
       revealFailsafe=setTimeout(finishReveal,1400);
       requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(finishReveal,180)));
       return;
@@ -190,7 +190,7 @@
   preapplyMapPrefs();
   window.__padGradeRequestSettledStartupReveal=requestSettledReveal;
   window.__padGradeStartupPrepaintV091=true;
-  document.title='Pad Grade Mapper v0.8.10 DEV';
+  document.title='Pad Grade Mapper v0.9.0 DEV';
 
   window.addEventListener('beforeunload',()=>{
     cleanupRevealListeners();
