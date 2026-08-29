@@ -55,7 +55,7 @@ jobs:
           grep -F "project-compare-core.js?v=20260829-1" pad-grade/v078-dev.js
           grep -F "v081-project-compare.js?v=20260829-1" pad-grade/v078-dev.js
           grep -F "v083-project-compare-fix.js?v=20260829-1" pad-grade/v078-dev.js
-          grep -F "v085-map-render-order.js?v=20260829-1" pad-grade/v078-dev.js
+          grep -F "v085-map-render-order.js?v=20260829-2" pad-grade/v078-dev.js
           grep -F "v086-compare-presentation.js?v=20260829-1" pad-grade/v085-map-render-order.js
       - name: Verify startup isolation and non-blocking project reveal
         run: |
@@ -71,6 +71,7 @@ jobs:
           grep -F "frameSavedPad" pad-grade/map.js
           grep -F "map.fitBounds" pad-grade/map.js
           grep -F "padgrade-active-project-applied" pad-grade/map.js
+          grep -F "map.on('style.load',()=>frameSavedPad(false))" pad-grade/map.js
       - name: Verify legacy map hook cannot recapture comparison map
         run: |
           grep -F "window.__padGradeMapHookInstalled=true" pad-grade/map-instance-hook-v064.js
