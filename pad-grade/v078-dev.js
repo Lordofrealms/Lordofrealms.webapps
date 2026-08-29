@@ -61,3 +61,14 @@
   installWorkerRedirect();
   loadFreshSurface();
 })();
+
+/* v0.8.0 adds stable six-character file IDs and legacy durable-folder filename migration. */
+(function loadPadGrade080FileIds(){
+  if(document.querySelector('script[data-padgrade-v080-file-id]'))return;
+  const script=document.createElement('script');
+  script.src='v080-file-id.js?v=20260828-1';
+  script.async=false;
+  script.dataset.padgradeV080FileId='1';
+  script.onerror=()=>console.error('Pad Grade v0.8.0 file-ID module failed to load');
+  document.body.appendChild(script);
+})();
