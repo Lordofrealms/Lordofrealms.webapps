@@ -4,6 +4,23 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v0.8.7 — development build
+
+### Fixed
+- Removed MapLibre from the local project/grid startup critical path. The cached project and lower grade grid initialize before the map library is requested.
+- Android builds now package pinned MapLibre GL JS 5.16.0 JS/CSS locally, so the GPS map no longer waits on `unpkg.com` during normal APK startup.
+- Retired the active v0.7.0/v0.7.3 durable-folder recovery owners that could still wait 45–60 seconds for SAF indexing and then reload the page underneath the newer non-blocking restore path.
+- Durable-folder autosave/persistence code now treats the folder as unavailable until the native index is ready, preventing an early JavaScript read/write from forcing a synchronous `DocumentFile.listFiles()` scan on the WebView thread.
+- The normal GPS project grid now has a style-ready overlay owner and no longer waits for MapLibre's full raster-imagery `load` event before installing grid lines, points, labels, and outline.
+- Android/system Back while Project Comparison is open now exits the temporary comparison view first instead of offering to close Pad Grade.
+
+### Changed
+- The already-rendered lower project grid stays visible while the single-owner responsive grid renderer finishes its atomic sizing pass instead of being hidden during legacy project-workflow initialization.
+- MapLibre and GPS-map modules load asynchronously after the local project UI is usable; browser-hosted copies retain an asynchronous pinned-CDN fallback when local vendor assets are not present.
+
+### Known issues
+- This remains a development build intended for device verification of startup timing, early GPS-grid/heat-map rendering, and comparison Back behavior before stable promotion.
+
 ## v0.8.6 — development build
 
 ### Fixed
