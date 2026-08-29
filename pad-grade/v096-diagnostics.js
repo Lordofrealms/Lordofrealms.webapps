@@ -1,9 +1,13 @@
-/* Pad Grade v0.9.6 DEV — local diagnostic timing log.
+/* Pad Grade v0.9.8 DEV — local diagnostic timing log.
  *
  * DEV defaults this logger ON in v096-dev-defaults.js. A minimal timing-only
  * prebuffer starts immediately so a true reinstall can capture folder-picker,
  * index, and recovery timing before durable preferences are read. No GPS
  * coordinates, rod readings, or project payload contents are intentionally logged.
+ *
+ * v0.9.8 batches persistence and UI-count refreshes so diagnostics cannot amplify
+ * a render/event storm by synchronously reparsing and rewriting the whole log for
+ * every timing event.
  */
 (function installPadGrade096Diagnostics(){
   'use strict';
@@ -12,15 +16,21 @@
   const LOG_KEY='padGradeDiagnosticLogV1';
   const MAX_ENTRIES=2400;
   const MAX_BYTES=850000;
+  const FLUSH_MS=750;
+  const UI_REFRESH_MS=750;
   const bootWall=Date.now();
   const bootPerf=(typeof performance!=='undefined'&&performance.now)?performance.now():0;
   const sessionId=`s${bootWall.toString(36)}-${Math.random().toString(36).slice(2,7)}`;
   const prebuffer=[];
+  const pendingEntries=[];
   let enabled=false;
   let sequence=0;
   let uiTimer=null;
   let lagTimer=null;
   let surfaceTimer=null;
+  let persistTimer=null;
+  let statusTimer=null;
+  let persistedCount=0;
   let coverStartedAt=null;
   let lastHeatmapSignature='';
   let lastMapGridUpdate=0;
@@ -50,20 +60,44 @@
     while(raw.length>MAX_BYTES&&entries.length>100){entries=entries.slice(Math.max(1,Math.floor(entries.length*.1)));try{raw=JSON.stringify(entries);}catch(e){break;}}
     return entries;
   }
-  function persistEntries(entries){try{localStorage.setItem(LOG_KEY,JSON.stringify(trim(entries)));}catch(e){}}
+  function persistEntries(entries){
+    const next=trim(entries);
+    try{localStorage.setItem(LOG_KEY,JSON.stringify(next));persistedCount=next.length;}catch(e){}
+    return next;
+  }
+  function flushPending(){
+    if(persistTimer){clearTimeout(persistTimer);persistTimer=null;}
+    if(!pendingEntries.length)return;
+    const entries=persisted();entries.push(...pendingEntries.splice(0));persistEntries(entries);
+  }
+  function schedulePersist(){
+    if(!enabled||persistTimer)return;
+    persistTimer=setTimeout(()=>{persistTimer=null;flushPending();scheduleUiStatus();},FLUSH_MS);
+  }
+  function scheduleUiStatus(){
+    if(statusTimer)return;
+    statusTimer=setTimeout(()=>{statusTimer=null;updateUiStatus();},UI_REFRESH_MS);
+  }
   function record(name,durationMs,details,kind='mark'){
     const entry={seq:++sequence,session:sessionId,at:new Date().toISOString(),sinceBootMs:relMs(),kind,event:String(name||'event')};
     if(Number.isFinite(+durationMs))entry.durationMs=Math.round(+durationMs*10)/10;
     const d=safeDetails(details);if(d)entry.details=d;
-    if(enabled){const entries=persisted();entries.push(entry);persistEntries(entries);}else prebuffer.push(entry);
-    updateUiStatus();
+    if(enabled){pendingEntries.push(entry);schedulePersist();}else prebuffer.push(entry);
+    scheduleUiStatus();
     return entry;
   }
-  function flushPrebuffer(){if(!enabled||!prebuffer.length)return;const entries=persisted();entries.push(...prebuffer.splice(0));persistEntries(entries);}
+  function flushPrebuffer(){
+    if(!enabled||!prebuffer.length)return;
+    pendingEntries.push(...prebuffer.splice(0));schedulePersist();
+  }
   function setEnabled(next,source='ui'){
-    enabled=!!next;writePrefs({diagnosticLogging:enabled});
+    const wasEnabled=enabled;enabled=!!next;writePrefs({diagnosticLogging:enabled});
     if(enabled){flushPrebuffer();record('diagnostics.enabled',0,{source});}
-    else{prebuffer.length=0;}
+    else{
+      if(wasEnabled)flushPending();
+      if(persistTimer){clearTimeout(persistTimer);persistTimer=null;}
+      pendingEntries.length=0;prebuffer.length=0;
+    }
     updateUiStatus();
   }
   function refreshEnabledFromPrefs(source='prefs'){
@@ -71,30 +105,35 @@
     // Missing preference means "use the build default". DEV sets that default
     // ON before durable recovery. Do not let an older durable settings file that
     // predates this option silently turn logging back off.
-    if(typeof p.diagnosticLogging!=='boolean'){updateUiStatus();return enabled;}
+    if(typeof p.diagnosticLogging!=='boolean'){scheduleUiStatus();return enabled;}
     const next=p.diagnosticLogging;
     if(next&&!enabled){enabled=true;flushPrebuffer();record('diagnostics.enabled-from-prefs',0,{source});}
-    else if(!next&&enabled){enabled=false;prebuffer.length=0;}
-    updateUiStatus();
+    else if(!next&&enabled){flushPending();enabled=false;pendingEntries.length=0;prebuffer.length=0;}
+    scheduleUiStatus();
     return enabled;
   }
   function start(name,details){return {name:String(name||'step'),startedWall:Date.now(),startedPerf:perfNow(),details:safeDetails(details)};}
   function end(token,details){if(!token)return null;return record(token.name,Math.max(0,perfNow()-token.startedPerf),{...(token.details||{}),...(safeDetails(details)||{})},'span');}
   function mark(name,details){return record(name,undefined,details,'mark');}
-  function clear(){try{localStorage.removeItem(LOG_KEY);}catch(e){}prebuffer.length=0;record('diagnostics.log-cleared',0,{},'mark');updateUiStatus();}
+  function clear(){
+    if(persistTimer){clearTimeout(persistTimer);persistTimer=null;}
+    pendingEntries.length=0;prebuffer.length=0;
+    try{localStorage.removeItem(LOG_KEY);}catch(e){}persistedCount=0;
+    record('diagnostics.log-cleared',0,{},'mark');updateUiStatus();
+  }
   function fileName(){const d=new Date(),p=n=>String(n).padStart(2,'0');return `Pad-Grade-Diagnostic-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.log`;}
   function formatLine(e){
     const since=String(Number(e.sinceBootMs||0).toFixed(1)).padStart(9,' '),dur=Number.isFinite(+e.durationMs)?` duration=${Number(e.durationMs).toFixed(1)}ms`:'',details=e.details?` ${JSON.stringify(e.details)}`:'';
     return `${e.at} session=${e.session} +${since}ms ${e.event}${dur}${details}`;
   }
   function exportLog(){
-    refreshEnabledFromPrefs('export');flushPrebuffer();const entries=persisted();
+    refreshEnabledFromPrefs('export');flushPrebuffer();flushPending();const entries=persisted();persistedCount=entries.length;
     const header=['Pad Grade diagnostic timing log','No GPS coordinates, rod readings, or project payload contents are intentionally logged.',`Exported: ${new Date().toISOString()}`,`Entries: ${entries.length}`,''];
     const text=header.concat(entries.map(formatLine)).join('\n');
     try{if(window.PadGradePlatform?.saveTextFile?.(fileName(),'text/plain',text))return true;}catch(e){}
     const blob=new Blob([text],{type:'text/plain'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=fileName();document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);return true;
   }
-  function logCount(){return persisted().length+(enabled?prebuffer.length:0);}
+  function logCount(){return persistedCount+pendingEntries.length+(enabled?prebuffer.length:0);}
 
   function updateUiStatus(){
     const toggle=document.getElementById('v096DiagnosticLogging');if(toggle&&toggle.checked!==enabled)toggle.checked=enabled;
@@ -140,12 +179,13 @@
         if(sig&&sig!==lastHeatmapSignature){lastHeatmapSignature=sig;mark('heatmap.surface-visible',{tier:mesh.tier,nx:mesh.nx,ny:mesh.ny,cells:mesh.cells||0});}
       }
       const grid=window.__padGradeMapGridFastPathV095;
-      if(grid&&Number(grid.updatedAt)>lastMapGridUpdate){lastMapGridUpdate=Number(grid.updatedAt);mark('map.grid-fastpath-updated',{projectId:grid.projectId||'',styleLoad:!!grid.styleLoad});}
-    },80);
+      if(grid&&Number(grid.updatedAt)>lastMapGridUpdate){lastMapGridUpdate=Number(grid.updatedAt);mark('map.grid-fastpath-updated',{projectId:grid.projectId||'',styleLoad:!!grid.styleLoad,actualRefresh:grid.actualRefresh!==false});}
+    },200);
   }
 
-  window.PadGradeDiag={enabled:()=>enabled,mark,start,end,setEnabled,refreshEnabledFromPrefs,exportLog,clear,count:logCount,bootWall,sessionId};
-  enabled=prefs().diagnosticLogging===true;if(enabled)flushPrebuffer();mark('app.script-diagnostics-installed',{version:'0.9.6'});
+  window.PadGradeDiag={enabled:()=>enabled,mark,start,end,setEnabled,refreshEnabledFromPrefs,exportLog,clear,count:logCount,bootWall,sessionId,flush:flushPending};
+  persistedCount=persisted().length;
+  enabled=prefs().diagnosticLogging===true;if(enabled)flushPrebuffer();mark('app.script-diagnostics-installed',{version:'0.9.8',batchedPersistence:true});
 
   window.addEventListener('padgrade-project-folder-selected',()=>mark('recovery.folder-selected'));
   window.addEventListener('padgrade-project-folder-indexed',ev=>mark('recovery.folder-index-ready',ev?.detail||{}));
@@ -162,5 +202,10 @@
   installRecoveryCoverObserver();installMainThreadStallDiagnostics();installSurfaceObservers();
   const boot=()=>{refreshEnabledFromPrefs('dom-ready');installUi();let tries=0;uiTimer=setInterval(()=>{refreshEnabledFromPrefs('poll');if(installUi()||document.getElementById('v096DiagnosticLogging')){if(++tries>8){clearInterval(uiTimer);uiTimer=null;}}else if(++tries>50){clearInterval(uiTimer);uiTimer=null;}},200);};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
-  window.addEventListener('beforeunload',()=>{mark('app.beforeunload');if(uiTimer)clearInterval(uiTimer);if(lagTimer)clearInterval(lagTimer);if(surfaceTimer)clearInterval(surfaceTimer);try{longTaskObserver?.disconnect?.();}catch(e){}},{once:true});
+  window.addEventListener('beforeunload',()=>{
+    mark('app.beforeunload');flushPending();
+    if(uiTimer)clearInterval(uiTimer);if(lagTimer)clearInterval(lagTimer);if(surfaceTimer)clearInterval(surfaceTimer);if(persistTimer)clearTimeout(persistTimer);if(statusTimer)clearTimeout(statusTimer);
+    try{longTaskObserver?.disconnect?.();}catch(e){}
+  },{once:true});
+  window.__padGradeDiagnosticPersistenceV098='batched-750ms-no-per-event-log-rewrite-no-per-event-ui-count';
 })();
