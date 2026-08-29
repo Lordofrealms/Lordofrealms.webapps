@@ -2,7 +2,7 @@
  *
  * The project grid is tiny GeoJSON and must never wait on raster imagery or on
  * heat-map interpolation. Install/refresh it as soon as the MapLibre style is
- * ready and before updateGpsUI() can wake heavier map work.
+ * ready and before lower-grid/GPS UI work can wake heavier map work.
  */
 (function installPadGrade095MapGridFastPath(){
   'use strict';
@@ -113,7 +113,7 @@
       map.getSource('pad-grade-route')?.setData(fc(routeFeatures()));
       map.getSource('pad-grade-grid-points')?.setData(fc(pointFeatures()));
       map.triggerRepaint?.();
-      window.__padGradeMapGridFastPathV095={projectId:activeId(),updatedAt:Date.now(),styleLoad:true,beforeGpsUi:true};
+      window.__padGradeMapGridFastPathV095={projectId:activeId(),updatedAt:Date.now(),styleLoad:true,beforeGridAndGpsUi:true};
       return true;
     }catch(e){console.warn('Pad Grade v0.9.5 fast grid refresh failed',e);return false;}
   }
@@ -131,13 +131,22 @@
     wrappedGpsUi.__padGrade095FastGridWrapped=true;wrappedGpsUi.__padGrade095Base=base;window.updateGpsUI=wrappedGpsUi;
   }
 
+  function wrapRenderGrid(){
+    const base=window.renderGrid;if(typeof base!=='function'||base.__padGrade095FastGridWrapped)return;
+    function wrappedRenderGrid(...args){refreshNow(true);return base.apply(this,args);}
+    wrappedRenderGrid.__padGrade095FastGridWrapped=true;wrappedRenderGrid.__padGrade095Base=base;window.renderGrid=wrappedRenderGrid;
+  }
+
+  function wrapFastPaths(){wrapRenderGrid();wrapGpsUi();attach(mapInstance());}
+
   window.__padGradeRefreshMapGridNow=refreshNow;
   window.addEventListener('padgrade-map-created',event=>{attach(event?.detail?.map||mapInstance());refreshNow(true);document.title=`Pad Grade Mapper ${VERSION}`;});
   window.addEventListener('padgrade-active-project-applied',()=>refreshNow(true));
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{wrapGpsUi();attach(mapInstance());document.title=`Pad Grade Mapper ${VERSION}`;},{once:true});
-  else{wrapGpsUi();attach(mapInstance());document.title=`Pad Grade Mapper ${VERSION}`;}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{wrapFastPaths();document.title=`Pad Grade Mapper ${VERSION}`;},{once:true});
+  else{wrapFastPaths();document.title=`Pad Grade Mapper ${VERSION}`;}
 
-  // updateGpsUI may be replaced by a late compatibility module; re-wrap cheaply.
-  let wraps=0;const wrapTimer=setInterval(()=>{wrapGpsUi();attach(mapInstance());if(++wraps>=30)clearInterval(wrapTimer);},100);
-  window.__padGradeMapGridPriorityV095='style-load-and-before-updateGpsUI-no-heatmap-delay';
+  // Compatibility modules may replace renderGrid/updateGpsUI later; re-wrap them
+  // briefly during startup without polling the map forever.
+  let wraps=0;const wrapTimer=setInterval(()=>{wrapFastPaths();if(++wraps>=30)clearInterval(wrapTimer);},100);
+  window.__padGradeMapGridPriorityV095='style-load-before-renderGrid-before-updateGpsUI-no-heatmap-delay';
 })();

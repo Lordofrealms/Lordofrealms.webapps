@@ -5,22 +5,24 @@
  * Independent early jobs start here:
  * 1) Load the v0.9.5 map-grid fast path so the tiny GeoJSON grid can attach at
  *    MapLibre style.load and refresh before heavier GPS/heat-map UI work.
- * 2) OffscreenCanvas lower-grid text measurement.
- * 3) Local File-ID normalization/UI module. Visible IDs never wait for durable
+ * 2) Install the keyboard-safe Enter Reading dialog layout.
+ * 3) OffscreenCanvas lower-grid text measurement.
+ * 4) Local File-ID normalization/UI module. Visible IDs never wait for durable
  *    SAF folder indexing; only durable filename migration may trail later.
  */
 (function startPadGradeEarlyProjectWork(){
   'use strict';
   const WORKER_URL='grid-size-worker-v094.js?v=20260829-1';
 
-  function loadMapGridFastPath(){
-    if(document.querySelector('script[data-padgrade-v095-map-grid-fastpath]'))return;
-    const script=document.createElement('script');
-    script.src='v095-map-grid-fastpath.js?v=20260829-1';
-    script.async=false;
-    script.dataset.padgradeV095MapGridFastpath='1';
-    script.onerror=()=>console.error('Pad Grade v0.9.5 map-grid fast path failed to load');
-    document.body.appendChild(script);
+  function loadScriptOnce(src,attr,errorText){
+    if(document.querySelector(`script[${attr}]`))return;
+    const script=document.createElement('script');script.src=src;script.async=false;script.setAttribute(attr,'1');
+    script.onerror=()=>console.error(errorText);document.body.appendChild(script);
+  }
+
+  function loadEarlyUi(){
+    loadScriptOnce('v095-map-grid-fastpath.js?v=20260829-2','data-padgrade-v095-map-grid-fastpath','Pad Grade v0.9.5 map-grid fast path failed to load');
+    loadScriptOnce('v095-reading-dialog.js?v=20260829-1','data-padgrade-v095-reading-dialog','Pad Grade v0.9.5 reading dialog layout failed to load');
   }
 
   function loadFileIdsEarly(){
@@ -46,7 +48,7 @@
     }catch(e){return [];}
   }
 
-  loadMapGridFastPath();
+  loadEarlyUi();
   loadFileIdsEarly();
 
   try{
