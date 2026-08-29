@@ -31,13 +31,13 @@
   }
   function loadFileIdsEarly(){
     if(document.querySelector('script[data-padgrade-v080-file-id]'))return;
-    const script=document.createElement('script');script.src='v080-file-id.js?v=20260829-3';script.async=true;script.dataset.padgradeV080FileId='1';
+    const script=document.createElement('script');script.src='v080-file-id.js?v=20260829-4';script.async=true;script.dataset.padgradeV080FileId='1';
     script.onerror=()=>console.error('Pad Grade early File-ID module failed to load');document.body.appendChild(script);
-    window.__padGradeFileIdStartupV094='local-file-id-module-started-immediately-after-project-load';
+    window.__padGradeFileIdStartupV094='module-loaded-early-maintenance-dormant-through-covered-recovery';
   }
   function loadAfterGridCore(){
     installRenderDeduper();
-    loadScriptOnce('v095-map-grid-fastpath.js?v=20260829-5','data-padgrade-v095-map-grid-fastpath','Pad Grade v0.9.8 map-grid fast path failed to load',()=>{try{window.__padGradeRefreshMapGridNow?.(true);}catch(e){}diagMark('map.fast-grid-owner-ready');});
+    loadScriptOnce('v095-map-grid-fastpath.js?v=20260829-6','data-padgrade-v095-map-grid-fastpath','Pad Grade v0.9.8 map-grid fast path failed to load',()=>{try{window.__padGradeRefreshMapGridNow?.(true);}catch(e){}diagMark('map.fast-grid-owner-ready');});
     loadScriptOnce('v095-reading-dialog.js?v=20260829-1','data-padgrade-v095-reading-dialog','Pad Grade v0.9.5 reading dialog layout failed to load');
     loadFileIdsEarly();
   }
