@@ -76,52 +76,6 @@ jobs:
               "  function persistEntries(entries){try{localStorage.setItem(LOG_KEY,JSON.stringify(trim(entries)));}catch(e){}\n  function record(name,durationMs,details,kind='mark'){\n",
               "  function persistEntries(entries){try{localStorage.setItem(LOG_KEY,JSON.stringify(trim(entries)));}catch(e){}}\n  function record(name,durationMs,details,kind='mark'){\n"
           )
-
-          workflow = '.github/workflows/pad-grade-android.yml'
-          replace_once(
-              workflow,
-              '          node --check pad-grade/grid-core.js\n',
-              '          node --check pad-grade/grid-core.js\n'
-              '          node --check pad-grade/grid-size-bootstrap-v094.js\n'
-              '          node --check pad-grade/grid-size-worker-v094.js\n'
-              '          node --check pad-grade/v095-map-grid-fastpath.js\n'
-              '          node --check pad-grade/v095-reading-dialog.js\n'
-              '          node --check pad-grade/v096-diagnostics.js\n'
-              '          node --check pad-grade/v096-dev-defaults.js\n'
-              '          node --check pad-grade/v096-native-async.js\n'
-              '          node --check pad-grade/v096-async-reconcile.js\n'
-          )
-          replace_once(
-              workflow,
-              '          grep -F "__padGradeProjectFolderSelectionCancelled" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/MainActivity.java\n',
-              '          grep -F "__padGradeProjectFolderSelectionCancelled" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/MainActivity.java\n'
-              '          grep -F "hasProjectFolderConfigured" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java\n'
-              '          grep -F "readProjectFileAsync" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java\n'
-              '          grep -F "writeProjectFileAsync" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java\n'
-              '          grep -F "__padGradeAsyncDurableV096=true" pad-grade/v096-async-reconcile.js\n'
-              '          grep -F "v096-async-reconcile.js?v=20260829-1" pad-grade/v096-native-async.js\n'
-              '          grep -F "dev-on-stable-off" pad-grade/v096-dev-defaults.js\n'
-              "          grep -F 'src=\"v096-diagnostics.js?v=20260829-1' pad-grade/index.html\n"
-              "          grep -F 'src=\"v096-dev-defaults.js?v=20260829-1' pad-grade/index.html\n"
-              "          grep -F 'src=\"v096-native-async.js?v=20260829-1' pad-grade/index.html\n"
-          )
-          replace_once(
-              workflow,
-              'v090-first-run-guard.js v090-project-switch-boundary.js heatmap-raster-worker-v073.js; do\n',
-              'v090-first-run-guard.js v090-project-switch-boundary.js v095-map-grid-fastpath.js v095-reading-dialog.js v096-diagnostics.js v096-dev-defaults.js v096-native-async.js v096-async-reconcile.js grid-size-bootstrap-v094.js grid-size-worker-v094.js heatmap-raster-worker-v073.js; do\n'
-          )
-          replace_once(
-              workflow,
-              '          unzip -p "$APK" assets/heatmap-raster-worker-v073.js | grep -F "never publishes partial map bands"\n',
-              '          unzip -p "$APK" assets/heatmap-raster-worker-v073.js | grep -F "never publishes partial map bands"\n'
-              '          unzip -p "$APK" assets/index.html | grep -F \'src="v096-diagnostics.js?v=20260829-1\'\n'
-              '          unzip -p "$APK" assets/index.html | grep -F \'src="v096-dev-defaults.js?v=20260829-1\'\n'
-              '          unzip -p "$APK" assets/index.html | grep -F \'src="v096-native-async.js?v=20260829-1\'\n'
-              '          unzip -p "$APK" assets/v096-native-async.js | grep -F "v096-async-reconcile.js?v=20260829-1"\n'
-              '          unzip -p "$APK" assets/v096-async-reconcile.js | grep -F "__padGradeAsyncDurableV096=true"\n'
-          )
-
-          Path('.github/workflows/pad-grade-v096-maintenance.yml').unlink()
           PY
 
       - name: Validate patched JavaScript
@@ -131,11 +85,11 @@ jobs:
           node --check pad-grade/v096-native-async.js
           node --check pad-grade/v096-async-reconcile.js
 
-      - name: Commit hardening patch
+      - name: Commit code hardening
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java pad-grade/v096-async-reconcile.js pad-grade/v096-diagnostics.js .github/workflows/pad-grade-android.yml .github/workflows/pad-grade-v096-maintenance.yml
+          git add pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java pad-grade/v096-async-reconcile.js pad-grade/v096-diagnostics.js
           git diff --cached --check
           git commit -m "Pad Grade v0.9.6: finish async durability hardening"
           git push origin HEAD:pad-grade-dev
