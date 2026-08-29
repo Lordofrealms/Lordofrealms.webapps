@@ -23,7 +23,7 @@
 
   const style=document.createElement('style');
   style.id='pgProjectListStableFileIdLayout';
-  style.textContent='.pgFileIdInline{min-height:.86rem;line-height:.86rem}.pgFileIdPending{visibility:hidden}';
+  style.textContent='.pgFileIdInline{min-height:.86rem;line-height:.86rem}';
   document.head.appendChild(style);
 
   const observer=new MutationObserver(records=>{
