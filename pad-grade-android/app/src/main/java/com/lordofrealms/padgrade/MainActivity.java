@@ -134,13 +134,22 @@ public final class MainActivity extends Activity {
         modernBackRegistered = true;
     }
 
+    private void notifyProjectFolderSelectionCancelled() {
+        if (webView == null || isFinishing() || isDestroyed()) return;
+        webView.post(() -> webView.evaluateJavascript(
+                "window.__padGradeProjectFolderSelectionCancelled && window.__padGradeProjectFolderSelectionCancelled();", null));
+    }
+
     public void requestProjectFolder() {
         runOnUiThread(() -> {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
                     Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
             try { startActivityForResult(intent, PROJECT_FOLDER_REQUEST); }
-            catch (RuntimeException ex) { Toast.makeText(this, "No folder picker is available.", Toast.LENGTH_LONG).show(); }
+            catch (RuntimeException ex) {
+                Toast.makeText(this, "No folder picker is available.", Toast.LENGTH_LONG).show();
+                notifyProjectFolderSelectionCancelled();
+            }
         });
     }
 
@@ -181,6 +190,8 @@ public final class MainActivity extends Activity {
                 try { getContentResolver().takePersistableUriPermission(uri, flags); }
                 catch (SecurityException ignored) {}
                 nativeBridge.onProjectFolderSelected(uri);
+            } else {
+                notifyProjectFolderSelectionCancelled();
             }
             return;
         }
