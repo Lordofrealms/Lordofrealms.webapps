@@ -9,6 +9,7 @@ on:
       - 'pad-grade/v081-project-compare.js'
       - 'pad-grade/v082-project-compare-fix.js'
       - 'pad-grade/v083-project-compare-fix.js'
+      - 'pad-grade/v085-map-render-order.js'
       - 'pad-grade/v078-dev.js'
       - 'pad-grade/map-instance-hook-v064.js'
       - 'pad-grade/index.html'
@@ -21,6 +22,7 @@ on:
       - 'pad-grade/v081-project-compare.js'
       - 'pad-grade/v082-project-compare-fix.js'
       - 'pad-grade/v083-project-compare-fix.js'
+      - 'pad-grade/v085-map-render-order.js'
       - 'pad-grade/v078-dev.js'
       - 'pad-grade/map-instance-hook-v064.js'
       - 'pad-grade/index.html'
@@ -39,19 +41,23 @@ jobs:
           node --check pad-grade/v081-project-compare.js
           node --check pad-grade/v082-project-compare-fix.js
           node --check pad-grade/v083-project-compare-fix.js
+          node --check pad-grade/v085-map-render-order.js
           node --check pad-grade/map-instance-hook-v064.js
           grep -F "project-compare-core.js?v=20260829-1" pad-grade/v078-dev.js
           grep -F "v081-project-compare.js?v=20260829-1" pad-grade/v078-dev.js
           grep -F "v083-project-compare-fix.js?v=20260829-1" pad-grade/v078-dev.js
+          grep -F "v085-map-render-order.js?v=20260829-1" pad-grade/v078-dev.js
       - name: Verify startup isolation
         run: |
           grep -F "retired-startup-coupled-comparison-layer" pad-grade/v082-project-compare-fix.js
           ! grep -F "setInterval" pad-grade/v082-project-compare-fix.js
           ! grep -F "MutationObserver" pad-grade/v082-project-compare-fix.js
           ! grep -F "v083-project-compare-fix.js" pad-grade/index.html
+          ! grep -F "v085-map-render-order.js" pad-grade/index.html
           grep -F "v082-project-compare-fix.js?v=20260829-1" pad-grade/index.html
-      - name: Verify comparison map cannot become primary project map
+      - name: Verify legacy map hook cannot recapture comparison map
         run: |
+          grep -F "window.__padGradeMapHookInstalled=true" pad-grade/map-instance-hook-v064.js
           node <<'NODE'
           global.window=global;
           class BaseMap { constructor(options){ this.options=options; } }
@@ -62,6 +68,7 @@ jobs:
           };
           window.dispatchEvent=event=>{ events.push(event); return true; };
           require('./pad-grade/map-instance-hook-v064.js');
+          if(window.__padGradeMapHookInstalled!==true) throw new Error('legacy fallback map hook was not marked satisfied');
           const primary=new window.maplibregl.Map({container:'gpsMap'});
           if(window.__padGradeMapInstance!==primary) throw new Error('gpsMap was not registered as the primary map');
           const comparison=new window.maplibregl.Map({container:'pgCompareMap'});
@@ -69,5 +76,16 @@ jobs:
           if(events.length!==1||events[0].detail.map!==primary) throw new Error('comparison map emitted a primary map-created event');
           if(comparison===primary) throw new Error('comparison unexpectedly reused the primary map object');
           NODE
+      - name: Verify grid-first foreground render policy
+        run: |
+          grep -F "script.setAttribute('data-padgrade-v030','1')" pad-grade/v085-map-render-order.js
+          grep -F "document.addEventListener('DOMContentLoaded',startGridOverlayOwnerEarly" pad-grade/v085-map-render-order.js
+          grep -F "PRIMARY_HEAT_PREFIX" pad-grade/v085-map-render-order.js
+          grep -F "moveBeforeIfNeeded(map,id,PRIMARY_GRID)" pad-grade/v085-map-render-order.js
+          grep -F "moveBeforeIfNeeded(map,id,COMPARE_GRID)" pad-grade/v085-map-render-order.js
+          grep -F "for(const id of [COMPARE_GRID,COMPARE_OUTLINE,COMPARE_POINTS])moveToTopIfNeeded" pad-grade/v085-map-render-order.js
+          grep -F "compareMap.addLayer({id:GRID_LAYER" pad-grade/v081-project-compare.js
+          grep -F "compareMap.addLayer({id:POINT_LAYER" pad-grade/v081-project-compare.js
+          grep -F "}},GRID_LAYER);" pad-grade/v081-project-compare.js
       - name: Run comparison self-tests
         run: node pad-grade/project-compare-selftest.js
