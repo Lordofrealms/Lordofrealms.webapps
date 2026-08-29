@@ -4,6 +4,21 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v0.9.0 — development build
+
+### Changed
+- A clean Android install now explains durable project-folder storage and offers **Choose durable folder** or **Not now** before Android's directory picker is opened. Cancelling the picker returns to that choice instead of silently creating a project or forcing another picker.
+- Existing-project startup and project-to-project switching again use a brief black **Loading project…** curtain so intermediate settings/grid/map states are not painted to the user. The curtain waits only for local project/layout settling and does not wait for USGS imagery.
+
+### Fixed
+- Project switching now carries the intended target project through the reload in session storage and reapplies that target in the head of the new document before any project manager or autosave owner can read active-project state.
+- Prevented the older `beforeunload` autosave path from effectively switching the new document back to the project being left.
+- Durable reconciliation now treats an already-selected local active project as authoritative; a stale durable `lastProjectId` is only a fallback when no active project exists. This prevents old-grid/new-heat-map mixtures after switching projects.
+- Durable recovery of a newer copy of the current project is also covered briefly while its settings/grid/map state is applied, avoiding visible multi-stage repaint.
+
+### Known issues
+- This remains a development build intended for device verification of clean-install storage choice and repeated switching between projects with different grids/heat maps before stable promotion.
+
 ## v0.8.9 — development build
 
 ### Added
