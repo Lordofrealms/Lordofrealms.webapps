@@ -74,18 +74,16 @@
 })();
 
 /* v0.8.1 adds read-only, temporary two-project elevation-change comparison.
- * v0.8.3 applies the reviewed geometry/UI correction only after both the core and
- * comparison UI have loaded. Comparison features therefore stay outside the
- * recovery/durable-folder bootstrap path.
+ * Later correction layers remain deferred until the base comparison UI exists.
  */
 (function loadPadGrade081Comparison(){
   const loadRenderOrder=()=>{
     if(document.querySelector('script[data-padgrade-v085-map-order]'))return;
     const render=document.createElement('script');
-    render.src='v085-map-render-order.js?v=20260829-1';
+    render.src='v085-map-render-order.js?v=20260829-2';
     render.async=false;
     render.dataset.padgradeV085MapOrder='1';
-    render.onerror=()=>console.error('Pad Grade v0.8.5 map render-order correction failed to load');
+    render.onerror=()=>console.error('Pad Grade v0.8.6 map render-order correction failed to load');
     document.body.appendChild(render);
   };
   const loadFix=()=>{
@@ -116,10 +114,7 @@
   };
   if(window.PadGradeProjectCompareCore){loadUi();return;}
   const existingCore=document.querySelector('script[data-padgrade-compare-core]');
-  if(existingCore){
-    existingCore.addEventListener('load',loadUi,{once:true});
-    return;
-  }
+  if(existingCore){existingCore.addEventListener('load',loadUi,{once:true});return;}
   const core=document.createElement('script');
   core.src='project-compare-core.js?v=20260829-1';
   core.async=false;
