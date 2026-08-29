@@ -1,4 +1,4 @@
-/* Pad Grade v0.4.1 persistence hardening. */
+/* Pad Grade v0.8.7 persistence hardening. */
 (function installPadGradeV041Persistence(){
   'use strict';
   const INDEX_KEY='padGradeProjectsV5';
@@ -8,6 +8,12 @@
   const projectKey=id=>`padGradeProjectV5:${id}`;
 
   function getIndex(){try{const x=JSON.parse(localStorage.getItem(INDEX_KEY)||'[]');return Array.isArray(x)?x:[];}catch(e){return [];}}
+  function durableReady(){
+    try{
+      if(!window.PadGradeNative||typeof PadGradeNative.hasProjectFolder!=='function'||!PadGradeNative.hasProjectFolder())return false;
+      return typeof PadGradeNative.isProjectFolderIndexReady!=='function'||!!PadGradeNative.isProjectFolderIndexReady();
+    }catch(e){return false;}
+  }
   function fileIdFor(p,id){
     try{
       if(window.PadGradeFileId&&typeof window.PadGradeFileId.ensureProject==='function'){
@@ -36,8 +42,12 @@
       localStorage.setItem(projectKey(id),JSON.stringify(p));
       localStorage.setItem(INDEX_KEY,JSON.stringify(idx));
     }
+    // Never make a native project-file call while the SAF cache is still being
+    // indexed. The Java bridge historically turns that into a synchronous
+    // listFiles(), freezing all WebView JavaScript on slow providers.
+    if(!durableReady())return;
     try{
-      if(window.PadGradeNative&&typeof PadGradeNative.hasProjectFolder==='function'&&PadGradeNative.hasProjectFolder()&&typeof PadGradeNative.writeProjectFile==='function'){
+      if(typeof PadGradeNative.writeProjectFile==='function'){
         const filename=fileId?`${fileId}-${id}.padgrade`:`${id}.padgrade`;
         PadGradeNative.writeProjectFile(filename,JSON.stringify(p));
       }
@@ -47,9 +57,9 @@
   const input=document.getElementById('importProjectFile');
   if(input)input.setAttribute('accept','.padgrade,.json,application/json,application/octet-stream');
 
-  // v0.4.0 autosave predates lifecycle status. Repair after its debounce/periodic saves.
   setInterval(repairActiveStatus,1200);
   window.addEventListener('pagehide',repairActiveStatus);
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')repairActiveStatus();});
   setTimeout(repairActiveStatus,100);
+  window.__padGradeDurableWritePolicyV087='never-touch-saf-before-index-ready';
 })();
