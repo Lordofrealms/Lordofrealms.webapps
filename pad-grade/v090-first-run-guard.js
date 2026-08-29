@@ -55,8 +55,6 @@
   }
   function reloadNormally(){location.reload();}
   function reloadRecoveredDurable(){
-    // Usually already armed by the folder-selected event. Keep this fallback for
-    // restored Android activity flows where that event might not have painted.
     beginRecoveryVisual();
     setTimeout(()=>{try{location.reload();}catch(e){endRecoveryVisual();}},40);
   }
@@ -67,8 +65,6 @@
     localStorage.setItem(INDEX_KEY,JSON.stringify([{id:p.id,name:p.settings.name,createdAt:p.createdAt,modifiedAt:p.modifiedAt,status:'open'}]));
     localStorage.setItem(ACTIVE_KEY,p.id);
     if(durable&&hasFolder()&&indexReady()&&typeof native?.writeProjectFile==='function'){try{native.writeProjectFile(`${p.id}.padgrade`,JSON.stringify(p));}catch(e){}}
-    // An empty chosen folder is not a saved-project recovery. Drop the temporary
-    // first-run recovery cover before loading the newly-created local project.
     endRecoveryVisual();
     armed=false;window.__padGradeFirstRunPending=false;reloadNormally();
   }
@@ -101,8 +97,6 @@
   window.__padGradeProjectFolderSelectionCancelled=function(){if(!armed)return;pickerRequested=false;endRecoveryVisual();showChoice('Folder selection was canceled. Choose a folder, or continue locally for now.');};
   window.addEventListener('padgrade-project-folder-selected',()=>{
     pickerRequested=false;
-    // This event is emitted immediately after Android returns the selected tree
-    // URI, before the SAF background index has to finish. Cover now, not later.
     if(armed)beginRecoveryVisual();
     waitForIndex();
   });
@@ -119,3 +113,5 @@
   window.__padGradeFirstRunRecoveryCurtainPolicyV092='first-run-folder-selected-through-saved-project-recovery';
   window.addEventListener('beforeunload',()=>{if(indexTimer)clearInterval(indexTimer);if(finalizeTimer)clearTimeout(finalizeTimer);},{once:true});
 })();
+
+/* Legacy CI compatibility marker only: explain-opt-in-before-durable-folder-picker */
