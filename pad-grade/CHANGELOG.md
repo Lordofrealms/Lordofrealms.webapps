@@ -4,6 +4,22 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v0.9.7 — development build
+
+### Changed
+- Durable-folder recovery now keeps the **Restoring saved project…** curtain in place while the recovered active project, lower grid, and saved GPS map grid settle, then reveals after the visible state is ready instead of relying on the earlier short fixed timeout. Background folder reconciliation and File-ID maintenance do not hold the curtain.
+- Project switching now gives the small MapLibre survey-grid refresh the earliest usable point after the new fitted GPS rectangle is reconstructed. The fast-grid owner attempts the GeoJSON update against an existing style even when `isStyleLoaded()` is briefly false after a style mutation, with a retry if MapLibre genuinely rejects the update.
+- Background durable File-ID/filename reconciliation is single-flight so repeated startup/project events cannot launch overlapping migration passes. Already-canonical files are left alone instead of being rewritten unnecessarily.
+
+### Fixed
+- Fixed first-install recovery creating a default project before the user had resolved the durable-folder choice. A minimum-recovery attempt made before a folder exists is no longer cached as a permanent `ready:false` result.
+- Choosing an actually empty durable folder is treated as legitimate first use: the initial project is created only after that folder has been selected and becomes its first saved project. A folder containing Pad Grade state still attempts recovery instead of silently replacing it with a new default.
+- Restored the startup curtain behavior after the v0.9.6 async recovery work so users do not see intermediate project/grid/map repaint flashes while a recovered project is still settling.
+- Reduced cases where a project change could display the new heat map before the new map grid merely because MapLibre transiently reported its style as not loaded immediately after old overlay removal.
+
+### Known issues
+- This remains a development build for device verification. Diagnostic logging remains enabled by default in DEV; if map-grid ordering or startup settling still looks wrong, export the diagnostic log from **Settings → Advanced Settings** for timing analysis before stable promotion.
+
 ## v0.9.6 — development build
 
 ### Added
