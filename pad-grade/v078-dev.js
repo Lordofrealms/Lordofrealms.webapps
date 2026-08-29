@@ -72,3 +72,25 @@
   script.onerror=()=>console.error('Pad Grade v0.8.0 file-ID module failed to load');
   document.body.appendChild(script);
 })();
+
+/* v0.8.1 adds read-only, temporary two-project elevation-change comparison. */
+(function loadPadGrade081Comparison(){
+  const loadUi=()=>{
+    if(document.querySelector('script[data-padgrade-v081-compare]'))return;
+    const ui=document.createElement('script');
+    ui.src='v081-project-compare.js?v=20260829-1';
+    ui.async=false;
+    ui.dataset.padgradeV081Compare='1';
+    ui.onerror=()=>console.error('Pad Grade v0.8.1 project comparison UI failed to load');
+    document.body.appendChild(ui);
+  };
+  if(window.PadGradeProjectCompareCore){loadUi();return;}
+  if(document.querySelector('script[data-padgrade-compare-core]'))return;
+  const core=document.createElement('script');
+  core.src='project-compare-core.js?v=20260829-1';
+  core.async=false;
+  core.dataset.padgradeCompareCore='1';
+  core.onload=loadUi;
+  core.onerror=()=>console.error('Pad Grade v0.8.1 project comparison core failed to load');
+  document.body.appendChild(core);
+})();
