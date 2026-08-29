@@ -136,11 +136,20 @@
     }
     const geom=geometryInputs(s,grid,shell);
     if(rebuild)applyProvisional(s,grid,shell,geom);
-    const samples=textSamples(s);
-    const job={id:`g${generation}-${Date.now()}`,generation,projectId:projectId(),reason,s:{width:s.width,length:s.length,cols:s.cols,rows:s.rows},geom,samples};
+    const samples=textSamples(s),sampleKey=JSON.stringify(samples);
+    const job={id:`g${generation}-${Date.now()}`,generation,projectId:projectId(),reason,s:{width:s.width,length:s.length,cols:s.cols,rows:s.rows},geom,samples,sampleKey};
     activeJob=job;
     const stats=window.__padGradeGridStats||(window.__padGradeGridStats={renders:0,lastReason:'',lastFont:0,lastWidth:0,widthLimit:0,heightLimit:0,lastDurationMs:0});
     if(rebuild)stats.renders++;stats.lastReason=reason;stats.provisionalPaintAt=Date.now();stats.lastDurationMs=Math.max(0,(performance.now?.()||Date.now())-started);
+
+    // Initial startup may already have completed this exact measurement in the
+    // post-init bootstrap worker while the project-manager chain was loading.
+    const early=window.__padGradeGridEarlySizingResultV094;
+    if(early&&early.projectId===job.projectId&&early.sampleKey===sampleKey&&Number.isFinite(+early.needWidthPerPx)){
+      applyFinal(job,+early.needWidthPerPx,'early-worker-offscreen-canvas');
+      return;
+    }
+
     const w=ensureWorker();
     if(w){try{w.postMessage({jobId:job.id,family:geom.family,samples});return;}catch(e){}}
     setTimeout(()=>{if(activeJob===job)applyFinal(job,measureOnMain(samples,geom.family),'main-thread-canvas-fallback');},0);
@@ -151,8 +160,6 @@
   window.__padGradeRenderGrid=renderGridV094;
   window.__padGradeStartGridSizing=(reason='external')=>startSizing(reason,false);
 
-  // Warm the worker as soon as the authoritative grid owner loads. The actual
-  // project-specific job is posted at the beginning of each render/project swap.
   ensureWorker();
   renderGridV094('core-install');
 
