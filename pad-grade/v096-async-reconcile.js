@@ -1,10 +1,11 @@
-/* Pad Grade v0.9.6 DEV — asynchronous durable recovery/reconciliation.
+/* Pad Grade v0.9.7 DEV — asynchronous durable recovery/reconciliation.
  *
  * Recovery waits only for the native directory index, then asynchronously reads
  * the durable settings file and the one last-active project needed for first
- * paint. The recovery curtain may stay up while those minimum reads happen, but
- * the WebView main thread is never blocked by SAF I/O. Full-folder import and
- * legacy filename/File-ID work trail later in the background.
+ * paint. A not-ready attempt is never cached: choosing/indexing a folder must get
+ * a fresh minimum recovery. Full-folder import and legacy filename/File-ID work
+ * trail later in the background, with File-ID migration single-flight/no-op when
+ * files are already canonical.
  */
 (function installPadGrade096AsyncReconcile(){
   'use strict';
@@ -19,6 +20,7 @@
   let minimumPromise=null;
   let fullPromise=null;
   let migrationTimer=null;
+  let migrationPromise=null;
 
   if(!native||!files||typeof files.read!=='function')return;
   window.__padGradeAsyncDurableV096=true;
@@ -81,10 +83,16 @@
   }
 
   async function prepareMinimumRecovery(){
+    // Critical v0.9.7 rule: “no folder/index yet” is a transient state, not a
+    // completed recovery result. Do not cache it or the post-picker call will
+    // inherit a stale ready:false Promise and incorrectly create a default job.
+    if(!hasFolder()||!indexReady()){
+      const token=diag()?.start?.('recovery.minimum',{indexReady:indexReady()});
+      const result={ready:false};diag()?.end?.(token,result);return result;
+    }
     if(minimumPromise)return minimumPromise;
     minimumPromise=(async()=>{
-      const token=diag()?.start?.('recovery.minimum',{indexReady:indexReady()});
-      if(!hasFolder()||!indexReady()){diag()?.end?.(token,{ready:false});return {ready:false};}
+      const token=diag()?.start?.('recovery.minimum',{indexReady:true});
       const list=names();
       const settingsRaw=await files.read(SETTINGS_FILE),settings=parse(settingsRaw,null);
       applyPortableSettings(settings);
@@ -101,7 +109,7 @@
       diag()?.end?.(token,result);
       setTimeout(()=>reconcileAll(),0);
       return result;
-    })().catch(error=>{const result={ready:true,error:String(error?.message||error)};window.__padGradeMinimumDurableRecoveryV096=result;try{native.completeProjectFolderRecovery?.();}catch(e){}diag()?.mark?.('recovery.minimum-error',result);return result;});
+    })().catch(error=>{minimumPromise=null;const result={ready:true,error:String(error?.message||error)};window.__padGradeMinimumDurableRecoveryV096=result;try{native.completeProjectFolderRecovery?.();}catch(e){}diag()?.mark?.('recovery.minimum-error',result);return result;});
     return minimumPromise;
   }
 
@@ -130,32 +138,53 @@
       diag()?.end?.(token,result);
       scheduleAsyncFileIdMigration();
       return result;
-    })().finally(()=>{});
+    })();
     return fullPromise;
   }
 
-  async function migrateFileIds(){
-    if(!hasFolder()||!indexReady()||!window.PadGradeFileId)return;
-    const token=diag()?.start?.('file-id.async-migration'),list=names();
-    try{window.PadGradeFileId.ensureAllLocal?.();}catch(e){}
-    for(const filename of list){
-      const raw=parse(await files.read(filename),null);if(!raw||!raw.settings||!raw.id)continue;
-      let fid=null;try{fid=window.PadGradeFileId.ensureProject?.(raw,filename)||null;}catch(e){}
-      if(!fid)continue;
-      const target=String(filename).match(/^[A-HJ-NP-Z]{4}[2-9]{2}-/i)?filename:`${fid}-${filename}`;
-      const nextText=JSON.stringify(raw,null,2);
-      const wrote=await files.write(target,nextText);
-      if(wrote&&target!==filename)await files.delete(filename);
-      await new Promise(r=>setTimeout(r,0));
-    }
-    diag()?.end?.(token,{files:list.length});
+  function migrateFileIds(){
+    if(migrationPromise)return migrationPromise;
+    if(!hasFolder()||!indexReady()||!window.PadGradeFileId)return Promise.resolve(null);
+    migrationPromise=(async()=>{
+      const token=diag()?.start?.('file-id.async-migration'),list=names();let rewritten=0,renamed=0,unchanged=0;
+      try{window.PadGradeFileId.ensureAllLocal?.();}catch(e){}
+      try{
+        for(const filename of list){
+          const rawText=await files.read(filename),raw=parse(rawText,null);if(!raw||!raw.settings||!raw.id)continue;
+          const before=JSON.stringify(raw);
+          let fid=null;try{fid=window.PadGradeFileId.ensureProject?.(raw,filename)||null;}catch(e){}
+          if(!fid)continue;
+          const canonical=/^[A-HJ-NP-Z]{4}[2-9]{2}-/i.test(String(filename));
+          const target=canonical?filename:`${fid}-${filename}`;
+          const changed=before!==JSON.stringify(raw);
+          if(canonical&&!changed){unchanged++;await new Promise(r=>setTimeout(r,0));continue;}
+          const wrote=await files.write(target,JSON.stringify(raw,null,2));
+          if(wrote){rewritten++;if(target!==filename){renamed++;await files.delete(filename);}}
+          await new Promise(r=>setTimeout(r,0));
+        }
+      }finally{
+        diag()?.end?.(token,{files:list.length,rewritten,renamed,unchanged,singleFlight:true});
+      }
+      return {files:list.length,rewritten,renamed,unchanged};
+    })().finally(()=>{migrationPromise=null;});
+    return migrationPromise;
   }
-  function scheduleAsyncFileIdMigration(delay=700){clearTimeout(migrationTimer);migrationTimer=setTimeout(()=>migrateFileIds(),delay);}
+  function scheduleAsyncFileIdMigration(delay=700){
+    if(migrationPromise)return;
+    clearTimeout(migrationTimer);migrationTimer=setTimeout(()=>{migrationTimer=null;migrateFileIds();},delay);
+  }
+
+  function resetForFolderSelection(){
+    // A newly selected SAF directory is a different recovery transaction.
+    minimumPromise=null;fullPromise=null;clearTimeout(migrationTimer);migrationTimer=null;
+    diag()?.mark?.('recovery.folder-transaction-reset');
+  }
 
   window.__padGradePrepareMinimumDurableRecovery=prepareMinimumRecovery;
   window.__padGradeReconcileDurableAsync=reconcileAll;
   window.__padGradeScheduleAsyncFileIdMigration=scheduleAsyncFileIdMigration;
   window.__padGradeProjectFolderChanged=function(){if(indexReady())prepareMinimumRecovery();};
+  window.addEventListener('padgrade-project-folder-selected',resetForFolderSelection);
   window.addEventListener('padgrade-project-folder-indexed',()=>{
     if(indexReady()){prepareMinimumRecovery();return;}
     // An inaccessible configured URI must not leave recovery pending forever.
@@ -166,5 +195,5 @@
   });
   window.addEventListener('padgrade-durable-sync-ready',()=>{if(indexReady())prepareMinimumRecovery();});
   if(hasFolder()&&indexReady())setTimeout(()=>prepareMinimumRecovery(),0);
-  diag()?.mark?.('recovery.async-controller-installed');
+  diag()?.mark?.('recovery.async-controller-installed',{version:'0.9.7',retryableNotReady:true,migrationSingleFlight:true});
 })();
