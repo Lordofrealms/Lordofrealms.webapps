@@ -63,6 +63,7 @@
       sessionStorage.removeItem(MODE_KEY);
       sessionStorage.removeItem(TARGET_KEY);
     }catch(e){}
+    window.__padGradeProjectSwitchInProgress=false;
     document.documentElement.classList.remove('padGradeRecoveryHold','padGradeProjectSwitchHold');
     if(failsafe){clearTimeout(failsafe);failsafe=null;}
   }
