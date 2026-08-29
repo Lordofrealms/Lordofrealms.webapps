@@ -24,6 +24,8 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /** Thin JavaScript bridge. Application logic remains in the canonical web code. */
 public final class PadGradeNativeBridge implements PrecisionLocationClient.Listener, SensorEventListener {
@@ -38,6 +40,11 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
     private final Sensor rotationSensor;
     private final Object folderCacheLock = new Object();
     private final Map<String, DocumentFile> projectFileCache = new LinkedHashMap<>();
+    private final ExecutorService fileExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread thread = new Thread(r, "PadGradeFileIO");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     private DocumentFile cachedProjectFolder;
     private String cachedProjectFolderUri;
@@ -130,6 +137,57 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
         return deleted;
     }
 
+    @JavascriptInterface public void readProjectFileAsync(String filename, String requestId) {
+        fileExecutor.execute(() -> {
+            long started = System.nanoTime();
+            String text = null;
+            String error = null;
+            try { text = readProjectFile(filename); }
+            catch (RuntimeException ex) { error = ex.getMessage(); }
+            emitFileOperationResult(requestId, text != null, text, elapsedMs(started), error, text == null ? 0 : text.length());
+        });
+    }
+
+    @JavascriptInterface public void writeProjectFileAsync(String filename, String text, String requestId) {
+        final String safeText = text == null ? "" : text;
+        fileExecutor.execute(() -> {
+            long started = System.nanoTime();
+            boolean ok = false;
+            String error = null;
+            try { ok = writeProjectFile(filename, safeText); }
+            catch (RuntimeException ex) { error = ex.getMessage(); }
+            emitFileOperationResult(requestId, ok, null, elapsedMs(started), error, safeText.length());
+        });
+    }
+
+    @JavascriptInterface public void deleteProjectFileAsync(String filename, String requestId) {
+        fileExecutor.execute(() -> {
+            long started = System.nanoTime();
+            boolean ok = false;
+            String error = null;
+            try { ok = deleteProjectFile(filename); }
+            catch (RuntimeException ex) { error = ex.getMessage(); }
+            emitFileOperationResult(requestId, ok, null, elapsedMs(started), error, 0);
+        });
+    }
+
+    private static double elapsedMs(long startedNanos) {
+        return Math.max(0.0, (System.nanoTime() - startedNanos) / 1_000_000.0);
+    }
+
+    private void emitFileOperationResult(String requestId, boolean ok, String text, double durationMs, String error, int size) {
+        JSONObject result = new JSONObject();
+        try {
+            result.put("requestId", requestId == null ? "" : requestId);
+            result.put("ok", ok);
+            result.put("durationMs", durationMs);
+            result.put("size", Math.max(0, size));
+            if (text != null) result.put("text", text);
+            if (error != null && !error.isBlank()) result.put("error", error);
+        } catch (Exception ignored) {}
+        evaluate("window.__padGradeNativeFileOpCompleted && window.__padGradeNativeFileOpCompleted(" + result.toString() + ");");
+    }
+
     public void onProjectFolderSelected(Uri uri) {
         if (uri == null) return;
         projectFolderRecoveryPending = true;
@@ -201,10 +259,13 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
             projectFileCacheLoading = true;
         }
         Thread worker = new Thread(() -> {
+            long started = System.nanoTime();
             try { ensureProjectFileCache(); }
             finally {
-                synchronized (folderCacheLock) { projectFileCacheLoading = false; }
-                evaluate("window.__padGradeProjectFolderIndexed && window.__padGradeProjectFolderIndexed();try{window.dispatchEvent(new Event('padgrade-project-folder-indexed'));}catch(e){}");
+                int count;
+                synchronized (folderCacheLock) { projectFileCacheLoading = false; count = projectFileCache.size(); }
+                double durationMs = elapsedMs(started);
+                evaluate("window.__padGradeProjectFolderIndexed && window.__padGradeProjectFolderIndexed();try{window.dispatchEvent(new CustomEvent('padgrade-project-folder-indexed',{detail:{durationMs:" + durationMs + ",fileCount:" + count + "}}));}catch(e){}");
             }
         }, "PadGradeFolderIndex");
         worker.setDaemon(true);
@@ -217,7 +278,7 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
         synchronized (folderCacheLock) { return projectFileCache.get(filename); }
     }
 
-    public void destroy() { stopHeadingUpdates(); precisionClient.release(); }
+    public void destroy() { stopHeadingUpdates(); precisionClient.release(); fileExecutor.shutdownNow(); }
 
     @Override public void onPrecisionLocation(String jsonPayload) { try { JSONObject p = new JSONObject(jsonPayload); if (p.has("latitude") && p.has("longitude")) { lastLatitude = p.optDouble("latitude", Double.NaN); lastLongitude = p.optDouble("longitude", Double.NaN); lastAltitude = p.optDouble("altitude", 0.0); lastLocationTimeMs = p.optLong("timestamp", System.currentTimeMillis()); } } catch (Exception ignored) {} evaluate("window.__padGradeNativeLocation && window.__padGradeNativeLocation(" + JSONObject.quote(jsonPayload) + ");"); }
     @Override public void onPrecisionError(String message) { evaluate("window.__padGradeNativeLocationError && window.__padGradeNativeLocationError(" + JSONObject.quote(message == null ? "Precision Location error" : message) + ");"); }
