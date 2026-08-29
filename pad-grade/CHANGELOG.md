@@ -4,6 +4,24 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v0.8.0 — stable
+
+### Added
+- Added a stable six-character human-readable File ID to each project/save so files can be identified when moving saves between devices.
+- Display the File ID in the app for the active project and in the project list.
+- Prefix one-project exports with the same File ID stored inside the project data.
+
+### Changed
+- Legacy projects without a File ID are assigned one automatically and retain it for later saves and exports.
+- When a durable project folder is restored or reconnected, legacy project files without a File ID prefix are upgraded to prefixed filenames.
+- Durable-folder migration writes the new prefixed file successfully before removing the legacy filename and is safe to run repeatedly.
+- Regular durable-folder autosaves continue using the prefixed filename after migration instead of recreating an unprefixed copy.
+
+## v0.8.0 — development build
+
+### Added
+- Built the six-character File ID, export-prefix, UI display, and durable-folder legacy-save migration as a separately installable DEV build for testing before stable promotion.
+
 ## v0.7.9 — stable
 
 ### Changed

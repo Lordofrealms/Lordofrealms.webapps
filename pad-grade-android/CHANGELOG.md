@@ -6,12 +6,21 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v0.8.0 — stable
+
+### Changed
+- Promoted the tested v0.8.0 Pad Grade File ID/save-migration changes to the normal Android production package.
+- Stable and development release descriptions now use a short Pad Grade functionality header followed by the matching version section from the canonical Pad Grade changelog, rather than accumulating implementation history in every build description.
+
+### Added
+- Packaged the six-character human-readable project File ID UI, export filename prefix, and durable-folder legacy-save migration.
+
 ## v0.7.9 — stable
 
 ### Changed
 - Packaged and released the stable v0.7.9 Pad Grade web application as the normal Android production app.
-- Stable package uses the production application ID `dev.lordofrealms.padgrade`.
-- Development builds remain separately installable as `Pad Grade DEV` with application ID `dev.lordofrealms.padgradedev`, so DEV testing does not replace the stable app or its local data.
+- Stable package uses the production application ID `com.lordofrealms.padgrade`.
+- Development builds remain separately installable as `Pad Grade DEV` with application ID `com.lordofrealms.padgrade.dev`, so DEV testing does not replace the stable app or its local data.
 - Canonical web assets are copied from the repository's `pad-grade` source during the Android build.
 
 ### Fixed

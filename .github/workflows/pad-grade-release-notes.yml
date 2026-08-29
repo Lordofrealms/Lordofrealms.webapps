@@ -1,0 +1,99 @@
+name: Pad Grade Release Notes
+
+on:
+  workflow_run:
+    workflows: ["Pad Grade Android"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-release-notes:
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+          (github.event.workflow_run.head_branch == 'main' ||
+           github.event.workflow_run.head_branch == 'pad-grade-dev') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+
+      - name: Resolve Pad Grade release
+        run: |
+          VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' pad-grade-android/app/build.gradle.kts | head -1)
+          test -n "$VERSION"
+          BRANCH='${{ github.event.workflow_run.head_branch }}'
+          if [ "$BRANCH" = "main" ]; then
+            CHANNEL=stable
+            RELEASE_TAG="pad-grade-v$VERSION"
+          else
+            CHANNEL=dev
+            RELEASE_TAG="pad-grade-dev-v$VERSION"
+          fi
+          echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "BUILD_CHANNEL=$CHANNEL" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
+
+      - name: Build changelog-guided release description
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ['APP_VERSION']
+          channel = os.environ['BUILD_CHANNEL']
+          changelog_path = Path('pad-grade/CHANGELOG.md')
+          changelog = changelog_path.read_text(encoding='utf-8') if changelog_path.exists() else ''
+          lines = changelog.splitlines()
+
+          starts = []
+          version_re = re.compile(rf'^## v{re.escape(version)}(?:\s+—\s+.*)?$', re.I)
+          for i, line in enumerate(lines):
+              if version_re.match(line.strip()):
+                  starts.append(i)
+
+          preferred = 'development' if channel == 'dev' else 'stable'
+          start = None
+          for i in starts:
+              if preferred in lines[i].lower():
+                  start = i
+                  break
+          if start is None and starts:
+              start = starts[0]
+
+          if start is not None:
+              end = len(lines)
+              for i in range(start + 1, len(lines)):
+                  if lines[i].startswith('## '):
+                      end = i
+                      break
+              changes = '\n'.join(lines[start:end]).strip()
+          else:
+              changes = f'## v{version}\n\nSee the repository changelog for this build.'
+
+          header = (
+              '# Pad Grade Mapper\n\n'
+              'Android grading and survey-planning tool for recording rod readings on a configurable pad grid, '
+              'visualizing cut/fill with interpolation and heat maps, estimating earthwork, navigating survey points '
+              'with GPS, and managing portable project saves with import/export and durable-folder storage.'
+          )
+          if channel == 'stable':
+              status = '**Stable build** — intended for normal use.'
+          else:
+              status = '**Development / test build** — installs separately from the stable app and may contain experimental changes.'
+
+          notes = f'{header}\n\n{status}\n\n# Changes in this build\n\n{changes}\n'
+          Path('/tmp/pad-grade-release-notes.md').write_text(notes, encoding='utf-8')
+          print(notes)
+          PY
+
+      - name: Update GitHub release description
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$RELEASE_TAG" >/dev/null
+          gh release edit "$RELEASE_TAG" --notes-file /tmp/pad-grade-release-notes.md
