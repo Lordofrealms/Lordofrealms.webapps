@@ -4,6 +4,25 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v0.8.9 — development build
+
+### Added
+- Added automatic detection/retry for a healthy MapLibre canvas whose USGS raster imagery has failed, with a visible retry status while the project grid and grade data remain usable.
+- Added a true Android first-install folder decision: no default project is created until the user cancels/declines the durable-folder picker or selects an empty folder.
+
+### Fixed
+- Restored the comparison presentation after the asynchronous MapLibre startup change: comparison points again use CUT/GRADE/FILL colors and labels, the averaged grid remains foreground geometry, and the comparison heat-map color key is shown underneath.
+- Project-list rows reserve the File ID line before the ID is hydrated, preventing Delete/reload operations from changing row height and moving neighboring buttons.
+- Project switching now uses a hard rendering boundary so old project grid/heat-map state is cleared and the new project is loaded through a clean page state rather than allowing layers from two projects to coexist.
+- Android durable-folder listing/read/write/delete calls no longer trigger a synchronous SAF directory scan on the WebView thread while the background folder index is incomplete.
+- Cancelling the Android folder picker during a true first install is now explicitly reported back to the web app so it can create the normal local default project only after that decline.
+
+### Changed
+- When a first-install durable folder is selected, Pad Grade waits for its background index, restores portable settings and the last active/in-work project when present, and creates a default project only when the selected folder contains no Pad Grade projects.
+
+### Known issues
+- This remains a development build intended for device verification of first-install recovery, imagery retry behavior, project switching, and comparison presentation before stable promotion.
+
 ## v0.8.7 — development build
 
 ### Fixed
