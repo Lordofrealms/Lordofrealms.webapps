@@ -20,7 +20,7 @@
   let armed=false;
   let pickerRequested=false;
   let recoveryVisualPending=false;
-  let pickerCoverTimer=null;
+  let recoveryCoverTimer=null;
   let indexTimer=null;
   let finalizeTimer=null;
 
@@ -54,13 +54,17 @@
     recoveryVisualPending=false;
     try{window.__padGradeEndRecoveryVisualHold?.();}catch(e){}
   }
-  function stopPickerCoverKeepalive(){if(pickerCoverTimer){clearInterval(pickerCoverTimer);pickerCoverTimer=null;}}
-  function startPickerCoverKeepalive(){
-    stopPickerCoverKeepalive();
-    // recovery-visual has a short anti-stuck failsafe. While Android's picker is
-    // intentionally open, re-arm that hold before the failsafe can clear it. If
-    // WebView timers are suspended in the picker, the failsafe is suspended too.
-    pickerCoverTimer=setInterval(()=>{if(pickerRequested&&armed)beginRecoveryVisual();else stopPickerCoverKeepalive();},2500);
+  function stopRecoveryCoverKeepalive(){if(recoveryCoverTimer){clearInterval(recoveryCoverTimer);recoveryCoverTimer=null;}}
+  function startRecoveryCoverKeepalive(){
+    if(recoveryCoverTimer)return;
+    // recovery-visual has a short anti-stuck failsafe. During the intentional
+    // first-run picker + folder-index/reconciliation sequence, re-arm the hold
+    // before that failsafe can clear it. If WebView timers are suspended while
+    // Android's picker is foregrounded, the failsafe is suspended too.
+    recoveryCoverTimer=setInterval(()=>{
+      if(armed&&recoveryVisualPending)beginRecoveryVisual();
+      else stopRecoveryCoverKeepalive();
+    },2500);
   }
   function reloadNormally(){location.reload();}
   function reloadRecoveredDurable(){
@@ -68,7 +72,7 @@
     setTimeout(()=>{try{location.reload();}catch(e){endRecoveryVisual();}},40);
   }
   function writeDefaultProject(durable){
-    if(!armed)return;stopPickerCoverKeepalive();closeChoice();removeSentinel();if(realIndex().length||localStorage.getItem(ACTIVE_KEY)){armed=false;endRecoveryVisual();return;}
+    if(!armed)return;stopRecoveryCoverKeepalive();closeChoice();removeSentinel();if(realIndex().length||localStorage.getItem(ACTIVE_KEY)){armed=false;endRecoveryVisual();return;}
     const p=defaultProject();
     localStorage.setItem(`${PROJECT_PREFIX}${p.id}`,JSON.stringify(p));
     localStorage.setItem(INDEX_KEY,JSON.stringify([{id:p.id,name:p.settings.name,createdAt:p.createdAt,modifiedAt:p.modifiedAt,status:'open'}]));
@@ -78,7 +82,7 @@
     armed=false;window.__padGradeFirstRunPending=false;reloadNormally();
   }
   function chooseRestoredProjectOrDefault(){
-    if(!armed)return;stopPickerCoverKeepalive();closeChoice();removeSentinel();const projects=realIndex();
+    if(!armed)return;stopRecoveryCoverKeepalive();closeChoice();removeSentinel();const projects=realIndex();
     if(projects.length){
       let active=localStorage.getItem(ACTIVE_KEY);
       if(!projects.some(x=>x.id===active&&x.status!=='archived')){const open=projects.filter(x=>x.status!=='archived').sort((a,b)=>String(b.modifiedAt||'').localeCompare(String(a.modifiedAt||'')));if(open.length){active=open[0].id;localStorage.setItem(ACTIVE_KEY,active);}}
@@ -100,10 +104,15 @@
   }
   function requestFolder(){
     if(!armed||pickerRequested)return;
-    if(hasFolder()){beginRecoveryVisual();waitForIndex();return;}
+    if(hasFolder()){
+      beginRecoveryVisual();
+      startRecoveryCoverKeepalive();
+      waitForIndex();
+      return;
+    }
     pickerRequested=true;
     beginRecoveryVisual();
-    startPickerCoverKeepalive();
+    startRecoveryCoverKeepalive();
     waitForIndex();
     launchFolderPickerAfterCoverPaint();
   }
@@ -121,14 +130,13 @@
     const noteEl=dlg.querySelector('#pgFirstRunStorageNote');if(noteEl)noteEl.textContent=note;if(!dlg.open)try{dlg.showModal();}catch(e){dlg.setAttribute('open','');}
   }
 
-  window.__padGradeProjectFolderSelectionCancelled=function(){if(!armed)return;pickerRequested=false;stopPickerCoverKeepalive();endRecoveryVisual();showChoice('Folder selection was canceled. Choose a folder, or continue locally for now.');};
+  window.__padGradeProjectFolderSelectionCancelled=function(){if(!armed)return;pickerRequested=false;stopRecoveryCoverKeepalive();endRecoveryVisual();showChoice('Folder selection was canceled. Choose a folder, or continue locally for now.');};
   window.addEventListener('padgrade-project-folder-selected',()=>{
     pickerRequested=false;
-    stopPickerCoverKeepalive();
     // Normally already covered from before the picker opened. Keep this as an
     // idempotent fallback for Android implementations that dispatch selection by
-    // another path.
-    if(armed)beginRecoveryVisual();
+    // another path. The keepalive intentionally continues through indexing.
+    if(armed){beginRecoveryVisual();startRecoveryCoverKeepalive();}
     waitForIndex();
   });
   window.addEventListener('padgrade-project-folder-indexed',finalizeAfterIndex);
@@ -136,16 +144,17 @@
 
   if(isAndroid()&&!hasExistingLocalState()){
     armed=true;window.__padGradeFirstRunPending=true;installSentinel();localStorage.setItem(PROMPT_KEY,'1');
-    const start=()=>{if(hasFolder()){beginRecoveryVisual();waitForIndex();}else showChoice();};
+    const start=()=>{if(hasFolder()){beginRecoveryVisual();startRecoveryCoverKeepalive();waitForIndex();}else showChoice();};
     if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(start,80),{once:true});else setTimeout(start,80);
   }
 
   window.__padGradeFirstRunPolicyV093='explain-opt-in-prepaint-cover-before-native-picker';
-  window.__padGradeFirstRunRecoveryCurtainPolicyV093='first-run-folder-choice-through-saved-project-recovery';
-  window.addEventListener('beforeunload',()=>{stopPickerCoverKeepalive();if(indexTimer)clearInterval(indexTimer);if(finalizeTimer)clearTimeout(finalizeTimer);},{once:true});
+  window.__padGradeFirstRunRecoveryCurtainPolicyV093='first-run-folder-choice-through-index-and-saved-project-recovery';
+  window.addEventListener('beforeunload',()=>{stopRecoveryCoverKeepalive();if(indexTimer)clearInterval(indexTimer);if(finalizeTimer)clearTimeout(finalizeTimer);},{once:true});
 })();
 
 /* Legacy CI compatibility markers only:
  * explain-opt-in-before-durable-folder-picker
  * cover-immediately-after-folder-selection
+ * startPickerCoverKeepalive
  */
