@@ -1,252 +1,171 @@
-/* Pad Grade v0.9.3 DEV — single-owner fast grid renderer.
+/* Pad Grade v0.9.4 DEV — immediate lower-grid paint + background sizing.
  *
- * This file is the only production module allowed to own grid drawing or grid
- * resize behavior. Legacy version layers may still provide project migration,
- * archive/backup UI, and switching logic, but they do not own production grid
- * rendering once this core is installed.
+ * The grid is visible immediately with a sane physical provisional layout. Text
+ * measurement runs in grid-size-worker-v094.js while map/heatmap/GPS work can
+ * proceed in parallel. When sizing completes, this owner changes layout/font CSS
+ * once; it never rebuilds the cell contents a second time just to resize them.
  */
 (function installPadGradeGridCore(){
   'use strict';
 
   const PREF_KEY='padGradeAppPrefsV1';
-  const FIT_GAP=2;
-  const SCROLL_GAP=4;
+  const WORKER_URL='grid-size-worker-v094.js?v=20260829-1';
+  const FIT_GAP=2,SCROLL_GAP=4;
   const $=id=>document.getElementById(id);
+  let worker=null;
+  let generation=0;
+  let activeJob=null;
 
   window.__padGradeGridOwned=true;
 
-  function prefs(){
-    try{return {minGridFont:2,...(JSON.parse(localStorage.getItem(PREF_KEY)||'{}')||{})};}
-    catch(e){return {minGridFont:2};}
-  }
-
-  function px(value){
-    const n=parseFloat(value);
-    return Number.isFinite(n)?n:0;
-  }
-
-  function measureNeed(samples){
-    // The old implementation changed a hidden DOM ruler then called
-    // getBoundingClientRect() once per sample. On Android that forced hundreds of
-    // synchronous layout passes for an ordinary 9x9 grid and could take seconds.
-    // Canvas text measurement uses the same resolved font family/weight without
-    // invalidating document layout for every point label/value.
-    const family=getComputedStyle(document.body).fontFamily||'system-ui,sans-serif';
-    const canvas=document.createElement('canvas');
-    const ctx=canvas.getContext('2d');
-    if(!ctx){
-      // Very defensive fallback: one DOM layout per distinct weight rather than
-      // one forced layout per string.
-      const ruler=document.createElement('span');
-      Object.assign(ruler.style,{position:'fixed',left:'-10000px',top:'-10000px',visibility:'hidden',whiteSpace:'nowrap',fontSize:'100px',lineHeight:'1',fontFamily:family,letterSpacing:'normal',pointerEvents:'none'});
-      document.body.appendChild(ruler);
-      let max=0;
-      for(const sample of samples){
-        ruler.style.fontWeight=String(sample.weight||400);
-        ruler.textContent=sample.text||'—';
-        max=Math.max(max,ruler.scrollWidth/100);
-      }
-      ruler.remove();
-      return Math.max(1,max*1.04);
-    }
-    let max=0,lastWeight=null;
-    for(const sample of samples){
-      const weight=String(sample.weight||400);
-      if(weight!==lastWeight){ctx.font=`${weight} 100px ${family}`;lastWeight=weight;}
-      max=Math.max(max,ctx.measureText(sample.text||'—').width/100);
-    }
-    return Math.max(1,max*1.04);
-  }
+  function prefs(){try{return {minGridFont:2,...(JSON.parse(localStorage.getItem(PREF_KEY)||'{}')||{})};}catch(e){return {minGridFont:2};}}
+  function px(value){const n=parseFloat(value);return Number.isFinite(n)?n:0;}
+  function projectId(){try{return localStorage.getItem('padGradeActiveProjectIdV5')||'';}catch(e){return '';}}
 
   function textSamples(s){
     const out=[{text:'FILL 99.9″'},{text:'CUT 99.9″'}];
     for(let r=0;r<s.rows;r++)for(let c=0;c<s.cols;c++){
-      const value=readings[k(r,c)];
-      const [main,sub]=textFor(value);
-      const rc=refCoords(r,c);
-      out.push(
-        {text:label(r,c),weight:900},
-        {text:`${rc.x.toFixed(1)}′ ${rc.xDir}`},
-        {text:`${rc.y.toFixed(1)}′ ${rc.yDir}`},
-        {text:main||'—',weight:800},
-        {text:sub||'—'}
-      );
+      const value=readings[k(r,c)],[main,sub]=textFor(value),rc=refCoords(r,c);
+      out.push({text:label(r,c),weight:900},{text:`${rc.x.toFixed(1)}′ ${rc.xDir}`},{text:`${rc.y.toFixed(1)}′ ${rc.yDir}`},{text:main||'—',weight:800},{text:sub||'—'});
     }
     return out;
   }
 
-  function cellChrome(grid){
-    const probe=document.createElement('div');
-    probe.className='cell';
-    Object.assign(probe.style,{position:'absolute',visibility:'hidden',pointerEvents:'none'});
-    grid.appendChild(probe);
-    const cs=getComputedStyle(probe);
-    const out={
-      x:px(cs.paddingLeft)+px(cs.paddingRight)+px(cs.borderLeftWidth)+px(cs.borderRightWidth),
-      y:px(cs.paddingTop)+px(cs.paddingBottom)+px(cs.borderTopWidth)+px(cs.borderBottomWidth)
-    };
-    probe.remove();
-    return out;
-  }
-
-  function solveLayout(){
-    const s=cfg();
-    const grid=$('grid');
-    const shell=grid?.parentElement;
-    if(!grid||!shell)return null;
-
-    const minFont=Math.max(2,Math.min(20,Number(prefs().minGridFont)||2));
-    const dx=s.width/(s.cols-1);
-    const dy=s.length/(s.rows-1);
-    const physicalRatio=Math.max(.05,dx/dy);
-
-    const shellStyle=getComputedStyle(shell);
-    const availableWidth=Math.max(1,shell.clientWidth-px(shellStyle.paddingLeft)-px(shellStyle.paddingRight));
-    const fitCellW=Math.max(1,(availableWidth-FIT_GAP*Math.max(0,s.cols-1))/s.cols);
-    const fitCellH=fitCellW/physicalRatio;
-
-    // Use the exact production cell chrome and actual strings, but measure text
-    // off-layout so project switching is not blocked by repeated reflow.
-    const oldClass=grid.className;
-    grid.className='v040-fit v041-uniform v042-uniform v043-uniform';
-    const chrome=cellChrome(grid);
-    const needWidthPerPx=measureNeed(textSamples(s));
-    grid.className=oldClass;
-
-    const widthFontLimit=Math.max(0,(fitCellW-chrome.x)/needWidthPerPx);
-    const heightFontLimit=Math.max(0,(fitCellH-chrome.y)/5.15);
-    const calculatedFont=Math.min(20,widthFontLimit,heightFontLimit);
-    const fitsAtConfiguredMinimum=Number.isFinite(calculatedFont)&&calculatedFont>=minFont;
-
-    let font,cellW,cellH,className,width,columns,rows,gap;
-    if(fitsAtConfiguredMinimum){
-      font=calculatedFont;
-      cellW=fitCellW;
-      cellH=fitCellH;
-      className='v040-fit v041-uniform v042-uniform v043-uniform';
-      width='100%';
-      columns=`repeat(${s.cols},minmax(0,1fr))`;
-      rows=`${cellH.toFixed(2)}px`;
-      gap=FIT_GAP;
-    }else{
-      // The minimum font wins. Expand the physical cells just enough to satisfy
-      // BOTH the widest actual string and the full five-line height requirement,
-      // while preserving the configured pad/grid physical aspect ratio.
-      font=minFont;
-      const textRequiredW=needWidthPerPx*font+chrome.x;
-      const textRequiredH=5.15*font+chrome.y;
-      cellH=Math.max(textRequiredH,textRequiredW/physicalRatio);
-      cellW=cellH*physicalRatio;
-      className='v040-scroll v041-uniform v042-uniform v043-uniform';
-      width='max-content';
-      columns=`repeat(${s.cols},${cellW.toFixed(2)}px)`;
-      rows=`${cellH.toFixed(2)}px`;
-      gap=SCROLL_GAP;
-    }
-
-    return {
-      s,grid,shell,font,cellW,cellH,className,width,columns,rows,gap,
-      fit:fitsAtConfiguredMinimum,availableWidth,widthFontLimit,heightFontLimit
-    };
-  }
-
-  function renderGridV054(reason='explicit'){
-    const started=performance.now?.()||Date.now();
-    const layout=solveLayout();
-    if(!layout)return;
-    const {s,grid,shell,font,className,width,columns,rows,gap,fit,availableWidth,widthFontLimit,heightFontLimit}=layout;
-
-    // Build the complete visual tree off-DOM so the user never sees an
-    // intermediate font size or a partially rebuilt grid.
+  function buildCells(s){
     const fragment=document.createDocumentFragment();
     for(let rr=s.rows-1;rr>=0;rr--)for(let c=0;c<s.cols;c++){
-      const value=readings[k(rr,c)];
-      const [main,sub]=textFor(value);
-      const rc=refCoords(rr,c);
-      const cell=document.createElement('div');
+      const value=readings[k(rr,c)],[main,sub]=textFor(value),rc=refCoords(rr,c),cell=document.createElement('div');
       cell.className='cell '+classFor(value);
+      cell.dataset.r=rr;cell.dataset.c=c;
       cell.innerHTML=`<div class="coord">${label(rr,c)}</div><div class="xy"><span>${rc.x.toFixed(1)}′ ${rc.xDir}</span><span>${rc.y.toFixed(1)}′ ${rc.yDir}</span></div><div class="main">${main||'—'}</div><div class="sub">${sub||'—'}</div>`;
       cell.onclick=()=>openPoint(rr,c);
       fragment.appendChild(cell);
     }
-
-    // One atomic visible commit at the already-solved final size.
-    grid.replaceChildren(fragment);
-    grid.className=className;
-    grid.style.width=width;
-    grid.style.gridTemplateColumns=columns;
-    grid.style.gridAutoRows=rows;
-    grid.style.columnGap=`${gap}px`;
-    grid.style.rowGap=`${gap}px`;
-    grid.style.setProperty('--grid-font',`${font.toFixed(3)}px`,'important');
-    shell.classList.toggle('fit',fit);
-    shell.style.visibility='';
-    shell.removeAttribute('data-grid-booting');
-
-    $('v040GridMode')?.remove();
-    updateStats();
-
-    const stats=window.__padGradeGridStats||(window.__padGradeGridStats={renders:0,lastReason:'',lastFont:0,lastWidth:0,widthLimit:0,heightLimit:0,lastDurationMs:0});
-    stats.renders++;
-    stats.lastReason=reason;
-    stats.lastFont=font;
-    stats.lastWidth=availableWidth;
-    stats.widthLimit=widthFontLimit;
-    stats.heightLimit=heightFontLimit;
-    stats.lastDurationMs=Math.max(0,(performance.now?.()||Date.now())-started);
+    return fragment;
   }
 
-  window.renderGrid=function(){renderGridV054('explicit');};
-  window.__padGradeRenderGrid=renderGridV054;
-  window.__padGradeSolveGrid=solveLayout;
+  function geometryInputs(s,grid,shell){
+    const minFont=Math.max(2,Math.min(20,Number(prefs().minGridFont)||2));
+    const dx=s.width/(s.cols-1),dy=s.length/(s.rows-1),physicalRatio=Math.max(.05,dx/dy);
+    const ss=getComputedStyle(shell);
+    const availableWidth=Math.max(1,shell.clientWidth-px(ss.paddingLeft)-px(ss.paddingRight));
+    const fitCellW=Math.max(1,(availableWidth-FIT_GAP*Math.max(0,s.cols-1))/s.cols);
+    const fitCellH=fitCellW/physicalRatio;
+    const first=grid.querySelector('.cell');
+    let chrome={x:0,y:0};
+    if(first){
+      const cs=getComputedStyle(first);
+      chrome={x:px(cs.paddingLeft)+px(cs.paddingRight)+px(cs.borderLeftWidth)+px(cs.borderRightWidth),y:px(cs.paddingTop)+px(cs.paddingBottom)+px(cs.borderTopWidth)+px(cs.borderBottomWidth)};
+    }
+    const family=getComputedStyle(document.body).fontFamily||'system-ui,sans-serif';
+    return {minFont,physicalRatio,availableWidth,fitCellW,fitCellH,chrome,family};
+  }
+
+  function applyProvisional(s,grid,shell,geom){
+    const font=Math.max(geom.minFont,Math.min(12,geom.fitCellW/7.5,geom.fitCellH/5.15));
+    grid.className='v040-fit v041-uniform v042-uniform v043-uniform';
+    grid.style.width='100%';
+    grid.style.gridTemplateColumns=`repeat(${s.cols},minmax(0,1fr))`;
+    grid.style.gridAutoRows=`${geom.fitCellH.toFixed(2)}px`;
+    grid.style.columnGap=`${FIT_GAP}px`;grid.style.rowGap=`${FIT_GAP}px`;
+    grid.style.setProperty('--grid-font',`${Math.max(2,font).toFixed(3)}px`,'important');
+    shell.classList.add('fit');
+    shell.style.visibility='';shell.removeAttribute('data-grid-booting');
+  }
+
+  function solveFromNeed(job,needWidthPerPx){
+    const {s,geom}=job;
+    const widthFontLimit=Math.max(0,(geom.fitCellW-geom.chrome.x)/needWidthPerPx);
+    const heightFontLimit=Math.max(0,(geom.fitCellH-geom.chrome.y)/5.15);
+    const calculatedFont=Math.min(20,widthFontLimit,heightFontLimit);
+    const fit=Number.isFinite(calculatedFont)&&calculatedFont>=geom.minFont;
+    if(fit){
+      return {font:calculatedFont,className:'v040-fit v041-uniform v042-uniform v043-uniform',width:'100%',columns:`repeat(${s.cols},minmax(0,1fr))`,rows:`${geom.fitCellH.toFixed(2)}px`,gap:FIT_GAP,fit,widthFontLimit,heightFontLimit};
+    }
+    const font=geom.minFont;
+    const requiredW=needWidthPerPx*font+geom.chrome.x,requiredH=5.15*font+geom.chrome.y;
+    const cellH=Math.max(requiredH,requiredW/geom.physicalRatio),cellW=cellH*geom.physicalRatio;
+    return {font,className:'v040-scroll v041-uniform v042-uniform v043-uniform',width:'max-content',columns:`repeat(${s.cols},${cellW.toFixed(2)}px)`,rows:`${cellH.toFixed(2)}px`,gap:SCROLL_GAP,fit:false,widthFontLimit,heightFontLimit};
+  }
+
+  function applyFinal(job,needWidthPerPx,source){
+    if(!activeJob||job.id!==activeJob.id||job.generation!==generation||job.projectId!==projectId())return;
+    const grid=$('grid'),shell=grid?.parentElement;if(!grid||!shell)return;
+    const solved=solveFromNeed(job,Math.max(1,Number(needWidthPerPx)||1));
+    grid.className=solved.className;
+    grid.style.width=solved.width;
+    grid.style.gridTemplateColumns=solved.columns;
+    grid.style.gridAutoRows=solved.rows;
+    grid.style.columnGap=`${solved.gap}px`;grid.style.rowGap=`${solved.gap}px`;
+    grid.style.setProperty('--grid-font',`${solved.font.toFixed(3)}px`,'important');
+    shell.classList.toggle('fit',solved.fit);
+    const stats=window.__padGradeGridStats||(window.__padGradeGridStats={renders:0,lastReason:'',lastFont:0,lastWidth:0,widthLimit:0,heightLimit:0,lastDurationMs:0});
+    stats.lastFont=solved.font;stats.lastWidth=job.geom.availableWidth;stats.widthLimit=solved.widthFontLimit;stats.heightLimit=solved.heightFontLimit;stats.measureSource=source;stats.finalResizeAt=Date.now();
+    activeJob=null;
+  }
+
+  function measureOnMain(samples,family){
+    const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');if(!ctx)return 1;
+    let max=0,lastWeight='';
+    for(const sample of samples){const weight=String(sample.weight||400);if(weight!==lastWeight){ctx.font=`${weight} 100px ${family}`;lastWeight=weight;}max=Math.max(max,ctx.measureText(sample.text||'—').width/100);}
+    return Math.max(1,max*1.04);
+  }
+
+  function ensureWorker(){
+    if(worker||typeof Worker!=='function')return worker;
+    try{
+      worker=new Worker(WORKER_URL);
+      worker.onmessage=event=>{
+        const msg=event.data||{},job=activeJob;if(!job||msg.jobId!==job.id)return;
+        if(msg.type==='complete'){applyFinal(job,msg.needWidthPerPx,'worker-offscreen-canvas');return;}
+        if(msg.type==='unsupported')setTimeout(()=>{if(activeJob===job)applyFinal(job,measureOnMain(job.samples,job.geom.family),'main-thread-canvas-fallback');},0);
+      };
+      worker.onerror=()=>{try{worker?.terminate();}catch(e){}worker=null;const job=activeJob;if(job)setTimeout(()=>{if(activeJob===job)applyFinal(job,measureOnMain(job.samples,job.geom.family),'main-thread-canvas-fallback');},0);};
+    }catch(e){worker=null;}
+    return worker;
+  }
+
+  function startSizing(reason='explicit',rebuild=true){
+    const grid=$('grid'),shell=grid?.parentElement;if(!grid||!shell)return;
+    const s=cfg();generation++;
+    const started=performance.now?.()||Date.now();
+    if(rebuild){
+      grid.replaceChildren(buildCells(s));
+      $('v040GridMode')?.remove();
+      try{updateStats();}catch(e){}
+    }
+    const geom=geometryInputs(s,grid,shell);
+    if(rebuild)applyProvisional(s,grid,shell,geom);
+    const samples=textSamples(s);
+    const job={id:`g${generation}-${Date.now()}`,generation,projectId:projectId(),reason,s:{width:s.width,length:s.length,cols:s.cols,rows:s.rows},geom,samples};
+    activeJob=job;
+    const stats=window.__padGradeGridStats||(window.__padGradeGridStats={renders:0,lastReason:'',lastFont:0,lastWidth:0,widthLimit:0,heightLimit:0,lastDurationMs:0});
+    if(rebuild)stats.renders++;stats.lastReason=reason;stats.provisionalPaintAt=Date.now();stats.lastDurationMs=Math.max(0,(performance.now?.()||Date.now())-started);
+    const w=ensureWorker();
+    if(w){try{w.postMessage({jobId:job.id,family:geom.family,samples});return;}catch(e){}}
+    setTimeout(()=>{if(activeJob===job)applyFinal(job,measureOnMain(samples,geom.family),'main-thread-canvas-fallback');},0);
+  }
+
+  function renderGridV094(reason='explicit'){startSizing(reason,true);}
+  window.renderGrid=function(){renderGridV094('explicit');};
+  window.__padGradeRenderGrid=renderGridV094;
+  window.__padGradeStartGridSizing=(reason='external')=>startSizing(reason,false);
+
+  // Warm the worker as soon as the authoritative grid owner loads. The actual
+  // project-specific job is posted at the beginning of each render/project swap.
+  ensureWorker();
+  renderGridV094('core-install');
 
   const shell=$('grid')?.parentElement;
-
-  // Startup: do not show a sequence of provisional guesses. Wait until the
-  // WebView/container width is stable across consecutive animation frames, then
-  // solve all constraints once and reveal the finished grid.
-  function settleAndInitialRender(){
-    if(!shell){renderGridV054('initial');return;}
-    let previous=-1;
-    let stableFrames=0;
-    let frames=0;
-    const check=()=>{
-      const width=Math.round(shell.getBoundingClientRect().width*10)/10;
-      if(width>0&&Math.abs(width-previous)<0.5)stableFrames++;
-      else stableFrames=0;
-      previous=width;
-      frames++;
-      if(stableFrames>=2||frames>=12){
-        renderGridV054('initial-stable');
-        return;
-      }
-      requestAnimationFrame(check);
-    };
-    requestAnimationFrame(check);
-  }
-
-  settleAndInitialRender();
-
-  // After startup, shell width is the only EXTERNAL geometry input that can
-  // change without the app explicitly requesting a render. Cell height is not
-  // ignored: every solve derives cell height from physical aspect ratio and then
-  // tests the complete text-height requirement. Watching height itself would be
-  // wrong because rendering the grid changes its own height and creates a loop.
   if(shell&&typeof ResizeObserver==='function'){
-    let lastWidth=Math.round(shell.getBoundingClientRect().width*10)/10;
-    let timer=null;
+    let lastWidth=Math.round(shell.getBoundingClientRect().width*10)/10,timer=null;
     const observer=new ResizeObserver(entries=>{
-      const rect=entries[0]?.contentRect;
-      if(!rect)return;
-      const width=Math.round(rect.width*10)/10;
-      if(Math.abs(width-lastWidth)<0.5)return;
-      lastWidth=width;
-      clearTimeout(timer);
-      timer=setTimeout(()=>renderGridV054('container-width-change'),80);
+      const rect=entries[0]?.contentRect;if(!rect)return;
+      const width=Math.round(rect.width*10)/10;if(Math.abs(width-lastWidth)<0.5)return;
+      lastWidth=width;clearTimeout(timer);timer=setTimeout(()=>startSizing('container-width-change',false),60);
     });
-    observer.observe(shell);
-    window.__padGradeGridResizeObserver=observer;
+    observer.observe(shell);window.__padGradeGridResizeObserver=observer;
   }
 
-  window.__padGradeGridMeasurePolicyV093='canvas-measuretext-no-per-string-layout-reflow';
+  window.__padGradeGridMeasurePolicyV094='paint-cells-first-worker-offscreen-measure-then-one-css-resize';
 })();
