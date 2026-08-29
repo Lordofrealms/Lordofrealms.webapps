@@ -93,10 +93,6 @@ readings={'0,0':100,'0,1':101,'1,0':102};
 const surface=pgSurfaceSamples(100);
 assert.ok(surface.coveredFt2>340&&surface.coveredFt2<460,`three-corner coverage should be about 400 ft², got ${surface.coveredFt2}`);
 
-// Heatmap transitions must be based on the magnitude of the actual readings,
-// never categorical CUT/FILL colors. Target=100: one point CUT 50 (reading 50)
-// and the other FILL 2 (reading 102). At the midpoint the surface must still be
-// deeply cut; the zero crossing for pure IDW² occurs 5/6 of the way toward fill.
 const asymmetric=[{x:0,y:0,v:50},{x:1,y:0,v:102}];
 near(pgIdw2(.5,0,asymmetric),76,1e-9,'asymmetric midpoint reading');
 assert.ok(pgIdw2(.5,0,asymmetric)-100<-20,'asymmetric midpoint must remain cut');
@@ -105,9 +101,7 @@ near(pgIdw2(5/6,0,asymmetric),100,1e-9,'magnitude-aware IDW² zero crossing');
 $('cols').value='5';$('rows').value='3';$('width').value='40';$('length').value='20';$('routeMode').value='away';
 padGradeLaser={xFt:-10,yFt:10};
 let route=gpsRoute().map(pointFromIndex);
-for(let r=0;r<3;r++){
-  assert.deepStrictEqual(route.filter(p=>p.r===r).map(p=>p.c),[0,1,2,3,4],`outside-laser row ${r}`);
-}
+for(let r=0;r<3;r++)assert.deepStrictEqual(route.filter(p=>p.r===r).map(p=>p.c),[0,1,2,3,4],`outside-laser row ${r}`);
 
 padGradeLaser={xFt:20,yFt:10};
 route=gpsRoute().map(pointFromIndex);
@@ -118,8 +112,6 @@ for(let i=1;i<route.length;i++){
   if(db+1e-9<da)assert.ok(Math.abs(b.c-2)<=1,'interior reset must return near the laser before second outward leg');
 }
 
-// v0.7.7 locality selector: a long skinny lattice triangle may have the same
-// area as the obvious local triangle, but it must lose on farthest-vertex distance.
 const localSurface=require(path.join(root,'surface-local-v077.js'));
 const localityPoints=[
   {x:0,y:0,v:10,label:'E5'},
@@ -131,8 +123,6 @@ let localResult=localSurface.interpolateAt(.2,.2,localityPoints,true);
 assert.ok(localResult&&localResult.tieCount===1,'local point should have one winning triangle');
 assert.deepStrictEqual(localResult.triangles[0],[0,1,2],'local point must use E5/E6/F5, not distant F9');
 
-// Exact center of a four-point square remains the intended genuine tie case:
-// all four equally-local three-corner interpretations are averaged.
 const squarePoints=[
   {x:0,y:0,v:10,label:'SW'},
   {x:1,y:0,v:20,label:'SE'},
@@ -142,22 +132,25 @@ const squarePoints=[
 localResult=localSurface.interpolateAt(.5,.5,squarePoints,true);
 assert.ok(localResult&&localResult.tieCount===4,'square center should retain four genuine locality ties');
 near(localResult.value,25,1e-9,'square-center tie average');
-
-// A probe exactly on a measured point should report that measured point as the
-// sole contributor instead of expanding its reference list through zero-weight ties.
 localResult=localSurface.interpolateAt(0,0,squarePoints,true);
 assert.ok(localResult&&localResult.exact,'measured point should be exact');
 assert.deepStrictEqual(localResult.triangles,[[0]],'exact point should list only its contributing measurement');
 
-// v0.9.3 regression guards for the field-reported startup/layout issues.
+// v0.9.4 regression guards for project transition and lower-grid latency.
 const gridCoreText=fs.readFileSync(path.join(root,'grid-core.js'),'utf8');
-assert.ok(gridCoreText.includes('ctx.measureText'),'lower grid must use canvas text measurement');
-assert.ok(gridCoreText.includes('canvas-measuretext-no-per-string-layout-reflow'),'lower grid fast-measure policy marker missing');
+const gridWorkerText=fs.readFileSync(path.join(root,'grid-size-worker-v094.js'),'utf8');
+assert.ok(gridCoreText.includes('grid-size-worker-v094.js'),'lower grid must delegate text sizing to the worker');
+assert.ok(gridCoreText.includes('applyProvisional'),'lower grid must paint before final text sizing');
+assert.ok(gridCoreText.includes('paint-cells-first-worker-offscreen-measure-then-one-css-resize'),'lower grid one-resize policy marker missing');
+assert.ok(gridWorkerText.includes('OffscreenCanvas'),'grid sizing worker must use OffscreenCanvas when available');
+assert.ok(gridWorkerText.includes('measureText'),'grid sizing worker must measure text off the UI thread');
 const firstRunText=fs.readFileSync(path.join(root,'v090-first-run-guard.js'),'utf8');
 assert.ok(firstRunText.includes('launchFolderPickerAfterCoverPaint'),'folder picker must be launched after recovery-cover paint');
 assert.ok(firstRunText.includes('startPickerCoverKeepalive'),'recovery cover must stay armed while native picker is open');
 const switchText=fs.readFileSync(path.join(root,'v090-project-switch-boundary.js'),'utf8');
-assert.ok(switchText.includes('closeProjectsDialog();\n    if(target===activeId())return;'),'Open must close Projects before project work starts');
+assert.ok(switchText.includes('removeGridFamily(map)'),'project switching must remove old map grid layers/sources');
+assert.ok(switchText.includes('installProjectGridFamily'),'project switching must recreate map grid layers/sources for the new project');
+assert.ok(switchText.includes('closeProjectsDialog();'),'Open must close Projects before project work starts');
 assert.ok(switchText.includes('requestAnimationFrame'),'project switch must give dialog close a paint frame');
 const styleText=fs.readFileSync(path.join(root,'style.css'),'utf8');
 assert.ok(styleText.includes('padding-bottom:1.18rem'),'project rows must reserve File-ID height before hydration');
