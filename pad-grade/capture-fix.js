@@ -1,6 +1,7 @@
 /* Pad Grade bootstrap.
- * Keeps resilient corner capture, captures the MapLibre instance, loads the
- * field/project workflow, then hands all grid ownership to grid-core.js.
+ * Keeps resilient corner capture, loads the field/project workflow, then hands
+ * lower-grid ownership to grid-core.js. GPS-map initialization is now independent
+ * and may arrive later through maplibre-loader.js without blocking this workflow.
  */
 (function installCaptureCompletionFix(){
   'use strict';
@@ -49,13 +50,20 @@
 (function installV054Bootstrap(){
   'use strict';
 
+  // Browser-hosted legacy path: if MapLibre happened to be available before this
+  // module, keep the historical hook. Android v0.8.7 normally installs the newer
+  // primary-map-only hook later through maplibre-loader.js.
   if(window.maplibregl && window.maplibregl.Map && !window.__padGradeMapHookInstalled){
     window.__padGradeMapHookInstalled=true;
     const OriginalMap=window.maplibregl.Map;
     function WrappedMap(options){
       const instance=new OriginalMap(options);
-      window.__padGradeMapInstance=instance;
-      try{window.dispatchEvent(new CustomEvent('padgrade-map-created',{detail:{map:instance}}));}catch(e){}
+      const container=options&&options.container;
+      const id=typeof container==='string'?container:(container&&container.id);
+      if(id==='gpsMap'){
+        window.__padGradeMapInstance=instance;
+        try{window.dispatchEvent(new CustomEvent('padgrade-map-created',{detail:{map:instance}}));}catch(e){}
+      }
       return instance;
     }
     WrappedMap.prototype=OriginalMap.prototype;
@@ -107,16 +115,40 @@
     }
   }
 
-  function polishLoadedWorkflow(){
-    document.title='Pad Grade Mapper v0.5.4';
+  function nativeFolderIndexReady(){
+    try{
+      const n=window.PadGradeNative;
+      if(!n||typeof n.hasProjectFolder!=='function'||!n.hasProjectFolder())return true;
+      return typeof n.isProjectFolderIndexReady!=='function'||!!n.isProjectFolderIndexReady();
+    }catch(e){return false;}
+  }
 
-    // No provisional grid is shown. Older modules can initialize project/storage
-    // state behind the curtain; grid-core reveals the grid only after a complete
-    // final sizing solve.
+  function loadDurableSyncWhenReady(){
+    if(document.querySelector('script[data-padgrade-v040-sync]'))return;
+    if(nativeFolderIndexReady()){
+      loadScript('v040-sync.js?v=20260829-3','padgrade-v040-sync');
+      return;
+    }
+    let tries=0;
+    const timer=setInterval(()=>{
+      if(nativeFolderIndexReady()||++tries>=1200){
+        clearInterval(timer);
+        if(nativeFolderIndexReady())loadScript('v040-sync.js?v=20260829-3','padgrade-v040-sync');
+      }
+    },100);
+    window.addEventListener('beforeunload',()=>clearInterval(timer),{once:true});
+  }
+
+  function polishLoadedWorkflow(){
+    document.title='Pad Grade Mapper v0.8.7 DEV';
+
+    // Keep the already-rendered lower grid visible. grid-core builds its complete
+    // replacement off-DOM and swaps it atomically, so hiding a valid project grid
+    // while storage/map dependencies settle only hurts startup responsiveness.
     const gridShell=document.querySelector('.gridShell');
     if(gridShell){
-      gridShell.style.visibility='hidden';
-      gridShell.setAttribute('data-grid-booting','1');
+      gridShell.style.visibility='';
+      gridShell.removeAttribute('data-grid-booting');
     }
 
     const calibration=document.querySelector('.v030-calibration');
@@ -143,23 +175,20 @@
 
     loadScript('v031.js?v=20260822-1','padgrade-v031',()=>{
       loadScript('v040.js?v=20260822-1','padgrade-v040',()=>{
-        loadScript('v040-sync.js?v=20260822-2','padgrade-v040-sync',()=>{
-          loadScript('v041.js?v=20260822-1','padgrade-v041',()=>{
-            loadScript('v041-persist.js?v=20260822-1','padgrade-v041-persist',()=>{
-              loadScript('v042.js?v=20260822-1','padgrade-v042',()=>{
-                // v046/v047 used to mix migration with their own grid renderers.
-                // migration-core carries forward the repair behavior only.
-                loadScript('migration-core.js?v=20260822-1','padgrade-migration-core',()=>{
-                  loadScript('v048.js?v=20260822-1','padgrade-v048',()=>{
-                    loadScript('v052.js?v=20260822-1','padgrade-v052',()=>{
-                      // Let zero-delay legacy boot callbacks finish while resize
-                      // registration is still suppressed, then install the one
-                      // production grid owner.
-                      setTimeout(()=>{
-                        endLegacyResizeSuppression();
-                        loadScript('grid-core.js?v=20260822-1','padgrade-grid-core');
-                      },0);
-                    });
+        // Durable-folder enumeration is intentionally NOT on this chain. If the
+        // SAF provider is still indexing, v040-sync is loaded later after the
+        // native ready flag turns true; the project UI/grid continues now.
+        loadDurableSyncWhenReady();
+        loadScript('v041.js?v=20260822-1','padgrade-v041',()=>{
+          loadScript('v041-persist.js?v=20260829-2','padgrade-v041-persist',()=>{
+            loadScript('v042.js?v=20260822-1','padgrade-v042',()=>{
+              loadScript('migration-core.js?v=20260822-1','padgrade-migration-core',()=>{
+                loadScript('v048.js?v=20260822-1','padgrade-v048',()=>{
+                  loadScript('v052.js?v=20260822-1','padgrade-v052',()=>{
+                    setTimeout(()=>{
+                      endLegacyResizeSuppression();
+                      loadScript('grid-core.js?v=20260822-1','padgrade-grid-core');
+                    },0);
                   });
                 });
               });
@@ -171,9 +200,11 @@
   }
 
   function loadWorkflow(){
-    loadScript('v030.js?v=20260822-2','padgrade-v030',polishLoadedWorkflow);
+    loadScript('v030.js?v=20260829-2','padgrade-v030',polishLoadedWorkflow);
   }
 
-  if(document.readyState==='complete') loadWorkflow();
-  else window.addEventListener('load',loadWorkflow,{once:true});
+  // DOM-ready is sufficient; waiting for window.load couples the project/grid UI
+  // to imagery, dynamically-loaded MapLibre, and other network resources.
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',loadWorkflow,{once:true});
+  else loadWorkflow();
 })();
