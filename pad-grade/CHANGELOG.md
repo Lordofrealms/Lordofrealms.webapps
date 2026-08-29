@@ -4,6 +4,24 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v0.8.2 — development build
+
+### Changed
+- Moved **Compare** out of the fixed bottom bar and placed it beside **Clear Readings** in the existing project-action button holder. **Clear Readings remains unchanged.**
+- Corrected comparison geometry so each project is first resolved to its own existing fitted rectangular GPS grid. Every logical point (`A1`, `A2`, etc.) in the comparison grid is then placed at the local east/north midpoint of that same logical point in the two fitted project grids.
+- The resulting averaged comparison grid remains one rectangular grid. Elevation deltas are still calculated strictly by logical row/column identity and then attached to those averaged point positions before the existing heat-map interpolation is applied.
+- Project comparison now requires identical row/column counts **and** identical configured pad width/length. Different-size projects fail comparison instead of averaging dimensions.
+- Project comparison now requires every corresponding stabilized GPS corner (SW↔SW, SE↔SE, NE↔NE, NW↔NW) to be no more than 20 ft apart. A pair outside that limit fails with an explanatory error.
+- Picker status now reports the same-size/location eligibility rules and the worst corresponding-corner separation before comparison starts.
+
+### Fixed
+- Removed the v0.8.1 behavior that averaged only the four observed GPS corners and refit a new shared rectangle, which did not represent the requested point-by-point average of the two already-calculated project grids.
+- Removed the v0.8.1 behavior that allowed different physical pad sizes by averaging their dimensions.
+
+### Known issues
+- Both selected projects still need complete four-corner GPS calibration and a reading at every logical grid point.
+- This remains a development build intended for field testing before stable promotion.
+
 ## v0.8.1 — development build
 
 ### Added
