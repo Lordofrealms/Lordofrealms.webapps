@@ -1,4 +1,4 @@
-/* Pad Grade v0.5.4 — single-owner grid renderer.
+/* Pad Grade v0.9.3 DEV — single-owner fast grid renderer.
  *
  * This file is the only production module allowed to own grid drawing or grid
  * resize behavior. Legacy version layers may still provide project migration,
@@ -26,21 +26,35 @@
   }
 
   function measureNeed(samples){
-    const ruler=document.createElement('span');
+    // The old implementation changed a hidden DOM ruler then called
+    // getBoundingClientRect() once per sample. On Android that forced hundreds of
+    // synchronous layout passes for an ordinary 9x9 grid and could take seconds.
+    // Canvas text measurement uses the same resolved font family/weight without
+    // invalidating document layout for every point label/value.
     const family=getComputedStyle(document.body).fontFamily||'system-ui,sans-serif';
-    Object.assign(ruler.style,{
-      position:'fixed',left:'-10000px',top:'-10000px',visibility:'hidden',
-      whiteSpace:'nowrap',fontSize:'100px',lineHeight:'1',fontFamily:family,
-      letterSpacing:'normal',pointerEvents:'none'
-    });
-    document.body.appendChild(ruler);
-    let max=0;
-    for(const sample of samples){
-      ruler.style.fontWeight=String(sample.weight||400);
-      ruler.textContent=sample.text||'—';
-      max=Math.max(max,ruler.getBoundingClientRect().width/100);
+    const canvas=document.createElement('canvas');
+    const ctx=canvas.getContext('2d');
+    if(!ctx){
+      // Very defensive fallback: one DOM layout per distinct weight rather than
+      // one forced layout per string.
+      const ruler=document.createElement('span');
+      Object.assign(ruler.style,{position:'fixed',left:'-10000px',top:'-10000px',visibility:'hidden',whiteSpace:'nowrap',fontSize:'100px',lineHeight:'1',fontFamily:family,letterSpacing:'normal',pointerEvents:'none'});
+      document.body.appendChild(ruler);
+      let max=0;
+      for(const sample of samples){
+        ruler.style.fontWeight=String(sample.weight||400);
+        ruler.textContent=sample.text||'—';
+        max=Math.max(max,ruler.scrollWidth/100);
+      }
+      ruler.remove();
+      return Math.max(1,max*1.04);
     }
-    ruler.remove();
+    let max=0,lastWeight=null;
+    for(const sample of samples){
+      const weight=String(sample.weight||400);
+      if(weight!==lastWeight){ctx.font=`${weight} 100px ${family}`;lastWeight=weight;}
+      max=Math.max(max,ctx.measureText(sample.text||'—').width/100);
+    }
     return Math.max(1,max*1.04);
   }
 
@@ -91,8 +105,8 @@
     const fitCellW=Math.max(1,(availableWidth-FIT_GAP*Math.max(0,s.cols-1))/s.cols);
     const fitCellH=fitCellW/physicalRatio;
 
-    // Use the exact production cell styles to measure chrome and actual strings.
-    // This is a full solve: text width AND five-line text height must both fit.
+    // Use the exact production cell chrome and actual strings, but measure text
+    // off-layout so project switching is not blocked by repeated reflow.
     const oldClass=grid.className;
     grid.className='v040-fit v041-uniform v042-uniform v043-uniform';
     const chrome=cellChrome(grid);
@@ -137,6 +151,7 @@
   }
 
   function renderGridV054(reason='explicit'){
+    const started=performance.now?.()||Date.now();
     const layout=solveLayout();
     if(!layout)return;
     const {s,grid,shell,font,className,width,columns,rows,gap,fit,availableWidth,widthFontLimit,heightFontLimit}=layout;
@@ -171,13 +186,14 @@
     $('v040GridMode')?.remove();
     updateStats();
 
-    const stats=window.__padGradeGridStats||(window.__padGradeGridStats={renders:0,lastReason:'',lastFont:0,lastWidth:0,widthLimit:0,heightLimit:0});
+    const stats=window.__padGradeGridStats||(window.__padGradeGridStats={renders:0,lastReason:'',lastFont:0,lastWidth:0,widthLimit:0,heightLimit:0,lastDurationMs:0});
     stats.renders++;
     stats.lastReason=reason;
     stats.lastFont=font;
     stats.lastWidth=availableWidth;
     stats.widthLimit=widthFontLimit;
     stats.heightLimit=heightFontLimit;
+    stats.lastDurationMs=Math.max(0,(performance.now?.()||Date.now())-started);
   }
 
   window.renderGrid=function(){renderGridV054('explicit');};
@@ -231,4 +247,6 @@
     observer.observe(shell);
     window.__padGradeGridResizeObserver=observer;
   }
+
+  window.__padGradeGridMeasurePolicyV093='canvas-measuretext-no-per-string-layout-reflow';
 })();
