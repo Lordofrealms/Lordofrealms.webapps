@@ -1,7 +1,8 @@
-/* Pad Grade v0.9.7 DEV — Promise-based durable file bridge.
+/* Pad Grade v0.9.8 DEV — Promise-based durable file bridge.
  * Android performs SAF reads/writes/deletes on its background file executor and
- * returns results through one callback. Existing synchronous methods remain only
- * as a compatibility fallback for browser/older native builds.
+ * returns results through one callback. During first-run/recovery-curtain restore,
+ * durable writes/deletes are temporarily rejected until the recovered project is
+ * actually painted, preventing a partial runtime from overwriting recovered data.
  */
 (function installPadGrade096NativeAsync(){
   'use strict';
@@ -11,7 +12,19 @@
   const diag=()=>window.PadGradeDiag||null;
 
   function requestId(op){return `pgf-${Date.now().toString(36)}-${(++serial).toString(36)}-${op}`;}
+  function recoveryMutationBlocked(){
+    if(!native||typeof native.isProjectFolderRecoveryPending!=='function')return false;
+    let pendingRecovery=false;try{pendingRecovery=!!native.isProjectFolderRecoveryPending();}catch(e){return false;}
+    if(!pendingRecovery)return false;
+    let curtain=false;try{curtain=document.documentElement.classList.contains('padGradeRecoveryHold');}catch(e){}
+    return curtain||window.__padGradeFirstRunPending===true;
+  }
+  function blockedResult(op,filename){
+    const result={ok:false,value:null,text:null,durationMs:0,error:'recovery-write-locked',filename,op,blocked:true};
+    diag()?.mark?.(`file.${op}.recovery-blocked`,{filename});return Promise.resolve(result);
+  }
   function fallback(op,filename,text){
+    if(op!=='read'&&recoveryMutationBlocked())return blockedResult(op,filename);
     return new Promise(resolve=>setTimeout(()=>{
       const started=performance.now?.()||Date.now();let ok=false,value=null,error=null;
       try{
@@ -27,6 +40,7 @@
 
   function request(op,filename,text){
     filename=String(filename||'');
+    if(op!=='read'&&recoveryMutationBlocked())return blockedResult(op,filename);
     const method=op==='read'?'readProjectFileAsync':op==='write'?'writeProjectFileAsync':'deleteProjectFileAsync';
     if(!native||typeof native[method]!=='function')return fallback(op,filename,text);
     const id=requestId(op),token=diag()?.start?.(`file.${op}`,{filename});
@@ -50,7 +64,7 @@
     if(!msg||!msg.requestId)return;
     const item=pending.get(msg.requestId);if(!item)return;pending.delete(msg.requestId);
     const result={ok:!!msg.ok,value:item.op==='read'?(msg.text??null):!!msg.ok,text:item.op==='read'?(msg.text??null):undefined,durationMs:Number(msg.durationMs)||0,error:msg.error||null,filename:item.filename,op:item.op,native:true,size:Number(msg.size)||0};
-    if(item.token)diag()?.end?.(item.token,{ok:result.ok,nativeDurationMs:result.durationMs,size:result.size,error:result.error||undefined});
+    if(item.token)diag()?.end?.(item.token,{ok:result.ok,nativeDurationMs:result.durationMs,size:result.size,error:result.error||undefined,callbackDelayMs:Math.max(0,Date.now()-item.started-(Number(msg.durationMs)||0))});
     item.resolve(result);
   };
 
@@ -63,15 +77,15 @@
     deleteResult:filename=>request('delete',filename),
     list:()=>{try{const x=JSON.parse(native?.listProjectFiles?.()||'[]');return Array.isArray(x)?x:[];}catch(e){return [];}}
   };
-  diag()?.mark?.('file.async-bridge-installed',{nativeAsync:!!(native&&typeof native.readProjectFileAsync==='function'),version:'0.9.7'});
+  diag()?.mark?.('file.async-bridge-installed',{nativeAsync:!!(native&&typeof native.readProjectFileAsync==='function'),version:'0.9.8',recoveryMutationLock:true});
 
   if(!document.querySelector('script[data-padgrade-v096-async-reconcile]')){
-    const script=document.createElement('script');script.src='v096-async-reconcile.js?v=20260829-2';script.async=false;script.dataset.padgradeV096AsyncReconcile='1';
-    script.onerror=()=>console.error('Pad Grade v0.9.7 async reconcile controller failed to load');
+    const script=document.createElement('script');script.src='v096-async-reconcile.js?v=20260829-3';script.async=false;script.dataset.padgradeV096AsyncReconcile='1';
+    script.onerror=()=>console.error('Pad Grade v0.9.8 async reconcile controller failed to load');
     (document.head||document.documentElement).appendChild(script);
   }
 })();
 
-/* Legacy CI search marker only; intentionally not executable:
+/* Legacy CI search markers only; intentionally not executable:
  * v096-async-reconcile.js?v=20260829-1
  */
