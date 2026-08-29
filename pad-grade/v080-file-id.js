@@ -1,8 +1,9 @@
-/* Pad Grade v0.9.6 DEV — human-readable six-character project/save file IDs.
+/* Pad Grade v0.9.8 DEV — human-readable six-character project/save file IDs.
  *
- * Local File IDs are immediate. On Android v0.9.6, durable filename migration is
- * delegated to the async SAF controller so this UI module never walks/reads/
- * rewrites the durable folder synchronously on the WebView thread.
+ * Local File IDs remain immediate for normal use. During a covered Android
+ * durable-folder recovery, all File-ID scanning/migration stays dormant until
+ * the recovered project is visible. The durable filename/payload File ID wins
+ * over a stale local map so reconnecting/moving saves cannot manufacture a new ID.
  */
 (function installPadGrade080FileIds(){
   'use strict';
@@ -22,6 +23,7 @@
   let folderTimer=null;
   let localTimer=null;
   let lastLocalSignature='';
+  let resumeTimer=null;
 
   function parse(raw,fallback=null){try{return raw?JSON.parse(raw):fallback;}catch(e){return fallback;}}
   function validFileId(value){const s=String(value||'').toUpperCase();return FILE_ID_RE.test(s)?s:null;}
@@ -30,6 +32,13 @@
   function saveFileMap(map){try{localStorage.setItem(FILE_MAP_KEY,JSON.stringify(map));}catch(e){}}
   function projectKey(id){return `${PROJECT_PREFIX}${id}`;}
   function asyncDurable(){return !!(window.__padGradeAsyncDurableV096&&window.PadGradeFiles);}
+  function recoveryHold(){
+    try{
+      const pending=typeof native?.isProjectFolderRecoveryPending==='function'&&!!native.isProjectFolderRecoveryPending();
+      const curtain=document.documentElement.classList.contains('padGradeRecoveryHold');
+      return !!(pending&&(curtain||window.__padGradeFirstRunPending===true));
+    }catch(e){return false;}
+  }
   function randomInt(max){
     if(window.crypto&&typeof window.crypto.getRandomValues==='function'){
       const a=new Uint32Array(1);window.crypto.getRandomValues(a);return a[0]%max;
@@ -58,22 +67,27 @@
   }
 
   function ensureLocalFileIds(){
+    if(recoveryHold())return {ids:[],map:fileMap(),changed:false,deferred:true};
     const ids=projectIds().sort();
     const map=fileMap();
     const owner=new Map();
     let changed=false;
 
+    // Recovered/embedded project data is authoritative over an older local map.
     for(const id of ids){
       const p=getProject(id);if(!p)continue;
-      const candidate=validFileId(map[id])||validFileId(p.fileId);
+      const candidate=validFileId(p.fileId)||validFileId(map[id]);
       if(candidate&&!owner.has(candidate))owner.set(candidate,id);
     }
 
     for(const id of ids){
       const p=getProject(id);if(!p)continue;
-      let fid=validFileId(map[id]);
       const embedded=validFileId(p.fileId);
-      if(!fid&&embedded&&(!owner.has(embedded)||owner.get(embedded)===id))fid=embedded;
+      let fid=embedded&&(!owner.has(embedded)||owner.get(embedded)===id)?embedded:null;
+      if(!fid){
+        const mapped=validFileId(map[id]);
+        if(mapped&&(!owner.has(mapped)||owner.get(mapped)===id))fid=mapped;
+      }
       if(!fid){fid=generateFileId(new Set(owner.keys()));owner.set(fid,id);}
       if(map[id]!==fid){map[id]=fid;changed=true;}
       if(p.fileId!==fid){p.fileId=fid;putProject(p);changed=true;}
@@ -97,7 +111,9 @@
     if(!project||typeof project!=='object')return null;
     const map=fileMap();
     const localMapped=project.id?validFileId(map[project.id]):null;
-    let fid=localMapped||validFileId(project.fileId)||fileIdFromName(filename);
+    // A durable filename prefix is the strongest available recovery identity,
+    // followed by the payload itself. Only then fall back to the local map.
+    let fid=fileIdFromName(filename)||validFileId(project.fileId)||localMapped;
     if(!fid){const used=new Set(Object.values(map).map(validFileId).filter(Boolean));fid=generateFileId(used);}
     project.fileId=fid;
     if(project.id&&map[project.id]!==fid){map[project.id]=fid;saveFileMap(map);}
@@ -115,8 +131,9 @@
   function isAllProjectsBackup(raw){return !!(raw&&typeof raw==='object'&&(raw.backupType==='all-projects'||Array.isArray(raw.projects)));}
 
   function migrateDurableFolder(force=false){
+    if(recoveryHold())return;
     if(asyncDurable()){
-      try{window.__padGradeScheduleAsyncFileIdMigration?.(force?80:700);}catch(e){}
+      try{window.__padGradeScheduleAsyncFileIdMigration?.(force?1800:3200);}catch(e){}
       return;
     }
     if(!native||typeof native.hasProjectFolder!=='function'||typeof native.listProjectFiles!=='function'||typeof native.readProjectFile!=='function'||typeof native.writeProjectFile!=='function')return;
@@ -139,7 +156,7 @@
         fid=ensureProjectPayloadFileId(raw,name);
         if(raw.id){const local=getProject(raw.id);if(local){local.fileId=fid;putProject(local);}}
       }else if(isAllProjectsBackup(raw)){
-        fid=validFileId(raw.fileId)||fileIdFromName(name)||generateFileId(new Set(Object.values(fileMap()).map(validFileId).filter(Boolean)));
+        fid=fileIdFromName(name)||validFileId(raw.fileId)||generateFileId(new Set(Object.values(fileMap()).map(validFileId).filter(Boolean)));
         raw.fileId=fid;
       }else continue;
 
@@ -178,7 +195,7 @@
 
   function activeFileId(){
     const id=localStorage.getItem(ACTIVE_KEY);if(!id)return null;
-    const map=fileMap();return validFileId(map[id])||validFileId(getProject(id)?.fileId);
+    const p=getProject(id),map=fileMap();return validFileId(p?.fileId)||validFileId(map[id]);
   }
   function addOrUpdateBadge(host,fid,label='File ID'){
     if(!host||!fid)return;
@@ -187,12 +204,13 @@
     el.textContent=`${label}: ${fid}`;
   }
   function refreshFileIdUi(){
+    if(recoveryHold())return;
     const fid=activeFileId();
     const name=$('nameDisp');if(name&&fid)addOrUpdateBadge(name.parentElement,fid,'File ID');
     const projectName=$('v040ProjectName');if(projectName&&fid){const parent=projectName.parentElement;if(parent)addOrUpdateBadge(parent,fid,'File ID');}
     const map=fileMap();
     document.querySelectorAll('[data-id].v040-projectItem,[data-id].v041-projectItem').forEach(row=>{
-      const id=row.dataset.id,rfid=validFileId(map[id])||validFileId(getProject(id)?.fileId);if(!rfid)return;
+      const id=row.dataset.id,rfid=validFileId(getProject(id)?.fileId)||validFileId(map[id]);if(!rfid)return;
       const textHost=row.firstElementChild||row;let badge=textHost.querySelector('.pgFileIdInline');
       if(!badge){badge=document.createElement('div');badge.className='pgFileIdInline';textHost.appendChild(badge);}
       badge.textContent=`File ID ${rfid}`;
@@ -207,16 +225,17 @@
     `;document.head.appendChild(style);
   }
 
-  function scheduleDurableMigration(delay=120){
-    if(asyncDurable()){try{window.__padGradeScheduleAsyncFileIdMigration?.(delay);}catch(e){}return;}
-    setTimeout(()=>migrateDurableFolder(true),delay);
+  function scheduleDurableMigration(delay=3200){
+    if(recoveryHold())return;
+    if(asyncDurable()){try{window.__padGradeScheduleAsyncFileIdMigration?.(Math.max(1800,Number(delay)||0));}catch(e){}return;}
+    setTimeout(()=>{if(!recoveryHold())migrateDurableFolder(true);},Math.max(1200,Number(delay)||0));
   }
   function installDeleteCleanup(){
     document.addEventListener('click',event=>{
       const btn=event.target?.closest?.('button[data-act="delete"]'),row=btn?.closest?.('[data-id]');if(!row)return;
       const id=row.dataset.id;if(!id)return;
       setTimeout(async()=>{
-        if(getProject(id))return;
+        if(getProject(id)||recoveryHold())return;
         if(asyncDurable()){
           const files=window.PadGradeFiles,list=files.list();
           for(const name of list){
@@ -238,9 +257,21 @@
     for(const id of ids){const p=getProject(id);parts.push(`${id}|${p?.modifiedAt||''}|${p?.fileId||''}`);}return parts.join(';');
   }
   function pollLocalChanges(){
+    if(recoveryHold())return;
     const sig=localSignature();
-    if(sig!==lastLocalSignature){lastLocalSignature=sig;ensureLocalFileIds();scheduleDurableMigration(180);}
-    refreshFileIdUi();
+    if(sig===lastLocalSignature)return;
+    lastLocalSignature=sig;
+    ensureLocalFileIds();
+    lastLocalSignature=localSignature();
+    scheduleDurableMigration(3200);
+  }
+  function resumeAfterRecovery(){
+    clearTimeout(resumeTimer);
+    resumeTimer=setTimeout(()=>{
+      resumeTimer=null;if(recoveryHold())return;
+      ensureLocalFileIds();lastLocalSignature=localSignature();refreshFileIdUi();scheduleDurableMigration(3200);
+      window.__padGradeFileIdMaintenanceResumedV098=Date.now();
+    },900);
   }
 
   window.PadGradeFileId={
@@ -255,21 +286,28 @@
   };
 
   installStyle();
-  ensureLocalFileIds();
   installExportInterception();
   installDeleteCleanup();
-  document.title='Pad Grade Mapper v0.9.6 DEV';
+  document.title='Pad Grade Mapper v0.9.8 DEV';
 
-  window.addEventListener('padgrade-projects-reconciled',()=>{ensureLocalFileIds();scheduleDurableMigration(80);});
-  window.addEventListener('padgrade-durable-sync-ready',()=>scheduleDurableMigration(120));
-  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){ensureLocalFileIds();scheduleDurableMigration(120);}});
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{refreshFileIdUi();scheduleDurableMigration(250);},{once:true});
-  else scheduleDurableMigration(100);
+  if(!recoveryHold()){
+    ensureLocalFileIds();lastLocalSignature=localSignature();refreshFileIdUi();
+  }
+  window.addEventListener('padgrade-recovery-visual-released',resumeAfterRecovery);
+  window.addEventListener('padgrade-projects-reconciled',()=>{if(recoveryHold())return;ensureLocalFileIds();lastLocalSignature=localSignature();refreshFileIdUi();});
+  window.addEventListener('padgrade-active-project-applied',()=>{if(!recoveryHold())setTimeout(pollLocalChanges,250);});
+  window.addEventListener('padgrade-durable-sync-ready',()=>{if(!recoveryHold())scheduleDurableMigration(3200);});
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&!recoveryHold()){pollLocalChanges();scheduleDurableMigration(3200);}});
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{if(!recoveryHold()){refreshFileIdUi();scheduleDurableMigration(3200);}},{once:true});
+  else if(!recoveryHold())scheduleDurableMigration(3200);
 
-  localTimer=setInterval(pollLocalChanges,1200);
-  if(!asyncDurable())folderTimer=setInterval(()=>migrateDurableFolder(false),2500);
-  window.addEventListener('beforeunload',()=>{if(localTimer)clearInterval(localTimer);if(folderTimer)clearInterval(folderTimer);},{once:true});
+  // Event-driven updates do the real work. Keep a slow safety poll only for
+  // legacy code paths that mutate localStorage without publishing an event.
+  localTimer=setInterval(pollLocalChanges,8000);
+  if(!asyncDurable())folderTimer=setInterval(()=>{if(!recoveryHold())migrateDurableFolder(false);},8000);
+  window.addEventListener('beforeunload',()=>{if(localTimer)clearInterval(localTimer);if(folderTimer)clearInterval(folderTimer);if(resumeTimer)clearTimeout(resumeTimer);},{once:true});
 
-  window.__padGradeFileIdsV096='immediate-local-six-char-id-async-durable-folder-migration';
-  window.__padGradeFileIdsV080=window.__padGradeFileIdsV096;
+  window.__padGradeFileIdsV098='recovery-dormant-event-driven-local-six-char-id-async-durable-migration-slow-safety-poll';
+  window.__padGradeFileIdsV096=window.__padGradeFileIdsV098;
+  window.__padGradeFileIdsV080=window.__padGradeFileIdsV098;
 })();
