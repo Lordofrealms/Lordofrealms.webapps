@@ -4,6 +4,20 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v0.8.3 — development build
+
+### Fixed
+- Removed the v0.8.2 comparison correction from the general application startup path after field testing showed the DEV build could remain on the recovery screen and fail to reach the durable save-folder prompt.
+- Retired the directly linked v0.8.2 correction layer as an inert compatibility file so cached v0.8.2 pages cannot install its polling, observer, or recurring UI work during startup.
+- The reviewed comparison correction now loads only after the existing v0.8.1 comparison core and UI have successfully loaded, keeping comparison completely outside the recovery/durable-folder bootstrap path.
+
+### Changed
+- Preserved the v0.8.2 comparison behavior: **Compare** remains beside **Clear Readings**, logical GPS points are averaged point-by-point between the two fitted rectangular project grids, dimensions/row-column counts must match, and every corresponding corner must be within 20 ft.
+- Added CI startup-isolation checks so a comparison correction cannot again be linked directly into normal app startup without being detected.
+
+### Known issues
+- This is a development hotfix build intended to verify clean startup, durable-folder prompting/recovery, and the comparison workflow before stable promotion.
+
 ## v0.8.2 — development build
 
 ### Changed
@@ -63,7 +77,7 @@ Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical 
 ### Changed
 - Promoted the v0.7.9 development surface model to the stable production build.
 - Kept locality-first support selection: choose the most-local containing 3-point triangle by nearest farthest vertex, then minimum total vertex distance, then area.
-- Promote a local 3-point support set to a 4-point rectangle when the corresponding fourth grid corner is measured.
+- Promote a local 3-point support set to a 4-point rectangle when the corresponding fourth corner is measured.
 - Lock shared rectangle and fallback-triangle edges to the 2-point inverse-distance-squared (IDW²) result of the edge endpoints.
 - Fade the edge-lock correction smoothly to zero over the nearest one-sixth of the rectangle depth or triangle altitude, leaving the interior as ordinary local IDW².
 
