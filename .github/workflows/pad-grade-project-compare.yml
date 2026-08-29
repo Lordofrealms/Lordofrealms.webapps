@@ -7,7 +7,10 @@ on:
       - 'pad-grade/project-compare-core.js'
       - 'pad-grade/project-compare-selftest.js'
       - 'pad-grade/v081-project-compare.js'
+      - 'pad-grade/v082-project-compare-fix.js'
+      - 'pad-grade/v083-project-compare-fix.js'
       - 'pad-grade/v078-dev.js'
+      - 'pad-grade/index.html'
       - '.github/workflows/pad-grade-project-compare.yml'
   pull_request:
     branches: [main, pad-grade-dev]
@@ -15,7 +18,10 @@ on:
       - 'pad-grade/project-compare-core.js'
       - 'pad-grade/project-compare-selftest.js'
       - 'pad-grade/v081-project-compare.js'
+      - 'pad-grade/v082-project-compare-fix.js'
+      - 'pad-grade/v083-project-compare-fix.js'
       - 'pad-grade/v078-dev.js'
+      - 'pad-grade/index.html'
       - '.github/workflows/pad-grade-project-compare.yml'
   workflow_dispatch:
 
@@ -29,7 +35,17 @@ jobs:
           node --check pad-grade/project-compare-core.js
           node --check pad-grade/project-compare-selftest.js
           node --check pad-grade/v081-project-compare.js
+          node --check pad-grade/v082-project-compare-fix.js
+          node --check pad-grade/v083-project-compare-fix.js
           grep -F "project-compare-core.js?v=20260829-1" pad-grade/v078-dev.js
           grep -F "v081-project-compare.js?v=20260829-1" pad-grade/v078-dev.js
+          grep -F "v083-project-compare-fix.js?v=20260829-1" pad-grade/v078-dev.js
+      - name: Verify startup isolation
+        run: |
+          grep -F "retired-startup-coupled-comparison-layer" pad-grade/v082-project-compare-fix.js
+          ! grep -F "setInterval" pad-grade/v082-project-compare-fix.js
+          ! grep -F "MutationObserver" pad-grade/v082-project-compare-fix.js
+          ! grep -F "v083-project-compare-fix.js" pad-grade/index.html
+          grep -F "v082-project-compare-fix.js?v=20260829-1" pad-grade/index.html
       - name: Run comparison self-tests
         run: node pad-grade/project-compare-selftest.js
