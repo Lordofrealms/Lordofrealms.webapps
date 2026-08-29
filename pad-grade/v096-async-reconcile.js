@@ -201,7 +201,7 @@
   });
   window.addEventListener('padgrade-durable-sync-ready',()=>{if(indexReady())prepareMinimumRecovery();});
   window.addEventListener('padgrade-active-project-applied',()=>{if(!criticalRecoveryActive())scheduleBackgroundReconcile(1200);});
-  window.addEventListener('padgrade-recovery-visual-released',()=>scheduleBackgroundReconcile(1200));
+  window.addEventListener('padgrade-recovery-visual-released',()=>{scheduleBackgroundReconcile(1200);scheduleAsyncFileIdMigration(2600);});
   window.addEventListener('load',()=>{if(!criticalRecoveryActive())scheduleBackgroundReconcile(1800);},{once:true});
   if(hasFolder()&&indexReady())setTimeout(()=>prepareMinimumRecovery(),0);
   diag()?.mark?.('recovery.async-controller-installed',{version:'0.9.8',retryableNotReady:true,migrationSingleFlight:true,idleMaintenance:true,canonicalFilenameFileId:true});
