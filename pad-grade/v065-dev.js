@@ -20,7 +20,7 @@
   }
 
   function boot(){
-    document.title='Pad Grade Mapper v0.7.4 DEV';
+    document.title='Pad Grade Mapper v0.8.7 DEV';
     positionMapControls();
     const card=$('gpsMapCard');
     if(card&&window.MutationObserver){
@@ -58,58 +58,40 @@ try{
   document.body.appendChild(script);
 })();
 
-/* v0.8.6 keeps durable-folder indexing in the background and lets the cached
- * active project render immediately. */
-(function queuePadGrade074(){
+/* v0.8.7: the old v070/v071 recovery owners are intentionally no longer loaded.
+ * They waited 45/60 seconds for SAF indexing and then reloaded the page. v072 is
+ * the sole startup recovery owner: local project first, durable reconciliation
+ * only after the native index is ready. */
+(function loadPadGrade087Recovery(){
   const load072=()=>{
     if(document.querySelector('script[data-padgrade-v072-project-restore]'))return;
     const script=document.createElement('script');
-    script.src='v072-project-restore.js?v=20260829-1';
+    script.src='v072-project-restore.js?v=20260829-2';
     script.async=false;
     script.dataset.padgradeV072ProjectRestore='1';
-    script.onerror=()=>{console.error('Pad Grade v0.8.6 last-project restore module failed to load');try{window.__padGradeEndRecoveryVisualHold?.();}catch(e){}};
-    document.body.appendChild(script);
-  };
-  const load071=()=>{
-    if(document.querySelector('script[data-padgrade-v071]')){load072();return;}
-    const script=document.createElement('script');
-    script.src='v071-dev.js?v=20260825-2';
-    script.async=false;
-    script.dataset.padgradeV071='1';
-    script.onload=load072;
-    script.onerror=()=>{console.error('Pad Grade v0.7.4 recovery module failed to load');load072();};
-    document.body.appendChild(script);
-  };
-  const load070=()=>{
-    if(document.querySelector('script[data-padgrade-v070]')){load071();return;}
-    const script=document.createElement('script');
-    script.src='v070-dev.js?v=20260825-1';
-    script.async=false;
-    script.dataset.padgradeV070='1';
-    script.onload=load071;
-    script.onerror=()=>{console.error('Pad Grade v0.7.0 recovery compatibility module failed to load');load071();};
+    script.onerror=()=>{console.error('Pad Grade v0.8.7 last-project restore module failed to load');try{window.__padGradeEndRecoveryVisualHold?.();}catch(e){}};
     document.body.appendChild(script);
   };
   const load069=()=>{
-    if(document.querySelector('script[data-padgrade-v069]')){load070();return;}
+    if(document.querySelector('script[data-padgrade-v069]')){load072();return;}
     const script=document.createElement('script');
     script.src='v069-dev.js?v=20260825-2';
     script.async=false;
     script.dataset.padgradeV069='1';
-    script.onload=load070;
-    script.onerror=()=>{console.error('Pad Grade Advanced Settings UI module failed to load');load070();};
+    script.onload=load072;
+    script.onerror=()=>{console.error('Pad Grade Advanced Settings UI module failed to load');load072();};
     document.body.appendChild(script);
   };
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',load069,{once:true});
   else setTimeout(load069,0);
 })();
 
-/* v0.8.6 carries the current comparison/render-order activation chain. */
+/* Current comparison/render-order activation chain. */
 (function loadPadGrade078(){
   const loadActivation=()=>{
     if(document.querySelector('script[data-padgrade-v078]'))return;
     const script=document.createElement('script');
-    script.src='v078-dev.js?v=20260829-2';
+    script.src='v078-dev.js?v=20260829-3';
     script.async=false;
     script.dataset.padgradeV078='1';
     script.onerror=()=>console.error('Pad Grade current activation module failed to load');
