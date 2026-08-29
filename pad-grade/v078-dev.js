@@ -79,13 +79,24 @@
  * recovery/durable-folder bootstrap path.
  */
 (function loadPadGrade081Comparison(){
+  const loadRenderOrder=()=>{
+    if(document.querySelector('script[data-padgrade-v085-map-order]'))return;
+    const render=document.createElement('script');
+    render.src='v085-map-render-order.js?v=20260829-1';
+    render.async=false;
+    render.dataset.padgradeV085MapOrder='1';
+    render.onerror=()=>console.error('Pad Grade v0.8.5 map render-order correction failed to load');
+    document.body.appendChild(render);
+  };
   const loadFix=()=>{
-    if(document.querySelector('script[data-padgrade-v083-compare-fix]'))return;
+    const existing=document.querySelector('script[data-padgrade-v083-compare-fix]');
+    if(existing){loadRenderOrder();return;}
     const fix=document.createElement('script');
     fix.src='v083-project-compare-fix.js?v=20260829-1';
     fix.async=false;
     fix.dataset.padgradeV083CompareFix='1';
-    fix.onerror=()=>console.error('Pad Grade v0.8.3 comparison correction failed to load');
+    fix.onload=loadRenderOrder;
+    fix.onerror=()=>{console.error('Pad Grade v0.8.3 comparison correction failed to load');loadRenderOrder();};
     document.body.appendChild(fix);
   };
   const loadUi=()=>{
