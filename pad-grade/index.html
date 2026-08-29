@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#0b0f14">
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' https://basemap.nationalmap.gov https://imagery.nationalmap.gov; img-src 'self' data: blob: https://basemap.nationalmap.gov https://imagery.nationalmap.gov; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'self' blob:; child-src 'self' blob:; manifest-src 'none'; form-action 'none'; base-uri 'none';">
-<title>Pad Grade Mapper v0.7.5 DEV</title>
+<title>Pad Grade Mapper v0.8.7 DEV</title>
 <style>
   html.padGradeRecoveryHold{background:#0b0f14}
   html.padGradeRecoveryHold body{background:#0b0f14;min-height:100vh}
@@ -14,7 +14,6 @@
   html.padGradeRecoveryHold body::before{content:'Restoring saved project…';visibility:visible!important;position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#0b0f14;color:#c9d1da;font:600 15px system-ui,sans-serif;letter-spacing:.01em}
 </style>
 <script src="recovery-visual-v073.js?v=20260825-1"></script>
-<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.16.0/dist/maplibre-gl.css">
 <link rel="stylesheet" href="style.css?v=20260821-2">
 <link rel="stylesheet" href="v10.css?v=20260822-3">
 <link rel="stylesheet" href="v060-dev.css?v=20260825-1">
@@ -71,7 +70,7 @@
 
   <div class="card">
     <b>Privacy lock active</b>
-    <div class="small">GPS coordinates and grade readings stay in this browser on this device. The map loads pinned MapLibre display files from unpkg.com and, when visible, location-dependent imagery requests from USGS National Map services; those requests can reveal the approximate area being viewed. Other runtime network requests remain blocked, and no analytics or telemetry are enabled. Exported CSV/project files only leave the device if you choose to save, share, or upload them.</div>
+    <div class="small">GPS coordinates and grade readings stay in this browser on this device. The Android app carries its pinned MapLibre display library locally; browser-hosted copies may fall back to the pinned MapLibre files from unpkg.com. When the map is visible, location-dependent imagery requests from USGS National Map services can reveal the approximate area being viewed. Other runtime network requests remain blocked, and no analytics or telemetry are enabled. Exported CSV/project files only leave the device if you choose to save, share, or upload them.</div>
   </div>
 
   <div class="card gpsCard" id="gpsCard">
@@ -215,24 +214,23 @@
   </div>
 </dialog>
 
-<script src="https://unpkg.com/maplibre-gl@5.16.0/dist/maplibre-gl.js"></script>
-<script src="map-instance-hook-v064.js?v=20260825-1"></script>
 <script src="platform.js?v=20260825-2"></script>
 <script src="privacy.js?v=20260821-3"></script>
 <script src="core.js?v=20260819-1"></script>
 <script src="ui.js?v=20260819-1"></script>
 <script src="v10.js?v=20260821-1"></script>
-<script src="capture-fix.js?v=20260822-3"></script>
-<script src="map.js?v=20260829-1"></script>
+<script src="capture-fix.js?v=20260829-2"></script>
 <script src="v060-dev.js?v=20260825-1"></script>
 <script src="v061-dev.js?v=20260825-1"></script>
 <script src="v062-dev.js?v=20260825-1"></script>
 <script src="v063-dev.js?v=20260825-6"></script>
 <script src="v064-dev.js?v=20260825-1" data-padgrade-v064="1"></script>
-<script src="v065-dev.js?v=20260829-1"></script>
+<script src="v065-dev.js?v=20260829-2"></script>
 <script src="v067-dev.js?v=20260825-1"></script>
 <script src="v075-startup.js?v=20260825-1"></script>
 <script src="init.js?v=20260819-1"></script>
+<!-- The local project is fully initialized before MapLibre is even requested. -->
+<script src="maplibre-loader.js?v=20260829-1"></script>
 <script src="v082-project-compare-fix.js?v=20260829-1"></script>
 </body>
 </html>
