@@ -8,6 +8,8 @@
   function scale(){const s=window.__padGradeHeatmapScale||{};return {maxCut:Number.isFinite(+s.maxCut)?Math.max(0,+s.maxCut):0,maxFill:Number.isFinite(+s.maxFill)?Math.max(0,+s.maxFill):0};}
   function installColorMapping(){
     window.pgSurfaceColor=function(diff,_legacyMaxAbs,tol){
+      // Green is categorical: ONLY values inside the configured tolerance band
+      // may be rendered as on-grade. Cut/fill colors begin immediately outside it.
       diff=Number(diff)||0;tol=Math.max(0,Number(tol)||0);if(Math.abs(diff)<=tol)return [GRADE[0],GRADE[1],GRADE[2],92];
       const s=scale();
       if(diff<0){const span=Math.max(s.maxCut-tol,1e-9),t=(Math.abs(diff)-tol)/span,c=spectrum(CUT_NEAR,CUT_MID,CUT_MAX,t);return [c[0],c[1],c[2],92];}
@@ -88,7 +90,11 @@
   function restoreProjectFromDurable(id){
     if(window.__padGradeAsyncDurableV096)return null;
     if(!id||!nativeFolderAvailable()||typeof PadGradeNative.readProjectFile!=='function')return null;
-    try{const raw=PadGradeNative.readProjectFile(`${id}.padgrade`);if(!raw)return null;const incoming=parseJson(raw,null);if(!incoming||incoming.id!==id||!incoming.settings)return null;const local=parseJson(localStorage.getItem(projectKey(id)),null),incomingMs=Date.parse(incoming.modifiedAt||incoming.exportedAt||'')||0,localMs=Date.parse(local?.modifiedAt||local?.exportedAt||'')||0;if(!local||incomingMs>=localMs)putRecoveredProject(incoming);return incoming;}catch(e){return null;}
+    try{
+      const raw=PadGradeNative.readProjectFile(`${id}.padgrade`);if(!raw)return null;const incoming=parseJson(raw,null);if(!incoming||incoming.id!==id||!incoming.settings)return null;
+      const local=parseJson(localStorage.getItem(projectKey(id)),null),incomingMs=Date.parse(incoming.modifiedAt||incoming.exportedAt||'')||0,localMs=Date.parse(local?.modifiedAt||local?.exportedAt||'')||0;
+      if(!local||incomingMs>=localMs)putRecoveredProject(incoming);return incoming;
+    }catch(e){return null;}
   }
   function applyPortableFallback(settings){
     if(!settings||typeof settings!=='object')return;const portable=settings.portablePrefs&&typeof settings.portablePrefs==='object'?settings.portablePrefs:{};
@@ -102,20 +108,18 @@
       if(typeof renderGrid==='function')renderGrid();if(typeof updateGpsUI==='function')updateGpsUI();
     }catch(e){}
   }
-
   function loadDurableSettingsAndLastProject(){
-    if(window.__padGradeAsyncDurableV096){try{window.__padGradePrepareMinimumDurableRecovery?.();return true;}catch(e){return false;}}
+    if(window.__padGradeAsyncDurableV096){try{window.__padGradeStartAsyncDurableRecovery?.();}catch(e){}return false;}
     if(restoreBusy||!nativeFolderAvailable()||typeof PadGradeNative.readProjectFile!=='function')return false;restoreBusy=true;
     try{
       const raw=PadGradeNative.readProjectFile(SETTINGS_FILE);if(!raw){flushDurableSettings(true);return false;}
       const settings=parseJson(raw,null);if(!settings||settings.type!=='settings')return false;lastWrittenSignature=payloadSignature(settings);
-      if(settings.appPrefs&&typeof settings.appPrefs==='object')try{localStorage.setItem(PREF_KEY,JSON.stringify(settings.appPrefs));}catch(e){}
+      if(settings.appPrefs&&typeof settings.appPrefs==='object'){try{localStorage.setItem(PREF_KEY,JSON.stringify(settings.appPrefs));}catch(e){}}
       const desired=settings.lastProjectId||null;
       if(desired){const recovered=restoreProjectFromDurable(desired);if(recovered){const current=activeId();if(current!==desired){localStorage.setItem(ACTIVE_KEY,desired);sessionStorage.setItem('padGradeV068RestoredProject',desired);setTimeout(()=>location.reload(),30);return true;}}}
       if(!desired||!localStorage.getItem(projectKey(desired)))applyPortableFallback(settings);return true;
     }catch(e){return false;}finally{restoreBusy=false;}
   }
-
   function enforceHeatmapBelowSurveyGrid(){
     const map=window.__padGradeMapInstance;if(!map)return false;
     try{
@@ -130,18 +134,15 @@
     wrap('pgDrawSurface');wrap('pgScheduleSurfaceDraw');if(!layerGuardTimer)layerGuardTimer=setInterval(enforceHeatmapBelowSurveyGrid,500);
   }
   function installPersistenceHooks(){
-    const baseSave=window.saveLocal;
-    if(typeof baseSave==='function'&&!baseSave.__v068DurableSettings){const wrapped=function(){const out=baseSave.apply(this,arguments);scheduleDurableSettings();return out;};wrapped.__v068DurableSettings=true;window.saveLocal=wrapped;}
+    const baseSave=window.saveLocal;if(typeof baseSave==='function'&&!baseSave.__v068DurableSettings){const wrapped=function(){const out=baseSave.apply(this,arguments);scheduleDurableSettings();return out;};wrapped.__v068DurableSettings=true;window.saveLocal=wrapped;}
     const apply=document.getElementById('applySettings');if(apply&&!apply.dataset.v068DurableSettings){apply.dataset.v068DurableSettings='1';apply.addEventListener('click',scheduleDurableSettings);}
     const previousFolderChanged=window.__padGradeProjectFolderChanged;
     if(!window.__padGradeFolderChangedV068){window.__padGradeFolderChangedV068=true;window.__padGradeProjectFolderChanged=function(){try{previousFolderChanged?.();}catch(e){}setTimeout(()=>loadDurableSettingsAndLastProject(),0);};}
     window.addEventListener('pagehide',()=>flushDurableSettings(true));window.addEventListener('beforeunload',()=>flushDurableSettings(true));document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')flushDurableSettings(true);});setInterval(scheduleDurableSettings,3000);
   }
   function boot(){
-    document.title='Pad Grade Mapper v0.9.6 DEV';installLayerGuard();installPersistenceHooks();
-    setTimeout(()=>{installLayerGuard();loadDurableSettingsAndLastProject();enforceHeatmapBelowSurveyGrid();scheduleDurableSettings();},250);
-    window.addEventListener('padgrade-map-created',()=>setTimeout(()=>{installLayerGuard();enforceHeatmapBelowSurveyGrid();},0));
-    window.__padGradeDurableSettingsFile=SETTINGS_FILE;window.__padGradeLayerOrder='imagery<heatmap<survey-grid<current-fix';window.__padGradeDurableSettingsPolicyV096='async-write-and-async-recovery-controller';
+    installLayerGuard();installPersistenceHooks();setTimeout(()=>{installLayerGuard();loadDurableSettingsAndLastProject();enforceHeatmapBelowSurveyGrid();scheduleDurableSettings();},250);
+    window.addEventListener('padgrade-map-created',()=>setTimeout(()=>{installLayerGuard();enforceHeatmapBelowSurveyGrid();},0));window.__padGradeDurableSettingsFile=SETTINGS_FILE;window.__padGradeLayerOrder='imagery<heatmap<survey-grid<current-fix';
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
 })();
