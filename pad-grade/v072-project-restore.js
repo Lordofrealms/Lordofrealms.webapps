@@ -1,8 +1,9 @@
-/* Pad Grade v0.8.7 DEV — non-blocking last-project restore.
+/* Pad Grade v0.8.10 DEV — non-blocking last-project restore with settled reveal.
  *
  * The locally cached active project is authoritative for first paint. Durable SAF
- * indexing/reconciliation happens later and never owns the recovery curtain or
- * waits on the GPS map. The retired v070/v071 reload owners are not loaded.
+ * indexing/reconciliation happens later and never blocks local project loading.
+ * When a recovery/project-transition curtain is active, however, it is released
+ * only by the settled-render owner instead of immediately after applyProject().
  */
 (function installPadGrade072LastProjectRestore(){
   'use strict';
@@ -21,11 +22,19 @@
   const parse=(raw,fallback=null)=>{try{return raw?JSON.parse(raw):fallback;}catch(e){return fallback;}};
   const projectKey=id=>`${PROJECT_PREFIX}${id}`;
 
-  function endVisualHold(delay=0){
-    setTimeout(()=>requestAnimationFrame(()=>requestAnimationFrame(()=>{
-      try{window.__padGradeEndRecoveryVisualHold?.();}catch(e){}
-      window.__padGradeStartupRevealV087='local-project-grid-first-map-independent';
-    })),Math.max(0,delay));
+  function requestSettledVisualReveal(delay=0){
+    setTimeout(()=>{
+      try{
+        if(typeof window.__padGradeRequestSettledStartupReveal==='function'){
+          window.__padGradeRequestSettledStartupReveal();
+          return;
+        }
+      }catch(e){}
+      requestAnimationFrame(()=>requestAnimationFrame(()=>{
+        try{window.__padGradeEndRecoveryVisualHold?.();}catch(e){}
+        window.__padGradeStartupRevealV091='fallback-double-frame';
+      }));
+    },Math.max(0,delay));
   }
   function indexReady(){try{return typeof native.isProjectFolderIndexReady==='function'?!!native.isProjectFolderIndexReady():true;}catch(e){return false;}}
   function hasFolder(){try{return typeof native.hasProjectFolder==='function'&&!!native.hasProjectFolder();}catch(e){return false;}}
@@ -116,10 +125,10 @@
     const project=activeLocalProject();
     if(project){
       applyProject(project);
-      window.__padGradeProjectStartupSettledV087=project.id;
+      window.__padGradeProjectStartupSettledV091=project.id;
     }
     done=true;
-    endVisualHold(0);
+    requestSettledVisualReveal(0);
   }
 
   function reconcileDurableWhenReady(){
@@ -141,7 +150,7 @@
       const current=localStorage.getItem(ACTIVE_KEY);
       if(current===project.id){
         applyProject(project);
-        window.__padGradeLastProjectRestoredV087=project.id;
+        window.__padGradeLastProjectRestoredV091=project.id;
       }
     }
     try{native.completeProjectFolderRecovery?.();}catch(e){}
@@ -156,5 +165,5 @@
   window.addEventListener('padgrade-projects-reconciled',()=>setTimeout(reconcileDurableWhenReady,0));
   setTimeout(reconcileDurableWhenReady,0);
 
-  window.__padGradeStartupFolderIndexPolicy='background-never-block-visible-grid-no-reload-owner';
+  window.__padGradeStartupFolderIndexPolicy='background-never-block-visible-grid-settled-cover-release';
 })();
