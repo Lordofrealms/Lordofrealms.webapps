@@ -76,7 +76,10 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
     @JavascriptInterface public String listProjectFiles() {
         JSONArray out = new JSONArray();
         if (getProjectFolder() == null) return out.toString();
-        ensureProjectFileCache();
+        if (!projectFileCacheLoaded) {
+            primeProjectFileCacheAsync();
+            return out.toString();
+        }
         synchronized (folderCacheLock) {
             for (Map.Entry<String, DocumentFile> entry : projectFileCache.entrySet()) {
                 String name = entry.getKey();
@@ -101,6 +104,7 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
 
     @JavascriptInterface public boolean writeProjectFile(String filename, String text) {
         DocumentFile folder = getProjectFolder(); if (folder == null) return false;
+        if (!projectFileCacheLoaded) { primeProjectFileCacheAsync(); return false; }
         // During a clean-install folder reconnect, the surviving settings file is
         // authoritative. Keep it read-only until JavaScript explicitly finishes
         // recovery; a time-based grace period was unsafe on slow SAF providers.
@@ -137,11 +141,8 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
             projectFileCacheLoaded = false;
             projectFileCacheLoading = false;
         }
-        // Index once in the background. Previous builds repeatedly called
-        // DocumentFile.listFiles() for settings, the active project, and then the
-        // project reconciler, which could turn one folder reconnect into 10–20 s.
         primeProjectFileCacheAsync();
-        evaluate("window.__padGradeProjectFolderChanged && window.__padGradeProjectFolderChanged();");
+        evaluate("window.__padGradeProjectFolderChanged && window.__padGradeProjectFolderChanged();try{window.dispatchEvent(new Event('padgrade-project-folder-selected'));}catch(e){}");
     }
 
     private DocumentFile getProjectFolder() {
@@ -203,7 +204,7 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
             try { ensureProjectFileCache(); }
             finally {
                 synchronized (folderCacheLock) { projectFileCacheLoading = false; }
-                evaluate("window.__padGradeProjectFolderIndexed && window.__padGradeProjectFolderIndexed();");
+                evaluate("window.__padGradeProjectFolderIndexed && window.__padGradeProjectFolderIndexed();try{window.dispatchEvent(new Event('padgrade-project-folder-indexed'));}catch(e){}");
             }
         }, "PadGradeFolderIndex");
         worker.setDaemon(true);
@@ -212,7 +213,7 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
 
     private DocumentFile findProjectFile(String filename) {
         if (filename == null) return null;
-        if (!projectFileCacheLoaded) ensureProjectFileCache();
+        if (!projectFileCacheLoaded) { primeProjectFileCacheAsync(); return null; }
         synchronized (folderCacheLock) { return projectFileCache.get(filename); }
     }
 
