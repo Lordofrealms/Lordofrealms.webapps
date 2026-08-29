@@ -1,10 +1,10 @@
-/* Pad Grade v0.9.8 DEV — minimum durable recovery + idle reconciliation.
+/* Pad Grade v0.9.8 DEV — minimum durable recovery + serialized idle maintenance.
  *
  * The recovery critical path is limited to the background-built native directory
  * index, portable settings, and the one last-active project. Recovered durable
  * storage remains mutation-locked while the recovery curtain is active. Full
  * folder reconciliation and File-ID migration start only after the visible app is
- * usable and an idle slice is available.
+ * usable, run from idle slices, and never walk the durable folder at the same time.
  */
 (function installPadGrade096AsyncReconcile(){
   'use strict';
@@ -19,6 +19,7 @@
   const diag=()=>window.PadGradeDiag||null;
   let minimumPromise=null,fullPromise=null,migrationPromise=null;
   let reconcileTimer=null,migrationTimer=null,reconcileIdle=null,migrationIdle=null;
+  let reconcileRunning=false;
 
   if(!native||!files||typeof files.read!=='function')return;
   window.__padGradeAsyncDurableV096=true;
@@ -72,6 +73,7 @@
     return {kind:'timer',id:setTimeout(task,Math.min(250,timeout))};
   }
   function cancelIdle(handle){if(!handle)return;try{if(handle.kind==='idle'&&typeof cancelIdleCallback==='function')cancelIdleCallback(handle.id);else clearTimeout(handle.id);}catch(e){}}
+  function reconcilePending(){return !!(reconcileRunning||reconcileTimer||reconcileIdle);}
 
   async function readProjectById(id,projectName,list){
     const name=filenameForId(id,list);
@@ -111,7 +113,7 @@
       window.__padGradeMinimumDurableRecoveryV096=result;
       try{window.dispatchEvent(new CustomEvent('padgrade-minimum-durable-recovery-ready',{detail:result}));}catch(e){}
       diag()?.end?.(token,result);
-      if(!criticalRecoveryActive())scheduleBackgroundReconcile(1400);
+      if(!criticalRecoveryActive())scheduleBackgroundReconcile(2200);
       return result;
     })().catch(error=>{minimumPromise=null;const result={ready:true,error:String(error?.message||error),writeLocked:criticalRecoveryActive()};window.__padGradeMinimumDurableRecoveryV096=result;diag()?.mark?.('recovery.minimum-error',result);return result;});
     return minimumPromise;
@@ -121,36 +123,43 @@
     if(fullPromise)return fullPromise;
     fullPromise=(async()=>{
       if(!hasFolder()||!indexReady())return null;
-      const token=diag()?.start?.('recovery.full-reconcile',{idle:true});
+      reconcileRunning=true;
+      const token=diag()?.start?.('recovery.full-reconcile',{idle:true,serializedMaintenance:true});
       const list=names(),idx=getIndex(),byId=new Map(idx.map(x=>[x.id,x]));let imported=0,skipped=0,recognized=0;
-      for(const filename of list){
-        const raw=parse(await files.read(filename),null);if(!raw){skipped++;continue;}
-        const projects=projectsFromFile(raw,filename);if(!projects.length){skipped++;continue;}recognized+=projects.length;
-        for(const remote of projects){
-          const local=getLocal(remote.id),remoteWins=!local||modified(remote)>modified(local),best=remoteWins?remote:local;
-          if(remoteWins){putLocal(remote);imported++;}
-          byId.set(best.id,{id:best.id,name:best.settings?.name||'Pad',modifiedAt:best.modifiedAt||best.exportedAt||nowIso(),createdAt:best.createdAt||best.exportedAt||nowIso(),status:statusOf(best,byId.get(best.id)),fileId:best.fileId});
+      try{
+        for(const filename of list){
+          const raw=parse(await files.read(filename),null);if(!raw){skipped++;continue;}
+          const projects=projectsFromFile(raw,filename);if(!projects.length){skipped++;continue;}recognized+=projects.length;
+          for(const remote of projects){
+            const local=getLocal(remote.id),remoteWins=!local||modified(remote)>modified(local),best=remoteWins?remote:local;
+            if(remoteWins){putLocal(remote);imported++;}
+            byId.set(best.id,{id:best.id,name:best.settings?.name||'Pad',modifiedAt:best.modifiedAt||best.exportedAt||nowIso(),createdAt:best.createdAt||best.exportedAt||nowIso(),status:statusOf(best,byId.get(best.id)),fileId:best.fileId});
+          }
+          await new Promise(r=>setTimeout(r,0));
         }
-        await new Promise(r=>setTimeout(r,0));
+        const next=[...byId.values()];setIndex(next);
+        const activeId=localStorage.getItem(ACTIVE_KEY),active=next.find(x=>x.id===activeId&&x.status!=='archived');
+        if(!active){const open=next.filter(x=>x.status!=='archived').sort((a,b)=>String(b.modifiedAt||'').localeCompare(String(a.modifiedAt||'')));if(open.length)localStorage.setItem(ACTIVE_KEY,open[0].id);}
+        const result={imported,skipped,recognized,total:list.length,at:Date.now(),async:true,idleScheduled:true,serializedMaintenance:true};window.__padGradeLastFolderSync=result;
+        try{window.__padGradeRefreshProjectIndex?.();}catch(e){}
+        try{window.dispatchEvent(new CustomEvent('padgrade-projects-reconciled',{detail:result}));}catch(e){}
+        diag()?.end?.(token,result);
+        return result;
+      }finally{
+        reconcileRunning=false;
+        // Reconciliation owns the durable-folder walk. File-ID migration gets a
+        // later idle slice and cannot overlap it.
+        scheduleAsyncFileIdMigration(3200);
       }
-      const next=[...byId.values()];setIndex(next);
-      const activeId=localStorage.getItem(ACTIVE_KEY),active=next.find(x=>x.id===activeId&&x.status!=='archived');
-      if(!active){const open=next.filter(x=>x.status!=='archived').sort((a,b)=>String(b.modifiedAt||'').localeCompare(String(a.modifiedAt||'')));if(open.length)localStorage.setItem(ACTIVE_KEY,open[0].id);}
-      const result={imported,skipped,recognized,total:list.length,at:Date.now(),async:true,idleScheduled:true};window.__padGradeLastFolderSync=result;
-      try{window.__padGradeRefreshProjectIndex?.();}catch(e){}
-      try{window.dispatchEvent(new CustomEvent('padgrade-projects-reconciled',{detail:result}));}catch(e){}
-      diag()?.end?.(token,result);
-      scheduleAsyncFileIdMigration(2400);
-      return result;
     })();
     return fullPromise;
   }
 
   function migrateFileIds(){
     if(migrationPromise)return migrationPromise;
-    if(!hasFolder()||!indexReady()||criticalRecoveryActive()||!window.PadGradeFileId)return Promise.resolve(null);
+    if(!hasFolder()||!indexReady()||criticalRecoveryActive()||reconcilePending()||!window.PadGradeFileId)return Promise.resolve(null);
     migrationPromise=(async()=>{
-      const token=diag()?.start?.('file-id.async-migration',{idle:true}),list=names();let rewritten=0,renamed=0,unchanged=0;
+      const token=diag()?.start?.('file-id.async-migration',{idle:true,serializedMaintenance:true}),list=names();let rewritten=0,renamed=0,unchanged=0;
       try{window.PadGradeFileId.ensureAllLocal?.();}catch(e){}
       try{
         for(const filename of list){
@@ -166,24 +175,42 @@
           if(wrote){rewritten++;if(target!==filename){renamed++;await files.delete(filename);}}
           await new Promise(r=>setTimeout(r,0));
         }
-      }finally{diag()?.end?.(token,{files:list.length,rewritten,renamed,unchanged,singleFlight:true,idle:true});}
+      }finally{diag()?.end?.(token,{files:list.length,rewritten,renamed,unchanged,singleFlight:true,idle:true,serializedMaintenance:true});}
       return {files:list.length,rewritten,renamed,unchanged};
     })().finally(()=>{migrationPromise=null;});
     return migrationPromise;
   }
-  function scheduleBackgroundReconcile(delay=1400){
+  function scheduleBackgroundReconcile(delay=2200){
     if(fullPromise||criticalRecoveryActive()||!hasFolder()||!indexReady())return;
     clearTimeout(reconcileTimer);cancelIdle(reconcileIdle);reconcileIdle=null;
-    reconcileTimer=setTimeout(()=>{reconcileTimer=null;if(criticalRecoveryActive())return;reconcileIdle=idle(()=>{reconcileIdle=null;reconcileAll();},5000);},Math.max(700,Number(delay)||0));
+    reconcileTimer=setTimeout(()=>{
+      reconcileTimer=null;if(criticalRecoveryActive())return;
+      reconcileIdle=idle(()=>{reconcileIdle=null;reconcileAll();},6500);
+    },Math.max(1400,Number(delay)||0));
   }
-  function scheduleAsyncFileIdMigration(delay=2400){
+  function scheduleAsyncFileIdMigration(delay=3200){
     if(migrationPromise||criticalRecoveryActive())return;
     clearTimeout(migrationTimer);cancelIdle(migrationIdle);migrationIdle=null;
-    migrationTimer=setTimeout(()=>{migrationTimer=null;if(criticalRecoveryActive())return;migrationIdle=idle(()=>{migrationIdle=null;migrateFileIds();},7000);},Math.max(1800,Number(delay)||0));
+    const arm=()=>{
+      migrationTimer=null;
+      if(criticalRecoveryActive())return;
+      if(reconcilePending()){
+        migrationTimer=setTimeout(arm,1200);
+        return;
+      }
+      migrationIdle=idle(()=>{
+        migrationIdle=null;
+        if(criticalRecoveryActive()||reconcilePending())return scheduleAsyncFileIdMigration(1800);
+        migrateFileIds();
+      },9000);
+    };
+    migrationTimer=setTimeout(arm,Math.max(2600,Number(delay)||0));
   }
 
   function resetForFolderSelection(){
-    minimumPromise=null;fullPromise=null;clearTimeout(reconcileTimer);clearTimeout(migrationTimer);reconcileTimer=migrationTimer=null;cancelIdle(reconcileIdle);cancelIdle(migrationIdle);reconcileIdle=migrationIdle=null;
+    minimumPromise=null;fullPromise=null;reconcileRunning=false;
+    clearTimeout(reconcileTimer);clearTimeout(migrationTimer);reconcileTimer=migrationTimer=null;
+    cancelIdle(reconcileIdle);cancelIdle(migrationIdle);reconcileIdle=migrationIdle=null;
     diag()?.mark?.('recovery.folder-transaction-reset');
   }
 
@@ -200,9 +227,9 @@
     diag()?.mark?.('recovery.index-unavailable',result);
   });
   window.addEventListener('padgrade-durable-sync-ready',()=>{if(indexReady())prepareMinimumRecovery();});
-  window.addEventListener('padgrade-active-project-applied',()=>{if(!criticalRecoveryActive())scheduleBackgroundReconcile(1200);});
-  window.addEventListener('padgrade-recovery-visual-released',()=>{scheduleBackgroundReconcile(1200);scheduleAsyncFileIdMigration(2600);});
-  window.addEventListener('load',()=>{if(!criticalRecoveryActive())scheduleBackgroundReconcile(1800);},{once:true});
+  window.addEventListener('padgrade-active-project-applied',()=>{if(!criticalRecoveryActive())scheduleBackgroundReconcile(2200);});
+  window.addEventListener('padgrade-recovery-visual-released',()=>scheduleBackgroundReconcile(2200));
+  window.addEventListener('load',()=>{if(!criticalRecoveryActive())scheduleBackgroundReconcile(3000);},{once:true});
   if(hasFolder()&&indexReady())setTimeout(()=>prepareMinimumRecovery(),0);
-  diag()?.mark?.('recovery.async-controller-installed',{version:'0.9.8',retryableNotReady:true,migrationSingleFlight:true,idleMaintenance:true,canonicalFilenameFileId:true});
+  diag()?.mark?.('recovery.async-controller-installed',{version:'0.9.8',retryableNotReady:true,migrationSingleFlight:true,idleMaintenance:true,canonicalFilenameFileId:true,serializedMaintenance:true});
 })();
