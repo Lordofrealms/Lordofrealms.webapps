@@ -140,7 +140,7 @@
   }
 
   function polishLoadedWorkflow(){
-    document.title='Pad Grade Mapper v0.8.7 DEV';
+    document.title='Pad Grade Mapper v0.9.3 DEV';
 
     // Keep the already-rendered lower grid visible. grid-core builds its complete
     // replacement off-DOM and swaps it atomically, so hiding a valid project grid
@@ -187,7 +187,7 @@
                   loadScript('v052.js?v=20260822-1','padgrade-v052',()=>{
                     setTimeout(()=>{
                       endLegacyResizeSuppression();
-                      loadScript('grid-core.js?v=20260822-1','padgrade-grid-core');
+                      loadScript('grid-core.js?v=20260829-2','padgrade-grid-core');
                     },0);
                   });
                 });
