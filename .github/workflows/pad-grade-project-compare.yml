@@ -1,0 +1,35 @@
+name: Pad Grade Project Compare Tests
+
+on:
+  push:
+    branches: [main, pad-grade-dev]
+    paths:
+      - 'pad-grade/project-compare-core.js'
+      - 'pad-grade/project-compare-selftest.js'
+      - 'pad-grade/v081-project-compare.js'
+      - 'pad-grade/v078-dev.js'
+      - '.github/workflows/pad-grade-project-compare.yml'
+  pull_request:
+    branches: [main, pad-grade-dev]
+    paths:
+      - 'pad-grade/project-compare-core.js'
+      - 'pad-grade/project-compare-selftest.js'
+      - 'pad-grade/v081-project-compare.js'
+      - 'pad-grade/v078-dev.js'
+      - '.github/workflows/pad-grade-project-compare.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate comparison scripts
+        run: |
+          node --check pad-grade/project-compare-core.js
+          node --check pad-grade/project-compare-selftest.js
+          node --check pad-grade/v081-project-compare.js
+          grep -F "project-compare-core.js?v=20260829-1" pad-grade/v078-dev.js
+          grep -F "v081-project-compare.js?v=20260829-1" pad-grade/v078-dev.js
+      - name: Run comparison self-tests
+        run: node pad-grade/project-compare-selftest.js
