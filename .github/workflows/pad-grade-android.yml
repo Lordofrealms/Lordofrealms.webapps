@@ -85,26 +85,29 @@ jobs:
         run: |
           grep -F "padGradeHeatmapOptInV061" pad-grade/v062-dev.js
           grep -F "platform.precisionGeolocation" pad-grade/platform.js
-          grep -F 'src="recovery-visual-v073.js' pad-grade/index.html
+          grep -F 'src="recovery-visual-v073.js?v=20260829-2' pad-grade/index.html
           grep -F 'src="map-instance-hook-v064.js' pad-grade/index.html
           grep -F 'src="map.js?v=20260829-1' pad-grade/index.html
           grep -F 'src="v063-dev.js?v=20260825-6' pad-grade/index.html
-          grep -F 'src="v065-dev.js?v=20260829-1' pad-grade/index.html
-          grep -F 'src="v075-startup.js?v=20260825-1' pad-grade/index.html
-          grep -F 'src="v090-first-run-guard.js?v=20260829-1' pad-grade/index.html
+          grep -F 'src="v065-dev.js?v=20260829-3' pad-grade/index.html
+          grep -F 'src="v075-startup.js?v=20260829-2' pad-grade/index.html
+          grep -F 'src="v090-first-run-guard.js?v=20260829-2' pad-grade/index.html
           grep -F 'src="v088-project-list-layout.js?v=20260829-1' pad-grade/index.html
-          grep -F 'src="v090-project-switch-boundary.js?v=20260829-1' pad-grade/index.html
+          grep -F 'src="v090-project-switch-boundary.js?v=20260829-2' pad-grade/index.html
           grep -F 'src="v089-imagery-recovery.js?v=20260829-1' pad-grade/index.html
           grep -F "__padGradePreloadedProjectId" pad-grade/v075-startup.js
           grep -F "__padGradeStartupMapSizePreapplied" pad-grade/v075-startup.js
           grep -F "__padGradeRequestSettledStartupReveal" pad-grade/v075-startup.js
-          grep -F "map.on('idle',mapIdleHandler)" pad-grade/v075-startup.js
-          grep -F "setTimeout(finishReveal,4000)" pad-grade/v075-startup.js
+          grep -F "local-project-settled" pad-grade/v075-startup.js
+          grep -F "setTimeout(finishReveal,1400)" pad-grade/v075-startup.js
+          grep -F "head-cover-normal-load-and-switch-before-project-managers" pad-grade/recovery-visual-v073.js
+          grep -F "padGradeProjectSwitchTargetV091" pad-grade/recovery-visual-v073.js
           grep -F "preapply-before-map-coalesced-runtime-resize" pad-grade/v069-dev.js
           ! grep -F "Date.now()+60000" pad-grade/v072-project-restore.js
           grep -F "background-never-block-visible-grid" pad-grade/v072-project-restore.js
           grep -F "revealLocalImmediately" pad-grade/v072-project-restore.js
           grep -F "padgrade-active-project-applied" pad-grade/v072-project-restore.js
+          grep -F "const id=currentActive||settings?.lastProjectId||null" pad-grade/v072-project-restore.js
           grep -F "frameSavedPad" pad-grade/map.js
           grep -F "map.fitBounds" pad-grade/map.js
           grep -F "map.on('style.load',()=>frameSavedPad(false))" pad-grade/map.js
@@ -124,16 +127,17 @@ jobs:
           grep -F "window.__padGradeDurableSyncV040=true" pad-grade/v040-sync.js
           grep -F "late-owner-settings-first-then-project-sync-visual-hold" pad-grade/v071-dev.js
           grep -F "__padGradeBeginRecoveryVisualHold" pad-grade/v071-dev.js
-          grep -F "v072-project-restore.js?v=20260829-1" pad-grade/v065-dev.js
-          grep -F "v078-dev.js?v=20260829-2" pad-grade/v065-dev.js
+          grep -F "v072-project-restore.js?v=20260829-3" pad-grade/v065-dev.js
           grep -F "v085-map-render-order.js?v=20260829-3" pad-grade/v078-dev.js
           grep -F "v086-compare-presentation.js?v=20260829-2" pad-grade/v085-map-render-order.js
           grep -F "padgrade-maplibre-ready" pad-grade/v085-map-render-order.js
           grep -F "pgCompareLegendBar" pad-grade/v086-compare-presentation.js
           grep -F "reserved-before-hydration-no-row-shift" pad-grade/v088-project-list-layout.js
           grep -F "Map imagery unavailable — retrying" pad-grade/v089-imagery-recovery.js
-          grep -F "folder-choice-before-default-project" pad-grade/v090-first-run-guard.js
-          grep -F "teardown-old-map-then-reload-new-project-before-paint" pad-grade/v090-project-switch-boundary.js
+          grep -F "explain-opt-in-before-durable-folder-picker" pad-grade/v090-first-run-guard.js
+          grep -F "Choose durable folder" pad-grade/v090-first-run-guard.js
+          grep -F "cover-before-handler-carry-target-reload-before-paint" pad-grade/v090-project-switch-boundary.js
+          grep -F "__padGradeBeginProjectTransition" pad-grade/v090-project-switch-boundary.js
           grep -F "if (!projectFileCacheLoaded) {" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
           grep -F "primeProjectFileCacheAsync();" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
           grep -F "if (!projectFileCacheLoaded) { primeProjectFileCacheAsync(); return null; }" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
@@ -167,6 +171,7 @@ jobs:
         run: |
           VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' pad-grade-android/app/build.gradle.kts | head -1)
           test -n "$VERSION"
+          echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]\.[0-9]$'
           BRANCH="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
           if [ "$BRANCH" = "main" ]; then
             CHANNEL=stable
@@ -200,12 +205,18 @@ jobs:
           done
           unzip -l "$APK" | grep 'assets/vendor/maplibre-gl.js'
           unzip -l "$APK" | grep 'assets/vendor/maplibre-gl.css'
-          unzip -p "$APK" assets/index.html | grep -F 'src="v090-first-run-guard.js?v=20260829-1'
+          unzip -p "$APK" assets/index.html | grep -F 'src="recovery-visual-v073.js?v=20260829-2'
+          unzip -p "$APK" assets/index.html | grep -F 'src="v090-first-run-guard.js?v=20260829-2'
+          unzip -p "$APK" assets/index.html | grep -F 'src="v065-dev.js?v=20260829-3'
+          unzip -p "$APK" assets/index.html | grep -F 'src="v075-startup.js?v=20260829-2'
           unzip -p "$APK" assets/index.html | grep -F 'src="v088-project-list-layout.js?v=20260829-1'
-          unzip -p "$APK" assets/index.html | grep -F 'src="v090-project-switch-boundary.js?v=20260829-1'
+          unzip -p "$APK" assets/index.html | grep -F 'src="v090-project-switch-boundary.js?v=20260829-2'
           unzip -p "$APK" assets/index.html | grep -F 'src="v089-imagery-recovery.js?v=20260829-1'
+          unzip -p "$APK" assets/recovery-visual-v073.js | grep -F "head-cover-normal-load-and-switch-before-project-managers"
           unzip -p "$APK" assets/v072-project-restore.js | grep -F "background-never-block-visible-grid"
+          unzip -p "$APK" assets/v072-project-restore.js | grep -F "const id=currentActive||settings?.lastProjectId||null"
           ! unzip -p "$APK" assets/v072-project-restore.js | grep -F "Date.now()+60000"
+          unzip -p "$APK" assets/v075-startup.js | grep -F "local-project-settled"
           unzip -p "$APK" assets/map.js | grep -F "map.fitBounds"
           unzip -p "$APK" assets/map.js | grep -F "map.on('style.load',()=>frameSavedPad(false))"
           unzip -p "$APK" assets/v085-map-render-order.js | grep -F "v086-compare-presentation.js?v=20260829-2"
@@ -213,8 +224,8 @@ jobs:
           unzip -p "$APK" assets/v086-compare-presentation.js | grep -F "pgCompareLegendBar"
           unzip -p "$APK" assets/v088-project-list-layout.js | grep -F "reserved-before-hydration-no-row-shift"
           unzip -p "$APK" assets/v089-imagery-recovery.js | grep -F "Map imagery unavailable — retrying"
-          unzip -p "$APK" assets/v090-first-run-guard.js | grep -F "folder-choice-before-default-project"
-          unzip -p "$APK" assets/v090-project-switch-boundary.js | grep -F "teardown-old-map-then-reload-new-project-before-paint"
+          unzip -p "$APK" assets/v090-first-run-guard.js | grep -F "explain-opt-in-before-durable-folder-picker"
+          unzip -p "$APK" assets/v090-project-switch-boundary.js | grep -F "cover-before-handler-carry-target-reload-before-paint"
           unzip -p "$APK" assets/v063-dev.js | grep -F "CANVAS_SOURCE_PREFIX='pad-grade-interpolated-surface-canvas-source-'"
           unzip -p "$APK" assets/v063-dev.js | grep -F "canvasSource:true"
           unzip -p "$APK" assets/v063-dev.js | grep -F "whole-raster-low-304-then-high-888-no-zoom-recalc"
