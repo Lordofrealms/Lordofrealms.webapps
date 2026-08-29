@@ -1,4 +1,4 @@
-/* Pad Grade v0.9.2 DEV — atomic in-place project switching.
+/* Pad Grade v0.9.3 DEV — atomic in-place project switching.
  *
  * Ordinary project changes keep the existing document and MapLibre/imagery
  * instance alive. Only project-owned runtime overlays/state are cleared before
@@ -13,6 +13,7 @@
   const SETTINGS_FILE='Pad-Grade-Settings.pgsettings';
   const EMPTY={type:'FeatureCollection',features:[]};
   let switching=false;
+  let queuedSwitch=null;
 
   function parse(raw,fallback=null){try{return raw?JSON.parse(raw):fallback;}catch(e){return fallback;}}
   function activeId(){return localStorage.getItem(ACTIVE_KEY)||null;}
@@ -191,11 +192,21 @@
     persistLastProject(project);
     try{window.dispatchEvent(new CustomEvent('padgrade-active-project-applied',{detail:{id,from,inPlace:true}}));}catch(e){}
     try{window.dispatchEvent(new CustomEvent('padgrade-after-project-switch',{detail:{from,to:id,project}}));}catch(e){}
-    closeProjectsDialog();
 
     switching=false;window.__padGradeProjectSwitchInProgress=false;
     window.__padGradeProjectMapBoundaryState='in-place-overlay-swap-complete';
     return true;
+  }
+
+  function queueProjectSwitch(target){
+    if(!target||target===activeId())return;
+    queuedSwitch=target;
+    // Give the dialog close one paint before any project-specific DOM/grid work.
+    // This makes Open feel immediate even on slower devices.
+    requestAnimationFrame(()=>{
+      const id=queuedSwitch;queuedSwitch=null;
+      if(id) switchProject(id);
+    });
   }
 
   document.addEventListener('click',event=>{
@@ -203,12 +214,13 @@
     // Always stop the legacy v041 Open handler: even clicking the already-current
     // project would otherwise call location.reload() and rebuild the whole UI.
     event.preventDefault();event.stopImmediatePropagation();
-    if(target===activeId()){closeProjectsDialog();return;}
-    switchProject(target);
+    closeProjectsDialog();
+    if(target===activeId())return;
+    queueProjectSwitch(target);
   },true);
 
   window.__padGradeSwitchProjectInPlace=switchProject;
-  window.__padGradeProjectSwitchPolicyV092='keep-document-and-map-clear-project-overlays-then-apply-in-place';
+  window.__padGradeProjectSwitchPolicyV093='close-projects-first-keep-document-and-map-swap-project-overlays-in-place';
 })();
 
 /* Legacy CI search markers only; intentionally not executable behavior:
