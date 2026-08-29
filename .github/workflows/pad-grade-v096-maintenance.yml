@@ -1,0 +1,142 @@
+name: Pad Grade v0.9.6 Maintenance Patch
+
+on:
+  push:
+    branches: [pad-grade-dev]
+    paths:
+      - '.github/workflows/pad-grade-v096-maintenance.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pad-grade-dev
+          fetch-depth: 0
+
+      - name: Apply v0.9.6 async durability hardening
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected exactly one match in {path}, found {count}: {old[:80]!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          java = 'pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java'
+          replace_once(
+              java,
+              '    @JavascriptInterface public boolean hasProjectFolder() { return getProjectFolder() != null; }\n',
+              '    @JavascriptInterface public boolean hasProjectFolder() { return getProjectFolder() != null; }\n'
+              '    /** Cheap v0.9.6 startup probe: reports whether a folder URI is configured without querying the SAF provider. */\n'
+              '    @JavascriptInterface public boolean hasProjectFolderConfigured() {\n'
+              '        String raw = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(PROJECT_FOLDER_URI, null);\n'
+              '        return raw != null && !raw.isBlank();\n'
+              '    }\n'
+          )
+          replace_once(
+              java,
+              '                if (name == null || file == null || !file.isFile()) continue;\n',
+              '                // The directory walk already populated this cache on the background index thread.\n'
+              '                // Do not call DocumentFile.isFile() here: TreeDocumentFile may query the provider again,\n'
+              '                // turning an otherwise cached JS list request into one synchronous SAF query per entry.\n'
+              '                if (name == null || file == null) continue;\n'
+          )
+
+          reconcile = 'pad-grade/v096-async-reconcile.js'
+          replace_once(
+              reconcile,
+              "  function hasFolder(){try{return typeof native.hasProjectFolder==='function'&&!!native.hasProjectFolder();}catch(e){return false;}}\n",
+              "  function hasFolder(){try{if(typeof native.hasProjectFolderConfigured==='function')return !!native.hasProjectFolderConfigured();return typeof native.hasProjectFolder==='function'&&!!native.hasProjectFolder();}catch(e){return false;}}\n"
+          )
+          replace_once(
+              reconcile,
+              "  window.addEventListener('padgrade-project-folder-indexed',()=>prepareMinimumRecovery());\n",
+              "  window.addEventListener('padgrade-project-folder-indexed',()=>{\n"
+              "    if(indexReady()){prepareMinimumRecovery();return;}\n"
+              "    // A configured URI that cannot be indexed is not allowed to hold recovery open forever.\n"
+              "    try{native.completeProjectFolderRecovery?.();}catch(e){}\n"
+              "    const result={ready:false,indexUnavailable:true};window.__padGradeMinimumDurableRecoveryV096=result;\n"
+              "    try{window.dispatchEvent(new CustomEvent('padgrade-minimum-durable-recovery-ready',{detail:result}));}catch(e){}\n"
+              "    diag()?.mark?.('recovery.index-unavailable',result);\n"
+              "  });\n"
+          )
+
+          diag = 'pad-grade/v096-diagnostics.js'
+          replace_once(
+              diag,
+              "  function refreshEnabledFromPrefs(source='prefs'){\n    const next=prefs().diagnosticLogging===true;\n    if(next&&!enabled){enabled=true;flushPrebuffer();record('diagnostics.enabled-from-prefs',0,{source});}\n    else if(!next&&enabled){enabled=false;prebuffer.length=0;}\n    updateUiStatus();\n    return enabled;\n  }\n",
+              "  function refreshEnabledFromPrefs(source='prefs'){\n    const current=prefs();\n    // Absence is not an explicit OFF choice. This matters when an older durable\n    // settings file predates the diagnosticLogging preference: DEV stays default-on.\n    if(typeof current.diagnosticLogging!=='boolean'){updateUiStatus();return enabled;}\n    const next=current.diagnosticLogging;\n    if(next&&!enabled){enabled=true;flushPrebuffer();record('diagnostics.enabled-from-prefs',0,{source});}\n    else if(!next&&enabled){enabled=false;prebuffer.length=0;}\n    updateUiStatus();\n    return enabled;\n  }\n"
+          )
+
+          workflow = '.github/workflows/pad-grade-android.yml'
+          replace_once(
+              workflow,
+              '          node --check pad-grade/grid-core.js\n',
+              '          node --check pad-grade/grid-core.js\n'
+              '          node --check pad-grade/grid-size-bootstrap-v094.js\n'
+              '          node --check pad-grade/grid-size-worker-v094.js\n'
+              '          node --check pad-grade/v095-map-grid-fastpath.js\n'
+              '          node --check pad-grade/v095-reading-dialog.js\n'
+              '          node --check pad-grade/v096-diagnostics.js\n'
+              '          node --check pad-grade/v096-dev-defaults.js\n'
+              '          node --check pad-grade/v096-native-async.js\n'
+              '          node --check pad-grade/v096-async-reconcile.js\n'
+          )
+          replace_once(
+              workflow,
+              '          grep -F "__padGradeProjectFolderSelectionCancelled" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/MainActivity.java\n',
+              '          grep -F "__padGradeProjectFolderSelectionCancelled" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/MainActivity.java\n'
+              '          grep -F "hasProjectFolderConfigured" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java\n'
+              '          grep -F "readProjectFileAsync" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java\n'
+              '          grep -F "writeProjectFileAsync" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java\n'
+              '          grep -F "__padGradeAsyncDurableV096=true" pad-grade/v096-async-reconcile.js\n'
+              '          grep -F "v096-async-reconcile.js?v=20260829-1" pad-grade/v096-native-async.js\n'
+              '          grep -F "dev-on-stable-off" pad-grade/v096-dev-defaults.js\n'
+              "          grep -F 'src=\"v096-diagnostics.js?v=20260829-1' pad-grade/index.html\n"
+              "          grep -F 'src=\"v096-dev-defaults.js?v=20260829-1' pad-grade/index.html\n"
+              "          grep -F 'src=\"v096-native-async.js?v=20260829-1' pad-grade/index.html\n"
+          )
+          replace_once(
+              workflow,
+              'v090-first-run-guard.js v090-project-switch-boundary.js heatmap-raster-worker-v073.js; do\n',
+              'v090-first-run-guard.js v090-project-switch-boundary.js v095-map-grid-fastpath.js v095-reading-dialog.js v096-diagnostics.js v096-dev-defaults.js v096-native-async.js v096-async-reconcile.js grid-size-bootstrap-v094.js grid-size-worker-v094.js heatmap-raster-worker-v073.js; do\n'
+          )
+          replace_once(
+              workflow,
+              '          unzip -p "$APK" assets/heatmap-raster-worker-v073.js | grep -F "never publishes partial map bands"\n',
+              '          unzip -p "$APK" assets/heatmap-raster-worker-v073.js | grep -F "never publishes partial map bands"\n'
+              '          unzip -p "$APK" assets/index.html | grep -F \'src="v096-diagnostics.js?v=20260829-1\'\n'
+              '          unzip -p "$APK" assets/index.html | grep -F \'src="v096-dev-defaults.js?v=20260829-1\'\n'
+              '          unzip -p "$APK" assets/index.html | grep -F \'src="v096-native-async.js?v=20260829-1\'\n'
+              '          unzip -p "$APK" assets/v096-native-async.js | grep -F "v096-async-reconcile.js?v=20260829-1"\n'
+              '          unzip -p "$APK" assets/v096-async-reconcile.js | grep -F "__padGradeAsyncDurableV096=true"\n'
+          )
+
+          # This one-shot workflow removes itself in the same commit as the patch.
+          Path('.github/workflows/pad-grade-v096-maintenance.yml').unlink()
+          PY
+
+      - name: Validate patched JavaScript
+        run: |
+          node --check pad-grade/v096-diagnostics.js
+          node --check pad-grade/v096-dev-defaults.js
+          node --check pad-grade/v096-native-async.js
+          node --check pad-grade/v096-async-reconcile.js
+
+      - name: Commit hardening patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java pad-grade/v096-async-reconcile.js pad-grade/v096-diagnostics.js .github/workflows/pad-grade-android.yml .github/workflows/pad-grade-v096-maintenance.yml
+          git diff --cached --check
+          git commit -m "Pad Grade v0.9.6: finish async durability hardening"
+          git push origin HEAD:pad-grade-dev
