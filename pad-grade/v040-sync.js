@@ -19,6 +19,8 @@
   function statusOf(p,item){return (p?.status||item?.status)==='archived'?'archived':'open';}
   function clamp(n,a,b,d){n=Number(n);return Number.isFinite(n)?Math.max(a,Math.min(b,n)):d;}
   function isCandidate(name){const n=String(name||'').toLowerCase();return n.endsWith('.padgrade')||n.endsWith('.padgrade.json')||n.endsWith('.json');}
+  function indexReady(){try{return typeof native.isProjectFolderIndexReady==='function'?!!native.isProjectFolderIndexReady():true;}catch(e){return false;}}
+  function hasFolder(){try{return typeof native.hasProjectFolder==='function'&&!!native.hasProjectFolder();}catch(e){return false;}}
 
   function stableLegacyId(filename,raw){
     const seed=String(filename||'legacy')+'|'+JSON.stringify(raw?.settings||raw||{});
@@ -47,28 +49,40 @@
   function refreshManager(){try{window.__padGradeRefreshProjectIndex?.();}catch(e){}try{window.dispatchEvent(new CustomEvent('padgrade-projects-reconciled',{detail:window.__padGradeLastFolderSync}));}catch(e){}}
 
   function reconcile(){
+    if(hasFolder()&&!indexReady())return null;
     let names=[];try{names=JSON.parse(native.listProjectFiles()||'[]');}catch(e){names=[];}
     const idx=getIndex(),byId=new Map(idx.map(x=>[x.id,x]));let imported=0,skipped=0,recognized=0;
     for(const name of names){
       if(typeof name!=='string'||!isCandidate(name))continue;
       let raw=null;try{raw=JSON.parse(native.readProjectFile(name)||'null');}catch(e){skipped++;continue;}
       const projects=projectsFromFile(raw,name);if(!projects.length){skipped++;continue;}recognized+=projects.length;
-      for(const remote of projects){const local=getLocal(remote.id),remoteWins=!local||modified(remote)>modified(local),best=remoteWins?remote:local;if(remoteWins){putLocal(remote);imported++;}byId.set(best.id,{id:best.id,name:best.settings?.name||'Pad',modifiedAt:best.modifiedAt||best.exportedAt||nowIso(),createdAt:best.createdAt||best.exportedAt||nowIso(),status:statusOf(best,byId.get(best.id))});}
+      for(const remote of projects){const local=getLocal(remote.id),remoteWins=!local||modified(remote)>modified(local),best=remoteWins?remote:local;if(remoteWins){putLocal(remote);imported++;}byId.set(best.id,{id:best.id,name:best.settings?.name||'Pad',modifiedAt:best.modifiedAt||best.exportedAt||nowIso(),createdAt:best.createdAt||best.exportedAt||nowIso(),status:statusOf(best,byId.get(best.id)),fileId:best.fileId});}
     }
     const next=[...byId.values()];setIndex(next);
     const activeId=localStorage.getItem(ACTIVE_KEY),active=next.find(x=>x.id===activeId&&x.status!=='archived');if(!active){const open=next.filter(x=>x.status!=='archived').sort((a,b)=>String(b.modifiedAt).localeCompare(String(a.modifiedAt)));if(open.length)localStorage.setItem(ACTIVE_KEY,open[0].id);}
-    for(const item of next){const p=getLocal(item.id);if(!p)continue;p.status=statusOf(p,item);try{native.writeProjectFile(`${item.id}.padgrade`,JSON.stringify(p));}catch(e){}}
+    for(const item of next){const p=getLocal(item.id);if(!p)continue;p.status=statusOf(p,item);try{native.writeProjectFile(`${p.fileId?`${p.fileId}-`:''}${item.id}.padgrade`,JSON.stringify(p));}catch(e){}}
     window.__padGradeLastFolderSync={imported,skipped,recognized,total:names.length,at:Date.now()};refreshManager();return window.__padGradeLastFolderSync;
   }
 
-  window.__padGradeProjectFolderChanged=function(){let attempts=0;const run=()=>{attempts++;try{const names=JSON.parse(native.listProjectFiles()||'[]');if(names.length||attempts>=5){reconcile();return;}}catch(e){if(attempts>=5){try{reconcile();}catch(ignore){}return;}}setTimeout(run,180);};setTimeout(run,60);};
+  function reconcileWhenReady(){
+    if(!hasFolder())return false;
+    if(!indexReady())return false;
+    try{reconcile();return true;}catch(e){return false;}
+  }
 
-  // v0.7.1 installs a settings-first recovery owner only after this legacy
-  // reconciler has finished installing its callback. Emitting readiness here
-  // avoids the callback-overwrite race that broke clean-install settings restore.
+  window.__padGradeProjectFolderChanged=function(){
+    if(reconcileWhenReady())return;
+    // The native bridge dispatches padgrade-project-folder-indexed when its
+    // background SAF scan completes. Do not infer "empty folder" from an
+    // unready cache and do not synchronously enumerate it from JavaScript.
+  };
+  window.addEventListener('padgrade-project-folder-indexed',()=>setTimeout(reconcileWhenReady,0));
+
   window.__padGradeDurableSyncV040=true;
   try{window.dispatchEvent(new Event('padgrade-durable-sync-ready'));}catch(e){}
 
-  let connected=false;try{connected=!!native.hasProjectFolder();}catch(e){}
-  if(connected)setTimeout(()=>{try{reconcile();}catch(e){}},250);else if(!localStorage.getItem(PROMPT_KEY)){localStorage.setItem(PROMPT_KEY,'1');setTimeout(()=>{const ok=confirm('Choose a durable Pad Grade project folder now? Projects in that folder survive app uninstall/reinstall. You can also do this later from Projects.');if(ok&&typeof native.chooseProjectFolder==='function'){try{native.chooseProjectFolder();}catch(e){}}},700);}
+  if(hasFolder())setTimeout(reconcileWhenReady,0);else if(!localStorage.getItem(PROMPT_KEY)){
+    localStorage.setItem(PROMPT_KEY,'1');
+    setTimeout(()=>{const ok=confirm('Choose a durable Pad Grade project folder now? Projects in that folder survive app uninstall/reinstall. You can also do this later from Projects.');if(ok&&typeof native.chooseProjectFolder==='function'){try{native.chooseProjectFolder();}catch(e){}}},700);
+  }
 })();
