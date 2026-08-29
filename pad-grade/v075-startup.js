@@ -1,8 +1,9 @@
-/* Pad Grade v0.9.0 DEV — prepaint project restore + settled startup reveal.
+/* Pad Grade v0.9.1 DEV — prepaint durable-recovery restore + settled reveal.
  *
- * This module primes the legacy loadLocal() path from the recovered active
- * project and owns curtain release. Local project loads/switches only wait for
- * local render/layout passes; they never wait on remote map imagery.
+ * Match the stable startup-cover behavior: this module only owns release of an
+ * already-active durable-recovery curtain. Ordinary startup/project switching
+ * never creates a cover here. When recovery is covered, reveal after the final
+ * GPS/manual layout has settled, with the same bounded failsafe as stable.
  */
 (function installPadGrade075Startup(){
   'use strict';
@@ -54,9 +55,7 @@
       card.style.transform='translateX(-50%)';
     }
     if(height&&wrap)wrap.style.height=`${height}px`;
-    if(width||height){
-      window.__padGradeStartupMapSizePreapplied={width:width||null,height:height||null};
-    }
+    if(width||height)window.__padGradeStartupMapSizePreapplied={width:width||null,height:height||null};
   }
 
   function primeLegacyState(project){
@@ -94,10 +93,6 @@
   }
 
   function holdActive(){return document.documentElement.classList.contains('padGradeRecoveryHold');}
-  function localProjectHold(){
-    const root=document.documentElement;
-    return root.classList.contains('padGradeProjectSwitchHold')||root.classList.contains('padGradeProjectLoadHold');
-  }
 
   function cleanupRevealListeners(){
     if(revealTimer){clearTimeout(revealTimer);revealTimer=null;}
@@ -111,13 +106,12 @@
 
   function finishReveal(){
     if(revealFinished)return;
-    const wasLocalProjectHold=localProjectHold();
     revealFinished=true;
     cleanupRevealListeners();
     if(revealFailsafe){clearTimeout(revealFailsafe);revealFailsafe=null;}
     requestAnimationFrame(()=>requestAnimationFrame(()=>{
       try{window.__padGradeEndRecoveryVisualHold?.();}catch(e){}
-      window.__padGradeStartupRevealV091=wasLocalProjectHold?'local-project-settled':'settled-layout-map-idle';
+      window.__padGradeStartupRevealV091='stable-style-durable-recovery-settled';
     }));
   }
 
@@ -143,11 +137,8 @@
       lastMapActivity=Date.now();sawIdle=false;
       if(revealTimer){clearTimeout(revealTimer);revealTimer=null;}
     };
-    mapIdleHandler=()=>{
-      sawIdle=true;lastMapActivity=Date.now();scheduleIdleReveal();
-    };
+    mapIdleHandler=()=>{sawIdle=true;lastMapActivity=Date.now();scheduleIdleReveal();};
     try{map.on('movestart',mapActivityHandler);map.on('zoomstart',mapActivityHandler);map.on('resize',mapActivityHandler);map.on('idle',mapIdleHandler);}catch(e){}
-
     requestAnimationFrame(()=>{
       try{map.resize();}catch(e){}
       try{
@@ -163,20 +154,11 @@
     if(!holdActive()){revealFinished=true;return;}
     if(revealRequested)return;
     revealRequested=true;revealStartedAt=Date.now();lastMapActivity=revealStartedAt;
-
-    if(localProjectHold()){
-      revealFailsafe=setTimeout(finishReveal,1400);
-      requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(finishReveal,180)));
-      return;
-    }
-
     revealFailsafe=setTimeout(finishReveal,4000);
+
     let gpsMode=false;
     try{gpsMode=typeof measureMode!=='undefined'&&measureMode==='gps';}catch(e){}
-    if(!gpsMode){
-      requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(finishReveal,80)));
-      return;
-    }
+    if(!gpsMode){requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(finishReveal,80)));return;}
 
     const map=window.__padGradeMapInstance||null;
     if(map){attachMapGate(map);return;}
@@ -190,7 +172,7 @@
   preapplyMapPrefs();
   window.__padGradeRequestSettledStartupReveal=requestSettledReveal;
   window.__padGradeStartupPrepaintV091=true;
-  document.title='Pad Grade Mapper v0.9.0 DEV';
+  document.title='Pad Grade Mapper v0.9.1 DEV';
 
   window.addEventListener('beforeunload',()=>{
     cleanupRevealListeners();
