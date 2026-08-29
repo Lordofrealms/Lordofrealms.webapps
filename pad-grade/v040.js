@@ -17,8 +17,23 @@
   function putLocalProject(p){localStorage.setItem(projectKey(p.id),JSON.stringify(p));const item=index.find(x=>x.id===p.id),meta={id:p.id,name:p.settings.name||'Pad',modifiedAt:p.modifiedAt,createdAt:p.createdAt,status:p.status==='archived'?'archived':'open',fileId:p.fileId};if(item)Object.assign(item,meta);else index.push(meta);saveIndex();}
   function nativeAvailable(){return !!(window.PadGradeNative&&typeof PadGradeNative.writeProjectFile==='function');}
   function hasFolder(){try{return nativeAvailable()&&!!PadGradeNative.hasProjectFolder()&&(typeof PadGradeNative.isProjectFolderIndexReady!=='function'||!!PadGradeNative.isProjectFolderIndexReady());}catch(e){return false;}}
-  function writeDurable(p){if(!hasFolder())return false;try{return !!PadGradeNative.writeProjectFile(`${p.fileId?`${p.fileId}-`:''}${p.id}.padgrade`,JSON.stringify(p));}catch(e){return false;}}
-  function deleteDurable(id){if(!hasFolder())return;try{const p=getLocalProject(id),name=`${p?.fileId?`${p.fileId}-`:''}${id}.padgrade`;PadGradeNative.deleteProjectFile(name);}catch(e){}}
+  function durableFilename(p){return `${p.fileId?`${p.fileId}-`:''}${p.id}.padgrade`;}
+  function writeDurable(p){
+    if(!hasFolder()||!p)return false;
+    const filename=durableFilename(p),text=JSON.stringify(p);
+    try{
+      if(window.PadGradeFiles?.write){window.PadGradeFiles.write(filename,text);return true;}
+      return !!PadGradeNative.writeProjectFile(filename,text);
+    }catch(e){return false;}
+  }
+  function deleteDurable(id){
+    if(!hasFolder())return;
+    try{
+      const p=getLocalProject(id),name=`${p?.fileId?`${p.fileId}-`:''}${id}.padgrade`;
+      if(window.PadGradeFiles?.delete){window.PadGradeFiles.delete(name);return;}
+      PadGradeNative.deleteProjectFile(name);
+    }catch(e){}
+  }
   function updateProjectHeader(){const state=$id('v040SaveState');if(!state)return;const p=index.find(x=>x.id===activeId),name=$id('v040ProjectName');if(name)name.textContent=p?.name||cfg().name||'Pad';if(saving){state.textContent='Saving…';state.className='v040-projectState saving';}else{state.textContent=hasFolder()?'Saved • durable folder':'Saved locally';state.className=hasFolder()?'v040-projectState saved':'v040-projectState warn';}}
   function flushSave(){if(!activeId)return;clearTimeout(autosaveTimer);autosaveTimer=null;saving=true;updateProjectHeader();const old=getLocalProject(activeId)||{id:activeId},p=snapshotProject(old);p.status=old.status==='archived'?'archived':'open';putLocalProject(p);writeDurable(p);lastSaveAt=Date.now();saving=false;updateProjectHeader();renderProjectList();}
   function scheduleSave(){if(!activeId)return;saving=true;updateProjectHeader();clearTimeout(autosaveTimer);autosaveTimer=setTimeout(flushSave,900);}
@@ -29,7 +44,7 @@
   function renameProject(id){const p=getLocalProject(id);if(!p)return;const name=prompt('Project name',p.settings.name);if(name===null||!name.trim())return;p.settings.name=name.trim();p.modifiedAt=nowIso();putLocalProject(p);writeDurable(p);if(id===activeId){$id('projectName').value=p.settings.name;updateStats();}renderProjectList();updateProjectHeader();}
   function removeProject(id){if(index.length<=1){alert('At least one project must remain.');return;}const item=index.find(x=>x.id===id);if(!confirm(`Delete ${item?.name||'this project'}?`))return;deleteDurable(id);localStorage.removeItem(projectKey(id));index=index.filter(x=>x.id!==id);if(activeId===id){activeId=index[0].id;applyProject(getLocalProject(activeId));}saveIndex();renderProjectList();updateProjectHeader();}
   function importProjectData(data){const p=normalizeProject(data);p.id=uid();p.modifiedAt=nowIso();putLocalProject(p);writeDurable(p);activeId=p.id;saveIndex();applyProject(p);scheduleSave();return p;}
-  function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+  function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));}
   function renderProjectList(){const list=$id('v040ProjectList');if(!list)return;list.innerHTML=index.slice().sort((a,b)=>String(b.modifiedAt).localeCompare(String(a.modifiedAt))).map(item=>{const current=item.id===activeId;return `<div class="v040-projectItem ${current?'current':''}" data-id="${item.id}"><div><b>${escapeHtml(item.name||'Pad')}</b><div class="v040-projectMeta">${current?'Current • ':''}modified ${new Date(item.modifiedAt||Date.now()).toLocaleString()}</div></div><div class="v040-projectActions"><button data-act="open">Open</button><button data-act="rename">Rename</button><button data-act="copy">Duplicate</button><button class="danger" data-act="delete">Delete</button></div></div>`;}).join('');list.querySelectorAll('.v040-projectItem').forEach(row=>row.querySelectorAll('button').forEach(btn=>btn.onclick=()=>{const id=row.dataset.id,act=btn.dataset.act;if(act==='open')openProject(id);else if(act==='rename')renameProject(id);else if(act==='copy')duplicateProject(id);else if(act==='delete')removeProject(id);}));const fs=$id('v040FolderState');if(fs)fs.textContent=hasFolder()?'Durable project folder connected. Files survive app uninstall.':'Durable folder is disconnected or still indexing. Project changes remain safely stored locally until it is ready.';}
   function refreshProjectIndexFromStorage(){loadIndex();renderProjectList();updateProjectHeader();}
   window.__padGradeRefreshProjectIndex=refreshProjectIndexFromStorage;
@@ -38,5 +53,6 @@
   const legacySaveLocal=window.saveLocal;window.saveLocal=function(){try{legacySaveLocal?.();}catch(e){}scheduleSave();};
   window.importProjectFile=async function(file){const raw=await file.text(),data=JSON.parse(raw),p=importProjectData(data);return p;};
   loadIndex();migrateLegacyIfNeeded();if(activeId){const p=getLocalProject(activeId);if(p)applyProject(p);}installProjectUi();installFontSlider();updateProjectHeader();renderProjectList();window.addEventListener('beforeunload',flushSave);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')flushSave();});safetyTimer=setInterval(()=>{if(activeId&&Date.now()-lastSaveAt>30000)flushSave();},30000);
-  window.__padGradeDurableAutosavePolicyV087='local-first-native-only-after-index-ready';
+  window.__padGradeDurableAutosavePolicyV096='local-first-async-durable-mirror-after-index-ready';
+  window.__padGradeDurableAutosavePolicyV087=window.__padGradeDurableAutosavePolicyV096;
 })();
