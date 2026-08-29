@@ -1,4 +1,4 @@
-/* Pad Grade v0.8.10 DEV — non-blocking last-project restore with settled reveal.
+/* Pad Grade v0.9.0 DEV — non-blocking last-project restore with settled reveal.
  *
  * The locally cached active project is authoritative for first paint. Durable SAF
  * indexing/reconciliation happens later and never blocks local project loading.
@@ -137,10 +137,16 @@
     let settings=null;
     try{settings=parse(native.readProjectFile(SETTINGS_FILE),null);}catch(e){settings=null;}
     applyPortableSettings(settings);
-    const id=settings?.lastProjectId||localStorage.getItem(ACTIVE_KEY)||null;
+
+    // Once a local active project exists, it is authoritative. A durable settings
+    // file can lag one save behind during a project switch; using it first here
+    // can re-activate the project we just left and mix old grid/new heat-map state.
+    const currentActive=localStorage.getItem(ACTIVE_KEY)||null;
+    const id=currentActive||settings?.lastProjectId||null;
     if(!id){try{native.completeProjectFolderRecovery?.();}catch(e){}return true;}
+
     let project=parse(localStorage.getItem(projectKey(id)),null);
-    const durable=findDurableProject(id,settings?.lastProjectName||null);
+    const durable=findDurableProject(id,currentActive?null:(settings?.lastProjectName||null));
     if(durable&&durable.settings){
       const durableMs=Date.parse(durable.modifiedAt||durable.exportedAt||'')||0;
       const localMs=Date.parse(project?.modifiedAt||project?.exportedAt||'')||0;
@@ -149,8 +155,11 @@
     if(project&&project.settings&&storeProject(project)){
       const current=localStorage.getItem(ACTIVE_KEY);
       if(current===project.id){
+        const alreadyCovered=document.documentElement.classList.contains('padGradeRecoveryHold');
+        if(!alreadyCovered)try{window.__padGradeBeginRecoveryVisualHold?.('project-load');}catch(e){}
         applyProject(project);
         window.__padGradeLastProjectRestoredV091=project.id;
+        if(!alreadyCovered)setTimeout(()=>requestAnimationFrame(()=>requestAnimationFrame(()=>{try{window.__padGradeEndRecoveryVisualHold?.();}catch(e){}})),180);
       }
     }
     try{native.completeProjectFolderRecovery?.();}catch(e){}
@@ -165,5 +174,5 @@
   window.addEventListener('padgrade-projects-reconciled',()=>setTimeout(reconcileDurableWhenReady,0));
   setTimeout(reconcileDurableWhenReady,0);
 
-  window.__padGradeStartupFolderIndexPolicy='background-never-block-visible-grid-settled-cover-release';
+  window.__padGradeStartupFolderIndexPolicy='background-never-block-visible-grid-settled-cover-release-active-local-authoritative';
 })();
