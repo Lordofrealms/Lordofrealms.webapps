@@ -1,10 +1,8 @@
-/* Pad Grade v0.8.0 DEV — human-readable six-character project/save file IDs.
+/* Pad Grade v0.9.6 DEV — human-readable six-character project/save file IDs.
  *
- * A stable six-character ID is stored in every project payload, mirrored in a
- * project-id -> file-id map so older project layers cannot accidentally discard
- * it, displayed in the UI, used as the prefix for one-project exports, and used
- * to upgrade durable-folder save files in place (write new prefixed file first,
- * then remove the legacy unprefixed file).
+ * Local File IDs are immediate. On Android v0.9.6, durable filename migration is
+ * delegated to the async SAF controller so this UI module never walks/reads/
+ * rewrites the durable folder synchronously on the WebView thread.
  */
 (function installPadGrade080FileIds(){
   'use strict';
@@ -31,6 +29,7 @@
   function fileMap(){const x=parse(localStorage.getItem(FILE_MAP_KEY),{});return x&&typeof x==='object'&&!Array.isArray(x)?x:{};}
   function saveFileMap(map){try{localStorage.setItem(FILE_MAP_KEY,JSON.stringify(map));}catch(e){}}
   function projectKey(id){return `${PROJECT_PREFIX}${id}`;}
+  function asyncDurable(){return !!(window.__padGradeAsyncDurableV096&&window.PadGradeFiles);}
   function randomInt(max){
     if(window.crypto&&typeof window.crypto.getRandomValues==='function'){
       const a=new Uint32Array(1);window.crypto.getRandomValues(a);return a[0]%max;
@@ -64,8 +63,6 @@
     const owner=new Map();
     let changed=false;
 
-    // Reserve explicit/mapped IDs first so a duplicated project payload cannot
-    // silently steal another project's visible ID.
     for(const id of ids){
       const p=getProject(id);if(!p)continue;
       const candidate=validFileId(map[id])||validFileId(p.fileId);
@@ -77,15 +74,11 @@
       let fid=validFileId(map[id]);
       const embedded=validFileId(p.fileId);
       if(!fid&&embedded&&(!owner.has(embedded)||owner.get(embedded)===id))fid=embedded;
-      if(!fid){
-        fid=generateFileId(new Set(owner.keys()));
-        owner.set(fid,id);
-      }
+      if(!fid){fid=generateFileId(new Set(owner.keys()));owner.set(fid,id);}
       if(map[id]!==fid){map[id]=fid;changed=true;}
       if(p.fileId!==fid){p.fileId=fid;putProject(p);changed=true;}
     }
 
-    // Remove stale mappings only after projects are gone locally.
     for(const id of Object.keys(map))if(!ids.includes(id)){delete map[id];changed=true;}
     if(changed)saveFileMap(map);
 
@@ -105,10 +98,7 @@
     const map=fileMap();
     const localMapped=project.id?validFileId(map[project.id]):null;
     let fid=localMapped||validFileId(project.fileId)||fileIdFromName(filename);
-    if(!fid){
-      const used=new Set(Object.values(map).map(validFileId).filter(Boolean));
-      fid=generateFileId(used);
-    }
+    if(!fid){const used=new Set(Object.values(map).map(validFileId).filter(Boolean));fid=generateFileId(used);}
     project.fileId=fid;
     if(project.id&&map[project.id]!==fid){map[project.id]=fid;saveFileMap(map);}
     return fid;
@@ -125,6 +115,10 @@
   function isAllProjectsBackup(raw){return !!(raw&&typeof raw==='object'&&(raw.backupType==='all-projects'||Array.isArray(raw.projects)));}
 
   function migrateDurableFolder(force=false){
+    if(asyncDurable()){
+      try{window.__padGradeScheduleAsyncFileIdMigration?.(force?80:700);}catch(e){}
+      return;
+    }
     if(!native||typeof native.hasProjectFolder!=='function'||typeof native.listProjectFiles!=='function'||typeof native.readProjectFile!=='function'||typeof native.writeProjectFile!=='function')return;
     let connected=false;try{connected=!!native.hasProjectFolder();}catch(e){}
     if(!connected)return;
@@ -143,32 +137,17 @@
       let fid=null;
       if(isSingleProject(raw)){
         fid=ensureProjectPayloadFileId(raw,name);
-        if(raw.id){
-          const local=getProject(raw.id);
-          if(local){
-            local.fileId=fid;putProject(local);
-          }
-        }
+        if(raw.id){const local=getProject(raw.id);if(local){local.fileId=fid;putProject(local);}}
       }else if(isAllProjectsBackup(raw)){
         fid=validFileId(raw.fileId)||fileIdFromName(name)||generateFileId(new Set(Object.values(fileMap()).map(validFileId).filter(Boolean)));
         raw.fileId=fid;
-      }else{
-        continue;
-      }
+      }else continue;
 
       if(!fid)continue;
-      const alreadyPrefixed=!!fileIdFromName(name);
-      const targetName=alreadyPrefixed?name:`${fid}-${name}`;
-      const nextText=JSON.stringify(raw,null,2);
-      let wrote=false;
-      try{wrote=!!native.writeProjectFile(targetName,nextText);}catch(e){wrote=false;}
-      if(wrote&&targetName!==name&&typeof native.deleteProjectFile==='function'){
-        try{native.deleteProjectFile(name);}catch(e){}
-      }
+      const alreadyPrefixed=!!fileIdFromName(name),targetName=alreadyPrefixed?name:`${fid}-${name}`,nextText=JSON.stringify(raw,null,2);
+      let wrote=false;try{wrote=!!native.writeProjectFile(targetName,nextText);}catch(e){wrote=false;}
+      if(wrote&&targetName!==name&&typeof native.deleteProjectFile==='function'){try{native.deleteProjectFile(name);}catch(e){}}
     }
-
-    // Force one cheap rescan next time so the final post-migration name set is
-    // recorded rather than the legacy pre-migration set.
     lastFolderSignature='';
     ensureLocalFileIds();
   }
@@ -210,9 +189,7 @@
   function refreshFileIdUi(){
     const fid=activeFileId();
     const name=$('nameDisp');if(name&&fid)addOrUpdateBadge(name.parentElement,fid,'File ID');
-    const projectName=$('v040ProjectName');if(projectName&&fid){
-      const parent=projectName.parentElement;if(parent)addOrUpdateBadge(parent,fid,'File ID');
-    }
+    const projectName=$('v040ProjectName');if(projectName&&fid){const parent=projectName.parentElement;if(parent)addOrUpdateBadge(parent,fid,'File ID');}
     const map=fileMap();
     document.querySelectorAll('[data-id].v040-projectItem,[data-id].v041-projectItem').forEach(row=>{
       const id=row.dataset.id,rfid=validFileId(map[id])||validFileId(getProject(id)?.fileId);if(!rfid)return;
@@ -230,19 +207,28 @@
     `;document.head.appendChild(style);
   }
 
-  function scheduleDurableMigration(delay=120){setTimeout(()=>migrateDurableFolder(true),delay);}
+  function scheduleDurableMigration(delay=120){
+    if(asyncDurable()){try{window.__padGradeScheduleAsyncFileIdMigration?.(delay);}catch(e){}return;}
+    setTimeout(()=>migrateDurableFolder(true),delay);
+  }
   function installDeleteCleanup(){
     document.addEventListener('click',event=>{
-      const btn=event.target?.closest?.('button[data-act="delete"]');const row=btn?.closest?.('[data-id]');if(!row)return;
+      const btn=event.target?.closest?.('button[data-act="delete"]'),row=btn?.closest?.('[data-id]');if(!row)return;
       const id=row.dataset.id;if(!id)return;
-      setTimeout(()=>{
+      setTimeout(async()=>{
         if(getProject(id))return;
+        if(asyncDurable()){
+          const files=window.PadGradeFiles,list=files.list();
+          for(const name of list){
+            const p=parse(await files.read(name),null);
+            if(p&&p.id===id)await files.delete(name);
+            await new Promise(r=>setTimeout(r,0));
+          }
+          return;
+        }
         if(!native||typeof native.listProjectFiles!=='function'||typeof native.readProjectFile!=='function'||typeof native.deleteProjectFile!=='function')return;
         let names=[];try{names=parse(native.listProjectFiles(),[])||[];}catch(e){names=[];}
-        for(const name of names){
-          let p=null;try{p=parse(native.readProjectFile(name),null);}catch(e){}
-          if(p&&p.id===id){try{native.deleteProjectFile(name);}catch(e){}}
-        }
+        for(const name of names){let p=null;try{p=parse(native.readProjectFile(name),null);}catch(e){}if(p&&p.id===id){try{native.deleteProjectFile(name);}catch(e){}}}
       },650);
     },true);
   }
@@ -272,7 +258,7 @@
   ensureLocalFileIds();
   installExportInterception();
   installDeleteCleanup();
-  document.title='Pad Grade Mapper v0.8.0 DEV';
+  document.title='Pad Grade Mapper v0.9.6 DEV';
 
   window.addEventListener('padgrade-projects-reconciled',()=>{ensureLocalFileIds();scheduleDurableMigration(80);});
   window.addEventListener('padgrade-durable-sync-ready',()=>scheduleDurableMigration(120));
@@ -281,8 +267,9 @@
   else scheduleDurableMigration(100);
 
   localTimer=setInterval(pollLocalChanges,1200);
-  folderTimer=setInterval(()=>migrateDurableFolder(false),2500);
+  if(!asyncDurable())folderTimer=setInterval(()=>migrateDurableFolder(false),2500);
   window.addEventListener('beforeunload',()=>{if(localTimer)clearInterval(localTimer);if(folderTimer)clearInterval(folderTimer);},{once:true});
 
-  window.__padGradeFileIdsV080='stable-six-char-file-id-prefix-with-legacy-folder-upgrade';
+  window.__padGradeFileIdsV096='immediate-local-six-char-id-async-durable-folder-migration';
+  window.__padGradeFileIdsV080=window.__padGradeFileIdsV096;
 })();
