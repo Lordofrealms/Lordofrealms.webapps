@@ -6,6 +6,19 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v0.8.3 — development build
+
+### Fixed
+- Packaged the startup/recovery hotfix that removes the v0.8.2 comparison correction from the general WebView startup path so clean startup can reach durable-folder selection/recovery normally.
+- The v0.8.2 directly linked correction file is now inert; the active correction is deferred until the comparison core and UI are loaded.
+
+### Changed
+- Bumped the DEV Android package to version 0.8.3 / versionCode 50.
+- Preserved the reviewed v0.8.2 comparison behavior while isolating it from Android startup.
+
+### Known issues
+- This development hotfix needs device verification of clean startup/folder prompting and the comparison workflow before stable promotion.
+
 ## v0.8.2 — development build
 
 ### Changed
