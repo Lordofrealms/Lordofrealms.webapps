@@ -6,7 +6,7 @@
   const FIT_GAP=2,SCROLL_GAP=4;
   const $=id=>document.getElementById(id);
 
-  function prefs(){try{return {minGridFont:2,...(JSON.parse(localStorage.getItem(PREF_KEY)||'{}')||{})};catch(e){return {minGridFont:2};}}
+  function prefs(){try{return {minGridFont:2,...(JSON.parse(localStorage.getItem(PREF_KEY)||'{}')||{})};}catch(e){return {minGridFont:2};}}
   function savePrefs(next){localStorage.setItem(PREF_KEY,JSON.stringify({...prefs(),...next}));}
   function px(v){const n=parseFloat(v);return Number.isFinite(n)?n:0;}
 
