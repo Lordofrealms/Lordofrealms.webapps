@@ -4,6 +4,24 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v0.8.1 — development build
+
+### Added
+- Added **Compare** to the fixed bottom button bar for temporary comparison of two fully measured projects.
+- Added First measurement and Second measurement selectors so elevation change direction is explicit.
+- Added a dedicated temporary GPS comparison map with the current local IDW²/edge-locked heat-map interpolation and tap-to-probe behavior.
+
+### Changed
+- Comparison eligibility requires every logical grid point to have a finite reading; projects are matched strictly by row and column rather than nearest GPS position.
+- Each survey is normalized so its configured target rod plane equals elevation zero before comparison. The displayed delta is Second normalized ground elevation minus First normalized ground elevation, so negative values are cut that occurred and positive values are fill that occurred.
+- Corresponding stabilized SW/SE/NE/NW GPS corner observations are averaged between the two projects and fit into one shared comparison rectangle. Interior comparison points use that one shared grid rather than two overlaid grids.
+- If the two projects have different configured pad dimensions but the same row/column count, the temporary shared grid uses the average dimensions and identifies that choice in the comparison view.
+- Exiting comparison removes only the temporary view and returns directly to the still-open project without closing, reopening, or replacing its saved/runtime state.
+
+### Known issues
+- Both selected projects need complete four-corner GPS calibration to render the shared GPS comparison map.
+- This is a development build intended for field testing before stable promotion.
+
 ## v0.8.0 — stable
 
 ### Added
