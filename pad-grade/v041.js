@@ -11,17 +11,30 @@
   const uid=()=>`pg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
   const safeName=name=>String(name||'Pad').replace(/[^\w.-]+/g,'_').replace(/^_+|_+$/g,'').slice(0,80)||'Pad';
 
-  function getIndex(){
-    try{const v=JSON.parse(localStorage.getItem(INDEX_KEY)||'[]');return Array.isArray(v)?v:[];}catch(e){return [];}
-  }
+  function getIndex(){try{const v=JSON.parse(localStorage.getItem(INDEX_KEY)||'[]');return Array.isArray(v)?v:[];}catch(e){return [];}}
   function setIndex(v){localStorage.setItem(INDEX_KEY,JSON.stringify(v));}
   function getRaw(id){try{return JSON.parse(localStorage.getItem(projectKey(id))||'null');}catch(e){return null;}}
   function statusFor(item,p){return (p?.status||item?.status)==='archived'?'archived':'open';}
   function durableAvailable(){
-    try{return !!(window.PadGradeNative&&typeof PadGradeNative.hasProjectFolder==='function'&&PadGradeNative.hasProjectFolder()&&typeof PadGradeNative.writeProjectFile==='function');}catch(e){return false;}
+    try{
+      if(!window.PadGradeNative||typeof PadGradeNative.hasProjectFolder!=='function'||!PadGradeNative.hasProjectFolder())return false;
+      return typeof PadGradeNative.isProjectFolderIndexReady!=='function'||!!PadGradeNative.isProjectFolderIndexReady();
+    }catch(e){return false;}
   }
-  function writeDurable(p){if(!durableAvailable()||!p)return;try{PadGradeNative.writeProjectFile(`${p.id}.padgrade`,JSON.stringify(p));}catch(e){}}
-  function deleteDurable(id){if(!durableAvailable())return;try{if(typeof PadGradeNative.deleteProjectFile==='function')PadGradeNative.deleteProjectFile(`${id}.padgrade`);}catch(e){}}
+  function durableName(p){return `${p?.fileId?`${p.fileId}-`:''}${p.id}.padgrade`;}
+  function writeDurable(p){
+    if(!durableAvailable()||!p)return;
+    const filename=durableName(p),text=JSON.stringify(p);
+    try{if(window.PadGradeFiles?.write){window.PadGradeFiles.write(filename,text);return;}if(typeof PadGradeNative.writeProjectFile==='function')PadGradeNative.writeProjectFile(filename,text);}catch(e){}
+  }
+  function deleteDurable(id){
+    if(!durableAvailable())return;
+    try{
+      const p=getRaw(id),filename=durableName(p||{id});
+      if(window.PadGradeFiles?.delete){window.PadGradeFiles.delete(filename);return;}
+      if(typeof PadGradeNative.deleteProjectFile==='function')PadGradeNative.deleteProjectFile(filename);
+    }catch(e){}
+  }
 
   function normalizeLifecycle(){
     const idx=getIndex();let changed=false;
@@ -53,7 +66,7 @@
   }
   function duplicateProject(id){
     const src=getRaw(id);if(!src)return;
-    const copy=JSON.parse(JSON.stringify(src));copy.id=uid();copy.status='open';copy.settings=copy.settings||{};copy.settings.name=`${copy.settings.name||'Pad'} Copy`;copy.createdAt=copy.modifiedAt=nowIso();
+    const copy=JSON.parse(JSON.stringify(src));copy.id=uid();delete copy.fileId;copy.status='open';copy.settings=copy.settings||{};copy.settings.name=`${copy.settings.name||'Pad'} Copy`;copy.createdAt=copy.modifiedAt=nowIso();
     localStorage.setItem(projectKey(copy.id),JSON.stringify(copy));const idx=getIndex();idx.push({id:copy.id,name:copy.settings.name,createdAt:copy.createdAt,modifiedAt:copy.modifiedAt,status:'open'});setIndex(idx);writeDurable(copy);renderManager();
   }
   function deleteProject(id){
@@ -105,9 +118,7 @@
     const idx=getIndex(),item=idx.find(x=>x.id===id),p=getRaw(id);if(!p)return null;
     return {...p,status:statusFor(item,p),schemaVersion:Number(p.schemaVersion||p.version||5),version:Number(p.version||p.schemaVersion||5),exportedAt:nowIso()};
   }
-  function exportOne(id){
-    const p=exportPayload(id);if(!p)return;const name=safeName(p.settings?.name||'Pad');fileText(`${name}.padgrade`,'application/octet-stream',JSON.stringify(p,null,2));
-  }
+  function exportOne(id){const p=exportPayload(id);if(!p)return;const name=safeName(p.settings?.name||'Pad');fileText(`${name}.padgrade`,'application/octet-stream',JSON.stringify(p,null,2));}
   function backupAll(){
     const idx=getIndex();const projects=idx.map(x=>exportPayload(x.id)).filter(Boolean);const payload={app:'Pad Grade Mapper',backupType:'all-projects',backupVersion:1,exportedAt:nowIso(),activeProjectId:localStorage.getItem(ACTIVE_KEY)||null,projects};
     fileText(`Pad-Grade-Backup-${new Date().toISOString().slice(0,10)}.json`,'application/json',JSON.stringify(payload,null,2));
@@ -117,7 +128,7 @@
   function importSingle(data){
     const idx=getIndex();let p=JSON.parse(JSON.stringify(data));if(!p.settings)throw new Error('Invalid Pad Grade project.');
     const collision=idx.some(x=>x.id===p.id);if(!p.id||collision)p.id=uid();p.status=p.status==='archived'?'archived':'open';p.createdAt=p.createdAt||nowIso();p.modifiedAt=nowIso();
-    localStorage.setItem(projectKey(p.id),JSON.stringify(p));idx.push({id:p.id,name:p.settings.name||'Pad',createdAt:p.createdAt,modifiedAt:p.modifiedAt,status:p.status});setIndex(idx);writeDurable(p);
+    localStorage.setItem(projectKey(p.id),JSON.stringify(p));idx.push({id:p.id,name:p.settings.name||'Pad',createdAt:p.createdAt,modifiedAt:p.modifiedAt,status:p.status,fileId:p.fileId});setIndex(idx);writeDurable(p);
     if(p.status==='open')localStorage.setItem(ACTIVE_KEY,p.id);return p;
   }
   function restoreBackup(data){
@@ -127,7 +138,7 @@
       if(!incomingRaw?.id||!incomingRaw.settings)continue;
       const incoming=JSON.parse(JSON.stringify(incomingRaw));incoming.status=incoming.status==='archived'?'archived':'open';const local=getRaw(incoming.id);
       if(!local||modifiedMs(incoming)>=modifiedMs(local)){localStorage.setItem(projectKey(incoming.id),JSON.stringify(incoming));writeDurable(incoming);}
-      const best=(!local||modifiedMs(incoming)>=modifiedMs(local))?incoming:local;byId.set(best.id,{id:best.id,name:best.settings?.name||'Pad',createdAt:best.createdAt||nowIso(),modifiedAt:best.modifiedAt||nowIso(),status:best.status==='archived'?'archived':'open'});
+      const best=(!local||modifiedMs(incoming)>=modifiedMs(local))?incoming:local;byId.set(best.id,{id:best.id,name:best.settings?.name||'Pad',createdAt:best.createdAt||nowIso(),modifiedAt:best.modifiedAt||nowIso(),status:best.status==='archived'?'archived':'open',fileId:best.fileId});
     }
     const next=[...byId.values()];setIndex(next);
     const desired=next.find(x=>x.id===data.activeProjectId&&x.status!=='archived')||next.find(x=>x.status!=='archived');if(desired)localStorage.setItem(ACTIVE_KEY,desired.id);
@@ -155,10 +166,7 @@
     const minFont=Math.max(2,Math.min(20,+prefs().minGridFont||2));
     const dx=s.width/(s.cols-1),dy=s.length/(s.rows-1),ratio=Math.max(.05,dx/dy);
     const available=Math.max(220,shell.clientWidth-16),fitW=available/s.cols,fitH=fitW/ratio;
-    // Every cell reserves the same five populated lines: point, X offset, Y offset, reading, cut/fill.
-    const fitFont=Math.min(20,fitW/7.5,fitH/6.0);
-    const fit=fitFont>=minFont;
-    let cellW,cellH,font;
+    const fitFont=Math.min(20,fitW/7.5,fitH/6.0),fit=fitFont>=minFont;let cellW,cellH,font;
     if(fit){cellW=fitW;cellH=fitH;font=Math.max(minFont,fitFont);shell.classList.add('fit');g.className='v040-fit v041-uniform';g.style.width='100%';g.style.gridTemplateColumns=`repeat(${s.cols},minmax(0,1fr))`;g.style.gridAutoRows=`${cellH.toFixed(2)}px`;}
     else{font=minFont;cellH=Math.max(font*6.0,(font*7.5)/ratio);cellW=cellH*ratio;shell.classList.remove('fit');g.className='v040-scroll v041-uniform';g.style.width='max-content';g.style.gridTemplateColumns=`repeat(${s.cols},${cellW.toFixed(1)}px)`;g.style.gridAutoRows=`${cellH.toFixed(1)}px`;}
     g.style.setProperty('--grid-font',`${font.toFixed(1)}px`);
@@ -169,7 +177,10 @@
     updateStats();let mode=$('v040GridMode');if(!mode){mode=document.createElement('span');mode.id='v040GridMode';mode.className='v040-gridMode';g.closest('.card')?.querySelector('.legend')?.appendChild(mode);}if(mode)mode.textContent=fit?`Fit view • ${font.toFixed(1)} px • uniform`:`Scroll view • ${font.toFixed(0)} px min • uniform`;
   }
 
-  function installGrid(){window.renderGrid=renderUniformGrid;renderUniformGrid();window.addEventListener('resize',()=>{clearTimeout(window.__pg041Resize);window.__pg041Resize=setTimeout(renderUniformGrid,120);});}
+  function installGrid(){
+    if(window.__padGradeGridOwned){window.__padGradeLegacyGridV041='suppressed-worker-grid-authoritative';return;}
+    window.renderGrid=renderUniformGrid;renderUniformGrid();window.addEventListener('resize',()=>{clearTimeout(window.__pg041Resize);window.__pg041Resize=setTimeout(()=>{if(!window.__padGradeGridOwned)renderUniformGrid();},120);});
+  }
 
   function boot(){
     normalizeLifecycle();installImportExport();installToolbar();renderManager();installGrid();
