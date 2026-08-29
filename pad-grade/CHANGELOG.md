@@ -4,6 +4,20 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v0.9.3 — development build
+
+### Changed
+- First-run durable-folder recovery now paints the black **Restoring saved project…** curtain before Android's native folder picker is launched. The picker is opened only after WebView has had two animation frames to commit the curtain, so returning from the picker should not expose intermediate recovery/indexing changes.
+- Opening a project now closes the Projects dialog immediately, gives that close one paint frame, and then performs the existing in-place project-state/overlay swap. The surrounding document, map, imagery, controls, and other display groups remain mounted.
+
+### Fixed
+- Replaced the lower grid's per-string hidden-DOM measurement loop with canvas `measureText()` while preserving the existing physical-aspect/font-fit solver. This removes hundreds of forced layout reads that could delay an ordinary 9×9 bottom grid by several seconds on Android WebView.
+- Project-list rows now reserve the complete File-ID line in the head-loaded stylesheet before the project manager can paint its first row. The later File-ID placeholder and final ID text are absolutely positioned inside that already-reserved slot, so File-ID hydration should no longer resize project boxes or move their buttons.
+- Cancelling the native durable-folder picker removes the pre-painted recovery curtain and returns to the explanatory storage-choice dialog.
+
+### Known issues
+- This remains a development build intended for device verification of recovery-cover timing, project-list layout stability, and lower-grid render latency before stable promotion.
+
 ## v0.9.2 — development build
 
 ### Changed
