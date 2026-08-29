@@ -6,6 +6,18 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v0.8.4 — development build
+
+### Fixed
+- Packaged the comparison-map isolation correction so the temporary `pgCompareMap` cannot replace the application's primary `gpsMap` registration or receive project-map hooks intended for the live project.
+
+### Changed
+- Bumped the DEV Android package to version 0.8.4 / versionCode 51.
+- Added CI coverage verifying the comparison map remains a distinct, private MapLibre instance while the live project map retains primary-map ownership.
+
+### Known issues
+- This development build needs device verification that comparison shows only the averaged comparison grid/heat map and returns to the unchanged live project afterward.
+
 ## v0.8.3 — development build
 
 ### Fixed
