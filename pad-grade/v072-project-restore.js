@@ -124,6 +124,10 @@
   }
 
   function reconcileDurableWhenReady(){
+    if(window.__padGradeAsyncDurableV096){
+      try{window.__padGradePrepareMinimumDurableRecovery?.();}catch(e){}
+      return true;
+    }
     if(durableReconciled||!hasFolder()||!indexReady())return false;
     durableReconciled=true;
     let settings=null;try{settings=parse(native.readProjectFile(SETTINGS_FILE),null);}catch(e){}
@@ -156,5 +160,5 @@
   window.addEventListener('padgrade-projects-reconciled',()=>setTimeout(reconcileDurableWhenReady,0));
   setTimeout(reconcileDurableWhenReady,0);
 
-  window.__padGradeStartupFolderIndexPolicy='background-never-block-visible-grid-curtain-never-armed-here-active-local-authoritative';
+  window.__padGradeStartupFolderIndexPolicy=window.__padGradeAsyncDurableV096?'v096-async-minimum-recovery':'background-never-block-visible-grid-curtain-never-armed-here-active-local-authoritative';
 })();
