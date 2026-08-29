@@ -1,16 +1,17 @@
-/* Pad Grade v0.8.6 DEV — map ownership, early grid, and foreground render order.
+/* Pad Grade v0.8.8 DEV — map ownership, early grid, and foreground render order.
  *
  * Goals:
  * - start the existing GPS grid-overlay owner at DOM-ready instead of waiting for
  *   the full window-load event;
  * - never allow project/comparison heat maps to cover their grid geometry;
  * - keep comparison maps private from the live-project map stack;
- * - load the v0.8.6 comparison presentation layer after the comparison feature.
+ * - re-arm the constructor guard when asynchronously loaded MapLibre becomes ready;
+ * - load the comparison presentation layer after the comparison feature.
  */
 (function installPadGrade085MapRenderOrder(){
   'use strict';
 
-  const VERSION='v0.8.6 DEV';
+  const VERSION='v0.8.8 DEV';
   const PRIMARY_GRID='pad-grade-grid-lines-layer';
   const PRIMARY_OUTLINE='pad-grade-pad-outline-layer';
   const PRIMARY_ROUTE='pad-grade-route-layer';
@@ -110,7 +111,7 @@
   function startGridOverlayOwnerEarly(){
     if(document.querySelector('script[data-padgrade-v030]'))return;
     const script=document.createElement('script');script.src='v030.js?v=20260822-2';script.async=false;script.setAttribute('data-padgrade-v030','1');
-    script.onerror=()=>console.error('Pad Grade v0.8.6 early GPS grid overlay failed to load');document.body.appendChild(script);
+    script.onerror=()=>console.error('Pad Grade early GPS grid overlay failed to load');document.body.appendChild(script);
   }
 
   function loadComparePresentation(){
@@ -118,6 +119,11 @@
     const script=document.createElement('script');script.src='v086-compare-presentation.js?v=20260829-1';script.async=false;script.setAttribute('data-padgrade-v086-compare-presentation','1');document.body.appendChild(script);
   }
 
+  // v0.8.7 made MapLibre asynchronous so this module can legitimately execute
+  // before maplibregl exists. Re-run constructor installation at library-ready;
+  // otherwise comparison maps miss their ownership/presentation hooks.
+  window.addEventListener('padgrade-maplibre-ready',installConstructorGuard);
+  window.addEventListener('padgrade-map-runtime-ready',installConstructorGuard);
   installConstructorGuard();
   window.addEventListener('padgrade-map-created',ev=>{const map=ev?.detail?.map||window.__padGradeMapInstance;if(map)attachPrimary(map);});
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{startGridOverlayOwnerEarly();setTimeout(loadComparePresentation,0);},{once:true});
