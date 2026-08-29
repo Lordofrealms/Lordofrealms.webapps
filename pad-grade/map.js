@@ -142,9 +142,7 @@
     }
   }
 
-  function pointGeoJson(pos){
-    return {type:'FeatureCollection',features:pos?[{type:'Feature',properties:{},geometry:{type:'Point',coordinates:[+pos.lon,+pos.lat]}}]:[]};
-  }
+  function pointGeoJson(pos){return {type:'FeatureCollection',features:pos?[{type:'Feature',properties:{},geometry:{type:'Point',coordinates:[+pos.lon,+pos.lat]}}]:[]};}
 
   function accuracyPolygon(pos){
     const accuracy=pos && Number.isFinite(+pos.accuracy)?Math.max(0,+pos.accuracy):NaN;
@@ -178,7 +176,6 @@
   function syncCompanionWatch(visible){
     const platform=window.PadGradePlatform||{};
     const shouldWatch=!!(visible&&platform.target==='android'&&platform.nativePrecisionLocation&&navigator.geolocation&&typeof navigator.geolocation.watchPosition==='function');
-
     if(shouldWatch && companionWatchId==null){
       setCompanionState('STARTING');
       try{
@@ -195,9 +192,8 @@
       }catch(e){companionWatchId=null;setCompanionState('ERROR');}
       return;
     }
-
     if(!shouldWatch && companionWatchId!=null){
-      try{ navigator.geolocation.clearWatch(companionWatchId); }catch(e){}
+      try{navigator.geolocation.clearWatch(companionWatchId);}catch(e){}
       companionWatchId=null;companionMapPosition=null;
     }
   }
@@ -212,7 +208,7 @@
   }
 
   function frameSavedPad(force=false){
-    if(!map||!mapReady||(!force&&framedSavedPad))return false;
+    if(!map||(!force&&framedSavedPad))return false;
     const corners=savedPadCorners();if(!corners)return false;
     try{
       let minLon=Infinity,minLat=Infinity,maxLon=-Infinity,maxLat=-Infinity;
@@ -230,18 +226,13 @@
     const card=el('gpsMapCard');
     const visible=isGpsMode();
     if(card) card.classList.toggle('show',visible);
-
     syncCompanionWatch(visible);
     if(visible && !map && !mapInitAttempted) initMap();
-
     if(lastModeVisible!==visible){
       lastModeVisible=visible;
       if(visible && map) setTimeout(()=>{try{map.resize();frameSavedPad(false);}catch(e){}},0);
     }
-
-    // Saved project geometry is authoritative for initial framing. Never make the
-    // grid wait for a fresh GPS fix just to know where the calibrated pad lives.
-    if(visible&&mapReady&&!framedSavedPad)frameSavedPad(false);
+    if(visible&&map&&!framedSavedPad)frameSavedPad(false);
 
     const pos=getGpsPosition();
     updateSourceUi(pos);
@@ -251,13 +242,10 @@
       setGeoJson(FIX_SOURCE,pointGeoJson(null));setGeoJson(ERROR_SOURCE,accuracyPolygon(null));return;
     }
     if(message) message.classList.add('hidden');
-
     const signature=[(+pos.lat).toFixed(8),(+pos.lon).toFixed(8),Number.isFinite(+pos.accuracy)?(+pos.accuracy).toFixed(2):'na'].join('|');
     if(signature===lastFixSignature) return;
     lastFixSignature=signature;
-
     setGeoJson(FIX_SOURCE,pointGeoJson(pos));setGeoJson(ERROR_SOURCE,accuracyPolygon(pos));
-
     if(mapReady && map && (firstFix || follow)){
       firstFix=false;
       try{if(follow)map.easeTo({center:[+pos.lon,+pos.lat],zoom:Math.max(map.getZoom(),FOLLOW_ZOOM),duration:300});}catch(e){}
@@ -267,7 +255,6 @@
   function centerNow(){
     const pos=getGpsPosition();
     if(pos){follow=true;try{map?.easeTo({center:[+pos.lon,+pos.lat],zoom:FOLLOW_ZOOM,duration:350});}catch(e){}return;}
-    // With no current fix, Center still does something useful: return to the pad.
     follow=false;frameSavedPad(true);
   }
 
@@ -277,19 +264,21 @@
     if(!window.maplibregl){
       const message=el('gpsMapMessage');if(message){message.textContent='Map library unavailable. GPS guidance still works.';message.classList.remove('hidden');}return;
     }
-
     try{
       map=new maplibregl.Map({container:'gpsMap',center:[-97.5,35.5],zoom:5,minZoom:3,maxZoom:22,attributionControl:true,style:imageryStyle()});
       map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
+      // Camera framing does not require a live GPS fix or loaded imagery. Apply the
+      // saved calibrated rectangle immediately, then repeat at style readiness in
+      // case the project calibration finished a few milliseconds later.
+      requestAnimationFrame(()=>frameSavedPad(false));
+      map.on('style.load',()=>frameSavedPad(false));
       map.on('load',()=>{
         map.addSource(ERROR_SOURCE,{type:'geojson',data:accuracyPolygon(null)});
         map.addLayer({id:ERROR_FILL_LAYER,type:'fill',source:ERROR_SOURCE,paint:{'fill-color':'#63b7ff','fill-opacity':0.18}});
         map.addLayer({id:ERROR_LINE_LAYER,type:'line',source:ERROR_SOURCE,paint:{'line-color':'#8fd4ff','line-width':2,'line-opacity':0.9}});
         map.addSource(FIX_SOURCE,{type:'geojson',data:pointGeoJson(null)});
         map.addLayer({id:FIX_LAYER,type:'circle',source:FIX_SOURCE,paint:{'circle-radius':7,'circle-color':'#8fd14f','circle-stroke-color':'#ffffff','circle-stroke-width':2}});
-        mapReady=true;lastFixSignature='';
-        frameSavedPad(false);
-        updateMap();
+        mapReady=true;lastFixSignature='';frameSavedPad(false);updateMap();
       });
       map.on('dragstart',()=>{follow=false;});
       map.on('zoomstart',e=>{if(e&&e.originalEvent)follow=false;});
