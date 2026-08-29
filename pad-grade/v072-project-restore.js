@@ -1,11 +1,10 @@
-/* Pad Grade v0.7.5 DEV — deterministic last-project application with settled reveal.
+/* Pad Grade v0.8.6 DEV — non-blocking last-project restore.
  *
- * Durable settings recovery restores app preferences and the desired project into
- * local storage before the intentional reload. v075-startup.js now primes that
- * project before init.js performs its first render, so this module only needs one
- * final compatibility/application pass. The recovery curtain is then released by
- * the v0.7.5 startup coordinator after the final layout/map has settled instead of
- * after a fixed repaint timeout.
+ * The active project is restored from localStorage immediately. Durable-folder
+ * indexing/reconciliation is background work and must never hold the visible app
+ * for up to 60 seconds. If a durable index is already ready, use it; otherwise
+ * reveal the locally cached project and reconcile when the native index callback
+ * arrives.
  */
 (function installPadGrade072LastProjectRestore(){
   'use strict';
@@ -16,13 +15,13 @@
   const PROJECT_PREFIX='padGradeProjectV5:';
   const native=window.PadGradeNative;
   let done=false;
-  let timer=null;
-  let deadline=Date.now()+60000;
+  let durableReconciled=false;
 
   if(!native||typeof native.readProjectFile!=='function')return;
 
   const parse=(raw,fallback=null)=>{try{return raw?JSON.parse(raw):fallback;}catch(e){return fallback;}};
   const projectKey=id=>`${PROJECT_PREFIX}${id}`;
+
   function endVisualHold(delay=0){
     setTimeout(()=>{
       try{
@@ -31,10 +30,7 @@
       }catch(e){}
     },Math.max(0,delay));
   }
-
-  function indexReady(){
-    try{return typeof native.isProjectFolderIndexReady==='function'?!!native.isProjectFolderIndexReady():true;}catch(e){return false;}
-  }
+  function indexReady(){try{return typeof native.isProjectFolderIndexReady==='function'?!!native.isProjectFolderIndexReady():true;}catch(e){return false;}}
   function hasFolder(){try{return typeof native.hasProjectFolder==='function'&&!!native.hasProjectFolder();}catch(e){return false;}}
 
   function storeProject(project){
@@ -76,15 +72,16 @@
       if(typeof pgUpdateNotesSummary==='function')pgUpdateNotesSummary();
       try{refreshMapOverlays(true);}catch(e){}
       try{window.__padGradeRefreshProjectIndex?.();}catch(e){}
+      try{window.dispatchEvent(new CustomEvent('padgrade-active-project-applied',{detail:{id:project.id}}));}catch(e){}
       return true;
     }catch(e){console.warn('Pad Grade last project apply failed',e);return false;}
   }
 
   function findDurableProject(id,projectName){
+    if(!indexReady())return null;
     let project=null;
     try{project=parse(native.readProjectFile(`${id}.padgrade`),null);}catch(e){project=null;}
     if(project&&project.id===id&&project.settings)return project;
-
     let names=[];
     try{if(typeof native.listProjectFiles==='function')names=parse(native.listProjectFiles(),[])||[];}catch(e){names=[];}
     let nameMatch=null;
@@ -98,45 +95,58 @@
     return nameMatch;
   }
 
-  function restore(){
-    if(done)return true;
-    if(!hasFolder())return false;
-    if(!indexReady())return false;
+  function activeLocalProject(){
+    const id=localStorage.getItem(ACTIVE_KEY)||null;
+    if(!id)return null;
+    const project=parse(localStorage.getItem(projectKey(id)),null);
+    return project&&project.id===id&&project.settings?project:null;
+  }
 
+  function revealLocalImmediately(){
+    if(done)return;
+    const project=activeLocalProject();
+    if(project){
+      applyProject(project);
+      window.__padGradeProjectStartupSettledV086=project.id;
+    }
+    done=true;
+    endVisualHold(0);
+  }
+
+  function reconcileDurableWhenReady(){
+    if(durableReconciled||!hasFolder()||!indexReady())return false;
+    durableReconciled=true;
     let settings=null;
     try{settings=parse(native.readProjectFile(SETTINGS_FILE),null);}catch(e){settings=null;}
-    const id=settings?.lastProjectId||null;
-    if(!id){done=true;endVisualHold(40);return true;}
-
+    const id=settings?.lastProjectId||localStorage.getItem(ACTIVE_KEY)||null;
+    if(!id)return true;
     let project=parse(localStorage.getItem(projectKey(id)),null);
-    if(!project||project.id!==id||!project.settings)project=findDurableProject(id,settings?.lastProjectName||null);
-    if(!project||!project.settings){done=true;endVisualHold(40);return true;}
-
-    // Preserve the durable project's canonical id. A legacy filename fallback may
-    // have found the same project under a noncanonical filename, but the project id
-    // remains the identity used by the project manager and future settings saves.
-    if(!project.id)project.id=id;
-    if(!storeProject(project)){done=true;endVisualHold(40);return true;}
-
-    // v0.7.5 already prepainted this exact project before init.js. Keep one final
-    // compatibility pass for dev payload, notes, calibration, and overlays; do not repeat the full project render on rAF + timeout as older builds did.
-    applyProject(project);
-    window.__padGradeProjectStartupSettledV075=project.id;
-    done=true;
-    window.__padGradeLastProjectRestoredV072=project.id;
-    endVisualHold(0);
+    const durable=findDurableProject(id,settings?.lastProjectName||null);
+    if(durable&&durable.settings){
+      const durableMs=Date.parse(durable.modifiedAt||durable.exportedAt||'')||0;
+      const localMs=Date.parse(project?.modifiedAt||project?.exportedAt||'')||0;
+      if(!project||durableMs>=localMs)project=durable;
+    }
+    if(project&&project.settings&&storeProject(project)){
+      const current=localStorage.getItem(ACTIVE_KEY);
+      if(current===project.id){
+        applyProject(project);
+        window.__padGradeLastProjectRestoredV086=project.id;
+      }
+    }
+    try{native.completeProjectFolderRecovery?.();}catch(e){}
     return true;
   }
 
-  function poll(){
-    if(done)return;
-    if(restore())return;
-    if(Date.now()>=deadline){endVisualHold(0);return;}
-    timer=setTimeout(poll,120);
-  }
+  // Never wait for SAF indexing to show the project already cached on-device.
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',revealLocalImmediately,{once:true});
+  else revealLocalImmediately();
 
-  window.addEventListener('padgrade-durable-sync-ready',()=>setTimeout(poll,0));
-  window.addEventListener('padgrade-projects-reconciled',()=>{if(!done)setTimeout(poll,0);});
-  setTimeout(poll,0);
-  window.addEventListener('beforeunload',()=>{if(timer)clearTimeout(timer);},{once:true});
+  // Native indexing is asynchronous background reconciliation only.
+  window.__padGradeProjectFolderIndexed=()=>{setTimeout(reconcileDurableWhenReady,0);};
+  window.addEventListener('padgrade-durable-sync-ready',()=>setTimeout(reconcileDurableWhenReady,0));
+  window.addEventListener('padgrade-projects-reconciled',()=>setTimeout(reconcileDurableWhenReady,0));
+  setTimeout(reconcileDurableWhenReady,0);
+
+  window.__padGradeStartupFolderIndexPolicy='background-never-block-visible-grid';
 })();
