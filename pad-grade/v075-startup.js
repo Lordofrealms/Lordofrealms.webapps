@@ -1,12 +1,9 @@
-/* Pad Grade v0.7.5 DEV — prepaint project restore + settled startup reveal.
+/* Pad Grade v0.8.10 DEV — prepaint project restore + settled startup reveal.
  *
- * This module runs after the core/project compatibility scripts but before init.js
- * and before DOMContentLoaded. It primes the legacy loadLocal() path from the
- * already-recovered active project, applies saved map dimensions before MapLibre is
- * constructed, and owns the final recovery-curtain release. The curtain is only
- * removed after the final GPS/manual layout is established and, in GPS mode, the
- * map has reached an idle frame after one final hidden resize. No map-loading panel
- * is used.
+ * This module primes the legacy loadLocal() path from the recovered active
+ * project and owns curtain release. Recovery may still wait for settled map
+ * geometry, but an explicit project switch only waits for the local project/UI
+ * state to settle; it never waits on remote map imagery.
  */
 (function installPadGrade075Startup(){
   'use strict';
@@ -98,6 +95,7 @@
   }
 
   function holdActive(){return document.documentElement.classList.contains('padGradeRecoveryHold');}
+  function projectSwitchHold(){return document.documentElement.classList.contains('padGradeProjectSwitchHold');}
 
   function cleanupRevealListeners(){
     if(revealTimer){clearTimeout(revealTimer);revealTimer=null;}
@@ -116,7 +114,7 @@
     if(revealFailsafe){clearTimeout(revealFailsafe);revealFailsafe=null;}
     requestAnimationFrame(()=>requestAnimationFrame(()=>{
       try{window.__padGradeEndRecoveryVisualHold?.();}catch(e){}
-      window.__padGradeStartupRevealV075='settled-layout-map-idle';
+      window.__padGradeStartupRevealV091=projectSwitchHold()?'project-switch-local-settled':'settled-layout-map-idle';
     }));
   }
 
@@ -147,16 +145,10 @@
     };
     try{map.on('movestart',mapActivityHandler);map.on('zoomstart',mapActivityHandler);map.on('resize',mapActivityHandler);map.on('idle',mapIdleHandler);}catch(e){}
 
-    // One and only one deliberate final startup resize, while the recovery
-    // curtain is still up. Saved width/height were already applied before map
-    // construction, so this is only a final geometry synchronization.
     requestAnimationFrame(()=>{
       try{map.resize();}catch(e){}
       try{
         if(typeof map.isStyleLoaded==='function'&&map.isStyleLoaded()&&typeof map.loaded==='function'&&map.loaded()){
-          // Some WebView/MapLibre combinations can already be fully idle before
-          // the handler is attached. Treat that as an idle candidate but still
-          // honor the minimum/quiet window.
           sawIdle=true;lastMapActivity=Date.now();scheduleIdleReveal();
         }
       }catch(e){}
@@ -168,8 +160,17 @@
     if(!holdActive()){revealFinished=true;return;}
     if(revealRequested)return;
     revealRequested=true;revealStartedAt=Date.now();lastMapActivity=revealStartedAt;
-    revealFailsafe=setTimeout(finishReveal,4000);
 
+    // Project-to-project transitions already have a fresh document and the
+    // target project was selected in <head>. Keep the old/new UI hidden only
+    // long enough for local render/layout passes; do not wait on USGS imagery.
+    if(projectSwitchHold()){
+      revealFailsafe=setTimeout(finishReveal,1400);
+      requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(finishReveal,180)));
+      return;
+    }
+
+    revealFailsafe=setTimeout(finishReveal,4000);
     let gpsMode=false;
     try{gpsMode=typeof measureMode!=='undefined'&&measureMode==='gps';}catch(e){}
     if(!gpsMode){
@@ -188,8 +189,8 @@
 
   preapplyMapPrefs();
   window.__padGradeRequestSettledStartupReveal=requestSettledReveal;
-  window.__padGradeStartupPrepaintV075=true;
-  document.title='Pad Grade Mapper v0.7.5 DEV';
+  window.__padGradeStartupPrepaintV091=true;
+  document.title='Pad Grade Mapper v0.8.10 DEV';
 
   window.addEventListener('beforeunload',()=>{
     cleanupRevealListeners();
