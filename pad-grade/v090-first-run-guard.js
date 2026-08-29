@@ -1,10 +1,9 @@
-/* Pad Grade v0.8.9 DEV — first-install folder/project decision guard.
+/* Pad Grade v0.8.10 DEV — first-install durable-storage choice.
  *
- * On Android, a truly clean install must not manufacture a default project
- * before the user has had a chance to reconnect a surviving durable folder.
- * A temporary index sentinel blocks the older project manager's eager default
- * creation. The sentinel is never a real project and is removed before normal
- * project use.
+ * A clean Android install must not manufacture a default project before the
+ * user has had a chance to reconnect surviving durable files, but it also must
+ * not throw the user straight into Android's folder picker. Explain the choice
+ * first, then open the picker only after explicit opt-in.
  */
 (function installPadGrade090FirstRunGuard(){
   'use strict';
@@ -15,6 +14,7 @@
   const PROJECT_PREFIX='padGradeProjectV5:';
   const PROMPT_KEY='padGradeDurableFolderPromptedV1';
   const SENTINEL='__padgrade_first_run_pending__';
+  const DIALOG_ID='pgFirstRunStorageChoice';
   const native=window.PadGradeNative||null;
   let armed=false;
   let pickerRequested=false;
@@ -37,7 +37,7 @@
   function hasExistingLocalState(){
     return realIndex().length>0||!!localStorage.getItem(ACTIVE_KEY)||projectKeys().length>0||!!localStorage.getItem(LEGACY_KEY);
   }
-  function sentinelMeta(){return {id:SENTINEL,name:'Restoring saved projects…',createdAt:new Date().toISOString(),modifiedAt:new Date().toISOString(),status:'archived',firstRunSentinel:true};}
+  function sentinelMeta(){return {id:SENTINEL,name:'Waiting for storage choice…',createdAt:new Date().toISOString(),modifiedAt:new Date().toISOString(),status:'archived',firstRunSentinel:true};}
   function installSentinel(){
     if(index().some(x=>x?.id===SENTINEL))return;
     localStorage.setItem(INDEX_KEY,JSON.stringify([sentinelMeta()]));
@@ -60,6 +60,7 @@
   }
   function writeDefaultProject(durable){
     if(!armed)return;
+    closeChoice();
     removeSentinel();
     if(realIndex().length||localStorage.getItem(ACTIVE_KEY)){armed=false;return;}
     const p=defaultProject();
@@ -75,6 +76,7 @@
   }
   function chooseRestoredProjectOrDefault(){
     if(!armed)return;
+    closeChoice();
     removeSentinel();
     const projects=realIndex();
     if(projects.length){
@@ -107,18 +109,40 @@
     if(!armed||pickerRequested)return;
     if(hasFolder()){waitForIndex();return;}
     pickerRequested=true;
-    // Start watching before the Android picker returns. A successful selection
-    // changes hasProjectFolder()/index readiness; cancellation is delivered by
-    // MainActivity through __padGradeProjectFolderSelectionCancelled.
     waitForIndex();
     try{native.chooseProjectFolder();}
     catch(e){window.__padGradeProjectFolderSelectionCancelled?.();}
   }
 
+  function closeChoice(){
+    const dlg=document.getElementById(DIALOG_ID);
+    if(dlg?.open)try{dlg.close();}catch(e){}
+  }
+  function showChoice(note=''){
+    if(!armed)return;
+    let dlg=document.getElementById(DIALOG_ID);
+    if(!dlg){
+      dlg=document.createElement('dialog');dlg.id=DIALOG_ID;
+      dlg.innerHTML=`<div class="modal" style="max-width:520px">
+        <h2>Choose project storage</h2>
+        <p style="line-height:1.45">Pad Grade can use a folder you choose for durable project files. Those files can survive an app uninstall and can be used to restore your projects after reinstalling.</p>
+        <p class="small">You do not have to enable this now. If you continue without a durable folder, projects stay in the app's local storage and you can connect a folder later from Projects.</p>
+        <div id="pgFirstRunStorageNote" class="small" style="min-height:1.2em;margin:8px 0;color:#e7c66a"></div>
+        <div class="modalActions"><button id="pgFirstRunLocal">Not now</button><button id="pgFirstRunDurable" class="primary">Choose durable folder</button></div>
+      </div>`;
+      document.body.appendChild(dlg);
+      dlg.addEventListener('cancel',event=>{event.preventDefault();writeDefaultProject(false);});
+      dlg.querySelector('#pgFirstRunLocal').onclick=()=>writeDefaultProject(false);
+      dlg.querySelector('#pgFirstRunDurable').onclick=()=>{closeChoice();requestFolder();};
+    }
+    const noteEl=dlg.querySelector('#pgFirstRunStorageNote');if(noteEl)noteEl.textContent=note;
+    if(!dlg.open)try{dlg.showModal();}catch(e){dlg.setAttribute('open','');}
+  }
+
   window.__padGradeProjectFolderSelectionCancelled=function(){
     if(!armed)return;
     pickerRequested=false;
-    writeDefaultProject(false);
+    showChoice('Folder selection was canceled. Choose a folder, or continue locally for now.');
   };
 
   window.addEventListener('padgrade-project-folder-selected',()=>{pickerRequested=false;waitForIndex();});
@@ -129,11 +153,14 @@
     armed=true;
     window.__padGradeFirstRunPending=true;
     installSentinel();
+    // Suppress the older one-off prompt; this explanatory chooser owns the clean
+    // install decision and opens Android's folder picker only after opt-in.
     localStorage.setItem(PROMPT_KEY,'1');
-    if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(requestFolder,120),{once:true});
-    else setTimeout(requestFolder,120);
+    const start=()=>{if(hasFolder())waitForIndex();else showChoice();};
+    if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(start,80),{once:true});
+    else setTimeout(start,80);
   }
 
-  window.__padGradeFirstRunPolicyV090='folder-choice-before-default-project';
+  window.__padGradeFirstRunPolicyV091='explain-opt-in-before-durable-folder-picker';
   window.addEventListener('beforeunload',()=>{if(indexTimer)clearInterval(indexTimer);if(finalizeTimer)clearTimeout(finalizeTimer);},{once:true});
 })();
