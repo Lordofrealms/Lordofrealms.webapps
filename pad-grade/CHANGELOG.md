@@ -4,6 +4,20 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v0.8.6 — development build
+
+### Fixed
+- Removed the 60-second startup reveal dependency on Android durable-folder indexing. The locally cached active project is now rendered immediately while Storage Access Framework folder indexing/reconciliation continues in the background.
+- The saved four-corner GPS calibration now frames the GPS map immediately after MapLibre construction instead of waiting for a fresh GPS fix or the map's full imagery/source load cycle.
+- Cache-busted the startup/map activation chain so an upgraded DEV install cannot keep using the older delayed restore or map code from WebView cache.
+
+### Changed
+- Project Comparison points now use the same visual treatment as normal project GPS points: red CUT, green GRADE, blue FILL, white outlines, and A1/B1/etc. labels.
+- Added the comparison heat-map color key beneath the comparison map, including maximum cut, grade tolerance, and maximum fill values. The averaged grid/points/labels remain foreground geometry above the heat map.
+
+### Known issues
+- This remains a development build intended for device verification of startup timing and comparison presentation before stable promotion.
+
 ## v0.8.5 — development build
 
 ### Fixed
@@ -29,7 +43,7 @@ Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical 
 - Added a CI regression test that creates both `gpsMap` and `pgCompareMap` and verifies only `gpsMap` owns the global primary-map registration.
 
 ### Known issues
-- This remains a development build intended for device verification before stable promotion.
+- This remains a development build intended for device verification that comparison shows only the averaged comparison grid/heat map and returns to the unchanged live project afterward.
 
 ## v0.8.3 — development build
 
