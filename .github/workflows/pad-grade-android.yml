@@ -134,8 +134,9 @@ jobs:
           grep -F "Map imagery unavailable — retrying" pad-grade/v089-imagery-recovery.js
           grep -F "folder-choice-before-default-project" pad-grade/v090-first-run-guard.js
           grep -F "teardown-old-map-then-reload-new-project-before-paint" pad-grade/v090-project-switch-boundary.js
-          grep -F "primeProjectFileCacheAsync(); return out.toString();" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
-          grep -F "primeProjectFileCacheAsync(); return null;" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
+          grep -F "if (!projectFileCacheLoaded) {" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
+          grep -F "primeProjectFileCacheAsync();" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
+          grep -F "if (!projectFileCacheLoaded) { primeProjectFileCacheAsync(); return null; }" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
           grep -F "__padGradeProjectFolderSelectionCancelled" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/MainActivity.java
           grep -F "Green is categorical" pad-grade/v067-dev.js
           grep -F "#4f8f3a 46%,#4f8f3a 54%" pad-grade/v067-dev.js
