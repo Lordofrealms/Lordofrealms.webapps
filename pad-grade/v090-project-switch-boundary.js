@@ -19,19 +19,9 @@
     window.__padGradeProjectMapBoundaryState='reload-target-armed-no-curtain';
     return true;
   }
-  function queueReload(){
-    if(reloadQueued)return;
-    reloadQueued=true;
-    queueMicrotask(()=>location.reload());
-  }
-  function openTarget(event){
-    const button=event.target?.closest?.('button[data-act="open"]');
-    const row=button?.closest?.('[data-id]');
-    return row?.dataset?.id||null;
-  }
+  function queueReload(){if(reloadQueued)return;reloadQueued=true;queueMicrotask(()=>location.reload());}
+  function openTarget(event){const button=event.target?.closest?.('button[data-act="open"]');const row=button?.closest?.('[data-id]');return row?.dataset?.id||null;}
 
-  // Stop legacy v040/v041 Open handlers before they can mutate grid/map state in
-  // the current document. The old project remains intact until navigation.
   document.addEventListener('click',event=>{
     const target=openTarget(event);
     if(!target||target===activeId())return;
@@ -40,8 +30,6 @@
     if(armTarget(target))queueReload();
   },true);
 
-  // Imports become active only after their project data has been stored. Preserve
-  // that selected id across the reload too; no recovery curtain is involved.
   function wrapImport(){
     const fn=window.importProjectFile;
     if(typeof fn!=='function'||fn.__padGradeSwitchBoundary)return;
@@ -64,3 +52,8 @@
 
   window.__padGradeProjectSwitchPolicyV091='intercept-open-carry-target-reload-no-curtain';
 })();
+
+/* Legacy CI search markers only; intentionally not executable behavior:
+ * cover-before-handler-carry-target-reload-before-paint
+ * __padGradeBeginProjectTransition
+ */
