@@ -1,62 +1,32 @@
-/* Pad Grade v0.8.9 DEV — hard project-switch rendering boundary.
+/* Pad Grade v0.8.10 DEV — prepaint atomic project-switch boundary.
  *
- * The live project map uses long-lived GeoJSON and double-buffered canvas
- * sources. Switching projects in-place can otherwise leave one frame (or more)
- * containing layers from both projects. User-initiated project changes are now
- * treated as a teardown/reload boundary: clear the old project overlays first,
- * let the existing project manager finish/save the switch, then reload before
- * the browser can paint the newly-applied project on top of stale map state.
+ * Do not try to make two long-lived map/grid runtimes coexist during a project
+ * change. The transition curtain goes up in capture phase, the intended target
+ * is carried through sessionStorage, and the page reloads. The head-loaded
+ * recovery helper restores that intended target before any project manager can
+ * read localStorage, even if an older beforeunload autosave rewrites ACTIVE_KEY
+ * while leaving the old project.
  */
 (function installPadGrade090ProjectSwitchBoundary(){
   'use strict';
 
   const ACTIVE_KEY='padGradeActiveProjectIdV5';
-  const PROJECT_GEOJSON_SOURCES=['pad-grade-grid-points','pad-grade-grid-lines','pad-grade-pad-outline','pad-grade-route'];
-  const EMPTY={type:'FeatureCollection',features:[]};
   let clickStartActive=null;
   let reloadQueued=false;
+  let armedTarget=null;
 
   function activeId(){return localStorage.getItem(ACTIVE_KEY)||null;}
-  function primaryMap(){return window.__padGradeMapInstance||null;}
-  function clearSource(map,id){
-    try{const src=map?.getSource?.(id);if(src&&typeof src.setData==='function')src.setData(EMPTY);}catch(e){}
-  }
-  function removeHeatmap(map){
-    if(!map)return;
-    try{
-      const style=map.getStyle?.();
-      const layers=Array.isArray(style?.layers)?style.layers.slice():[];
-      for(let i=layers.length-1;i>=0;i--){
-        const id=String(layers[i]?.id||'');
-        if(id.startsWith('pad-grade-interpolated-surface-canvas-layer-')||id==='pad-grade-interpolated-surface-layer'||id.startsWith('pad-grade-interpolated-surface-layer-band-')){
-          try{if(map.getLayer(id))map.removeLayer(id);}catch(e){}
-        }
-      }
-      const sourceIds=style?.sources&&typeof style.sources==='object'?Object.keys(style.sources):[];
-      for(const id of sourceIds){
-        if(id.startsWith('pad-grade-interpolated-surface-canvas-source-')||id==='pad-grade-interpolated-surface-raster'||id.startsWith('pad-grade-interpolated-surface-band-source-')||id==='pad-grade-interpolated-surface'||id==='pad-grade-interpolated-surface-mesh'){
-          try{if(map.getSource(id))map.removeSource(id);}catch(e){}
-        }
-      }
-      map.triggerRepaint?.();
-    }catch(e){}
-  }
-  function teardownVisibleProject(){
-    const map=primaryMap();
-    if(map){
-      for(const id of PROJECT_GEOJSON_SOURCES)clearSource(map,id);
-      removeHeatmap(map);
-    }
-    try{document.querySelectorAll('.maplibregl-popup').forEach(x=>x.remove());}catch(e){}
-    window.__padGradeProjectMapBoundaryState='old-project-cleared-awaiting-switch';
+  function armTransition(id){
+    if(!id||id===armedTarget)return;
+    armedTarget=id;
+    window.__padGradeProjectSwitchInProgress=true;
+    try{window.__padGradeBeginProjectTransition?.(id);}catch(e){}
+    window.__padGradeProjectMapBoundaryState='covered-reload-pending';
   }
   function queueReload(){
     if(reloadQueued)return;
     reloadQueued=true;
-    queueMicrotask(()=>{
-      // beforeunload remains authoritative for the project manager's final save.
-      location.reload();
-    });
+    queueMicrotask(()=>location.reload());
   }
   function actionFromEvent(event){
     const button=event.target?.closest?.('button');
@@ -64,32 +34,39 @@
     const act=button.dataset?.act||'';
     if(act==='open')return {kind:'open',button,row:button.closest('[data-id]')};
     if(act==='delete')return {kind:'delete',button,row:button.closest('[data-id]')};
+    if(act==='archive')return {kind:'archive',button,row:button.closest('[data-id]')};
     if(button.id==='v040NewProject')return {kind:'new',button,row:null};
     return null;
   }
 
+  // Capture phase runs before either the v040 or v041 row onclick handler. That
+  // makes the old project disappear behind the curtain before any handler can
+  // apply the new project's settings, grid, or heat-map inputs in-place.
   document.addEventListener('click',event=>{
     const action=actionFromEvent(event);if(!action)return;
     clickStartActive=activeId();
-    if(action.kind==='open'&&action.row?.dataset?.id&&action.row.dataset.id!==clickStartActive){
-      // Open has no confirmation prompt, so it is safe to blank the old project
-      // before the existing manager applies the requested project.
-      teardownVisibleProject();
+    if(action.kind==='open'){
+      const target=action.row?.dataset?.id||null;
+      if(target&&target!==clickStartActive)armTransition(target);
     }
   },true);
 
+  // v040 can still apply a project in-place before this bubble listener runs;
+  // the curtain is already covering it. Force one clean reload so the only
+  // visible runtime after the transition is constructed entirely from target.
   document.addEventListener('click',event=>{
     const action=actionFromEvent(event);if(!action)return;
     const before=clickStartActive,after=activeId();clickStartActive=null;
     if(before&&after&&before!==after){
-      if(action.kind!=='open')teardownVisibleProject();
+      armTransition(after);
+      queueReload();
+    }else if(action.kind==='open'&&armedTarget){
+      // v041's open handler already requested a reload. Queueing another reload
+      // in the same turn is harmless and protects against handler-order changes.
       queueReload();
     }
   });
 
-  // Project import is asynchronous. Wrap whichever import owner is current and
-  // reload in the same microtask turn that the imported project becomes active,
-  // before a mixed old/new map frame can be painted.
   function wrapImport(){
     const fn=window.importProjectFile;
     if(typeof fn!=='function'||fn.__padGradeSwitchBoundary)return;
@@ -97,7 +74,7 @@
       const before=activeId();
       const result=await fn.apply(this,arguments);
       const after=activeId();
-      if(before&&after&&before!==after){teardownVisibleProject();queueReload();}
+      if(before&&after&&before!==after){armTransition(after);queueReload();}
       return result;
     };
     wrapped.__padGradeSwitchBoundary=true;
@@ -108,6 +85,14 @@
   let wraps=0;
   const timer=setInterval(()=>{wrapImport();if(++wraps>80)clearInterval(timer);},250);
   wrapImport();
-  window.__padGradeProjectSwitchPolicyV090='teardown-old-map-then-reload-new-project-before-paint';
-  window.addEventListener('beforeunload',()=>clearInterval(timer),{once:true});
+
+  // If a project-changing handler itself calls location.reload() before normal
+  // bubbling finishes, preserve the new ACTIVE_KEY here as a final fallback.
+  window.addEventListener('beforeunload',()=>{
+    const now=activeId();
+    if(clickStartActive&&now&&now!==clickStartActive)armTransition(now);
+    clearInterval(timer);
+  },{once:true});
+
+  window.__padGradeProjectSwitchPolicyV091='cover-before-handler-carry-target-reload-before-paint';
 })();
