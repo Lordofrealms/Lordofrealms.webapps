@@ -10,6 +10,7 @@ on:
       - 'pad-grade/v082-project-compare-fix.js'
       - 'pad-grade/v083-project-compare-fix.js'
       - 'pad-grade/v078-dev.js'
+      - 'pad-grade/map-instance-hook-v064.js'
       - 'pad-grade/index.html'
       - '.github/workflows/pad-grade-project-compare.yml'
   pull_request:
@@ -21,6 +22,7 @@ on:
       - 'pad-grade/v082-project-compare-fix.js'
       - 'pad-grade/v083-project-compare-fix.js'
       - 'pad-grade/v078-dev.js'
+      - 'pad-grade/map-instance-hook-v064.js'
       - 'pad-grade/index.html'
       - '.github/workflows/pad-grade-project-compare.yml'
   workflow_dispatch:
@@ -37,6 +39,7 @@ jobs:
           node --check pad-grade/v081-project-compare.js
           node --check pad-grade/v082-project-compare-fix.js
           node --check pad-grade/v083-project-compare-fix.js
+          node --check pad-grade/map-instance-hook-v064.js
           grep -F "project-compare-core.js?v=20260829-1" pad-grade/v078-dev.js
           grep -F "v081-project-compare.js?v=20260829-1" pad-grade/v078-dev.js
           grep -F "v083-project-compare-fix.js?v=20260829-1" pad-grade/v078-dev.js
@@ -47,5 +50,24 @@ jobs:
           ! grep -F "MutationObserver" pad-grade/v082-project-compare-fix.js
           ! grep -F "v083-project-compare-fix.js" pad-grade/index.html
           grep -F "v082-project-compare-fix.js?v=20260829-1" pad-grade/index.html
+      - name: Verify comparison map cannot become primary project map
+        run: |
+          node <<'NODE'
+          global.window=global;
+          class BaseMap { constructor(options){ this.options=options; } }
+          window.maplibregl={Map:BaseMap};
+          const events=[];
+          window.CustomEvent=class CustomEvent {
+            constructor(type,init){ this.type=type; this.detail=init&&init.detail; }
+          };
+          window.dispatchEvent=event=>{ events.push(event); return true; };
+          require('./pad-grade/map-instance-hook-v064.js');
+          const primary=new window.maplibregl.Map({container:'gpsMap'});
+          if(window.__padGradeMapInstance!==primary) throw new Error('gpsMap was not registered as the primary map');
+          const comparison=new window.maplibregl.Map({container:'pgCompareMap'});
+          if(window.__padGradeMapInstance!==primary) throw new Error('comparison map replaced the primary map');
+          if(events.length!==1||events[0].detail.map!==primary) throw new Error('comparison map emitted a primary map-created event');
+          if(comparison===primary) throw new Error('comparison unexpectedly reused the primary map object');
+          NODE
       - name: Run comparison self-tests
         run: node pad-grade/project-compare-selftest.js
