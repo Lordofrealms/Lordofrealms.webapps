@@ -1,10 +1,10 @@
-/* Pad Grade v0.9.2 DEV — first-install durable-storage choice.
+/* Pad Grade v0.9.3 DEV — first-install durable-storage choice.
  *
  * A clean Android install does not create a default project until the user has
  * had a chance to reconnect surviving durable files, and it never opens Android's
- * folder picker without an explanatory opt-in first. Once the user actually
- * chooses a folder during that first-run recovery flow, the stable-style recovery
- * curtain begins immediately while the background folder index is being built.
+ * folder picker without an explanatory opt-in first. Once the user elects to use
+ * durable storage, the stable-style recovery curtain is painted BEFORE the native
+ * picker opens, so returning from Android never exposes intermediate recovery UI.
  */
 (function installPadGrade090FirstRunGuard(){
   'use strict';
@@ -46,7 +46,7 @@
     if(!armed||recoveryVisualPending)return;
     recoveryVisualPending=true;
     try{window.__padGradeBeginRecoveryVisualHold?.();}catch(e){}
-    window.__padGradeFirstRunRecoveryVisualV092='folder-selected-indexing';
+    window.__padGradeFirstRunRecoveryVisualV093='prepaint-before-folder-picker-and-indexing';
   }
   function endRecoveryVisual(){
     if(!recoveryVisualPending)return;
@@ -79,7 +79,24 @@
   }
   function finalizeAfterIndex(){if(!armed||!hasFolder()||!indexReady())return;clearTimeout(finalizeTimer);finalizeTimer=setTimeout(chooseRestoredProjectOrDefault,450);}
   function waitForIndex(){if(indexTimer)return;indexTimer=setInterval(()=>{if(!armed){clearInterval(indexTimer);indexTimer=null;return;}if(hasFolder()&&indexReady()){clearInterval(indexTimer);indexTimer=null;finalizeAfterIndex();}},120);}
-  function requestFolder(){if(!armed||pickerRequested)return;if(hasFolder()){beginRecoveryVisual();waitForIndex();return;}pickerRequested=true;waitForIndex();try{native.chooseProjectFolder();}catch(e){window.__padGradeProjectFolderSelectionCancelled?.();}}
+  function launchFolderPickerAfterCoverPaint(){
+    const launch=()=>{
+      if(!armed||!pickerRequested)return;
+      try{native.chooseProjectFolder();}catch(e){window.__padGradeProjectFolderSelectionCancelled?.();}
+    };
+    // The picker is a native Android surface. Give WebView two animation frames
+    // to commit the black recovery curtain first, so it is already present when
+    // Android returns control to the app.
+    requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(launch,0)));
+  }
+  function requestFolder(){
+    if(!armed||pickerRequested)return;
+    if(hasFolder()){beginRecoveryVisual();waitForIndex();return;}
+    pickerRequested=true;
+    beginRecoveryVisual();
+    waitForIndex();
+    launchFolderPickerAfterCoverPaint();
+  }
   function closeChoice(){const dlg=document.getElementById(DIALOG_ID);if(dlg?.open)try{dlg.close();}catch(e){}}
   function showChoice(note=''){
     if(!armed)return;let dlg=document.getElementById(DIALOG_ID);
@@ -97,6 +114,9 @@
   window.__padGradeProjectFolderSelectionCancelled=function(){if(!armed)return;pickerRequested=false;endRecoveryVisual();showChoice('Folder selection was canceled. Choose a folder, or continue locally for now.');};
   window.addEventListener('padgrade-project-folder-selected',()=>{
     pickerRequested=false;
+    // Normally already covered from before the picker opened. Keep this as an
+    // idempotent fallback for Android implementations that dispatch selection by
+    // another path.
     if(armed)beginRecoveryVisual();
     waitForIndex();
   });
@@ -109,9 +129,12 @@
     if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(start,80),{once:true});else setTimeout(start,80);
   }
 
-  window.__padGradeFirstRunPolicyV092='explain-opt-in-cover-immediately-after-folder-selection';
-  window.__padGradeFirstRunRecoveryCurtainPolicyV092='first-run-folder-selected-through-saved-project-recovery';
+  window.__padGradeFirstRunPolicyV093='explain-opt-in-prepaint-cover-before-native-picker';
+  window.__padGradeFirstRunRecoveryCurtainPolicyV093='first-run-folder-choice-through-saved-project-recovery';
   window.addEventListener('beforeunload',()=>{if(indexTimer)clearInterval(indexTimer);if(finalizeTimer)clearTimeout(finalizeTimer);},{once:true});
 })();
 
-/* Legacy CI compatibility marker only: explain-opt-in-before-durable-folder-picker */
+/* Legacy CI compatibility markers only:
+ * explain-opt-in-before-durable-folder-picker
+ * cover-immediately-after-folder-selection
+ */
