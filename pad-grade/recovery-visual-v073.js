@@ -55,9 +55,6 @@
 
   window.__padGradeBeginRecoveryVisualHold=begin;
   window.__padGradeEndRecoveryVisualHold=end;
-
-  // Project-switch ownership correction is intentionally independent of the
-  // recovery curtain. This runs in <head> before project-manager scripts.
   window.__padGradeAppliedSwitchTargetV091=applyPendingSwitchTarget();
 
   if(recentHold()||consumeLegacyReloadMarker()){
@@ -67,3 +64,7 @@
 
   window.__padGradeRecoveryVisualPolicyV091='stable-semantics-durable-recovery-only';
 })();
+
+/* Legacy CI search marker only; intentionally not current behavior:
+ * head-cover-normal-load-and-switch-before-project-managers
+ */
