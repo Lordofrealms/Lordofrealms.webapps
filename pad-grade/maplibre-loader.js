@@ -61,8 +61,10 @@
     dispatchReady();
     loadScript('map-instance-hook-v064.js?v=20260829-2','padgrade-map-instance-hook-runtime',()=>{
       loadScript('map.js?v=20260829-2','padgrade-map-runtime',()=>{
-        window.__padGradeMapRuntimeReadyV087=true;
-        try{window.dispatchEvent(new Event('padgrade-map-runtime-ready'));}catch(e){}
+        loadScript('v087-map-fast-overlay.js?v=20260829-1','padgrade-v087-fast-overlay',()=>{
+          window.__padGradeMapRuntimeReadyV087=true;
+          try{window.dispatchEvent(new Event('padgrade-map-runtime-ready'));}catch(e){}
+        });
       });
     });
   }
@@ -95,8 +97,5 @@
 
   window.__padGradeStartMapLibre=loadMapLibre;
   window.__padGradeMapLibraryPolicy='local-apk-first-async-cdn-fallback-never-block-project-grid';
-
-  // Run after the parser has passed init.js. Dynamic loading does not hold
-  // DOMContentLoaded or the lower project-grid render.
   setTimeout(loadMapLibre,0);
 })();
