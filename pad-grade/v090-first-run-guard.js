@@ -1,9 +1,10 @@
-/* Pad Grade v0.8.10 DEV — first-install durable-storage choice.
+/* Pad Grade v0.9.1 DEV — first-install durable-storage choice.
  *
- * A clean Android install must not manufacture a default project before the
- * user has had a chance to reconnect surviving durable files, but it also must
- * not throw the user straight into Android's folder picker. Explain the choice
- * first, then open the picker only after explicit opt-in.
+ * A clean Android install does not create a default project until the user has
+ * had a chance to reconnect surviving durable files, and it never opens Android's
+ * folder picker without an explanatory opt-in first. The stable-style recovery
+ * curtain is armed only when an existing durable project set has actually been
+ * recovered and the app performs the one recovery reload.
  */
 (function installPadGrade090FirstRunGuard(){
   'use strict';
@@ -58,6 +59,16 @@
       dev:{unitMode:'inches',heatmap:true,routeMode:'serpentine',laser:null,notes:''}
     };
   }
+  function reloadNormally(){location.reload();}
+  function reloadRecoveredDurable(){
+    // This mirrors stable v0.8.0: arm immediately before the intentional durable
+    // recovery reload, so the reloaded document begins covered from <head>.
+    try{window.__padGradeBeginRecoveryVisualHold?.();}catch(e){}
+    setTimeout(()=>{
+      try{location.reload();}
+      catch(e){try{window.__padGradeEndRecoveryVisualHold?.();}catch(_) {}}
+    },40);
+  }
   function writeDefaultProject(durable){
     if(!armed)return;
     closeChoice();
@@ -72,7 +83,8 @@
     }
     armed=false;
     window.__padGradeFirstRunPending=false;
-    location.reload();
+    // A new empty folder/local project is not a saved-directory recovery.
+    reloadNormally();
   }
   function chooseRestoredProjectOrDefault(){
     if(!armed)return;
@@ -86,7 +98,7 @@
         if(open.length){active=open[0].id;localStorage.setItem(ACTIVE_KEY,active);}
       }
       armed=false;window.__padGradeFirstRunPending=false;
-      location.reload();
+      reloadRecoveredDurable();
       return;
     }
     writeDefaultProject(true);
@@ -153,14 +165,12 @@
     armed=true;
     window.__padGradeFirstRunPending=true;
     installSentinel();
-    // Suppress the older one-off prompt; this explanatory chooser owns the clean
-    // install decision and opens Android's folder picker only after opt-in.
     localStorage.setItem(PROMPT_KEY,'1');
     const start=()=>{if(hasFolder())waitForIndex();else showChoice();};
     if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(start,80),{once:true});
     else setTimeout(start,80);
   }
 
-  window.__padGradeFirstRunPolicyV091='explain-opt-in-before-durable-folder-picker';
+  window.__padGradeFirstRunPolicyV091='explain-opt-in-recovery-curtain-only-for-existing-durable-projects';
   window.addEventListener('beforeunload',()=>{if(indexTimer)clearInterval(indexTimer);if(finalizeTimer)clearTimeout(finalizeTimer);},{once:true});
 })();
