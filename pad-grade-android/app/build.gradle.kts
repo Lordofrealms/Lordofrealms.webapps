@@ -49,8 +49,8 @@ android {
         manifestPlaceholders["appLabel"] = if (padGradeDevBuild) "Pad Grade DEV" else "Pad Grade"
         minSdk = 31
         targetSdk = 36
-        versionCode = 57
-        versionName = "0.9.0"
+        versionCode = 58
+        versionName = "0.9.1"
     }
 
     buildTypes {
