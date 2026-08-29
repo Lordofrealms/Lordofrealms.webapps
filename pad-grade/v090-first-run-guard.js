@@ -23,6 +23,7 @@
   let recoveryCoverTimer=null;
   let indexTimer=null;
   let finalizeTimer=null;
+  let finalizeBusy=false;
 
   function parse(raw,fallback=null){try{return raw?JSON.parse(raw):fallback;}catch(e){return fallback;}}
   function index(){const x=parse(localStorage.getItem(INDEX_KEY),[]);return Array.isArray(x)?x:[];}
@@ -77,7 +78,9 @@
     localStorage.setItem(`${PROJECT_PREFIX}${p.id}`,JSON.stringify(p));
     localStorage.setItem(INDEX_KEY,JSON.stringify([{id:p.id,name:p.settings.name,createdAt:p.createdAt,modifiedAt:p.modifiedAt,status:'open'}]));
     localStorage.setItem(ACTIVE_KEY,p.id);
-    if(durable&&hasFolder()&&indexReady()&&typeof native?.writeProjectFile==='function'){try{native.writeProjectFile(`${p.id}.padgrade`,JSON.stringify(p));}catch(e){}}
+    if(durable&&hasFolder()&&indexReady()){
+      try{if(window.PadGradeFiles?.write)window.PadGradeFiles.write(`${p.id}.padgrade`,JSON.stringify(p));else if(typeof native?.writeProjectFile==='function')native.writeProjectFile(`${p.id}.padgrade`,JSON.stringify(p));}catch(e){}
+    }
     endRecoveryVisual();
     armed=false;window.__padGradeFirstRunPending=false;reloadNormally();
   }
@@ -90,7 +93,24 @@
     }
     writeDefaultProject(true);
   }
-  function finalizeAfterIndex(){if(!armed||!hasFolder()||!indexReady())return;clearTimeout(finalizeTimer);finalizeTimer=setTimeout(chooseRestoredProjectOrDefault,450);}
+  async function finalizeAfterIndex(){
+    if(!armed||!hasFolder()||!indexReady()||finalizeBusy)return;
+    finalizeBusy=true;
+    try{
+      const prep=window.__padGradePrepareMinimumDurableRecovery;
+      if(typeof prep==='function'){
+        const token=window.PadGradeDiag?.start?.('recovery.first-run-await-minimum');
+        try{await prep();}finally{window.PadGradeDiag?.end?.(token);}
+      }
+      if(!armed)return;
+      clearTimeout(finalizeTimer);
+      finalizeTimer=setTimeout(chooseRestoredProjectOrDefault,40);
+    }catch(e){
+      window.PadGradeDiag?.mark?.('recovery.first-run-minimum-error',{error:String(e?.message||e)});
+      clearTimeout(finalizeTimer);
+      finalizeTimer=setTimeout(chooseRestoredProjectOrDefault,40);
+    }finally{finalizeBusy=false;}
+  }
   function waitForIndex(){if(indexTimer)return;indexTimer=setInterval(()=>{if(!armed){clearInterval(indexTimer);indexTimer=null;return;}if(hasFolder()&&indexReady()){clearInterval(indexTimer);indexTimer=null;finalizeAfterIndex();}},120);}
   function launchFolderPickerAfterCoverPaint(){
     const launch=()=>{
@@ -149,7 +169,7 @@
   }
 
   window.__padGradeFirstRunPolicyV093='explain-opt-in-prepaint-cover-before-native-picker';
-  window.__padGradeFirstRunRecoveryCurtainPolicyV093='first-run-folder-choice-through-index-and-saved-project-recovery';
+  window.__padGradeFirstRunRecoveryCurtainPolicyV096='first-run-folder-choice-index-minimum-async-project-recovery';
   window.addEventListener('beforeunload',()=>{stopRecoveryCoverKeepalive();if(indexTimer)clearInterval(indexTimer);if(finalizeTimer)clearTimeout(finalizeTimer);},{once:true});
 })();
 
