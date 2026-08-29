@@ -58,17 +58,16 @@ try{
   document.body.appendChild(script);
 })();
 
-/* v0.7.4 keeps the proven recovery stack and replaces only the heat-map display
- * transport: the main renderer now owns a double-buffered MapLibre CanvasSource.
- */
+/* v0.8.6 keeps durable-folder indexing in the background and lets the cached
+ * active project render immediately. */
 (function queuePadGrade074(){
   const load072=()=>{
     if(document.querySelector('script[data-padgrade-v072-project-restore]'))return;
     const script=document.createElement('script');
-    script.src='v072-project-restore.js?v=20260825-2';
+    script.src='v072-project-restore.js?v=20260829-1';
     script.async=false;
     script.dataset.padgradeV072ProjectRestore='1';
-    script.onerror=()=>{console.error('Pad Grade v0.7.4 last-project restore module failed to load');try{window.__padGradeEndRecoveryVisualHold?.();}catch(e){}};
+    script.onerror=()=>{console.error('Pad Grade v0.8.6 last-project restore module failed to load');try{window.__padGradeEndRecoveryVisualHold?.();}catch(e){}};
     document.body.appendChild(script);
   };
   const load071=()=>{
@@ -105,18 +104,15 @@ try{
   else setTimeout(load069,0);
 })();
 
-/* v0.7.8 keeps the v0.7.6 probe UI and replaces the shared interpolation math
- * with locality-first triangle selection plus promotion to a local four-corner
- * grid rectangle whenever the winning triangle's fourth corner is measured.
- */
+/* v0.8.6 carries the current comparison/render-order activation chain. */
 (function loadPadGrade078(){
   const loadActivation=()=>{
     if(document.querySelector('script[data-padgrade-v078]'))return;
     const script=document.createElement('script');
-    script.src='v078-dev.js?v=20260826-1';
+    script.src='v078-dev.js?v=20260829-2';
     script.async=false;
     script.dataset.padgradeV078='1';
-    script.onerror=()=>console.error('Pad Grade v0.7.8 rectangle-promotion activation module failed to load');
+    script.onerror=()=>console.error('Pad Grade current activation module failed to load');
     document.body.appendChild(script);
   };
   const loadProbe=()=>{
