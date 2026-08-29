@@ -8,8 +8,15 @@
   class PadGradeCapturedMap extends OriginalMap{
     constructor(options){
       super(options);
-      window.__padGradeMapInstance=this;
-      try{window.dispatchEvent(new CustomEvent('padgrade-map-created',{detail:{map:this}}));}catch(e){}
+      // Only the application's real GPS/project map owns the global primary-map
+      // pointer. Feature maps (including Project Comparison) must remain private
+      // to their feature so project-grid/heat-map hooks cannot attach to them.
+      const container=options&&options.container;
+      const containerId=typeof container==='string'?container:(container&&container.id);
+      if(containerId==='gpsMap'){
+        window.__padGradeMapInstance=this;
+        try{window.dispatchEvent(new CustomEvent('padgrade-map-created',{detail:{map:this}}));}catch(e){}
+      }
     }
   }
   try{Object.setPrototypeOf(PadGradeCapturedMap,OriginalMap);}catch(e){}
