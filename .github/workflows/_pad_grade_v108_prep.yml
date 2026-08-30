@@ -1,0 +1,298 @@
+name: Pad Grade v1.0.8 staging prep
+
+on:
+  push:
+    branches:
+      - pad-grade-dev-v108-recovery-compare-diag
+
+permissions:
+  contents: write
+
+jobs:
+  prep:
+    if: ${{ !contains(github.event.head_commit.message, '[v108-prep]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pad-grade-dev-v108-recovery-compare-diag
+          fetch-depth: 0
+      - name: Apply v1.0.8 changes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          def read(path): return Path(path).read_text()
+          def write(path,text): Path(path).write_text(text)
+          def replace_once(text, old, new, label):
+              n=text.count(old)
+              if n!=1: raise SystemExit(f'{label}: expected exactly one match, found {n}')
+              return text.replace(old,new,1)
+
+          # 1) Recovery-reload save guard. Loaded after PadGradeFiles exists but before legacy v040.
+          guard = r'''/* Pad Grade v1.0.8 DEV — recovered-project reload save guard.
+           *
+           * Durable recovery deliberately reloads after restoring the selected project. The
+           * legacy v040 beforeunload autosave must not snapshot the not-yet-applied default
+           * runtime over that recovered project. This guard is active ONLY for an explicitly
+           * planned recovery reload; normal autosave/unload behavior is unchanged.
+           */
+          (function installPadGrade108RecoverySaveGuard(){
+            'use strict';
+            const PROJECT_PREFIX='padGradeProjectV5:',INDEX_KEY='padGradeProjectsV5';
+            const INDEX_FILE='Pad-Grade-Project-Index.pgindex';
+            const diag=()=>window.PadGradeDiag||null;
+            let blocked=false,lastIndexProjectSignature=null;
+            const originalSetItem=Storage.prototype.setItem;
+            function planned(){return window.__padGradeRecoveryReloadPlannedV108===true;}
+            function engage(reason){
+              if(blocked)return;
+              blocked=true;window.__padGradeRecoverySaveBlockV108=true;
+              diag()?.mark?.('recovery.autosave-block-engaged',{reason:String(reason||'recovery-reload')});
+            }
+            function projectWrite(name){const n=String(name||'').toLowerCase();return n.endsWith('.padgrade')||n.endsWith('.padgrade.json');}
+            function indexSignature(text){
+              try{const x=JSON.parse(String(text||''));if(!x||!Array.isArray(x.projects))return null;return JSON.stringify({format:x.format||'',indexVersion:+x.indexVersion||0,projects:x.projects});}catch(e){return null;}
+            }
+            Storage.prototype.setItem=function(key,value){
+              if(this===localStorage&&blocked&&(String(key).startsWith(PROJECT_PREFIX)||String(key)===INDEX_KEY)){
+                diag()?.mark?.('recovery.autosave-local-write-blocked',{keyClass:String(key)===INDEX_KEY?'project-index':'project-body'});return;
+              }
+              return originalSetItem.call(this,key,value);
+            };
+            const files=window.PadGradeFiles;
+            if(files){
+              const baseRead=files.read?.bind(files),baseWrite=files.write?.bind(files),baseWriteResult=files.writeResult?.bind(files);
+              if(baseRead)files.read=async function(filename){
+                const text=await baseRead(filename);
+                if(String(filename)===INDEX_FILE){const sig=indexSignature(text);if(sig)lastIndexProjectSignature=sig;}
+                return text;
+              };
+              if(baseWrite)files.write=async function(filename,text){
+                filename=String(filename||'');
+                if(blocked&&projectWrite(filename)){
+                  diag()?.mark?.('recovery.autosave-durable-write-blocked',{filename});return false;
+                }
+                if(filename===INDEX_FILE){
+                  const sig=indexSignature(text);
+                  if(sig&&sig===lastIndexProjectSignature){diag()?.mark?.('index.write-skipped-unchanged',{source:'v108-io-guard'});return true;}
+                  const ok=await baseWrite(filename,text);if(ok&&sig)lastIndexProjectSignature=sig;return ok;
+                }
+                return baseWrite(filename,text);
+              };
+              if(baseWriteResult)files.writeResult=function(filename,text){
+                filename=String(filename||'');
+                if(blocked&&projectWrite(filename)){
+                  diag()?.mark?.('recovery.autosave-durable-write-blocked',{filename});
+                  return Promise.resolve({ok:false,value:false,text:null,durationMs:0,error:'recovery-reload-save-blocked',filename,op:'write',blocked:true});
+                }
+                return baseWriteResult(filename,text);
+              };
+            }
+            window.addEventListener('beforeunload',()=>{if(planned())engage('planned-recovery-reload');},{capture:true});
+            window.__padGradeRecoverySaveGuardV108={engage,isBlocked:()=>blocked,planned,indexSignature};
+          })();
+          '''.replace('\n          ','\n').lstrip()
+          write('pad-grade/v108-recovery-save-guard.js',guard)
+
+          # 2) Mark every intentional durable-recovery reload so the guard is exact, not broad.
+          for path, old, new in [
+            ('pad-grade/v090-first-run-guard.js',
+             "  function reloadRecoveredDurable(){\n    beginRecoveryVisual();",
+             "  function reloadRecoveredDurable(){\n    window.__padGradeRecoveryReloadPlannedV108=true;\n    try{window.PadGradeDiag?.mark?.('recovery.reload-planned',{owner:'first-run'});}catch(e){}\n    beginRecoveryVisual();"),
+            ('pad-grade/v071-dev.js',
+             "    beginVisualHold();\n    setTimeout(()=>{\n      try{location.reload();}",
+             "    beginVisualHold();\n    window.__padGradeRecoveryReloadPlannedV108=true;\n    try{window.PadGradeDiag?.mark?.('recovery.reload-planned',{owner:'v071'});}catch(e){}\n    setTimeout(()=>{\n      try{location.reload();}"),
+            ('pad-grade/v070-dev.js',
+             "    setTimeout(()=>{try{location.reload();}catch(e){}},40);",
+             "    window.__padGradeRecoveryReloadPlannedV108=true;\n    try{window.PadGradeDiag?.mark?.('recovery.reload-planned',{owner:'v070'});}catch(e){}\n    setTimeout(()=>{try{location.reload();}catch(e){}},40);")]:
+              t=read(path);t=replace_once(t,old,new,path+' recovery marker');write(path,t)
+
+          # 3) In-memory catalog fast path. External folder refreshes dirty it; a verified
+          # reconciliation cleans it. Compare can then open without any SAF/index read.
+          fast = r'''/* Pad Grade v1.0.8 DEV — in-memory durable catalog fast path. */
+          (function installPadGrade108CatalogFastPath(){
+            'use strict';
+            const A=window.PadGradeProjectIndexV107;if(!A||typeof A.ensureCatalog!=='function')return;
+            const diag=()=>window.PadGradeDiag||null;
+            const underlying=A.ensureCatalog.bind(A);let dirty=true,lastVerifiedAt=0;
+            function markDirty(reason){dirty=true;diag()?.mark?.('index.catalog-memory-dirty',{reason:String(reason||'folder-change')});}
+            function markClean(){dirty=false;lastVerifiedAt=Date.now();}
+            window.addEventListener('padgrade-projects-reconciled',markClean);
+            for(const ev of ['padgrade-project-folder-selected','padgrade-project-folder-indexed','padgrade-project-folder-refreshed'])window.addEventListener(ev,()=>markDirty(ev));
+            A.ensureCatalog=async function(){
+              const current=A.catalog?.()||[];
+              if(!dirty&&Array.isArray(current)){
+                diag()?.mark?.('index.catalog-memory-hit',{projects:current.length,ageMs:Math.max(0,Date.now()-lastVerifiedAt)});
+                return {projects:current.length,memoryHit:true,zeroProjectReads:true,changedFiles:0};
+              }
+              const out=await underlying();markClean();return out;
+            };
+            A.markCatalogDirtyV108=markDirty;A.markCatalogCleanV108=markClean;
+            window.__padGradeCatalogMemoryFastPathV108={isDirty:()=>dirty,lastVerifiedAt:()=>lastVerifiedAt};
+          })();
+          '''.replace('\n          ','\n').lstrip()
+          write('pad-grade/v108-index-fastpath.js',fast)
+
+          # 4) Shared raster worker: internal compute timing returned to BOTH normal and comparison parents.
+          p='pad-grade/heatmap-raster-worker-v078.js';t=read(p)
+          t=replace_once(t,"'use strict';\nimportScripts", "'use strict';\nconst pgWorkerNow=()=>typeof performance!=='undefined'&&performance.now?performance.now():Date.now();\nimportScripts",'worker timer helper')
+          t=replace_once(t,"function build(msg){\n  const points=", "function build(msg){\n  const workerStarted=pgWorkerNow();\n  const points=",'worker start')
+          t=replace_once(t,"  const surface=PadGradeLocalSurface.rasterize({nx,ny,width,length,points,flipY:true});", "  const rasterStarted=pgWorkerNow();\n  const surface=PadGradeLocalSurface.rasterize({nx,ny,width,length,points,flipY:true});\n  const rasterEnded=pgWorkerNow();",'worker raster timing')
+          t=replace_once(t,"  const rgba=new Uint8ClampedArray(nx*ny*4);", "  const colorStarted=pgWorkerNow();\n  const rgba=new Uint8ClampedArray(nx*ny*4);",'worker color start')
+          old="  postMessage({type:'complete',jobId:msg.jobId,tier:+msg.tier,nx,ny,cells:surface.cells,buffer:rgba.buffer},[rgba.buffer]);"
+          new="  const colorEnded=pgWorkerNow();\n  postMessage({type:'complete',jobId:msg.jobId,tier:+msg.tier,nx,ny,cells:surface.cells,context:msg.context||'regular',workerElapsedMs:+(colorEnded-workerStarted).toFixed(1),rasterizeElapsedMs:+(rasterEnded-rasterStarted).toFixed(1),colorElapsedMs:+(colorEnded-colorStarted).toFixed(1),setupElapsedMs:+(rasterStarted-workerStarted).toFixed(1),buffer:rgba.buffer},[rgba.buffer]);"
+          t=replace_once(t,old,new,'worker completion timing');write(p,t)
+
+          # 5) Normal project heat map: parent post -> worker -> canvas -> MapLibre timing.
+          p='pad-grade/v063-dev.js';t=read(p)
+          a=t.index('  function buildRaster(tier,points,key){');b=t.index('\n  function syncSurface(){',a)
+          normal_func=r'''  function buildRaster(tier,points,key){
+            if(activeJob||!points||points.length<3)return;
+            const map=mapInstance();if(!mapUsable(map))return;
+            const r=resolutionForTier(tier),jobId=++jobSerial,now=()=>typeof performance!=='undefined'&&performance.now?performance.now():Date.now();
+            let w;
+            try{w=new Worker(WORKER_URL);}catch(e){console.warn('Pad Grade heat-map raster worker could not start',e);return;}
+            const job={id:jobId,key,tier,resolution:r,postedAt:0};worker=w;activeJob=job;
+
+            w.onmessage=event=>{
+              const msg=event.data||{};
+              if(!activeJob||activeJob.id!==jobId||msg.jobId!==jobId)return;
+              if(msg.type==='empty'||msg.type==='error'){
+                if(msg.type==='error')console.warn('Pad Grade heat-map raster worker error',msg.message||'unknown');
+                try{w.terminate();}catch(e){}worker=null;activeJob=null;return;
+              }
+              if(msg.type!=='complete')return;
+              const receivedAt=now(),postToWorkerMs=job.postedAt?receivedAt-job.postedAt:null;
+              try{window.PadGradeDiag?.mark?.('heatmap.regular-worker-complete',{tier,nx:msg.nx,ny:msg.ny,postToWorkerMs:Number.isFinite(postToWorkerMs)?+postToWorkerMs.toFixed(1):undefined,workerElapsedMs:msg.workerElapsedMs,rasterizeElapsedMs:msg.rasterizeElapsedMs,colorElapsedMs:msg.colorElapsedMs,setupElapsedMs:msg.setupElapsedMs});}catch(e){}
+              try{w.terminate();}catch(e){}worker=null;
+              try{
+                const canvasStarted=now(),canvas=canvasFromBuffer(msg),canvasElapsedMs=now()-canvasStarted;
+                if(!activeJob||activeJob.id!==jobId||currentSurfaceKey!==key){activeJob=null;return;}
+                const installStarted=now(),installed=installRasterCanvas(canvas,key,tier,msg.nx,msg.ny),installElapsedMs=now()-installStarted,totalMs=job.postedAt?now()-job.postedAt:null;
+                if(installed)try{window.PadGradeDiag?.mark?.('heatmap.regular-visible',{tier,nx:msg.nx,ny:msg.ny,totalPostToVisibleMs:Number.isFinite(totalMs)?+totalMs.toFixed(1):undefined,workerElapsedMs:msg.workerElapsedMs,rasterizeElapsedMs:msg.rasterizeElapsedMs,colorElapsedMs:msg.colorElapsedMs,canvasElapsedMs:+canvasElapsedMs.toFixed(1),installElapsedMs:+installElapsedMs.toFixed(1)});}catch(e){}
+                activeJob=null;
+                if(installed&&tier===LOW_TIER)scheduleHigh(measuredPoints(),key);
+              }catch(error){
+                console.warn('Pad Grade heat-map canvas conversion failed',error);
+                if(activeJob&&activeJob.id===jobId)activeJob=null;
+              }
+            };
+            w.onerror=event=>{
+              console.warn('Pad Grade heat-map raster worker crashed',event?.message||event);
+              try{w.terminate();}catch(e){}worker=null;if(activeJob&&activeJob.id===jobId)activeJob=null;
+            };
+
+            try{
+              job.postedAt=now();
+              try{window.PadGradeDiag?.mark?.('heatmap.regular-worker-posted',{tier,nx:r.nx,ny:r.ny,points:points.length,jobId});}catch(e){}
+              w.postMessage({type:'build',context:'regular',jobId,tier,nx:r.nx,ny:r.ny,rowsPerSlice:tier===LOW_TIER?18:10,settings:{width:cfg().width,length:cfg().length,target:cfg().target,tol:cfg().tol},points});
+            }catch(e){
+              console.warn('Pad Grade heat-map raster request failed',e);
+              try{w.terminate();}catch(ignore){}worker=null;activeJob=null;
+            }
+          }
+          '''.replace('\n          ','\n')
+          t=t[:a]+normal_func+t[b:];write(p,t)
+
+          # 6) Final comparison presentation, immediate worker kickoff, buffering, and detailed timing.
+          p='pad-grade/v107-compare-fast.js';t=read(p)
+          t=t.replace('Pad Grade v1.0.7 DEV — indexed progressive project comparison.','Pad Grade v1.0.8 DEV — indexed progressive project comparison.')
+          t=replace_once(t,"const VERSION='v1.0.7 DEV'", "const VERSION='v1.0.8 DEV'",'compare version')
+          t=t.replace("heatmap-raster-worker-v078.js?v=20260826-3","heatmap-raster-worker-v078.js?v=20260830-4")
+          old="const $=id=>document.getElementById(id),diag=()=>window.PadGradeDiag||null;let M=null,W=null,O=null,P=null,K=null,S=null,serial=0,slot=null,canv=[null,null],cat=[];window.__padGradeCompareFastV107=true;"
+          new="const $=id=>document.getElementById(id),diag=()=>window.PadGradeDiag||null,now=()=>typeof performance!=='undefined'&&performance.now?performance.now():Date.now();let M=null,W=null,O=null,P=null,K=null,S=null,serial=0,slot=null,canv=[null,null],cat=[],mapReady=false,pendingHeat=new Map(),heatJobs=new Map();window.__padGradeCompareFastV107=true;window.__padGradeCompareFastV108=true;"
+          t=replace_once(t,old,new,'compare state')
+          anchor="const api=()=>window.PadGradeProjectIndexV107,core=()=>window.PadGradeProjectCompareCore;"
+          style_func=r'''const api=()=>window.PadGradeProjectIndexV107,core=()=>window.PadGradeProjectCompareCore;
+          function installCompareStyle(){if(document.getElementById('pgCompareV108Style'))return;const s=document.createElement('style');s.id='pgCompareV108Style';s.textContent=`
+          .pgCompareOverlay{grid-template-rows:auto minmax(0,1fr) auto!important}
+          .pgCompareLegend{display:none!important}
+          .pgCompareLegendV086{padding:8px 14px 10px;background:#10161d;border-top:1px solid #2d3947}
+          .pgCompareLegendBar{height:10px;display:grid;grid-template-columns:1fr .18fr 1fr;border-radius:6px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+          .pgCompareLegendBar .cut{background:linear-gradient(90deg,#b42d23 0%,#e67e2d 55%,#f7c45c 100%)}
+          .pgCompareLegendBar .grade{background:#4f8f3a}
+          .pgCompareLegendBar .fill{background:linear-gradient(90deg,#67cddc 0%,#3689cd 55%,#2850c8 100%)}
+          .pgCompareLegendLabels{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;margin-top:4px;font-size:10px;font-weight:800;color:#c9d1da}
+          .pgCompareLegendLabels span:nth-child(2){text-align:center;white-space:nowrap}.pgCompareLegendLabels span:last-child{text-align:right}`;document.head.appendChild(s);}
+          '''.replace('\n          ','\n').rstrip()
+          t=replace_once(t,anchor,style_func,'compare style insertion')
+          # Map-ready flush happens immediately after authoritative grid installation.
+          t=replace_once(t,"diag()?.mark?.('compare.grid-visible',{rows:c.rows,cols:c.cols});}","diag()?.mark?.('compare.grid-visible',{rows:c.rows,cols:c.cols});mapReady=true;flushPendingHeat();}",'compare map ready')
+          hs=t.index('function res(t){');he=t.index('\nfunction probe(e){',hs)
+          heat_block=r'''function res(t){const c=S.comparison,m=Math.max(c.width,c.length,1);return{nx:Math.max(64,Math.round(t*c.width/m)),ny:Math.max(64,Math.round(t*c.length/m))};}function sid(s){return`${HP}source-${s}`;}function lid(s){return`${HP}layer-${s}`;}function remove(s){try{if(M?.getLayer?.(lid(s)))M.removeLayer(lid(s));if(M?.getSource?.(sid(s)))M.removeSource(sid(s));}catch(e){}canv[s]=null;}function canvas(m){const c=document.createElement('canvas');c.width=m.nx;c.height=m.ny;const x=c.getContext('2d'),i=x.createImageData(m.nx,m.ny);i.data.set(new Uint8ClampedArray(m.buffer));x.putImageData(i,0,0);return c;}
+          function heat(c,t,meta={}){if(!M||!mapReady)return false;const installStarted=now();let old=slot,n=old===0?1:0;remove(n);M.addSource(sid(n),{type:'canvas',canvas:c,coordinates:coords(),animate:false});M.addLayer({id:lid(n),type:'raster',source:sid(n),paint:{'raster-opacity':.62,'raster-fade-duration':0}},GL);canv[n]=c;slot=n;requestAnimationFrame(()=>requestAnimationFrame(()=>{if(old!==null&&old!==n&&slot===n)remove(old);}));$('pgCompareMapMessage')?.classList.add('hidden');const j=heatJobs.get(t)||{},total=j.postedAt?now()-j.postedAt:null,installMs=now()-installStarted,d={tier:t,nx:c.width,ny:c.height,totalPostToVisibleMs:Number.isFinite(total)?+total.toFixed(1):undefined,workerElapsedMs:meta.workerElapsedMs,rasterizeElapsedMs:meta.rasterizeElapsedMs,colorElapsedMs:meta.colorElapsedMs,canvasElapsedMs:meta.canvasElapsedMs,installElapsedMs:+installMs.toFixed(1)};diag()?.mark?.(t===LOW?'compare.low-heat-visible':'compare.high-heat-visible',d);diag()?.mark?.('compare.heat-visible',d);heatJobs.delete(t);return true;}
+          function flushPendingHeat(){if(!mapReady||!M)return;for(const t of[LOW,HIGH]){const p=pendingHeat.get(t);if(!p)continue;pendingHeat.delete(t);heat(p.canvas,t,p.meta);}}
+          function post(t,s){if(!W||s!==serial||!S?.comparison)return;let r=res(t),c=S.comparison,postedAt=now();heatJobs.set(t,{postedAt,nx:r.nx,ny:r.ny});diag()?.mark?.('compare.heat-worker-posted',{tier:t,nx:r.nx,ny:r.ny,points:c.points.length,jobId:s});W.postMessage({type:'build',context:'comparison',jobId:s,tier:t,nx:r.nx,ny:r.ny,rowsPerSlice:t===LOW?18:10,settings:{width:c.width,length:c.length,target:0,tol:c.tolerance},points:c.points});}
+          function startHeat(s){if(W||s!==serial||!S?.comparison)return;try{W=new Worker(WORKER);}catch(e){return;}W.onmessage=e=>{let m=e.data||{};if(s!==serial||!W)return;if(m.type==='complete'){const tier=+m.tier,j=heatJobs.get(tier)||{},postToWorkerMs=j.postedAt?now()-j.postedAt:null;diag()?.mark?.('compare.heat-worker-complete',{tier,nx:m.nx,ny:m.ny,postToWorkerMs:Number.isFinite(postToWorkerMs)?+postToWorkerMs.toFixed(1):undefined,workerElapsedMs:m.workerElapsedMs,rasterizeElapsedMs:m.rasterizeElapsedMs,colorElapsedMs:m.colorElapsedMs,setupElapsedMs:m.setupElapsedMs});const canvasStarted=now(),cnv=canvas(m),canvasMs=now()-canvasStarted,meta={workerElapsedMs:m.workerElapsedMs,rasterizeElapsedMs:m.rasterizeElapsedMs,colorElapsedMs:m.colorElapsedMs,canvasElapsedMs:+canvasMs.toFixed(1)};if(mapReady&&M)heat(cnv,tier,meta);else{pendingHeat.set(tier,{canvas:cnv,meta});diag()?.mark?.('compare.heat-buffered-until-map',{tier});}if(tier===LOW)setTimeout(()=>post(HIGH,s),100);else{W.terminate();W=null;}}};post(LOW,s);}
+          '''.replace('\n          ','\n').rstrip()
+          t=t[:hs]+heat_block+t[he:]
+          t=t.replace("function close(){serial++;try{W?.terminate();P?.remove();K?.remove();M?.remove();}catch(e){}W=M=P=K=null;O?.remove();O=null;slot=null;canv=[null,null];S=null;}","function close(){serial++;try{W?.terminate();P?.remove();K?.remove();M?.remove();}catch(e){}W=M=P=K=null;O?.remove();O=null;slot=null;canv=[null,null];S=null;mapReady=false;pendingHeat.clear();heatJobs.clear();}")
+          t=replace_once(t,"function shell(a,b,c){close();serial++;O=document.createElement('div');", "function shell(a,b,c){close();serial++;installCompareStyle();O=document.createElement('div');",'compare shell style')
+          t=replace_once(t,"geometry();M.on('click',probe);startHeat(s);", "geometry();M.on('click',probe);",'remove late heat kickoff')
+          t=replace_once(t,"S={first:x,second:y,comparison:cmp,geometry:g};makeMap(g,serial);", "S={first:x,second:y,comparison:cmp,geometry:g};startHeat(serial);makeMap(g,serial);",'early heat kickoff')
+          write(p,t)
+
+          # 7) Ensure the redirect points at the newly instrumented shared worker.
+          p='pad-grade/v078-dev.js';t=read(p);t=t.replace("heatmap-raster-worker-v078.js?v=20260826-3","heatmap-raster-worker-v078.js?v=20260830-4");write(p,t)
+
+          # 8) Load the recovery guard before legacy workflow and gate Compare on the v108 catalog fast path.
+          p='pad-grade/v096-native-async.js';t=read(p)
+          t=t.replace('Pad Grade v1.0.7 DEV — Promise-based durable file bridge.','Pad Grade v1.0.8 DEV — Promise-based durable file bridge.')
+          t=t.replace("version:'1.0.7'","version:'1.0.8'")
+          old="  function loadCompareFast(){\n    if(document.querySelector('script[data-padgrade-v107-compare-fast]'))return;"
+          new="  function loadCompareFast(){\n    if(!window.__padGradeCatalogMemoryFastPathV108){const existingFast=document.querySelector('script[data-padgrade-v108-index-fastpath]');if(existingFast){existingFast.addEventListener('load',loadCompareFast,{once:true});return;}const fast=document.createElement('script');fast.src='v108-index-fastpath.js?v=20260830-1';fast.async=false;fast.dataset.padgradeV108IndexFastpath='1';fast.onload=loadCompareFast;fast.onerror=()=>console.error('Pad Grade v1.0.8 catalog fast path failed to load');(document.head||document.documentElement).appendChild(fast);return;}\n    if(document.querySelector('script[data-padgrade-v107-compare-fast]'))return;"
+          t=replace_once(t,old,new,'v096 fastpath loader')
+          t=t.replace("v107-compare-fast.js?v=20260830-1","v107-compare-fast.js?v=20260830-2")
+          t=t.replace('Pad Grade v1.0.7 indexed comparison module failed to load','Pad Grade v1.0.8 indexed comparison module failed to load')
+          write(p,t)
+
+          # 9) Parser-order load of guard after async bridge exists and before v040 is dynamically loaded.
+          p='pad-grade/index.html';t=read(p)
+          t=t.replace('<title>Pad Grade Mapper v1.0.7 DEV</title>','<title>Pad Grade Mapper v1.0.8 DEV</title>')
+          old='<script src="v096-native-async.js?v=20260829-4"></script>'
+          new='<script src="v096-native-async.js?v=20260830-2"></script>\n<script src="v108-recovery-save-guard.js?v=20260830-1"></script>'
+          t=replace_once(t,old,new,'index guard loader');write(p,t)
+
+          # 10) Android version/build.
+          p='pad-grade-android/app/build.gradle.kts';t=read(p);t=replace_once(t,'versionCode = 79','versionCode = 80','versionCode');t=replace_once(t,'versionName = "1.0.7"','versionName = "1.0.8"','versionName');write(p,t)
+
+          # 11) Detailed changelog entries.
+          entry='''## v1.0.8 — development build\n\n### Added\n- Added matching heat-map timing diagnostics for the normal project surface and Project Comparison. Both 304-tier and 888-tier jobs now record worker-post time, worker completion time, worker internal total/rasterization/color timing, canvas conversion time, MapLibre install time, and total post-to-visible time so the two paths can be compared directly from one exported diagnostic log.\n- Added an explicit recovered-project reload save guard. Intentional durable-recovery reloads are marked before unload, and only that unload is prevented from persisting a not-yet-applied runtime snapshot over the recovered project.\n\n### Changed\n- Project Comparison now starts its 304-tier heat-map worker immediately after the two projects have been loaded and the comparison values/shared geometry have been computed. MapLibre creation, style loading, grid installation, and imagery loading proceed in parallel; a raster that somehow finishes before the map is ready is buffered and installed as soon as the authoritative comparison grid exists.\n- The comparison picker now uses an already-verified in-memory durable catalog without rereading `Pad-Grade-Project-Index.pgindex` or touching SAF. Folder select/index/refresh events explicitly dirty that cache so externally copied or replaced files still force a real reconciliation before the catalog is trusted again.\n- Unchanged durable-index rewrites are suppressed. The indexed project entries are compared independently of the index `updatedAt` timestamp, so a reconciliation that proves the same project catalog no longer writes the same `.pgindex` contents back to SAF.\n- Android DEV package is **version 1.0.8 / build 80**. Schema 6 and its tested schema-6 → schema-5 rollback path are unchanged, and the fixed 15% GPS-map hitbox behavior is unchanged.\n\n### Fixed\n- Fixed a first-install recovery race where a correctly recovered/upgraded project could be overwritten during the intentional recovery reload by the legacy before-unload autosave snapshot. The diagnostic log that exposed this showed an approximately 18 KB recovered project being rewritten to roughly 1.1 KB; v1.0.8 blocks that recovery-only snapshot while leaving ordinary autosave intact.\n- Fixed the Project Comparison legend bar disappearing while its CUT / GRADE / FILL text remained visible. The authoritative comparison renderer now owns the gradient-bar CSS instead of depending on the retired v0.8.6 presentation override.\n- Removed the remaining comparison-picker delay caused by forcing a durable reconciliation even when the in-memory catalog had already been verified and no folder-change event had occurred.\n\n### Known issues / DEV verification\n- Re-test a clean install against an existing durable folder and verify the previous active project opens with its readings/GPS state intact and that no unexpectedly tiny replacement project file is written during the recovery reload.\n- Export a diagnostic log after allowing both the normal project heat map and comparison heat map to reach 304 and 888 tiers. Compare `heatmap.regular-*` against `compare.heat-*` events before changing the shared interpolation algorithm.\n- Confirm the comparison CUT / GRADE / FILL gradient bar, grid labels, probe behavior, imagery, Android Back exit, and progressive heat-map replacement before stable promotion.\n\n'''
+          for p in ['pad-grade/CHANGELOG.md','pad-grade-android/CHANGELOG.md']:
+              text=read(p);marker='## v1.0.7 — development build'
+              if marker not in text: raise SystemExit(f'{p}: v1.0.7 marker missing')
+              text=text.replace(marker,entry+marker,1);write(p,text)
+
+          # Basic source assertions before committing staging candidate.
+          checks={
+            'pad-grade/v108-recovery-save-guard.js':['recovery.autosave-block-engaged','index.write-skipped-unchanged'],
+            'pad-grade/v108-index-fastpath.js':['index.catalog-memory-hit','padgrade-project-folder-refreshed'],
+            'pad-grade/v107-compare-fast.js':['v1.0.8 DEV','compare.heat-worker-posted','compare.heat-worker-complete','compare.heat-visible','linear-gradient(90deg','#4f8f3a','startHeat(serial);makeMap'],
+            'pad-grade/v063-dev.js':['heatmap.regular-worker-posted','heatmap.regular-worker-complete','heatmap.regular-visible',"context:'regular'"],
+            'pad-grade/heatmap-raster-worker-v078.js':['workerElapsedMs','rasterizeElapsedMs','colorElapsedMs'],
+            'pad-grade/index.html':['v1.0.8 DEV','v108-recovery-save-guard.js'],
+            'pad-grade-android/app/build.gradle.kts':['versionCode = 80','versionName = "1.0.8"']}
+          for path,needles in checks.items():
+              body=read(path)
+              for needle in needles:
+                  if needle not in body: raise SystemExit(f'{path}: missing {needle}')
+          PY
+
+          node --check pad-grade/v108-recovery-save-guard.js
+          node --check pad-grade/v108-index-fastpath.js
+          node --check pad-grade/v107-compare-fast.js
+          node --check pad-grade/v063-dev.js
+          node --check pad-grade/heatmap-raster-worker-v078.js
+          node --check pad-grade/v096-native-async.js
+          node --check pad-grade/v090-first-run-guard.js
+          node --check pad-grade/v071-dev.js
+          node --check pad-grade/v070-dev.js
+
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add pad-grade pad-grade-android
+          git commit -m "Pad Grade v1.0.8 recovery compare diagnostics [v108-prep]"
+          git push origin HEAD:pad-grade-dev-v108-recovery-compare-diag
