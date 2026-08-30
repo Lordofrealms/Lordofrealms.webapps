@@ -4,6 +4,36 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v1.0.4 — development build
+
+### Added
+- Added a diagnostic-only GPS/MapLibre map-tap tracer for the intermittent condition where tapping one visible survey point can open another point's **Enter Reading** dialog.
+- Each completed map tap records the raw browser/Android touch `clientX/clientY`, MapLibre's `event.point`, the screen point independently reconstructed from the touch and canvas rectangle, and the X/Y delta between those two coordinate systems.
+- Tap diagnostics record the MapLibre canvas and map-container bounding rectangles, internal MapLibre viewport size, CSS/client canvas size, backing-bitmap size, device-pixel ratio, and any effective display scale between the internal viewport and visible canvas.
+- For every tap, Pad Grade independently projects all configured survey-grid points into screen space and records both the point nearest the physical touch and the point nearest MapLibre's interpreted event position, along with pixel distances and X/Y offsets.
+- The diagnostic records the point feature returned by `queryRenderedFeatures`, the final point shown in the **Enter Reading** dialog, and the number/identity of `openPoint()` calls associated with the same physical tap. This is intended to distinguish a canvas/event-coordinate offset from stale feature identity or duplicate historical click handlers.
+- Added a temporary magenta **ML** crosshair on the GPS map for about 2.6 seconds after a tap. The crosshair is drawn at MapLibre's interpreted event point and has `pointer-events:none`, so it cannot intercept or redirect the tap.
+
+### Changed
+- Android DEV package is version **1.0.4 / build 76**. Build 75 remains consumed and is not reused.
+- This build intentionally keeps the v1.0.2 map-point selection behavior unchanged: no hitbox enlargement, nearest-point fallback, touch remapping, or alternate point-selection algorithm has been added yet.
+- The active development baseline was restored to the exact tested v1.0.2 runtime before adding these diagnostics; the withdrawn v1.0.3 lower-grid experiment is not part of this build.
+- The page title and diagnostic runtime marker identify this package as **v1.0.4 DEV**, and the new diagnostic module is cache-busted in `index.html`.
+
+### Known issues
+- The underlying map-point misselection is intentionally **not fixed in this diagnostic build**. Reproduce several correct and incorrect point taps, then export the diagnostic log from **Settings → Advanced Settings**. The most useful entries are `map.tap-alignment`, `map.tap-open-point`, and `map.tap-dialog-result`.
+- Diagnostic logging must be enabled for the tap records to persist. DEV builds default it on unless it was previously turned off in Advanced Settings.
+- The temporary **ML** crosshair is diagnostic UI only and should be removed once the map hit-test issue is understood.
+
+## v1.0.3 — withdrawn development build
+
+### Changed
+- v1.0.3 attempted to correct suspected hitbox misalignment by changing compatibility sizing rules for the **lower rectangular measurement grid**.
+
+### Known issues
+- Field review established that the reported problem is on the **GPS/MapLibre survey-point grid**, not the lower rectangular measurement grid. The v1.0.3 runtime changes were therefore withdrawn and completely rolled back before v1.0.4 work began.
+- No v1.0.3 lower-grid behavior is carried forward into the active development branch.
+
 ## v1.0.2 — development build
 
 ### Changed
