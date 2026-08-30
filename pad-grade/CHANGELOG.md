@@ -4,6 +4,21 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v1.0.6 — development build
+
+### Changed
+- Promoted the GPS/MapLibre survey-point near-miss padding from the v1.0.5 field-test control to a fixed **15% of projected point-to-point spacing**. Field testing found 15% noticeably easier to hit than the original visible circles without feeling excessively large or intrusive.
+- Removed the user-facing **Map grid hitbox padding** slider from **Settings → Advanced Settings**. The release-candidate runtime ignores any `mapGridHitboxPaddingPct` value left in local preferences by v1.0.5 and always uses the fixed 15% behavior.
+- Removed the user-facing **Map tap diagnostics** switch and stopped loading the v1.0.4 map-tap tracer/crosshair during normal startup. Any old `mapTapDiagnosticsEnabled` preference is therefore inert in this build. The general application diagnostic timing log remains a separate existing Advanced Settings feature.
+- Kept the v1.0.5 safety rules unchanged: taps directly on visible point circles use the established MapLibre layer-click path; expanded hit testing only supplements near misses; total clickable semi-axes remain capped at **45% of neighboring point spacing**; a near miss must match exactly one point; there is no nearest-point fallback or tie-breaking guess; and **Probe Surface** mode owns its taps without expanded measurement-point hit testing.
+- Android DEV package is **version 1.0.6 / build 78**. Build 77 remains the adjustable v1.0.5 field-test package and is not reused.
+- The lower rectangular measurement grid remains unchanged from the restored v1.0.2 baseline; the withdrawn v1.0.3 lower-grid experiment remains absent.
+- This build is intended as the final DEV confirmation of the field-selected map hitbox behavior before promotion to the stable channel, assuming device verification is clean.
+
+### Known issues
+- This is still a development build. Confirm normal point-center taps, a representative set of near-miss taps a few pixels outside the visible circles, **Probe Surface**, project switching, and ordinary GPS-guided recording once more on-device before stable promotion.
+- The earlier intermittent wrong-point opening was not reproduced during diagnostic testing. v1.0.6 therefore preserves the exact-one-match/dead-space safeguards rather than claiming to have corrected an unconfirmed coordinate-offset defect.
+
 ## v1.0.5 — development build
 
 ### Added

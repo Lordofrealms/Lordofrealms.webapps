@@ -6,6 +6,19 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v1.0.6 — development build
+
+### Changed
+- Bumped the separately installable DEV Android package to **version 1.0.6 / versionCode 78**. Build 77 remains the published v1.0.5 adjustable hitbox test and is not reused.
+- Packaged the field-selected GPS-map survey-point near-miss padding as a fixed **15% of projected point spacing** instead of exposing the v1.0.5 0–45% Advanced Settings slider. Existing v1.0.5 slider preferences are ignored.
+- Removed the map-specific **Map tap diagnostics** Advanced Settings control from the packaged runtime and no longer load the v1.0.4 MapLibre tap tracer or temporary **ML** crosshair during normal startup. Existing map-diagnostic preferences are inert.
+- Preserved the safety behavior validated in v1.0.5: visible-circle taps retain the existing MapLibre selection path; expanded hitboxes remain oriented with the projected grid; total semi-axes are capped at 45% of point spacing; exactly one expanded target must match; there is no nearest-point fallback; and Probe Surface bypasses expanded measurement hit testing.
+- The lower rectangular measurement grid is unchanged and the withdrawn v1.0.3 experiment remains absent.
+- This APK is the release-candidate DEV confirmation build intended for one final device check before stable promotion.
+
+### Known issues
+- Complete one final field pass at normal working zoom, including near-miss point taps and Probe Surface, before promoting this exact behavior to stable.
+
 ## v1.0.5 — development build
 
 ### Added
