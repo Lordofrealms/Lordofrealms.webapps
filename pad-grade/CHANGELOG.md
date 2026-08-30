@@ -4,6 +4,28 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v1.1.2 — development build
+
+### Added
+- Added a **DEV heat-map resolution inspector** directly below the GPS map. It passively captures the completed 99, 297, and 891 regular-project heat-map rasters produced by the existing engine and lets the tester select the exact 99, 297, or 891 raster for visual comparison.
+- Added a continuous 99 ↔ 297 ↔ 891 inspection slider. Positions between exact tier stops cross-fade the two neighboring completed rasters for visual comparison only; the intermediate slider positions do **not** calculate a new interpolation resolution or alter the underlying surface.
+- Added an **Auto** control that returns the map to the normal staged heat-map behavior, plus readiness/status text showing which of the 99/297/891 rasters have actually completed and are available for inspection.
+
+### Changed
+- Project switching now keeps the Projects dialog covering the map while a lazily loaded target project is being read. Once the selected project is ready, Pad Grade clears the outgoing project's project-owned grid/route/heat-map overlays before closing the dialog and applying the new project, avoiding a visible flash of the previous project during the load transition.
+- Android DEV package is **version 1.1.2 / build 84**. This build is intentionally a diagnostic comparison build rather than a heat-map algorithm change.
+- The authoritative v1.1.1 heat-map worker, IDW interpolation, color normalization, tier dimensions, 99/297 concurrent start, deferred 891 scheduling, and monotonic whole-raster promotion are intentionally unchanged. The proposed measured-point/anchor color modification was **not** applied in this build.
+- Schema 6, schema-6 → schema-5 rollback, durable project indexing/recovery protections, the fixed 15% GPS-map hitbox behavior, and Project Comparison's independent heat-map path are unchanged.
+
+### Fixed
+- Fixed the project-opening/loading presentation issue where the project chooser could close before the selected project's lazy load had completed, briefly exposing the outgoing project's map/grid/heat map during the switch.
+
+### DEV verification
+- On a project with a completed heat map, compare the exact **99**, **297**, and **891** slider stops. Those exact stops display copies of the actual completed rasters from the unchanged heat-map engine and are the authoritative comparison points for deciding whether the later proposed color fix is appropriate.
+- Scrub between 99 → 297 and 297 → 891 to observe the visual transition, remembering that the in-between view is only an opacity cross-fade of two completed rasters, not a newly calculated resolution.
+- Return to **Auto** and confirm normal staged 99/297/891 promotion still behaves as in v1.1.1.
+- Switch repeatedly between projects, including projects that require lazy durable-file reads, and confirm the Projects dialog remains over the map until the target project is ready and the previous project's overlays are not flashed after the dialog closes.
+
 ## v1.1.1 — development build
 
 ### Added

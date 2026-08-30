@@ -6,6 +6,25 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v1.1.2 — development build
+
+### Added
+- Packaged the **DEV heat-map resolution inspector** beneath the GPS map. The inspector can display the exact completed 99, 297, and 891 regular-project rasters and can cross-fade neighboring completed tiers while the tester scrubs between the exact stops.
+- Added an **Auto** control and tier-readiness/status display so the diagnostic view can be returned to the normal staged heat-map presentation and the tester can see which rasters are actually available.
+
+### Changed
+- Packaged the revised project-switch presentation: the Projects dialog remains visible while a lazily loaded target project is read, then the outgoing project's project-owned map overlays are cleared before the dialog closes and the new project is applied.
+- Bumped the separately installable DEV package to **version 1.1.2 / versionCode 84**. Build 83 remains the v1.1.1 resilience/startup package and is not reused.
+- The packaged heat-map worker, interpolation math, color normalization, tier dimensions, 99/297 concurrent start, deferred 891 scheduling, and monotonic promotion are unchanged from v1.1.1. The proposed measured-point/anchor color change is intentionally **not** present in this diagnostic APK.
+- Schema 6, rollback behavior, durable indexing/recovery protections, the fixed 15% GPS-map hitbox behavior, and Project Comparison's independent heat-map path are unchanged.
+
+### Fixed
+- Fixed the visible old-project flash during lazy project switching by keeping the chooser over the map until the target project is ready and clearing outgoing project-owned overlays before revealing the switched map.
+
+### DEV verification
+- Compare the exact 99/297/891 stops on-device before approving any later heat-map color change. Intermediate slider positions are display-only cross-fades, not additional calculated resolutions.
+- Confirm **Auto** restores the normal staged heat-map display and that repeated lazy project switches no longer reveal the outgoing project's map content between chooser close and target-project application.
+
 ## v1.1.1 — development build
 
 ### Added
