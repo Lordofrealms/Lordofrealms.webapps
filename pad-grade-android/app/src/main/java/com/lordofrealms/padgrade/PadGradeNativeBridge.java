@@ -40,6 +40,8 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
     private final Sensor rotationSensor;
     private final Object folderCacheLock = new Object();
     private final Map<String, DocumentFile> projectFileCache = new LinkedHashMap<>();
+    private final Map<String, Long> projectFileSizeCache = new LinkedHashMap<>();
+    private final Map<String, Long> projectFileModifiedCache = new LinkedHashMap<>();
     private final ExecutorService fileExecutor = Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r, "PadGradeFileIO");
         thread.setDaemon(true);
@@ -76,7 +78,7 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
     @JavascriptInterface public boolean saveTextFile(String filename, String mimeType, String text) { return activity.requestSaveTextFile(filename, mimeType, text); }
     @JavascriptInterface public void chooseProjectFolder() { activity.requestProjectFolder(); }
     @JavascriptInterface public boolean hasProjectFolder() { return getProjectFolder() != null; }
-    /** Cheap v0.9.6 startup probe: reports a configured folder URI without querying the SAF provider. */
+    /** Cheap startup probe: reports a configured folder URI without querying the SAF provider. */
     @JavascriptInterface public boolean hasProjectFolderConfigured() {
         String raw = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(PROJECT_FOLDER_URI, null);
         return raw != null && !raw.isBlank();
@@ -84,6 +86,12 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
     @JavascriptInterface public boolean isProjectFolderIndexReady() { return projectFileCacheLoaded; }
     @JavascriptInterface public boolean isProjectFolderRecoveryPending() { return projectFolderRecoveryPending; }
     @JavascriptInterface public void completeProjectFolderRecovery() { projectFolderRecoveryPending = false; }
+
+    private static boolean isProjectCandidateName(String name) {
+        if (name == null) return false;
+        String lower = name.toLowerCase();
+        return lower.endsWith(".padgrade") || lower.endsWith(".padgrade.json") || lower.endsWith(".json");
+    }
 
     @JavascriptInterface public String listProjectFiles() {
         JSONArray out = new JSONArray();
@@ -97,11 +105,30 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
                 String name = entry.getKey();
                 DocumentFile file = entry.getValue();
                 // The directory walk already populated this cache on the background index thread.
-                // Do not call DocumentFile.isFile() here: TreeDocumentFile may query the provider again,
-                // turning a cached JS list request into one synchronous SAF query per entry.
-                if (name == null || file == null) continue;
-                String lower = name.toLowerCase();
-                if (lower.endsWith(".padgrade") || lower.endsWith(".padgrade.json") || lower.endsWith(".json")) out.put(name);
+                // Do not call DocumentFile.isFile() here: TreeDocumentFile may query the provider again.
+                if (name == null || file == null || !isProjectCandidateName(name)) continue;
+                out.put(name);
+            }
+        }
+        return out.toString();
+    }
+
+    /** v1.0.7: cheap metadata view served only from the background-built cache. */
+    @JavascriptInterface public String listProjectFileDetails() {
+        JSONArray out = new JSONArray();
+        if (getProjectFolder() == null) return out.toString();
+        if (!projectFileCacheLoaded) { primeProjectFileCacheAsync(); return out.toString(); }
+        synchronized (folderCacheLock) {
+            for (Map.Entry<String, DocumentFile> entry : projectFileCache.entrySet()) {
+                String name = entry.getKey();
+                if (!isProjectCandidateName(name) || entry.getValue() == null) continue;
+                JSONObject item = new JSONObject();
+                try {
+                    item.put("name", name);
+                    item.put("size", Math.max(0L, projectFileSizeCache.getOrDefault(name, 0L)));
+                    item.put("lastModified", Math.max(0L, projectFileModifiedCache.getOrDefault(name, 0L)));
+                    out.put(item);
+                } catch (Exception ignored) {}
             }
         }
         return out.toString();
@@ -117,13 +144,43 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
         } catch (IOException | SecurityException ex) { return null; }
     }
 
+    /** Reads only a bounded prefix; schema-6 _pgHeader is deliberately written first. */
+    @JavascriptInterface public String readProjectFileHead(String filename, int requestedChars) {
+        DocumentFile file = findProjectFile(filename);
+        if (file == null) return null;
+        int limit = Math.max(256, Math.min(16384, requestedChars));
+        try (InputStream in = activity.getContentResolver().openInputStream(file.getUri())) {
+            if (in == null) return null;
+            InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8);
+            char[] buffer = new char[limit];
+            int total = 0;
+            while (total < limit) {
+                int n = reader.read(buffer, total, limit - total);
+                if (n < 0) break;
+                total += n;
+            }
+            return new String(buffer, 0, total);
+        } catch (IOException | SecurityException ex) { return null; }
+    }
+
+    private void refreshMetadataFor(String filename, DocumentFile file, long knownSize) {
+        if (filename == null || file == null) return;
+        long size = knownSize >= 0 ? knownSize : 0L;
+        long modified = System.currentTimeMillis();
+        try { if (knownSize < 0) size = Math.max(0L, file.length()); } catch (RuntimeException ignored) {}
+        try { long v = file.lastModified(); if (v > 0) modified = v; } catch (RuntimeException ignored) {}
+        synchronized (folderCacheLock) {
+            projectFileSizeCache.put(filename, Math.max(0L, size));
+            projectFileModifiedCache.put(filename, Math.max(0L, modified));
+        }
+    }
+
     @JavascriptInterface public boolean writeProjectFile(String filename, String text) {
         DocumentFile folder = getProjectFolder(); if (folder == null) return false;
         if (!projectFileCacheLoaded) { primeProjectFileCacheAsync(); return false; }
-        // During a clean-install folder reconnect, the surviving settings file is
-        // authoritative. Keep it read-only until JavaScript explicitly finishes
-        // recovery; a time-based grace period was unsafe on slow SAF providers.
         if (SETTINGS_FILE.equals(filename) && projectFolderRecoveryPending) return false;
+        final String safeText = text == null ? "" : text;
+        final byte[] bytes = safeText.getBytes(StandardCharsets.UTF_8);
         try {
             DocumentFile file = findProjectFile(filename);
             if (file == null) {
@@ -133,15 +190,21 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
             }
             try (OutputStream out = activity.getContentResolver().openOutputStream(file.getUri(), "wt")) {
                 if (out == null) return false;
-                out.write((text == null ? "" : text).getBytes(StandardCharsets.UTF_8)); out.flush(); return true;
+                out.write(bytes); out.flush();
             }
+            refreshMetadataFor(filename, file, bytes.length);
+            return true;
         } catch (IOException | SecurityException ex) { return false; }
     }
 
     @JavascriptInterface public boolean deleteProjectFile(String filename) {
         DocumentFile file = findProjectFile(filename);
         boolean deleted = file != null && file.delete();
-        if (deleted) synchronized (folderCacheLock) { projectFileCache.remove(filename); }
+        if (deleted) synchronized (folderCacheLock) {
+            projectFileCache.remove(filename);
+            projectFileSizeCache.remove(filename);
+            projectFileModifiedCache.remove(filename);
+        }
         return deleted;
     }
 
@@ -152,7 +215,18 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
             String error = null;
             try { text = readProjectFile(filename); }
             catch (RuntimeException ex) { error = ex.getMessage(); }
-            emitFileOperationResult(requestId, text != null, text, elapsedMs(started), error, text == null ? 0 : text.length());
+            emitFileOperationResult(requestId, text != null, text, elapsedMs(started), error, cachedSize(filename, text == null ? 0 : text.getBytes(StandardCharsets.UTF_8).length), cachedModified(filename));
+        });
+    }
+
+    @JavascriptInterface public void readProjectFileHeadAsync(String filename, int maxChars, String requestId) {
+        fileExecutor.execute(() -> {
+            long started = System.nanoTime();
+            String text = null;
+            String error = null;
+            try { text = readProjectFileHead(filename, maxChars); }
+            catch (RuntimeException ex) { error = ex.getMessage(); }
+            emitFileOperationResult(requestId, text != null, text, elapsedMs(started), error, cachedSize(filename, 0), cachedModified(filename));
         });
     }
 
@@ -164,7 +238,7 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
             String error = null;
             try { ok = writeProjectFile(filename, safeText); }
             catch (RuntimeException ex) { error = ex.getMessage(); }
-            emitFileOperationResult(requestId, ok, null, elapsedMs(started), error, safeText.length());
+            emitFileOperationResult(requestId, ok, null, elapsedMs(started), error, safeText.getBytes(StandardCharsets.UTF_8).length, cachedModified(filename));
         });
     }
 
@@ -175,21 +249,26 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
             String error = null;
             try { ok = deleteProjectFile(filename); }
             catch (RuntimeException ex) { error = ex.getMessage(); }
-            emitFileOperationResult(requestId, ok, null, elapsedMs(started), error, 0);
+            emitFileOperationResult(requestId, ok, null, elapsedMs(started), error, 0, 0);
         });
     }
 
-    private static double elapsedMs(long startedNanos) {
-        return Math.max(0.0, (System.nanoTime() - startedNanos) / 1_000_000.0);
+    private long cachedSize(String filename, long fallback) {
+        synchronized (folderCacheLock) { return projectFileSizeCache.getOrDefault(filename, Math.max(0L, fallback)); }
     }
+    private long cachedModified(String filename) {
+        synchronized (folderCacheLock) { return projectFileModifiedCache.getOrDefault(filename, 0L); }
+    }
+    private static double elapsedMs(long startedNanos) { return Math.max(0.0, (System.nanoTime() - startedNanos) / 1_000_000.0); }
 
-    private void emitFileOperationResult(String requestId, boolean ok, String text, double durationMs, String error, int size) {
+    private void emitFileOperationResult(String requestId, boolean ok, String text, double durationMs, String error, long size, long lastModified) {
         JSONObject result = new JSONObject();
         try {
             result.put("requestId", requestId == null ? "" : requestId);
             result.put("ok", ok);
             result.put("durationMs", durationMs);
-            result.put("size", Math.max(0, size));
+            result.put("size", Math.max(0L, size));
+            result.put("lastModified", Math.max(0L, lastModified));
             if (text != null) result.put("text", text);
             if (error != null && !error.isBlank()) result.put("error", error);
         } catch (Exception ignored) {}
@@ -203,7 +282,7 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
         synchronized (folderCacheLock) {
             cachedProjectFolderUri = uri.toString();
             cachedProjectFolder = DocumentFile.fromTreeUri(activity, uri);
-            projectFileCache.clear();
+            projectFileCache.clear();projectFileSizeCache.clear();projectFileModifiedCache.clear();
             projectFileCacheLoaded = false;
             projectFileCacheLoading = false;
         }
@@ -224,7 +303,7 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
                 }
                 cachedProjectFolderUri = raw;
                 cachedProjectFolder = folder;
-                projectFileCache.clear();
+                projectFileCache.clear();projectFileSizeCache.clear();projectFileModifiedCache.clear();
                 projectFileCacheLoaded = false;
                 return folder;
             } catch (Exception ex) {
@@ -237,7 +316,7 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
     private void clearFolderCacheLocked() {
         cachedProjectFolder = null;
         cachedProjectFolderUri = null;
-        projectFileCache.clear();
+        projectFileCache.clear();projectFileSizeCache.clear();projectFileModifiedCache.clear();
         projectFileCacheLoaded = false;
         projectFileCacheLoading = false;
     }
@@ -249,13 +328,23 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
         DocumentFile[] files;
         try { files = folder.listFiles(); }
         catch (RuntimeException ex) { files = new DocumentFile[0]; }
+        Map<String, Long> sizes = new LinkedHashMap<>(), modified = new LinkedHashMap<>();
+        for (DocumentFile file : files) {
+            if (file == null) continue;
+            String name = file.getName();if (name == null) continue;
+            long size = 0L, mtime = 0L;
+            try { size = Math.max(0L, file.length()); } catch (RuntimeException ignored) {}
+            try { mtime = Math.max(0L, file.lastModified()); } catch (RuntimeException ignored) {}
+            sizes.put(name, size);modified.put(name, mtime);
+        }
         synchronized (folderCacheLock) {
-            projectFileCache.clear();
+            projectFileCache.clear();projectFileSizeCache.clear();projectFileModifiedCache.clear();
             for (DocumentFile file : files) {
                 if (file == null) continue;
                 String name = file.getName();
                 if (name != null) projectFileCache.put(name, file);
             }
+            projectFileSizeCache.putAll(sizes);projectFileModifiedCache.putAll(modified);
             projectFileCacheLoaded = true;
             projectFileCacheLoading = false;
         }
