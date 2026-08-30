@@ -37,6 +37,7 @@ public final class MainActivity extends Activity {
     private static final int PROJECT_FOLDER_REQUEST = 1004;
     private static final String APP_ORIGIN = "https://appassets.androidplatform.net";
     private static final String APP_URL = APP_ORIGIN + "/assets/index.html";
+    private static final String LEGAL_PRELOAD_URL = APP_URL + "?legalPreload=1";
 
     private WebView webView;
     private PadGradeNativeBridge nativeBridge;
@@ -46,6 +47,7 @@ public final class MainActivity extends Activity {
     private String pendingSaveText;
     private Bundle pendingInitialState;
     private boolean modernBackRegistered = false;
+    private boolean legalReleasePending = false;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -54,12 +56,21 @@ public final class MainActivity extends Activity {
         pendingInitialState = savedInstanceState;
         if (!LegalNoticeActivity.isAccepted(this)) {
             startActivityForResult(new Intent(this, LegalNoticeActivity.class), LEGAL_ACCEPTANCE_REQUEST);
+            // Let the legal Activity paint first, then use the user's reading time to
+            // preload local DOM/CSS/grid/layout work underneath it. The page carries
+            // an explicit legalPreload flag so storage-choice and map/network startup
+            // remain gated until acceptance is returned.
+            getWindow().getDecorView().postDelayed(() -> {
+                if (!isFinishing() && !isDestroyed() && !LegalNoticeActivity.isAccepted(this)) {
+                    initializeWebView(null, true);
+                }
+            }, 250L);
             return;
         }
-        initializeWebView(savedInstanceState);
+        initializeWebView(savedInstanceState, false);
     }
 
-    private void initializeWebView(Bundle savedInstanceState) {
+    private void initializeWebView(Bundle savedInstanceState, boolean legalPreload) {
         if (webView != null) return;
         pendingInitialState = null;
 
@@ -102,6 +113,12 @@ public final class MainActivity extends Activity {
                 Uri uri = request.getUrl(); return !APP_ORIGIN.equals(uri.getScheme() + "://" + uri.getAuthority());
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, String url) { return url == null || !url.startsWith(APP_ORIGIN + "/"); }
+            @Override public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (LegalNoticeActivity.isAccepted(MainActivity.this) && (legalReleasePending || (url != null && url.contains("legalPreload=1")))) {
+                    releaseLegalPreload();
+                }
+            }
         });
 
         webView.setWebChromeClient(new WebChromeClient() {
@@ -123,7 +140,17 @@ public final class MainActivity extends Activity {
         });
 
         registerModernBackCallback();
-        if (savedInstanceState == null) webView.loadUrl(APP_URL); else webView.restoreState(savedInstanceState);
+        if (legalPreload) webView.loadUrl(LEGAL_PRELOAD_URL);
+        else if (savedInstanceState == null) webView.loadUrl(APP_URL);
+        else webView.restoreState(savedInstanceState);
+    }
+
+    private void releaseLegalPreload() {
+        if (webView == null || !LegalNoticeActivity.isAccepted(this)) return;
+        legalReleasePending = false;
+        webView.post(() -> webView.evaluateJavascript(
+                "(function(){if(window.__padGradeLegalReleased===true)return;window.__padGradeLegalReleased=true;window.__padGradeLegalPreload=false;try{history.replaceState(null,'',location.pathname+location.hash);}catch(e){}try{window.dispatchEvent(new Event('padgrade-legal-accepted'));}catch(e){}})();",
+                null));
     }
 
     private void registerModernBackCallback() {
@@ -180,7 +207,10 @@ public final class MainActivity extends Activity {
     @Override protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == LEGAL_ACCEPTANCE_REQUEST) {
-            if (resultCode == RESULT_OK && LegalNoticeActivity.isAccepted(this)) initializeWebView(pendingInitialState); else finish();
+            if (resultCode == RESULT_OK && LegalNoticeActivity.isAccepted(this)) {
+                if (webView == null) initializeWebView(pendingInitialState, false);
+                else { legalReleasePending = true; releaseLegalPreload(); }
+            } else finish();
             return;
         }
         if (requestCode == PROJECT_FOLDER_REQUEST) {
