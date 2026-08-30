@@ -85,11 +85,20 @@
   };
   diag()?.mark?.('file.async-bridge-installed',{nativeAsync:!!(native&&typeof native.readProjectFileAsync==='function'),version:'1.0.7',recoveryMutationLock:true,headerReads:typeof native?.readProjectFileHeadAsync==='function',cachedMetadata:typeof native?.listProjectFileDetails==='function'});
 
-  if(!document.querySelector('script[data-padgrade-v107-index-reconcile]')){
+  function loadIndexController(){
+    if(document.querySelector('script[data-padgrade-v107-index-reconcile]'))return;
     const script=document.createElement('script');script.src='v107-index-reconcile.js?v=20260830-1';script.async=false;script.dataset.padgradeV107IndexReconcile='1';
     script.onerror=()=>console.error('Pad Grade v1.0.7 indexed reconciliation controller failed to load');
     (document.head||document.documentElement).appendChild(script);
   }
+  function loadFormatThenIndex(){
+    if(window.PadGradeProjectFormatV107){loadIndexController();return;}
+    const existing=document.querySelector('script[data-padgrade-project-format-v107]');
+    if(existing){existing.addEventListener('load',loadIndexController,{once:true});return;}
+    const script=document.createElement('script');script.src='project-format-v107.js?v=20260830-1';script.async=false;script.dataset.padgradeProjectFormatV107='1';script.onload=loadIndexController;script.onerror=()=>console.error('Pad Grade schema-6 formatter failed to load');
+    (document.head||document.documentElement).appendChild(script);
+  }
+  loadFormatThenIndex();
 })();
 
 /* Legacy CI search markers only; intentionally not executable:
