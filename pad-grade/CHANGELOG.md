@@ -4,6 +4,30 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v1.1.5 — development build
+
+### Fixed
+- Removed the remaining visible **bare-map flicker** when switching among Auto / 99 / 297 / 891. Pad Grade now keeps the currently displayed completed raster visually intact through a temporary same-source handoff layer, stages the requested target raster at effectively transparent opacity, waits for MapLibre to render the staged target once, then performs a hard paint swap in one update. There is no intentional visible cross-fade and no intentional frame with neither raster displayed.
+- The frame handoff is cancelled before project switching, map replacement/recreation, app hiding, or disabling the heat map so an outgoing project's held raster cannot survive across a project boundary.
+- Fixed the v1.1.4 **memory-export bug**. v1.1.4 was collecting native process/device memory but the existing privacy-safe timing logger discarded the nested measurement objects, leaving exported `memory.snapshot` entries with only version/reason metadata.
+- Fixed lifecycle-memory export separately from current-process snapshots: native lifecycle breadcrumbs already persisted their memory measurements across process death, but the v1.1.3 importer omitted the nested `memory` object. v1.1.5 reimports those persisted measurements through a separate sequence key rather than losing them.
+
+### Added
+- Added export-safe scalar memory fields to `memory.snapshot`, including total PSS/private/shared dirty memory; Java/native/code/stack/graphics/private-other/system/swap PSS; Java and native heap values; device available/threshold memory; memory class; process importance/trim/LRU state; JS heap when Chromium exposes it; canvas/backing-store estimates; normal/inspector heat-canvas estimates; decoded heat-cache estimates; and heat-worker counts.
+- Added `android.memory.lifecycle` diagnostic rows carrying the same native memory categories for persisted Android lifecycle events. Because the native bridge already stored these values in v1.1.4, v1.1.5 can recover useful memory data from lifecycle events that preceded an earlier process kill instead of requiring every event to be reproduced from scratch.
+- Added `heatmap.frame-handoff-*` timing markers for hold installation, target staging, hard-swap commit, cleanup, and cancellation so any remaining transition artifact can be tied to the exact display phase.
+
+### Changed
+- Android DEV package is **version 1.1.5 / build 87**.
+- Memory instrumentation remains **measurement-only**. This build does not automatically discard heat-map canvases/caches, reduce MapLibre tile caching, request a larger heap, or run a keep-alive/foreground service. Optimization decisions remain deferred until the numeric measurements identify the actual pressure.
+- The authoritative IDW² interpolation math, measured-point color scaling, 99/297/891 raster dimensions, project-file schema, single-authority heat-map rule, and lossless 891 disk-cache format are unchanged.
+
+### DEV verification
+- Rapidly switch Auto → 99 → 297 → 891 and back. The old completed raster should remain visually stable until the requested raster has been staged/rendered, followed by a direct hard swap with no bare-map flash, dark double-raster frame, or visible cross-fade.
+- Start a resolution change and immediately switch projects. Confirm the project chooser boundary still prevents any outgoing-project heat surface from appearing after the target project takes over.
+- Export diagnostics and verify `memory.snapshot` lines now contain numeric fields such as `totalPssKb`, `graphicsPssKb`, `javaHeapPssKb`, `nativeHeapPssKb`, and `deviceAvailKb`, plus canvas/cache/worker estimates where available.
+- Reproduce the several-minute background-process kill and compare the last old-process `android.memory.lifecycle`/`memory.snapshot` values with the new process. Use the measured PSS/graphics/heap/device-pressure values before making any memory-trimming change.
+
 ## v1.1.4 — development build
 
 ### Fixed
