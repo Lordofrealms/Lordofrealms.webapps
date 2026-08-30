@@ -4,6 +4,38 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v1.0.7 — development build
+
+### Added
+- Added a rebuildable durable folder catalog, `Pad-Grade-Project-Index.pgindex`. The index stores project filename/File ID/internal ID, schema version, project-list and comparison metadata, filesystem size/modified time, and a SHA-256 fingerprint when the full project bytes have already been read or written. The `.padgrade` project files remain authoritative; losing or deleting the index cannot lose a project.
+- Added **schema 6** project files. Schema 6 writes a small `_pgHeader` as the first JSON member containing the format/version identity and lightweight catalog fields, allowing Android to inspect a new or changed project with a bounded prefix read instead of reading the complete readings payload.
+- Added an explicit, tested **schema 6 → schema 5 downgrade path**. The downgrade strips only schema-6-only header/format data, resets `schemaVersion`/`version` to 5, and preserves settings, readings, reading metadata, GPS calibration, project IDs/File IDs,timestamps, status, and other schema-5-understood payload fields.
+- Added cached native project-file metadata (`filename`, byte size, and last-modified time) to the existing background SAF folder index, plus bounded asynchronous project-header reads. Normal JavaScript metadata checks are served from that cache rather than making synchronous SAF calls per project.
+- Added comparison-specific timing diagnostics for picker open, comparison start, overlay visibility, map style readiness, grid visibility, imagery readiness, low-resolution heat visibility, and high-resolution heat visibility.
+
+### Changed
+- Durable reconciliation now reads the tiny `.pgindex` plus the cached directory metadata first. An indexed project whose filename, size, and modified time still match takes the **zero-project-read fast path**: no full project read, JSON parse, schema migration, or File-ID rewrite is performed.
+- New or externally changed schema-6 project files are identified from the bounded `_pgHeader` read. Legacy/schema-5 files are fully read only when first discovered or changed, upgraded once to canonical schema 6, and then use the metadata fast path on later reconciliations.
+- SHA-256 is calculated when Pad Grade already has the complete project bytes in memory (full load/import/migration or normal durable write). Hashing is not used as a reason to reread every unchanged file.
+- Copied-in files remain discoverable because the real folder listing is always compared with the rebuildable index. Missing indexed files are removed from the catalog only; unindexed files are inspected and added. Same-name external replacements are detected through changed size/last-modified metadata.
+- Project bodies can remain unloaded after reconciliation. Project-list metadata is synchronized from the durable index, and a full project file is read lazily only when an operation actually needs the project body. The comparison picker uses this same shared index rather than maintaining a separate project cache.
+- Project Comparison now opens from indexed metadata and fully loads only the two selected projects. The comparison screen appears before those possible durable reads complete.
+- The comparison renderer now installs its final detailed grid at **MapLibre style readiness** rather than waiting for full map/imagery load. The first comparison render directly uses 6 px cut/grade/fill points, point labels from zoom 18, the foreground grid/outline ordering, and the detailed CUT / GRADE / FILL scale instead of drawing 3.5 px white points and depending on a later polling/restyle layer.
+- Comparison preserves the progressive heat-map strategy: the 304-tier preview starts immediately after the grid is installed; the 888-tier refinement follows in the same worker while imagery continues independently in the background.
+- Android DEV package is **version 1.0.7 / build 79**. Build 78 remains the tested v1.0.6 fixed-15%-hitbox release candidate and is not reused.
+- The validated 15% GPS-map near-miss hitbox behavior from v1.0.6 is intentionally unchanged in this build.
+
+### Fixed
+- Removed the recurring durable maintenance behavior that could reread every project file only to report all of them unchanged. Routine reconciliation should now reduce an unchanged folder to one lightweight index read plus cached metadata comparison.
+- Removed the comparison presentation race where the intended detailed point styling/labels/color scale could fail to attach and expose the older basic comparison grid instead.
+- Removed repeated deep-loading of the complete project set during one comparison picker interaction; picker eligibility now comes from the shared project catalog and selected bodies are loaded once.
+
+### Known issues
+- This is the first DEV build that automatically upgrades durable schema-5 project files to schema 6. Test with copies/backups of representative project folders before stable promotion, including an existing folder, a clean-install folder reconnect, a project copied in from another device, and a same-filename externally replaced project.
+- Verify a second reconciliation of an unchanged folder records `index.fast-match` / `zeroProjectReads` behavior and does not reproduce the previous repeated multi-file `file.read` sequence.
+- Verify the comparison grid, point colors/labels, scale, probe behavior, Android Back exit, preview heat map, final heat map, and imagery on-device before stable promotion.
+- The schema-5 downgrade operation is implemented and regression-tested as a rollback tool, but is not exposed as a normal user-facing button; if rollback is required, use a controlled rollback build/action rather than silently rewriting the folder during ordinary operation.
+
 ## v1.0.6 — development build
 
 ### Changed

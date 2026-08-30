@@ -6,6 +6,27 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v1.0.7 — development build
+
+### Added
+- Packaged the schema-6 project format, rebuildable `Pad-Grade-Project-Index.pgindex`, cached SAF file metadata, bounded header-read bridge, lazy project loading, SHA-256-on-full-read/write tracking, and tested schema-6-to-schema-5 rollback path.
+- Added native cached `filename`/size/last-modified project metadata and bounded asynchronous header reads so the web runtime can validate unchanged project folders without reopening every project payload.
+- Packaged the indexed progressive Project Comparison renderer and its comparison-specific timing diagnostics.
+
+### Changed
+- Bumped the separately installable DEV Android package to **version 1.0.7 / versionCode 79**. Build 78 remains the tested v1.0.6 fixed-15%-hitbox release candidate and is not reused.
+- Unchanged durable project files now take the index/metadata fast path with zero project-body reads. New/changed schema-6 files use the bounded header path; schema-5 files are fully read and upgraded once.
+- Comparison uses the shared durable catalog for its picker, loads only the selected pair, shows its shell immediately, renders the final detailed grid at MapLibre style readiness, and then adds the 304-tier/888-tier heat maps while imagery loads independently.
+- The field-tested fixed **15%** GPS-map survey-point near-miss hitboxes remain unchanged from v1.0.6.
+
+### Fixed
+- Removed recurring full-file maintenance reads whose only result was that every durable project was already unchanged.
+- Restored the intended detailed comparison point colors/labels and CUT/GRADE/FILL scale in the authoritative comparison render path rather than relying on a later asynchronous presentation repair.
+
+### Known issues
+- This build changes durable project files from schema 5 to schema 6. Exercise folder upgrade/reconnect/copy-in scenarios with backups before stable promotion and verify the schema-5 rollback test/gate remains green.
+- Confirm an unchanged second reconciliation performs zero project-body reads and verify comparison grid/heat/imagery/probe/Back behavior on-device before promoting stable.
+
 ## v1.0.6 — development build
 
 ### Changed
