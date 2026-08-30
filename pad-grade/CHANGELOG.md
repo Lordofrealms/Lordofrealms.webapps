@@ -4,6 +4,28 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v1.1.1 — development build
+
+### Added
+- Added a generation-scoped GPS-map overlay repair controller. When a project switch, MapLibre style transition, WebGL recovery, app resume, network return, or GPS-provider fallback leaves the active project without its survey grid or heat-map layer, Pad Grade now retries restoration on a bounded 0–6.5 second schedule and on map lifecycle events. Every attempt verifies the active project ID before touching the map so a late retry from the previous project cannot repaint stale geometry.
+- Added a direct survey-grid repair fallback for the specific transient state seen in device diagnostics where MapLibre has a usable style object but `isStyleLoaded()` is temporarily false. The fallback updates/adds only the Pad Grade GeoJSON grid sources/layers and does not rebuild the basemap or discard healthy project state.
+- Added DEV diagnostics for overlay-repair start/attempt/success/exhaustion, direct-grid repair, MapLibre style/load events, WebGL context loss/recovery, and GPS provider/state transitions. These diagnostics record lifecycle/timing/state only and intentionally omit coordinates and rod readings.
+
+### Changed
+- Durable startup now becomes visually usable as soon as the recovered active project has been applied and the lower measurement grid has painted. The existing durable recovery/write lock is **not** released early; only the full-screen curtain is visually removed. Calibrated GPS projects show a small **Restoring project map…** veil over the map card until the project grid is actually present.
+- Regular project heat-map workers can now begin from restored project state before MapLibre is ready. The 99 and 297 tiers still start together; a completed whole raster is buffered if necessary and installed once the map is usable. The 891 tier is still deferred until 297 completes, preserving the v1.1.0 staged-load policy and monotonic whole-raster promotion.
+- Android DEV package is **version 1.1.1 / build 83**. Schema 6, schema-6 → schema-5 rollback, durable project indexing/recovery protections, the fixed 15% GPS-map hitbox behavior, and Project Comparison's independent staged heat-map path are unchanged.
+
+### Fixed
+- Fixed the intermittent project-switch failure where the old project's overlays were removed, the new project was applied, but a transient `isStyleLoaded() === false` caused both the immediate grid prime and its one-frame retry to miss. The new project can now recover without reopening/reloading the project.
+- Fixed completed regular heat-map work being discarded when a worker finished before MapLibre could accept the CanvasSource. Completed rasters are retained for the current generation and promoted when the map becomes ready.
+- Reduced perceived first-install/settings-restore startup delay by separating **project UI readiness** from **GPS-map readiness** instead of hiding the entire application while MapLibre/imagery work continues.
+
+### DEV verification
+- Reproduce a Precision Location/native-GPS provider blip and several rapid project switches. Confirm the correct project grid and heat map remain/recover without reopening the project, and inspect `map.overlay-repair-*` plus `gps.provider-*` events if a failure occurs.
+- On a clean durable-folder restore, confirm the project controls and lower measurement grid appear well before the map finishes, while the map card alone can show **Restoring project map…**. Confirm the durable recovery lock still reaches its normal logical release afterward.
+- Compare `heatmap.regular-generation-started` / `heatmap.regular-buffered-before-map` / `heatmap.regular-visible` timestamps against v1.1.0 to quantify the additional startup overlap. The 99/297/891 resolutions and the deferred-891 rule must remain unchanged.
+
 ## v1.1.0 — development build
 
 ### Changed
