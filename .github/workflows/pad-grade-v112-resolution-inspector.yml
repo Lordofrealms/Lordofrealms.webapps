@@ -1,0 +1,35 @@
+name: Pad Grade v1.1.2 Resolution Inspector
+
+on:
+  pull_request:
+    branches: [pad-grade-dev, main]
+    paths:
+      - 'pad-grade/**'
+      - 'pad-grade-android/**'
+      - '.github/workflows/pad-grade-v112-resolution-inspector.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax checks
+        run: |
+          node --check pad-grade/v062-dev.js
+          node --check pad-grade/v112-resolution-inspector-selftest.js
+      - name: Resolution inspector regression test
+        run: node pad-grade/v112-resolution-inspector-selftest.js
+      - name: Existing heat progression regression tests
+        run: |
+          node pad-grade/v110-staged-heat-selftest.js
+          node pad-grade/v111-resilience-selftest.js
+      - name: Verify diagnostic package metadata
+        run: |
+          grep -F 'versionCode = 84' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.1.2"' pad-grade-android/app/build.gradle.kts
+          grep -F 'passive-worker-copy-continuous-99-297-891-crossfade-no-math-change' pad-grade/v062-dev.js
+          ! grep -F 'stampMeasuredPointAnchors' pad-grade/heatmap-raster-worker-v073.js
