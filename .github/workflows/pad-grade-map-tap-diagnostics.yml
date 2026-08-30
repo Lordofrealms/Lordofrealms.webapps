@@ -59,7 +59,7 @@ jobs:
           grep -F 'versionCode = 77' pad-grade-android/app/build.gradle.kts
           grep -F 'versionName = "1.0.5"' pad-grade-android/app/build.gradle.kts
           grep -F '## v1.0.5 — development build' pad-grade/CHANGELOG.md
-          grep -F 'version **1.0.5 / build 77**' pad-grade/CHANGELOG.md
+          grep -F 'Android DEV package is **version 1.0.5 / build 77**.' pad-grade/CHANGELOG.md
           grep -F '## v1.0.3 — withdrawn development build' pad-grade/CHANGELOG.md
           grep -F '## v1.0.5 — development build' pad-grade-android/CHANGELOG.md
 
