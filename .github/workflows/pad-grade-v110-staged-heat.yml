@@ -1,0 +1,53 @@
+name: Pad Grade v1.1.0 Staged Heat
+
+on:
+  pull_request:
+    branches: [pad-grade-dev, main]
+    paths:
+      - 'pad-grade/**'
+      - 'pad-grade-android/**'
+      - '.github/workflows/pad-grade-v110-staged-heat.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate sources and staged heat self-test
+        run: |
+          node --check pad-grade/v063-dev.js
+          node --check pad-grade/v107-compare-fast.js
+          node --check pad-grade/v110-staged-heat-selftest.js
+          node pad-grade/v110-staged-heat-selftest.js
+      - name: Verify exact 99/297 then 891 policy
+        run: |
+          grep -F 'TIERS=Object.freeze([99,297,891])' pad-grade/v063-dev.js
+          grep -F 'INITIAL_TIERS=Object.freeze([99,297])' pad-grade/v063-dev.js
+          grep -F 'TIERS=Object.freeze([99,297,891])' pad-grade/v107-compare-fast.js
+          grep -F 'INITIAL_TIERS=Object.freeze([99,297])' pad-grade/v107-compare-fast.js
+          ! grep -F 'TIERS=Object.freeze([33,' pad-grade/v063-dev.js
+          ! grep -F 'TIERS=Object.freeze([33,' pad-grade/v107-compare-fast.js
+          grep -F 'for(const tier of INITIAL_TIERS)buildRaster' pad-grade/v063-dev.js
+          grep -F 'buildRaster(HIGH_TIER,points,key,gen)' pad-grade/v063-dev.js
+          grep -F 'for(const t of INITIAL_TIERS)startTier' pad-grade/v107-compare-fast.js
+          grep -F 'startTier(HIGH,s)' pad-grade/v107-compare-fast.js
+      - name: Verify staging diagnostics and monotonic promotion
+        run: |
+          grep -F 'heatmap.regular-final-tier-starting' pad-grade/v063-dev.js
+          grep -F 'compare.heat-final-tier-starting' pad-grade/v107-compare-fast.js
+          grep -F 'initialTiers:INITIAL_TIERS.slice(),deferredTier:HIGH_TIER' pad-grade/v063-dev.js
+          grep -F 'initialTiers:INITIAL_TIERS.slice(),deferredTier:HIGH' pad-grade/v107-compare-fast.js
+          grep -F "reason:'higher-tier-already-visible'" pad-grade/v063-dev.js
+          grep -F "reason:'higher-tier-already-visible'" pad-grade/v107-compare-fast.js
+      - name: Verify v1.1.0 metadata and safety carry-forward
+        run: |
+          grep -F 'versionCode = 82' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.1.0"' pad-grade-android/app/build.gradle.kts
+          grep -F '<title>Pad Grade Mapper v1.1.0 DEV</title>' pad-grade/index.html
+          grep -F '## v1.1.0 — development build' pad-grade/CHANGELOG.md
+          grep -F 'const HITBOX_PADDING_PCT=15;' pad-grade/v106-map-hitbox.js
+          grep -F 'CURRENT_SCHEMA=6,ROLLBACK_SCHEMA=5' pad-grade/project-format-v107.js
