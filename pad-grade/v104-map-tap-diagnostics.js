@@ -23,9 +23,10 @@
   let hideTimer=null;
   let originalOpenPoint=null;
   let recentTap=null;
+  let pendingOpen={at:0,count:0,lastLabel:''};
 
   const now=()=>Date.now();
-  const round=(v,d=2)=>Number.isFinite(+v)?Number((+v).toFixed(d)):null;
+  const round=(v,d=2)=>v===null||v===undefined||!Number.isFinite(+v)?null:Number((+v).toFixed(d));
   const diag=(name,details)=>{try{window.PadGradeDiag?.mark?.(name,details);}catch(e){}};
 
   function pointerClient(event){
@@ -39,6 +40,7 @@
   function capturePointer(event){
     const p=pointerClient(event);if(!p)return;
     lastPointer={...p,at:now(),pointerType:String(event.pointerType||event.type||'unknown')};
+    pendingOpen={at:lastPointer.at,count:0,lastLabel:''};
   }
 
   function geometry(m){
@@ -141,10 +143,18 @@
     clearTimeout(hideTimer);hideTimer=setTimeout(()=>{if(el)el.style.display='none';},2600);
   }
 
+  function pointLabel(r,c){
+    try{return typeof label==='function'?label(+r,+c):`${r},${c}`;}catch(e){return `${r},${c}`;}
+  }
+
   function openPointDiagnostic(r,c){
-    if(!recentTap||now()-recentTap.at>MAX_POINTER_AGE_MS)return;
-    recentTap.openCalls=(recentTap.openCalls||0)+1;
-    let opened='';try{opened=typeof label==='function'?label(+r,+c):`${r},${c}`;}catch(e){opened=`${r},${c}`;}
+    const opened=pointLabel(r,c),t=now();
+    if(lastPointer&&t-lastPointer.at<=MAX_POINTER_AGE_MS){
+      if(!pendingOpen.at||Math.abs(pendingOpen.at-lastPointer.at)>5)pendingOpen={at:lastPointer.at,count:0,lastLabel:''};
+      pendingOpen.count++;pendingOpen.lastLabel=opened;
+    }
+    if(!recentTap||t-recentTap.at>MAX_POINTER_AGE_MS)return;
+    recentTap.openCalls=(recentTap.openCalls||0)+1;recentTap.lastOpenedLabel=opened;
     diag('map.tap-open-point',{tapId:recentTap.id,call:recentTap.openCalls,openedLabel:opened,openedR:+r,openedC:+c});
   }
 
@@ -163,8 +173,8 @@
     const g=geometry(m);if(!g)return;
     const raw=chooseRawClient(ev,g),expected=expectedMapPoint(raw,g),points=gridCenters(m,g);
     const nearestClient=nearestByClient(points,raw),nearestEvent=nearestByMapPoint(points,ev.point),query=queriedFeature(m,ev.point),selected=featureSummary(query.feature,m,g,raw);
-    const id=++tapSerial;
-    recentTap={id,at:now(),openCalls:0};
+    const id=++tapSerial,preCount=(lastPointer&&now()-lastPointer.at<=MAX_POINTER_AGE_MS)?pendingOpen.count:0,preLabel=preCount?pendingOpen.lastLabel:'';
+    recentTap={id,at:now(),openCalls:preCount,lastOpenedLabel:preLabel};
     showCrosshair(ev.point,g);
 
     const details={
@@ -179,14 +189,15 @@
       canvasClientWidth:g.canvas.clientWidth,canvasClientHeight:g.canvas.clientHeight,canvasBitmapWidth:g.canvas.width,canvasBitmapHeight:g.canvas.height,dpr:round(window.devicePixelRatio,3),
       queryCount:query.count,selectedLabel:selected?.label||'',selectedDistancePx:round(selected?.distance),
       nearestClientLabel:nearestClient?.label||'',nearestClientDistancePx:round(nearestClient?.distance),nearestClientDx:round(nearestClient?.dx),nearestClientDy:round(nearestClient?.dy),
-      nearestEventLabel:nearestEvent?.label||'',nearestEventDistancePx:round(nearestEvent?.distance),nearestEventDx:round(nearestEvent?.dx),nearestEventDy:round(nearestEvent?.dy)
+      nearestEventLabel:nearestEvent?.label||'',nearestEventDistancePx:round(nearestEvent?.distance),nearestEventDx:round(nearestEvent?.dx),nearestEventDy:round(nearestEvent?.dy),
+      openCallsBeforeMapEvent:preCount,lastOpenedBeforeMapEvent:preLabel
     };
     diag('map.tap-alignment',details);
     window.__padGradeLastMapTapDiagnosticV104=details;
 
     setTimeout(()=>{
       const dlg=document.getElementById('entryDlg'),dialogLabel=dlg?.open?String(document.getElementById('locText')?.textContent||''):'';
-      diag('map.tap-dialog-result',{tapId:id,dialogOpen:!!dlg?.open,dialogLabel,openCalls:recentTap?.id===id?recentTap.openCalls:0,selectedLabel:selected?.label||'',nearestClientLabel:nearestClient?.label||'',nearestEventLabel:nearestEvent?.label||''});
+      diag('map.tap-dialog-result',{tapId:id,dialogOpen:!!dlg?.open,dialogLabel,openCalls:recentTap?.id===id?recentTap.openCalls:preCount,lastOpenedLabel:recentTap?.id===id?(recentTap.lastOpenedLabel||preLabel):preLabel,selectedLabel:selected?.label||'',nearestClientLabel:nearestClient?.label||'',nearestEventLabel:nearestEvent?.label||''});
     },DIALOG_SETTLE_MS);
   }
 
