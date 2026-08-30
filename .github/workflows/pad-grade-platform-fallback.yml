@@ -5,12 +5,14 @@ on:
     branches: [pad-grade-dev]
     paths:
       - 'pad-grade/platform.js'
+      - 'pad-grade/map.js'
       - 'pad-grade/platform-fallback-selftest.js'
       - '.github/workflows/pad-grade-platform-fallback.yml'
   pull_request:
     branches: [pad-grade-dev]
     paths:
       - 'pad-grade/platform.js'
+      - 'pad-grade/map.js'
       - 'pad-grade/platform-fallback-selftest.js'
       - '.github/workflows/pad-grade-platform-fallback.yml'
   workflow_dispatch:
@@ -23,8 +25,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate fallback provider
+      - name: Validate fallback provider and source UI
         run: |
           node --check pad-grade/platform.js
+          node --check pad-grade/map.js
           node --check pad-grade/platform-fallback-selftest.js
           node pad-grade/platform-fallback-selftest.js
+          grep -Fq "if(meta.provider==='native') return;" pad-grade/map.js
+          grep -Fq "padgrade-location-fallback" pad-grade/map.js
