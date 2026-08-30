@@ -7,9 +7,113 @@ name: Pad Grade Release Notes
     paths:
       - '.github/workflows/pad-grade-release-notes.yml'
 
+permissions:
+  contents: write
+
 jobs:
-  smoke:
+  repair-v112:
     runs-on: ubuntu-latest
     steps:
-      - name: Validate workflow execution
-        run: echo 'release-notes workflow executes'
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add missing v1.1.2 changelog sections
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          web_section = '''## v1.1.2 — development build
+
+### Added
+- Added a **DEV heat-map resolution inspector** directly below the GPS map. It passively captures the completed 99, 297, and 891 regular-project heat-map rasters produced by the existing engine and lets the tester select the exact 99, 297, or 891 raster for visual comparison.
+- Added a continuous 99 ↔ 297 ↔ 891 inspection slider. Positions between exact tier stops cross-fade the two neighboring completed rasters for visual comparison only; the intermediate slider positions do **not** calculate a new interpolation resolution or alter the underlying surface.
+- Added an **Auto** control that returns the map to the normal staged heat-map behavior, plus readiness/status text showing which of the 99/297/891 rasters have actually completed and are available for inspection.
+
+### Changed
+- Project switching now keeps the Projects dialog covering the map while a lazily loaded target project is being read. Once the selected project is ready, Pad Grade clears the outgoing project's project-owned grid/route/heat-map overlays before closing the dialog and applying the new project, avoiding a visible flash of the previous project during the load transition.
+- Android DEV package is **version 1.1.2 / build 84**. This build is intentionally a diagnostic comparison build rather than a heat-map algorithm change.
+- The authoritative v1.1.1 heat-map worker, IDW interpolation, color normalization, tier dimensions, 99/297 concurrent start, deferred 891 scheduling, and monotonic whole-raster promotion are intentionally unchanged. The proposed measured-point/anchor color modification was **not** applied in this build.
+- Schema 6, schema-6 → schema-5 rollback, durable project indexing/recovery protections, the fixed 15% GPS-map hitbox behavior, and Project Comparison's independent heat-map path are unchanged.
+
+### Fixed
+- Fixed the project-opening/loading presentation issue where the project chooser could close before the selected project's lazy load had completed, briefly exposing the outgoing project's map/grid/heat map during the switch.
+
+### DEV verification
+- On a project with a completed heat map, compare the exact **99**, **297**, and **891** slider stops. Those exact stops display copies of the actual completed rasters from the unchanged heat-map engine and are the authoritative comparison points for deciding whether the later proposed color fix is appropriate.
+- Scrub between 99 → 297 and 297 → 891 to observe the visual transition, remembering that the in-between view is only an opacity cross-fade of two completed rasters, not a newly calculated resolution.
+- Return to **Auto** and confirm normal staged 99/297/891 promotion still behaves as in v1.1.1.
+- Switch repeatedly between projects, including projects that require lazy durable-file reads, and confirm the Projects dialog remains over the map until the target project is ready and the previous project's overlays are not flashed after the dialog closes.
+
+'''
+
+          android_section = '''## v1.1.2 — development build
+
+### Added
+- Packaged the **DEV heat-map resolution inspector** beneath the GPS map. The inspector can display the exact completed 99, 297, and 891 regular-project rasters and can cross-fade neighboring completed tiers while the tester scrubs between the exact stops.
+- Added an **Auto** control and tier-readiness/status display so the diagnostic view can be returned to the normal staged heat-map presentation and the tester can see which rasters are actually available.
+
+### Changed
+- Packaged the revised project-switch presentation: the Projects dialog remains visible while a lazily loaded target project is read, then the outgoing project's project-owned map overlays are cleared before the dialog closes and the new project is applied.
+- Bumped the separately installable DEV package to **version 1.1.2 / versionCode 84**. Build 83 remains the v1.1.1 resilience/startup package and is not reused.
+- The packaged heat-map worker, interpolation math, color normalization, tier dimensions, 99/297 concurrent start, deferred 891 scheduling, and monotonic promotion are unchanged from v1.1.1. The proposed measured-point/anchor color change is intentionally **not** present in this diagnostic APK.
+- Schema 6, rollback behavior, durable indexing/recovery protections, the fixed 15% GPS-map hitbox behavior, and Project Comparison's independent heat-map path are unchanged.
+
+### Fixed
+- Fixed the visible old-project flash during lazy project switching by keeping the chooser over the map until the target project is ready and clearing outgoing project-owned overlays before revealing the switched map.
+
+### DEV verification
+- Compare the exact 99/297/891 stops on-device before approving any later heat-map color change. Intermediate slider positions are display-only cross-fades, not additional calculated resolutions.
+- Confirm **Auto** restores the normal staged heat-map display and that repeated lazy project switches no longer reveal the outgoing project's map content between chooser close and target-project application.
+
+'''
+
+          def insert(path_name, section):
+              path = Path(path_name)
+              text = path.read_text(encoding='utf-8')
+              if '## v1.1.2 — development build' in text:
+                  return
+              marker = '\n## v1.1.1 — development build\n'
+              if marker not in text:
+                  raise SystemExit(f'Could not find v1.1.1 insertion point in {path_name}')
+              path.write_text(text.replace(marker, '\n' + section + '## v1.1.1 — development build\n', 1), encoding='utf-8')
+
+          insert('pad-grade/CHANGELOG.md', web_section)
+          insert('pad-grade-android/CHANGELOG.md', android_section)
+          PY
+
+      - name: Restore normal release-notes workflow and commit documentation
+        shell: bash
+        run: |
+          git show 25252ae684dac2be7851d284c05d9ed3bc98699a:.github/workflows/pad-grade-release-notes.yml > .github/workflows/pad-grade-release-notes.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pad-grade/CHANGELOG.md pad-grade-android/CHANGELOG.md .github/workflows/pad-grade-release-notes.yml
+          git diff --cached --check
+          git commit -m 'Document Pad Grade v1.1.2 release [skip ci]'
+          git push origin HEAD:pad-grade-dev
+
+      - name: Publish detailed v1.1.2 prerelease description
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          lines = Path('pad-grade/CHANGELOG.md').read_text(encoding='utf-8').splitlines()
+          start = lines.index('## v1.1.2 — development build')
+          end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith('## ')), len(lines))
+          section = '\n'.join(lines[start:end]).rstrip() + '\n'
+          intro = (
+              '# Pad Grade Mapper\n\n'
+              'Android grading and survey-planning tool for recording rod readings on a configurable pad grid, visualizing cut/fill with interpolation and heat maps, estimating earthwork, navigating survey points with GPS, and managing portable project saves with import/export and durable-folder storage.\n\n'
+              '**Development / test build** — installs separately from the stable app and may contain experimental changes.\n\n'
+              '# Changes in this build\n\n'
+          )
+          Path('/tmp/pad-grade-v112-release-notes.md').write_text(intro + section, encoding='utf-8')
+          PY
+          gh release edit pad-grade-dev-v1.1.2 --notes-file /tmp/pad-grade-v112-release-notes.md --prerelease
+          gh release view pad-grade-dev-v1.1.2 --json body --jq '.body' | grep -F '## v1.1.2 — development build'
+          gh release view pad-grade-dev-v1.1.2 --json body --jq '.body' | grep -F 'DEV heat-map resolution inspector'
+          gh release view pad-grade-dev-v1.1.2 --json body --jq '.body' | grep -F 'proposed measured-point/anchor color modification was **not** applied'
