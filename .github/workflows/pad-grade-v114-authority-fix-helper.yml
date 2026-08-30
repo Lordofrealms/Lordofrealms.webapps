@@ -1,0 +1,54 @@
+name: Pad Grade v1.1.4 authority fix helper
+
+"on":
+  push:
+    branches:
+      - dev/pad-grade-v114-memory-heatfix
+    paths:
+      - '.github/workflows/pad-grade-v114-authority-fix-helper.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev/pad-grade-v114-memory-heatfix
+      - run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('pad-grade/v114-dev.js')
+          s=p.read_text()
+          old="""  function chooseNormal(map){
+    const ids=normalLayers(map);
+    const currentlyVisible=ids.filter(id=>visible(map,id));
+    activeNormalLayer=currentlyVisible[currentlyVisible.length-1]||activeNormalLayer||ids[ids.length-1]||'';
+    return activeNormalLayer;
+  }
+"""
+          new="""  function chooseNormal(map){
+    const ids=normalLayers(map);
+    // A newly staged slot is intentionally hidden before the synchronous swap.
+    // Prefer that explicit authority over whichever retired slot is still visible.
+    if(activeNormalLayer&&ids.includes(activeNormalLayer))return activeNormalLayer;
+    const currentlyVisible=ids.filter(id=>visible(map,id));
+    activeNormalLayer=currentlyVisible[currentlyVisible.length-1]||ids[ids.length-1]||'';
+    return activeNormalLayer;
+  }
+"""
+          if old not in s: raise SystemExit('chooseNormal target not found')
+          p.write_text(s.replace(old,new,1))
+          Path('.github/workflows/pad-grade-v114-authority-fix-helper.yml').unlink()
+          PY
+      - run: |
+          node --check pad-grade/v114-dev.js
+          node pad-grade/v114-heat-memory-selftest.js
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix Pad Grade v1.1.4 heat authority selection"
+          git push origin HEAD:dev/pad-grade-v114-memory-heatfix
