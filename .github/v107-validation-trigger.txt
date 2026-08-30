@@ -1,0 +1,1 @@
+validate v1.0.7 schema-6 index + comparison candidate
