@@ -136,7 +136,7 @@ localResult=localSurface.interpolateAt(0,0,squarePoints,true);
 assert.ok(localResult&&localResult.exact,'measured point should be exact');
 assert.deepStrictEqual(localResult.triangles,[[0]],'exact point should list only its contributing measurement');
 
-// v0.9.4 regression guards for project transition and lower-grid latency.
+// v0.9.4+ regression guards for project transition, lower-grid latency, and legal preload.
 const gridCoreText=fs.readFileSync(path.join(root,'grid-core.js'),'utf8');
 const gridWorkerText=fs.readFileSync(path.join(root,'grid-size-worker-v094.js'),'utf8');
 assert.ok(gridCoreText.includes('grid-size-worker-v094.js'),'lower grid must delegate text sizing to the worker');
@@ -147,6 +147,13 @@ assert.ok(gridWorkerText.includes('measureText'),'grid sizing worker must measur
 const firstRunText=fs.readFileSync(path.join(root,'v090-first-run-guard.js'),'utf8');
 assert.ok(firstRunText.includes('launchFolderPickerAfterCoverPaint'),'folder picker must be launched after recovery-cover paint');
 assert.ok(firstRunText.includes('startPickerCoverKeepalive'),'recovery cover must stay armed while native picker is open');
+assert.ok(firstRunText.includes('legalPreloadActive()'),'first-run storage flow must detect legal preload');
+assert.ok(firstRunText.includes('padgrade-legal-accepted'),'first-run storage choice must resume only after legal acceptance');
+assert.ok(firstRunText.includes('layout-may-preload-under-legal-storage-choice-after-acceptance'),'legal preload policy marker missing');
+const mapLoaderText=fs.readFileSync(path.join(root,'maplibre-loader.js'),'utf8');
+assert.ok(mapLoaderText.includes('legalPreloadActive()'),'MapLibre loader must detect legal preload');
+assert.ok(mapLoaderText.includes('legal.preload-map-deferred'),'map/network startup must be deferred during legal preload');
+assert.ok(mapLoaderText.includes("window.addEventListener('padgrade-legal-accepted'"),'MapLibre must resume after legal acceptance');
 const switchText=fs.readFileSync(path.join(root,'v090-project-switch-boundary.js'),'utf8');
 assert.ok(switchText.includes('removeGridFamily(map)'),'project switching must remove old map grid layers/sources');
 assert.ok(switchText.includes('installProjectGridFamily'),'project switching must recreate map grid layers/sources for the new project');
