@@ -100,9 +100,10 @@
   function directRenderedPointHit(m,point){
     try{return !!(m.getLayer?.(POINT_LAYER)&&(m.queryRenderedFeatures(point,{layers:[POINT_LAYER]})||[]).length);}catch(e){return false;}
   }
+  function probeModeActive(){return $('surfaceProbeBtn')?.getAttribute('aria-pressed')==='true';}
 
   function handleClick(ev){
-    const m=map||window.__padGradeMapInstance;if(!m||!ev?.point||paddingPct<=0)return;
+    const m=map||window.__padGradeMapInstance;if(!m||!ev?.point||paddingPct<=0||probeModeActive())return;
     // Taps already on a rendered point are handled by the existing layer click.
     if(directRenderedPointHit(m,ev.point))return;
     const points=pointData(m);if(!points.length)return;
@@ -138,6 +139,7 @@
       const t=$('v105MapTapDiagnostics');
       t.checked=!!window.PadGradeMapTapDiagnosticsV104?.enabled?.();
       t.addEventListener('change',()=>window.PadGradeMapTapDiagnosticsV104?.setEnabled?.(t.checked,'advanced-settings'));
+      window.addEventListener('padgrade-map-tap-diagnostics-setting',ev=>{if(t)t.checked=!!ev?.detail?.enabled;});
     }
     if(!$('v105MapHitboxPadding')){
       const row=document.createElement('div');row.id='v105MapHitboxPaddingRow';row.className='v040-rangeRow';
