@@ -1,11 +1,10 @@
-name: Pad Grade Map Hitbox and Tap Diagnostics
+name: Pad Grade Fixed Map Hitbox
 
 on:
   push:
     branches: [pad-grade-dev]
     paths:
-      - 'pad-grade/v104-map-tap-diagnostics.js'
-      - 'pad-grade/v105-map-hitbox.js'
+      - 'pad-grade/v106-map-hitbox.js'
       - 'pad-grade/index.html'
       - 'pad-grade/CHANGELOG.md'
       - 'pad-grade-android/CHANGELOG.md'
@@ -14,8 +13,7 @@ on:
   pull_request:
     branches: [pad-grade-dev]
     paths:
-      - 'pad-grade/v104-map-tap-diagnostics.js'
-      - 'pad-grade/v105-map-hitbox.js'
+      - 'pad-grade/v106-map-hitbox.js'
       - 'pad-grade/index.html'
       - 'pad-grade/CHANGELOG.md'
       - 'pad-grade-android/CHANGELOG.md'
@@ -29,39 +27,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Syntax check map tap modules
-        run: |
-          node --check pad-grade/v104-map-tap-diagnostics.js
-          node --check pad-grade/v105-map-hitbox.js
+      - name: Syntax check fixed map hitbox module
+        run: node --check pad-grade/v106-map-hitbox.js
 
-      - name: Verify v1.0.5 settings and safe expanded hitboxes
+      - name: Verify v1.0.6 fixed 15 percent safe hitboxes
         run: |
-          grep -F 'Pad Grade Mapper v1.0.5 DEV' pad-grade/index.html
-          grep -F 'v104-map-tap-diagnostics.js?v=20260830-2' pad-grade/index.html
-          grep -F 'v105-map-hitbox.js?v=20260830-1' pad-grade/index.html
-          grep -F "PREF_FIELD='mapTapDiagnosticsEnabled'" pad-grade/v104-map-tap-diagnostics.js
-          grep -F 'window.PadGradeMapTapDiagnosticsV104={enabled:()=>enabled,setEnabled}' pad-grade/v104-map-tap-diagnostics.js
-          grep -F 'enabled=readPrefs()[PREF_FIELD]===true' pad-grade/v104-map-tap-diagnostics.js
-          grep -F "map.tap-alignment" pad-grade/v104-map-tap-diagnostics.js
-          grep -F "map.tap-open-point" pad-grade/v104-map-tap-diagnostics.js
-          grep -F "map.tap-dialog-result" pad-grade/v104-map-tap-diagnostics.js
-          grep -F "pointerEvents:'none'" pad-grade/v104-map-tap-diagnostics.js
-          grep -F 'const DEFAULT_PADDING=10' pad-grade/v105-map-hitbox.js
-          grep -F 'const MAX_PADDING=45' pad-grade/v105-map-hitbox.js
-          grep -F 'const TOTAL_RADIUS_CAP=0.45' pad-grade/v105-map-hitbox.js
-          grep -F 'mapGridHitboxPaddingPct' pad-grade/v105-map-hitbox.js
-          grep -F "if(matches.length!==1)return" pad-grade/v105-map-hitbox.js
-          grep -F 'directRenderedPointHit' pad-grade/v105-map-hitbox.js
-          grep -F 'probeModeActive' pad-grade/v105-map-hitbox.js
-          grep -F 'v105MapTapDiagnostics' pad-grade/v105-map-hitbox.js
-          grep -F 'v105MapHitboxPadding' pad-grade/v105-map-hitbox.js
-          grep -F 'visible-circle-plus-configured-spacing-padding-capped-45pct-deadspace-no-nearest-fallback' pad-grade/v105-map-hitbox.js
-          grep -F 'versionCode = 77' pad-grade-android/app/build.gradle.kts
-          grep -F 'versionName = "1.0.5"' pad-grade-android/app/build.gradle.kts
-          grep -F '## v1.0.5 — development build' pad-grade/CHANGELOG.md
-          grep -F 'Android DEV package is **version 1.0.5 / build 77**.' pad-grade/CHANGELOG.md
+          grep -F 'Pad Grade Mapper v1.0.6 DEV' pad-grade/index.html
+          grep -F 'v106-map-hitbox.js?v=20260830-1' pad-grade/index.html
+          ! grep -F 'v104-map-tap-diagnostics.js' pad-grade/index.html
+          ! grep -F 'v105-map-hitbox.js' pad-grade/index.html
+          grep -F "const HITBOX_PADDING_PCT=15" pad-grade/v106-map-hitbox.js
+          grep -F 'const TOTAL_RADIUS_CAP=0.45' pad-grade/v106-map-hitbox.js
+          grep -F "if(matches.length!==1)return" pad-grade/v106-map-hitbox.js
+          grep -F 'directRenderedPointHit' pad-grade/v106-map-hitbox.js
+          grep -F 'probeModeActive' pad-grade/v106-map-hitbox.js
+          grep -F 'fixed-15pct-visible-circle-plus-spacing-padding-capped-45pct-deadspace-no-nearest-fallback' pad-grade/v106-map-hitbox.js
+          ! grep -F 'mapGridHitboxPaddingPct' pad-grade/v106-map-hitbox.js
+          ! grep -F 'MapTapDiagnostics' pad-grade/v106-map-hitbox.js
+          grep -F 'versionCode = 78' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.0.6"' pad-grade-android/app/build.gradle.kts
+          grep -F '## v1.0.6 — development build' pad-grade/CHANGELOG.md
+          grep -F 'fixed **15% of projected point-to-point spacing**' pad-grade/CHANGELOG.md
+          grep -F 'Android DEV package is **version 1.0.6 / build 78**.' pad-grade/CHANGELOG.md
           grep -F '## v1.0.3 — withdrawn development build' pad-grade/CHANGELOG.md
-          grep -F '## v1.0.5 — development build' pad-grade-android/CHANGELOG.md
+          grep -F '## v1.0.6 — development build' pad-grade-android/CHANGELOG.md
 
       - name: Confirm lower measurement grid remains untouched
         run: |
