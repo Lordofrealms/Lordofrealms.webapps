@@ -4,6 +4,21 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v1.1.0 — development build
+
+### Changed
+- Removed the **33-tier** heat-map pass. Device diagnostics showed that it produced a very coarse approximately 28×33 raster only about 0.8–1.6 seconds before the substantially better 99-tier image, while adding another worker during startup and map setup.
+- Normal and Project Comparison heat maps now start **99 and 297 concurrently**. The **891 final tier is deliberately deferred until the 297 worker completes**, so the expensive approximately 668k-cell final raster does not compete with the two tiers that establish the useful early display.
+- Atomic whole-raster promotion remains monotonic: 99 can be replaced by 297, and 297 by 891, but a later lower tier can never downgrade a higher-resolution surface already on screen.
+- The grid-aware quality floor of **3 raster pixels between adjacent survey points** remains in place. On the normal 9×9, 64×76 ft pad, the requested rasters remain approximately 83×99, 250×297, and 750×891.
+- Regular and comparison heat maps remain independent. Opening Project Comparison does **not** cancel, defer, or globally throttle a regular-map heat calculation already in progress.
+- Android DEV package is **version 1.1.0 / build 82**. Schema 6, schema-6 → schema-5 rollback, project indexing/recovery protections, and the fixed 15% GPS-map hitbox behavior are unchanged.
+
+### Diagnostics / DEV verification
+- Heat diagnostics now identify the staged policy in each generation (`initialTiers: [99,297]`, `deferredTier: 891`) and log an explicit final-tier-start event when 297 completes.
+- Verify that each new surface posts only 99 and 297 initially, that 891 is not posted until the matching 297 worker-complete event, and that no tier-33 work appears.
+- Compare time-to-visible for 99 and 297 against v1.0.9. The purpose of this build is to reduce early CPU contention while retaining the 891 final-quality surface.
+
 ## v1.0.9 — development build
 
 ### Added
@@ -226,7 +241,7 @@ Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical 
 - Removed the parallel MapLibre grid polling/styledata workload and immediate post-recovery maintenance scheduling that could starve WebView timers and delay otherwise-fast native file-operation callbacks by many seconds.
 
 ### Known issues
-- This remains a development build for device verification. Diagnostic logging stays enabled by default in DEV; recovery curtain duration, main-thread stall entries, file callback delay, project switching, and the bottom-grid/button clearance should be checked on-device before stable promotion.
+- This remains a development build for device verification. Diagnostic logging stays enabled by default in DEV; recovery curtain duration, main-thread stall entries, file callback delay, project switching, Back behavior after startup, and bottom-grid/button clearance should be checked on-device before stable promotion.
 
 ## v0.9.7 — development build
 
@@ -276,7 +291,7 @@ Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical 
 - Project-grid refreshes are wrapped around later compatibility replacements of `renderGrid` and `updateGpsUI`, reducing the chance that a legacy owner can make the map grid arrive late during startup or a project change.
 
 ### Known issues
-- This remained a development build for device verification of map-grid ordering, lower-grid timing, and keyboard behavior; the follow-on v0.9.6 build adds detailed timing instrumentation and further async durability fixes.
+- This remained a development build intended for device verification of map-grid ordering, lower-grid timing, and keyboard behavior; the follow-on v0.9.6 build adds detailed timing instrumentation and further async durability fixes.
 
 ## v0.9.4 — development build
 
@@ -562,7 +577,7 @@ Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical 
 - Reduced startup flashes/repaints of the default project before the recovered project was applied.
 
 ### Known issues
-- Metric units, feet-and-tenths units, and laser-avoidance pathing had not yet been field-tested.
+- Metric units, feet-and-tenths units, and laser-avoidance pathing had not been field-tested.
 
 ## Earlier versions
 
