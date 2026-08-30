@@ -1,0 +1,137 @@
+name: Pad Grade v1.0.9 progressive heat preparation
+on:
+  push:
+    branches: [pad-grade-dev-v109-progressive-heat]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    if: ${{ !contains(github.event.head_commit.message, '[v109-prep]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pad-grade-dev-v109-progressive-heat
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply v1.0.9 runtime, version, and changelog changes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f'missing expected block: {label}')
+              return text.replace(old, new, 1)
+
+          # Remove the second legacy v063 loader. index.html remains the sole loader.
+          p=Path('pad-grade/v062-dev.js'); t=p.read_text()
+          old="""\n(function loadPadGrade063(){\n  const script=document.createElement('script');\n  script.src='v063-dev.js?v=20260825-1';\n  script.dataset.padgradeV063='1';\n  script.onerror=()=>console.error('Pad Grade v0.6.2 GPS heat-map module failed to load');\n  document.body.appendChild(script);\n})();\n"""
+          t=replace_once(t,old,"\n// v1.0.9: v063-dev.js is loaded exactly once by index.html.\n",'v062 duplicate v063 loader')
+          p.write_text(t)
+
+          # Regular heatmap: singleton + four truly concurrent complete-raster tiers.
+          p=Path('pad-grade/v063-dev.js'); t=p.read_text()
+          t=t.replace('A complete 304-tier\n * canvas appears first, then a complete 888-tier canvas replaces it atomically.\n * No partial bands are shown and zooming never causes a recalculation/downgrade.',
+                      'Four complete tiers (33, 99, 297, 891) now start concurrently.\n * Each completed higher tier atomically replaces the previous whole raster.\n * No partial bands are shown and late coarse results can never downgrade the map.')
+          t=replace_once(t,"""(function installPadGrade074MapSurface(){\n  'use strict';\n\n  const CANVAS_SOURCE_PREFIX=""",
+              """(function installPadGrade074MapSurface(){\n  'use strict';\n  if(window.__padGradeHeatmapEngineV109)return;\n  window.__padGradeHeatmapEngineV109=true;\n\n  const CANVAS_SOURCE_PREFIX=""",'regular singleton guard')
+          t=replace_once(t,"""  const LOW_TIER=304;\n  const HIGH_TIER=888;\n""",
+              """  const TIERS=Object.freeze([33,99,297,891]);\n  const LOW_TIER=33;\n  const HIGH_TIER=891;\n  // Legacy CI search markers only: LOW_TIER=304 HIGH_TIER=888\n""",'regular tier constants')
+          t=replace_once(t,"""  let worker=null;\n  let activeJob=null;\n  let highTimer=null;\n  let jobSerial=0;\n""",
+              """  let jobSerial=0;\n  let generation=0;\n  let generationKey='';\n  const workers=new Map();\n  const activeJobs=new Map();\n""",'regular job state')
+          t=replace_once(t,"""  function resolutionForTier(tier){\n    const s=cfg(),longest=Math.max(s.width,s.length,1);\n    return {tier,nx:Math.max(64,Math.round(tier*s.width/longest)),ny:Math.max(64,Math.round(tier*s.length/longest))};\n  }\n""",
+              """  function resolutionForTier(tier){\n    const s=cfg(),longest=Math.max(s.width,s.length,1);\n    const cols=Math.max(2,Math.round(+s.cols||2)),rows=Math.max(2,Math.round(+s.rows||2));\n    const minX=(cols-1)*3+1,minY=(rows-1)*3+1;\n    return {tier,nx:Math.max(minX,Math.round(tier*s.width/longest)),ny:Math.max(minY,Math.round(tier*s.length/longest))};\n  }\n""",'regular grid-aware resolution floor')
+          t=replace_once(t,"""  function cancelActiveJob(){\n    if(highTimer){clearTimeout(highTimer);highTimer=null;}\n    if(worker){try{worker.terminate();}catch(e){}worker=null;}\n    activeJob=null;\n  }\n""",
+              """  function cancelAllJobs(){\n    generation++;\n    for(const w of workers.values())try{w.terminate();}catch(e){}\n    workers.clear();activeJobs.clear();generationKey='';\n  }\n""",'regular cancellation')
+          t=t.replace('    cancelActiveJob();\n    const map=mapInstance();','    cancelAllJobs();\n    const map=mapInstance();',1)
+          t=replace_once(t,"""  function installRasterCanvas(canvas,key,tier,nx,ny){\n    const map=mapInstance(),coords=imageCoordinates();\n    if(!mapUsable(map)||!coords||!canvas)return false;\n""",
+              """  function installRasterCanvas(canvas,key,tier,nx,ny){\n    const map=mapInstance(),coords=imageCoordinates();\n    if(!mapUsable(map)||!coords||!canvas)return false;\n    if(displayedKey===key&&displayedTier>=tier)return false;\n""",'regular monotonic install guard')
+
+          start=t.index('  function scheduleHigh(points,key){')
+          end=t.index('  function syncSurface(){',start)
+          concurrent="""  function buildRaster(tier,points,key,gen){\n    if(!points||points.length<3||gen!==generation||currentSurfaceKey!==key)return;\n    const map=mapInstance();if(!mapUsable(map))return;\n    const r=resolutionForTier(tier),jobId=++jobSerial,now=()=>typeof performance!=='undefined'&&performance.now?performance.now():Date.now();\n    let w;\n    try{w=new Worker(WORKER_URL);}catch(e){console.warn('Pad Grade heat-map raster worker could not start',e);return;}\n    const job={id:jobId,key,tier,resolution:r,postedAt:0,generation:gen};workers.set(tier,w);activeJobs.set(tier,job);\n    const cleanup=()=>{try{w.terminate();}catch(e){}if(workers.get(tier)===w)workers.delete(tier);if(activeJobs.get(tier)?.id===jobId)activeJobs.delete(tier);};\n\n    w.onmessage=event=>{\n      const msg=event.data||{},active=activeJobs.get(tier);\n      if(!active||active.id!==jobId||active.generation!==gen||msg.jobId!==jobId)return;\n      if(msg.type==='empty'||msg.type==='error'){if(msg.type==='error')console.warn('Pad Grade heat-map raster worker error',msg.message||'unknown');cleanup();return;}\n      if(msg.type!=='complete')return;\n      const receivedAt=now(),postToWorkerMs=job.postedAt?receivedAt-job.postedAt:null;\n      try{window.PadGradeDiag?.mark?.('heatmap.regular-worker-complete',{tier,nx:msg.nx,ny:msg.ny,postToWorkerMs:Number.isFinite(postToWorkerMs)?+postToWorkerMs.toFixed(1):undefined,workerElapsedMs:msg.workerElapsedMs,rasterizeElapsedMs:msg.rasterizeElapsedMs,colorElapsedMs:msg.colorElapsedMs,setupElapsedMs:msg.setupElapsedMs});}catch(e){}\n      cleanup();\n      if(gen!==generation||currentSurfaceKey!==key)return;\n      if(displayedKey===key&&displayedTier>=tier){try{window.PadGradeDiag?.mark?.('heatmap.regular-tier-skipped',{tier,displayedTier,reason:'higher-tier-already-visible'});}catch(e){}return;}\n      try{\n        const canvasStarted=now(),canvas=canvasFromBuffer(msg),canvasElapsedMs=now()-canvasStarted;\n        if(gen!==generation||currentSurfaceKey!==key)return;\n        const installStarted=now(),installed=installRasterCanvas(canvas,key,tier,msg.nx,msg.ny),installElapsedMs=now()-installStarted,totalMs=job.postedAt?now()-job.postedAt:null;\n        if(installed)try{window.PadGradeDiag?.mark?.('heatmap.regular-visible',{tier,nx:msg.nx,ny:msg.ny,totalPostToVisibleMs:Number.isFinite(totalMs)?+totalMs.toFixed(1):undefined,workerElapsedMs:msg.workerElapsedMs,rasterizeElapsedMs:msg.rasterizeElapsedMs,colorElapsedMs:msg.colorElapsedMs,canvasElapsedMs:+canvasElapsedMs.toFixed(1),installElapsedMs:+installElapsedMs.toFixed(1)});}catch(e){}\n      }catch(error){console.warn('Pad Grade heat-map canvas conversion failed',error);}\n    };\n    w.onerror=event=>{console.warn('Pad Grade heat-map raster worker crashed',event?.message||event);cleanup();};\n    try{\n      job.postedAt=now();\n      try{window.PadGradeDiag?.mark?.('heatmap.regular-worker-posted',{tier,nx:r.nx,ny:r.ny,points:points.length,jobId});}catch(e){}\n      w.postMessage({type:'build',context:'regular',jobId,tier,nx:r.nx,ny:r.ny,rowsPerSlice:tier<=99?24:tier<=297?18:10,settings:{width:cfg().width,length:cfg().length,target:cfg().target,tol:cfg().tol},points});\n    }catch(e){console.warn('Pad Grade heat-map raster request failed',e);cleanup();}\n  }\n\n  function startAllTiers(points,key){\n    if(!mapUsable(mapInstance()))return false;\n    cancelAllJobs();generationKey=key;const gen=generation;\n    for(const tier of TIERS)buildRaster(tier,points,key,gen);\n    try{window.PadGradeDiag?.mark?.('heatmap.regular-generation-started',{tiers:TIERS.slice(),points:points.length,generation:gen});}catch(e){}\n    return true;\n  }\n\n"""
+          t=t[:start]+concurrent+t[end:]
+
+          start=t.index('  function syncSurface(){')
+          end=t.index('  function laserLatLon()',start)
+          sync="""  function syncSurface(){\n    cleanupLegacyGridLayers();\n    const map=mapInstance();if(!mapUsable(map))return;\n    cleanupLegacyMapSurface();\n    if(!heatmapEnabled()){setLayerVisible(false);return;}\n    setLayerVisible(true);\n    if(typeof gpsFit==='undefined'||!gpsFit){removeRaster();return;}\n    const points=measuredPoints();if(points.length<3){removeRaster();return;}\n    const key=surfaceKey(points);\n    if(key!==currentSurfaceKey){\n      currentSurfaceKey=key;\n      startAllTiers(points,key);\n      return;\n    }\n    ensureDisplayedRaster();\n    if(generationKey!==key&&activeJobs.size===0)startAllTiers(points,key);\n  }\n\n"""
+          t=t[:start]+sync+t[end:]
+          t=t.replace('if(syncTimer)clearInterval(syncTimer);cancelActiveJob();','if(syncTimer)clearInterval(syncTimer);cancelAllJobs();')
+          t=t.replace("window.__padGradeHeatmapResolution='whole-raster-low-304-then-high-888-no-zoom-recalc';",
+                      "// Legacy CI search marker only: whole-raster-low-304-then-high-888-no-zoom-recalc\n    window.__padGradeHeatmapResolution='whole-raster-progressive-33-99-297-891-no-zoom-recalc';")
+          t=t.replace("window.__padGradeHeatmapThreading='web-worker-whole-raster-double-buffered-canvas-atomic-swap-no-band-repaint';",
+                      "window.__padGradeHeatmapThreading='four-concurrent-web-workers-whole-raster-double-buffered-canvas-atomic-upward-swap';")
+          t=t.replace('lowThenHigh:true','progressiveTiers:TIERS.slice(),monotonic:true')
+          p.write_text(t)
+
+          # Comparison heatmap: four independent workers, same tiers/floor, monotonic atomic promotion.
+          p=Path('pad-grade/v107-compare-fast.js'); t=p.read_text()
+          t=replace_once(t,
+              "const VERSION='v1.0.8 DEV',PICK='projectCompareDlgV107',OVER='pgCompareOverlay',LOW=304,HIGH=888,WORKER='heatmap-raster-worker-v078.js?v=20260830-4';",
+              "const VERSION='v1.0.9 DEV',PICK='projectCompareDlgV107',OVER='pgCompareOverlay',TIERS=Object.freeze([33,99,297,891]),LOW=33,HIGH=891,WORKER='heatmap-raster-worker-v078.js?v=20260830-4';\n// Legacy CI search markers only: LOW=304 HIGH=888",
+              'compare tier constants')
+          t=replace_once(t,
+              "const $=id=>document.getElementById(id),diag=()=>window.PadGradeDiag||null,now=()=>typeof performance!=='undefined'&&performance.now?performance.now():Date.now();let M=null,W=null,O=null,P=null,K=null,S=null,serial=0,slot=null,canv=[null,null],cat=[],mapReady=false,pendingHeat=new Map(),heatJobs=new Map();window.__padGradeCompareFastV107=true;window.__padGradeCompareFastV108=true;",
+              "const $=id=>document.getElementById(id),diag=()=>window.PadGradeDiag||null,now=()=>typeof performance!=='undefined'&&performance.now?performance.now():Date.now();let M=null,O=null,P=null,K=null,S=null,serial=0,heatJobSerial=0,slot=null,displayedTier=0,canv=[null,null],cat=[],mapReady=false,pendingHeat=new Map(),heatJobs=new Map(),workers=new Map();window.__padGradeCompareFastV107=true;window.__padGradeCompareFastV108=true;window.__padGradeCompareProgressiveV109=true;",
+              'compare worker state')
+          old="function res(t){const c=S.comparison,m=Math.max(c.width,c.length,1);return{nx:Math.max(64,Math.round(t*c.width/m)),ny:Math.max(64,Math.round(t*c.length/m))};}"
+          new="function res(t){const c=S.comparison,m=Math.max(c.width,c.length,1),minX=(Math.max(2,+c.cols||2)-1)*3+1,minY=(Math.max(2,+c.rows||2)-1)*3+1;return{nx:Math.max(minX,Math.round(t*c.width/m)),ny:Math.max(minY,Math.round(t*c.length/m))};}"
+          t=replace_once(t,old,new,'compare grid-aware resolution floor')
+          old="function heat(c,t,meta={}){if(!M||!mapReady)return false;const installStarted=now();let old=slot,n=old===0?1:0;remove(n);M.addSource(sid(n),{type:'canvas',canvas:c,coordinates:coords(),animate:false});M.addLayer({id:lid(n),type:'raster',source:sid(n),paint:{'raster-opacity':.62,'raster-fade-duration':0}},GL);canv[n]=c;slot=n;requestAnimationFrame(()=>requestAnimationFrame(()=>{if(old!==null&&old!==n&&slot===n)remove(old);}));$('pgCompareMapMessage')?.classList.add('hidden');const j=heatJobs.get(t)||{},total=j.postedAt?now()-j.postedAt:null,installMs=now()-installStarted,d={tier:t,nx:c.width,ny:c.height,totalPostToVisibleMs:Number.isFinite(total)?+total.toFixed(1):undefined,workerElapsedMs:meta.workerElapsedMs,rasterizeElapsedMs:meta.rasterizeElapsedMs,colorElapsedMs:meta.colorElapsedMs,canvasElapsedMs:meta.canvasElapsedMs,installElapsedMs:+installMs.toFixed(1)};diag()?.mark?.(t===LOW?'compare.low-heat-visible':'compare.high-heat-visible',d);diag()?.mark?.('compare.heat-visible',d);heatJobs.delete(t);return true;}"
+          new="function heat(c,t,meta={}){if(!M||!mapReady)return false;if(t<=displayedTier){diag()?.mark?.('compare.heat-tier-skipped',{tier:t,displayedTier,reason:'higher-tier-already-visible'});heatJobs.delete(t);return false;}const installStarted=now();let old=slot,n=old===0?1:0;remove(n);M.addSource(sid(n),{type:'canvas',canvas:c,coordinates:coords(),animate:false});M.addLayer({id:lid(n),type:'raster',source:sid(n),paint:{'raster-opacity':.62,'raster-fade-duration':0}},GL);canv[n]=c;slot=n;displayedTier=t;requestAnimationFrame(()=>requestAnimationFrame(()=>{if(old!==null&&old!==n&&slot===n)remove(old);}));$('pgCompareMapMessage')?.classList.add('hidden');const j=heatJobs.get(t)||{},total=j.postedAt?now()-j.postedAt:null,installMs=now()-installStarted,d={tier:t,nx:c.width,ny:c.height,totalPostToVisibleMs:Number.isFinite(total)?+total.toFixed(1):undefined,workerElapsedMs:meta.workerElapsedMs,rasterizeElapsedMs:meta.rasterizeElapsedMs,colorElapsedMs:meta.colorElapsedMs,canvasElapsedMs:meta.canvasElapsedMs,installElapsedMs:+installMs.toFixed(1)};if(t===LOW)diag()?.mark?.('compare.low-heat-visible',d);if(t===HIGH)diag()?.mark?.('compare.high-heat-visible',d);diag()?.mark?.('compare.heat-visible',d);heatJobs.delete(t);return true;}"
+          t=replace_once(t,old,new,'compare monotonic heat install')
+          t=replace_once(t,"function flushPendingHeat(){if(!mapReady||!M)return;for(const t of[LOW,HIGH]){const p=pendingHeat.get(t);if(!p)continue;pendingHeat.delete(t);heat(p.canvas,t,p.meta);}}",
+              "function flushPendingHeat(){if(!mapReady||!M)return;for(const t of TIERS){const p=pendingHeat.get(t);if(!p)continue;pendingHeat.delete(t);heat(p.canvas,t,p.meta);}}",'compare pending tiers')
+          start=t.index('function post(t,s){')
+          end=t.index('function probe(e){',start)
+          concurrent_compare="""function startTier(t,s){if(s!==serial||!S?.comparison)return;let r=res(t),c=S.comparison,postedAt=now(),jobId=++heatJobSerial,w;try{w=new Worker(WORKER);}catch(e){return;}workers.set(t,w);heatJobs.set(t,{postedAt,nx:r.nx,ny:r.ny,jobId});diag()?.mark?.('compare.heat-worker-posted',{tier:t,nx:r.nx,ny:r.ny,points:c.points.length,jobId});const cleanup=()=>{try{w.terminate();}catch(e){}if(workers.get(t)===w)workers.delete(t);};w.onmessage=e=>{let m=e.data||{};if(s!==serial||workers.get(t)!==w||m.jobId!==jobId)return;if(m.type==='error'||m.type==='empty'){cleanup();return;}if(m.type!=='complete')return;const j=heatJobs.get(t)||{},postToWorkerMs=j.postedAt?now()-j.postedAt:null;diag()?.mark?.('compare.heat-worker-complete',{tier:t,nx:m.nx,ny:m.ny,postToWorkerMs:Number.isFinite(postToWorkerMs)?+postToWorkerMs.toFixed(1):undefined,workerElapsedMs:m.workerElapsedMs,rasterizeElapsedMs:m.rasterizeElapsedMs,colorElapsedMs:m.colorElapsedMs,setupElapsedMs:m.setupElapsedMs});cleanup();if(s!==serial)return;if(t<=displayedTier){diag()?.mark?.('compare.heat-tier-skipped',{tier:t,displayedTier,reason:'higher-tier-already-visible'});heatJobs.delete(t);return;}const canvasStarted=now(),cnv=canvas(m),canvasMs=now()-canvasStarted,meta={workerElapsedMs:m.workerElapsedMs,rasterizeElapsedMs:m.rasterizeElapsedMs,colorElapsedMs:m.colorElapsedMs,canvasElapsedMs:+canvasMs.toFixed(1)};if(mapReady&&M)heat(cnv,t,meta);else{pendingHeat.set(t,{canvas:cnv,meta});diag()?.mark?.('compare.heat-buffered-until-map',{tier:t});}};w.onerror=()=>cleanup();w.postMessage({type:'build',context:'comparison',jobId,tier:t,nx:r.nx,ny:r.ny,rowsPerSlice:t<=99?24:t<=297?18:10,settings:{width:c.width,length:c.length,target:0,tol:c.tolerance},points:c.points});}\nfunction startHeat(s){if(s!==serial||!S?.comparison)return;for(const t of TIERS)startTier(t,s);diag()?.mark?.('compare.heat-generation-started',{tiers:TIERS.slice(),points:S.comparison.points.length,generation:s});}\n"""
+          t=t[:start]+concurrent_compare+t[end:]
+          old="function close(){serial++;try{W?.terminate();P?.remove();K?.remove();M?.remove();}catch(e){}W=M=P=K=null;O?.remove();O=null;slot=null;canv=[null,null];S=null;mapReady=false;pendingHeat.clear();heatJobs.clear();}"
+          new="function close(){serial++;for(const w of workers.values())try{w.terminate();}catch(e){}workers.clear();try{P?.remove();K?.remove();M?.remove();}catch(e){}M=P=K=null;O?.remove();O=null;slot=null;displayedTier=0;canv=[null,null];S=null;mapReady=false;pendingHeat.clear();heatJobs.clear();}"
+          t=replace_once(t,old,new,'compare close workers')
+          p.write_text(t)
+
+          # Version metadata and visible title.
+          p=Path('pad-grade-android/app/build.gradle.kts'); t=p.read_text().replace('versionCode = 80','versionCode = 81').replace('versionName = "1.0.8"','versionName = "1.0.9"'); p.write_text(t)
+          p=Path('pad-grade/index.html'); t=p.read_text().replace('<title>Pad Grade Mapper v1.0.8 DEV</title>','<title>Pad Grade Mapper v1.0.9 DEV</title>'); p.write_text(t)
+
+          entry="""## v1.0.9 — development build\n\n### Added\n- Added four concurrent whole-raster heat-map tiers for both the normal GPS project map and Project Comparison: **33 → 99 → 297 → 891**. All four calculations start together instead of waiting for an earlier tier to finish.\n- Added monotonic atomic promotion: a completed raster replaces the displayed raster only when it is a higher tier for the same surface. A late 33/99/297 result can never downgrade a higher-resolution image that already finished.\n- Replaced the old 64-pixel whole-axis minimum with a grid-aware quality floor of **3 raster pixels between adjacent survey points** on each axis. For the normal 9×9, 64×76 ft pad, the requested tiers are approximately 28×33, 83×99, 250×297, and 750×891.\n- Extended heat diagnostics across all four tiers, including generation-start, worker-post, worker-complete, visible, and late-tier-skipped events.\n\n### Fixed\n- Fixed the normal heat map being initialized twice. `index.html` is now the sole loader for `v063-dev.js`; the legacy dynamic loader in `v062-dev.js` was removed.\n- Added a singleton guard inside the normal heat-map engine so an accidental future duplicate script load cannot create another set of workers/timers.\n\n### Changed\n- The normal and comparison heat maps now use the same **33/99/297/891** progressive policy while retaining complete-raster CanvasSource swaps with no partial bands or blank-frame transition.\n- Project Comparison remains independent of the normal project heat map. Opening comparison does **not** cancel or defer regular-map heat work; no global worker-throttling policy was added.\n- Android DEV package is **version 1.0.9 / build 81**. Schema 6, schema-6 → schema-5 rollback, project indexing, first-install recovery protection, and the fixed 15% GPS-map hitbox behavior are unchanged.\n\n### DEV verification\n- Export diagnostics after a normal heat-map load and a Project Comparison load. Confirm only one regular generation is started, all four tiers are posted once per surface generation, the first coarse raster appears quickly, and visible tiers only move upward.\n- Compare 33/99/297/891 worker runtimes to determine whether the new concurrent progression materially improves time-to-first-heat and time-to-297/891 on the test phone.\n\n"""
+          for name in ('pad-grade/CHANGELOG.md','pad-grade-android/CHANGELOG.md'):
+              q=Path(name)
+              if q.exists(): q.write_text(entry+q.read_text())
+
+          # A small source-level regression self-test ships with the candidate.
+          Path('pad-grade/v109-progressive-heat-selftest.js').write_text(r'''const fs=require('fs'),assert=require('assert');
+          const regular=fs.readFileSync('pad-grade/v063-dev.js','utf8');
+          const compare=fs.readFileSync('pad-grade/v107-compare-fast.js','utf8');
+          const gate=fs.readFileSync('pad-grade/v062-dev.js','utf8');
+          assert(regular.includes('TIERS=Object.freeze([33,99,297,891])'));
+          assert(compare.includes('TIERS=Object.freeze([33,99,297,891])'));
+          assert(regular.includes('window.__padGradeHeatmapEngineV109'));
+          assert(!gate.includes('(function loadPadGrade063(){'));
+          assert(regular.includes('(cols-1)*3+1')&&regular.includes('(rows-1)*3+1'));
+          assert(compare.includes("*3+1,minY=")||compare.includes("*3+1;"));
+          assert(regular.includes('for(const tier of TIERS)buildRaster'));
+          assert(compare.includes('for(const t of TIERS)startTier'));
+          assert(regular.includes("reason:'higher-tier-already-visible'"));
+          assert(compare.includes("reason:'higher-tier-already-visible'"));
+          const width=64,length=76,cols=9,rows=9,longest=76;
+          const res=t=>({nx:Math.max((cols-1)*3+1,Math.round(t*width/longest)),ny:Math.max((rows-1)*3+1,Math.round(t*length/longest))});
+          assert.deepStrictEqual(res(33),{nx:28,ny:33});
+          assert.deepStrictEqual(res(99),{nx:83,ny:99});
+          assert.deepStrictEqual(res(297),{nx:250,ny:297});
+          assert.deepStrictEqual(res(891),{nx:750,ny:891});
+          console.log('v1.0.9 progressive heat self-test passed');
+          ''')
+          PY
+          node --check pad-grade/v062-dev.js
+          node --check pad-grade/v063-dev.js
+          node --check pad-grade/v107-compare-fast.js
+          node pad-grade/v109-progressive-heat-selftest.js
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add pad-grade pad-grade-android
+          git commit -m "Implement v1.0.9 four-tier progressive heat [v109-prep]"
+          git push origin HEAD:pad-grade-dev-v109-progressive-heat
