@@ -1,0 +1,29 @@
+name: Pad Grade v1.1.1 Bundle Inspect
+
+on:
+  push:
+    branches: [pad-grade-dev-v111-resilience]
+    paths:
+      - '.github/workflows/pad-grade-v111-bundle-inspect.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate and inspect staged bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/pad-grade-v111.bundle.part{01..08} > /tmp/pg-v111.b64
+          echo "base64 bytes: $(wc -c < /tmp/pg-v111.b64)"
+          base64 -d /tmp/pg-v111.b64 > /tmp/pg-v111.gz
+          gzip -t /tmp/pg-v111.gz
+          gzip -dc /tmp/pg-v111.gz > /tmp/pg-v111.bundle
+          echo "decoded bytes: $(wc -c < /tmp/pg-v111.bundle)"
+          file /tmp/pg-v111.bundle
+          echo '--- first 120 lines ---'
+          sed -n '1,120p' /tmp/pg-v111.bundle
