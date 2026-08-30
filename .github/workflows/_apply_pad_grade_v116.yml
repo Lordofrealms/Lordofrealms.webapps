@@ -1,0 +1,33 @@
+name: Apply Pad Grade v1.1.6 metadata
+
+on:
+  push:
+    branches: [pad-grade-dev-v116-imagery-suspend]
+    paths:
+      - '.github/workflows/_apply_pad_grade_v116.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pad-grade-dev-v116-imagery-suspend
+      - name: Apply v1.1.6 version and changelogs
+        run: python3 tools/apply_pad_grade_v116.py
+      - name: Validate runtime and self-test
+        run: |
+          node --check pad-grade/v116-dev.js
+          node --check pad-grade/v116-background-suspend-selftest.js
+          node pad-grade/v116-background-suspend-selftest.js
+      - name: Commit generated edits
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm tools/apply_pad_grade_v116.py
+          git add pad-grade/index.html pad-grade/CHANGELOG.md pad-grade-android/app/build.gradle.kts pad-grade-android/CHANGELOG.md
+          git commit -m 'Pad Grade v1.1.6: background GPS/imagery suspension + two-barrier heat handoff'
+          git push origin HEAD:pad-grade-dev-v116-imagery-suspend
