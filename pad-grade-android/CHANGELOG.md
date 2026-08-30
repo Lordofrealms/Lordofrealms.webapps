@@ -6,6 +6,33 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v1.1.6 — development build (88)
+
+### Changed
+- Continuous GPS watches are suspended at the underlying geolocation/Precision Location provider whenever the WebView becomes hidden, then only the watches that were previously registered are restored on return. This covers both survey guidance and the map-position companion watch without forcing either feature to forget its app-level watch ID.
+- Active stabilized corner capture is cancelled on minimize and must be recaptured after resume rather than completing against a gap in location samples.
+- USGS cached imagery and high-resolution NAIP raster layers/sources are removed from both the primary map and the intentionally separate Project Comparison map while backgrounded. MapLibre instances, camera/project/grid/heat state, calibration, and disk/decoded heat caches remain intact and imagery is reattached on resume.
+- This is a targeted background-resource experiment based on v1.1.5 diagnostics showing foreground process memory dominated by graphics PSS. GPS suspension is included to eliminate unnecessary background power/location work, not because GPS was measured as the graphics-memory source.
+
+### Fixed
+- Packaged the v1.1.6 two-render-barrier heat-map handoff. The same-source hold must render once before old → hold, the full-opacity hold must render before the real resolution selection proceeds, and the target must render staged before hold → target. The intended result remains a hard no-cross-fade resolution swap without a bare-map frame.
+- Pending heat handoffs are cancelled across project, hide, and unload boundaries.
+
+### Diagnostics
+- Added explicit memory checkpoints before background suspension, after GPS suspension, after imagery removal, after a settled unload interval, and around resume/restoration.
+- Added GPS and imagery suspend/restore event markers, including counts of stopped/restarted watches and removed/restored raster layers/sources.
+
+### Packaging
+- DEV `applicationId` remains `com.lordofrealms.padgrade.dev`.
+- Version name **1.1.6**, version code **88**.
+- No larger-heap flag, foreground keep-alive service, automatic heat-cache trimming, or MapLibre destruction is introduced in this build.
+
+### DEV verification
+- Reproduce the prior several-minute minimize/reopen scenario with GPS active and compare the v1.1.6 post-GPS and post-imagery memory snapshots to the v1.1.5 baseline.
+- Verify satellite imagery disappears from memory while hidden and reloads on return without losing grid/heat/project state.
+- Repeat with Project Comparison open and verify its intentionally separate map remains the only secondary MapLibre instance and is restored correctly.
+- Exercise Auto/99/297/891 repeatedly and verify the stronger two-barrier handoff removes the remaining resolution-change flicker.
+
 ## v1.1.5 — development build (87)
 
 ### Fixed
