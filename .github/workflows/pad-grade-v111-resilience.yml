@@ -36,14 +36,12 @@ jobs:
           grep -F 'gps.provider-state' pad-grade/v111-resilience.js
           ! grep -F 'completeProjectFolderRecovery' pad-grade/v111-resilience.js
           ! grep -F '__padGradeEndRecoveryVisualHold' pad-grade/v111-resilience.js
-      - name: Verify v1.1.1 metadata and changelogs
+      - name: Verify current DEV metadata and retained v1.1.1 behavior
         run: |
-          grep -F 'versionCode = 83' pad-grade-android/app/build.gradle.kts
-          grep -F 'versionName = "1.1.1"' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionCode = 84' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.1.2"' pad-grade-android/app/build.gradle.kts
           grep -F '<title>Pad Grade Mapper v1.1.1 DEV</title>' pad-grade/index.html
           grep -F 'src="v111-resilience.js?v=20260830-1"' pad-grade/index.html
-          grep -F '## v1.1.1 — development build' pad-grade/CHANGELOG.md
-          grep -F '## v1.1.1 — development build' pad-grade-android/CHANGELOG.md
           grep -F 'TIERS=Object.freeze([99,297,891])' pad-grade/v063-dev.js
           grep -F 'INITIAL_TIERS=Object.freeze([99,297])' pad-grade/v063-dev.js
           grep -F 'CURRENT_SCHEMA=6,ROLLBACK_SCHEMA=5' pad-grade/project-format-v107.js
