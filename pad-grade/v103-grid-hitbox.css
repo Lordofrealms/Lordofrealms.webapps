@@ -1,0 +1,84 @@
+/* Pad Grade v1.0.3 DEV — keep responsive grid tracks and touch hitboxes identical.
+ *
+ * The authoritative worker grid computes exact CSS-grid track sizes. Older base
+ * styles still carried a 600px grid minimum, 50/54px cell minimums, and square
+ * aspect ratios. On narrow screens those legacy minimums could make a cell paint
+ * outside its assigned track, so a visible point could overlap a neighboring
+ * point's real hitbox. These rules make each cell occupy exactly its own track.
+ */
+#grid.v040-fit{
+  min-width:0!important;
+  gap:2px;
+  align-items:stretch;
+  justify-items:stretch;
+}
+#grid.v040-scroll{
+  min-width:max-content!important;
+  gap:4px;
+  align-items:stretch;
+  justify-items:stretch;
+}
+#grid.v040-fit .cell,
+#grid.v040-scroll .cell{
+  min-width:0!important;
+  width:100%!important;
+  max-width:100%!important;
+  height:100%!important;
+  aspect-ratio:auto!important;
+  overflow:hidden;
+  box-sizing:border-box;
+}
+
+/* Restore the uniform five-line cell geometry expected by grid-core.js. Keeping
+ * text inside those fixed tracks prevents content sizing from changing the cell
+ * box after the worker's final layout pass. */
+#grid.v041-uniform .cell{
+  min-width:0!important;
+  width:100%!important;
+  height:100%!important;
+  padding:2px;
+  overflow:hidden;
+  box-sizing:border-box;
+}
+#grid.v042-uniform .cell{
+  display:grid!important;
+  grid-template-rows:repeat(5,minmax(0,1fr));
+  align-items:center;
+  justify-items:center;
+  gap:0!important;
+  padding:2px;
+  box-sizing:border-box;
+}
+#grid.v042-uniform .cell .coord,
+#grid.v042-uniform .cell .main,
+#grid.v042-uniform .cell .sub,
+#grid.v042-uniform .cell .xy span{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:100%;
+  height:100%;
+  margin:0!important;
+  padding:0!important;
+  line-height:1!important;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:clip;
+  box-sizing:border-box;
+  pointer-events:none;
+}
+#grid.v042-uniform .cell .xy{display:contents!important}
+#grid.v042-uniform .cell .coord{grid-row:1;font-weight:900}
+#grid.v042-uniform .cell .xy span:first-child{grid-row:2}
+#grid.v042-uniform .cell .xy span:last-child{grid-row:3}
+#grid.v042-uniform .cell .main{grid-row:4;font-weight:800}
+#grid.v042-uniform .cell .sub{grid-row:5}
+#grid.v042-uniform .cell .coord,
+#grid.v042-uniform .cell .xy span,
+#grid.v042-uniform .cell .main,
+#grid.v042-uniform .cell .sub{font-size:var(--grid-font,10px)!important}
+
+@media(max-width:520px){
+  #grid.v040-fit .cell,
+  #grid.v040-scroll .cell{min-width:0!important}
+}
