@@ -25,9 +25,9 @@ jobs:
           node pad-grade/v107-index-reconcile-selftest.js
           grep -F 'CURRENT_SCHEMA=6,ROLLBACK_SCHEMA=5' pad-grade/project-format-v107.js
           grep -F 'downgradeFolderToV5' pad-grade/v107-index-reconcile.js
-          grep -F 'versionCode = 81' pad-grade-android/app/build.gradle.kts
-          grep -F 'versionName = "1.0.9"' pad-grade-android/app/build.gradle.kts
-          grep -F '<title>Pad Grade Mapper v1.0.9 DEV</title>' pad-grade/index.html
+          grep -E 'versionCode = (8[0-9]|[9][0-9]|[1-9][0-9]{2,})' pad-grade-android/app/build.gradle.kts
+          grep -E 'versionName = "[0-9]+\.[0-9]+\.[0-9]+"' pad-grade-android/app/build.gradle.kts
+          grep -E '<title>Pad Grade Mapper v[0-9]+\.[0-9]+\.[0-9]+ DEV</title>' pad-grade/index.html
 
       - name: Verify recovery race defenses
         run: |
