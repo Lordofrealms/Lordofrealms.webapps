@@ -4,6 +4,21 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v1.0.1 — development build
+
+### Changed
+- When Precision Location becomes unavailable after a GPS session has already started, Pad Grade now keeps the same active GPS requests and watches alive and transfers them to Android/WebView native geolocation instead of requiring the user to leave and re-enter GPS mode.
+- Native fallback is scoped to the current GPS subscription session. Once all GPS requests and watches are released, a later GPS session can try Precision Location again.
+
+### Fixed
+- Fixed the state where Precision Location could report **STOPPED** after starting while Pad Grade remained subscribed to the Precision-backed geolocation proxy indefinitely, leaving the map on **Waiting for current GPS position…** instead of falling back.
+- Precision start failures, IPC/service errors, service STOPPED/disconnect events, and first-fix timeouts now trigger transparent native GPS fallback when WebView geolocation is available.
+- Late Precision Location callbacks are ignored after failover begins so a dying or restarting companion cannot reclaim the stream while native GPS is active.
+- Fallback uses the existing Android/WebView location-permission path, so a missing native location grant can be requested normally.
+
+### Known issues
+- This remains a development build for device verification. Test by starting GPS with Precision Location available, then stopping or failing the companion and confirming the source badge changes to **Native GPS** and fixes continue without toggling GPS mode.
+
 ## v1.0.0 — development build
 
 ### Added
