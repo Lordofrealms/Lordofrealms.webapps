@@ -4,6 +4,39 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v1.0.0 — development build
+
+### Added
+- Added calculator-specific diagnostic timing spans for total target calculation, surface construction/cache reuse, minimum-disturbed-area search, and earthwork passes so Android device logs can show exactly where grading-calculation time is spent.
+
+### Changed
+- The balanced cut/fill and minimum-disturbed-area calculator keeps the same 90-resolution equal-area sampling grid and the same global inverse-distance-squared (IDW²) surface values, but replaces the old per-sample Delaunay-triangle coverage search with the equivalent convex-hull coverage test.
+- Target-independent surface samples, sorted sample elevations, and the neutral target are cached until measured readings or pad/grid geometry actually change. Changing only target elevation or tolerance can reuse the already-sampled ground surface.
+- Applying either suggested target now reuses the result that was just calculated instead of immediately rebuilding and rescanning the same surface a second time.
+
+### Fixed
+- Removed unnecessary geometry and duplicate recalculation work from the **Net-zero earthwork target** and **Minimum disturbed-area target** workflow without lowering calculation resolution or changing the interpolation model.
+
+### Known issues
+- This remains a development build for device verification. Diagnostic logging remains enabled by default in DEV so calculator timing and cache-hit behavior can be compared with the prior implementation before stable promotion.
+
+## v0.9.9 — development build
+
+### Added
+- Added first-run legal-preload diagnostics so the timing log can distinguish local layout/grid preparation performed while the Terms screen is open, map/network work intentionally deferred by the legal gate, and the acceptance release point.
+
+### Changed
+- On a true first run, the native Terms screen still appears first, but the underlying WebView can begin local DOM, CSS, grid, worker, and layout preparation shortly afterward while the user is reading the Terms.
+- Durable-folder choice and project-storage access remain blocked until the Terms are accepted.
+- MapLibre and map/network startup remain blocked until acceptance, so legal-preload time is used only for local application/layout preparation rather than location-dependent network activity.
+- Accepting the Terms releases the storage and map gates immediately; unusually fast acceptance falls through to the normal startup path instead of waiting for preload work to finish.
+
+### Fixed
+- Reduced avoidable post-TOS startup delay by moving safe local layout/bootstrap work into the time the app was previously idle behind the native legal notice.
+
+### Known issues
+- This remains a development build intended to verify that Terms acceptance proceeds directly into the durable-folder decision with the underlying app already laid out and without starting storage or map/network work before acceptance.
+
 ## v0.9.8 — development build
 
 ### Changed
