@@ -1,0 +1,70 @@
+        const ok=await files.write(cacheFilename(projectId),payload);if(ok){cacheMemory.set(memoryKey,{projectId,key,tier:891,nx,ny,canvas,createdAt:new Date().toISOString(),cached:true});mark('heatmap.cache-written',{projectId,tier:891,nx,ny,bytes:payload.length,source,elapsedMs:+(now()-started).toFixed(1)});}else mark('heatmap.cache-write-skipped',{projectId,source});
+      }catch(e){mark('heatmap.cache-write-failed',{projectId,error:String(e?.message||e).slice(0,120),source});}
+      finally{cacheWriteKeys.delete(memoryKey);scheduleBackgroundCaching(1800);}
+    };
+    if(typeof requestIdleCallback==='function')requestIdleCallback(run,{timeout:2500});else setTimeout(run,120);
+  }
+
+  if(typeof NativeWorker==='function'){
+    class PadGrade113Worker extends NativeWorker{
+      constructor(url,options){
+        super(url,options);this.__pg113HeatWorker=String(url||'').includes('heatmap-raster-worker-v073.js');this.__pg113Jobs=new Map();
+        if(this.__pg113HeatWorker)this.addEventListener('message',event=>{
+          const msg=event?.data||{},job=this.__pg113Jobs.get(msg.jobId);if(!job)return;
+          if(msg.type==='complete'||msg.type==='empty'||msg.type==='error'){this.__pg113Jobs.delete(msg.jobId);if(job.context==='regular')foregroundHeatJobs=Math.max(0,foregroundHeatJobs-1);}
+          if(msg.type!=='complete')return;
+          const canvas=canvasFromBuffer(msg,true);if(canvas&&TIERS.includes(+job.tier)){
+            if(job.projectId===activeId()&&job.key===currentSurfaceKey()){tierCache.set(+job.tier,{tier:+job.tier,nx:+msg.nx,ny:+msg.ny,canvas,key:job.key,projectId:job.projectId});if(inspectorMode!== 'auto')renderInspector();else updateInspectorUi();}
+            if(+job.tier===891)scheduleCacheWrite(job.projectId,job.key,canvas,+msg.nx,+msg.ny,'regular-worker');
+          }
+          scheduleBackgroundCaching(1800);
+        });
+      }
+      postMessage(message,transfer){
+        if(!this.__pg113HeatWorker||message?.type!=='build')return arguments.length>1?NativeWorker.prototype.postMessage.call(this,message,transfer):NativeWorker.prototype.postMessage.call(this,message);
+        const context=String(message.context||''),job={context,tier:+message.tier,key:surfaceKeyFromBuild(message),projectId:activeId()};this.__pg113Jobs.set(message.jobId,job);if(context==='regular')foregroundHeatJobs++;
+        const send=()=>{try{if(arguments.length>1)NativeWorker.prototype.postMessage.call(this,message,transfer);else NativeWorker.prototype.postMessage.call(this,message);}catch(e){this.__pg113Jobs.delete(message.jobId);if(context==='regular')foregroundHeatJobs=Math.max(0,foregroundHeatJobs-1);throw e;}};
+        if(context==='regular'&&(+message.tier===99||+message.tier===297)){
+          resolveCacheForBuild(this,message,send).catch(()=>send());return;
+        }
+        send();
+      }
+    }
+    window.Worker=PadGrade113Worker;
+  }
+
+  function patchMap(map){
+    if(!map||map.__padGradeV113Patched)return false;map.__padGradeV113Patched=true;
+    const removeLayer=map.removeLayer.bind(map),removeSource=map.removeSource.bind(map),addSource=map.addSource.bind(map),addLayer=map.addLayer.bind(map);
+    map.removeLayer=function(id){
+      if(switchGuard&&(GRID_LAYERS.includes(id)||String(id||'').startsWith(HEAT_LAYER_PREFIX))){try{if(this.getLayer(id))this.setLayoutProperty(id,'visibility','none');}catch(e){}return this;}
+      return removeLayer(id);
+    };
+    map.removeSource=function(id){
+      if(switchGuard&&GRID_SOURCES.includes(id)){try{this.getSource(id)?.setData?.(fc([]));}catch(e){}return this;}
+      if(switchGuard&&String(id||'').startsWith(HEAT_SOURCE_PREFIX))return this;
+      return removeSource(id);
+    };
+    map.addSource=function(id,spec){
+      if(switchGuard&&GRID_SOURCES.includes(id)&&this.getSource(id)&&spec?.type==='geojson'){try{this.getSource(id).setData(spec.data||fc([]));return this;}catch(e){}}
+      return addSource(id,spec);
+    };
+    map.addLayer=function(layer,before){
+      const id=layer?.id||'';
+      if(switchGuard&&GRID_LAYERS.includes(id)&&this.getLayer(id)){try{this.setLayoutProperty(id,'visibility','visible');}catch(e){}return this;}
+      const result=addLayer(layer,before);
+      if(id.startsWith(HEAT_LAYER_PREFIX)){
+        // A literal visual swap: hide the previously visible complete raster in
+        // the same synchronous task that stages the new one. MapLibre cannot
+        // paint an overlap frame between these calls.
+        try{for(const other of this.getStyle?.()?.layers||[]){const otherId=other?.id||'';if(otherId!==id&&otherId.startsWith(HEAT_LAYER_PREFIX)&&this.getLayer(otherId))this.setLayoutProperty(otherId,'visibility','none');}}catch(e){}
+        mark('heatmap.true-swap-staged',{next:id});
+      }
+      return result;
+    };
+    mark('map.reuse-hooks-installed',{});return true;
+  }
+
+  function clearOutgoingVisuals(){
+    const started=now(),map=mapInstance();
+    if(map){
