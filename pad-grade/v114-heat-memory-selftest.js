@@ -33,7 +33,9 @@ const window={
   addEventListener:(n,fn)=>{windowListeners[n]=fn;},
   PadGradeLifecycle:{getMemorySnapshot:()=>JSON.stringify({totalPssKb:12345,graphicsPssKb:2345})},
 };
-const context={window,document,performance:{now:()=>Date.now(),memory:{usedJSHeapSize:100,totalJSHeapSize:200,jsHeapSizeLimit:1000}},console,setTimeout:(fn)=>{fn();return 1;},clearTimeout:()=>{},setInterval:()=>1,clearInterval:()=>{},Map,JSON,Date,RegExp,Number,String,Math};
+let clock=1000;
+const performance={now:()=>clock,memory:{usedJSHeapSize:100,totalJSHeapSize:200,jsHeapSizeLimit:1000}};
+const context={window,document,performance,console,setTimeout:(fn,delay=0)=>{clock+=Math.max(0,+delay||0);fn();return 1;},clearTimeout:()=>{},setInterval:()=>1,clearInterval:()=>{},Map,JSON,Date,RegExp,Number,String,Math};
 context.globalThis=context;
 vm.createContext(context);
 vm.runInContext(fs.readFileSync('pad-grade/v114-dev.js','utf8'),context,{filename:'v114-dev.js'});
