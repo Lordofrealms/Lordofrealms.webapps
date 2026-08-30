@@ -101,7 +101,7 @@
     if(meta.provider==='precision-location'){
       return {provider:'precision-location',mode:String(meta.solutionMode||'Precision Location'),state:String(meta.solutionState||'UNKNOWN')};
     }
-    return {provider:'native',mode:'Native GPS',state:'ACTIVE'};
+    return {provider:'native',mode:'Native GPS',state:String(meta.solutionState||'WAITING')};
   }
 
   function friendlyMode(value){
@@ -130,10 +130,10 @@
       badge.classList.toggle('native',meta.provider!=='precision-location');
     }
     if(state){
-      const stateText=meta.provider==='precision-location'?friendlyMode(meta.state):(pos?'ACTIVE':'WAITING');
+      const stateText=meta.provider==='precision-location'?friendlyMode(meta.state):friendlyMode(meta.state||(pos?'ACTIVE':'WAITING'));
       state.textContent=stateText;
-      state.classList.toggle('ready',/READY/i.test(stateText));
-      state.classList.toggle('working',!/READY|ERROR|DEGRADED|NO DATA/i.test(stateText));
+      state.classList.toggle('ready',/READY|ACTIVE/i.test(stateText));
+      state.classList.toggle('working',!/READY|ACTIVE|ERROR|DEGRADED|NO DATA/i.test(stateText));
       state.classList.toggle('bad',/ERROR|DEGRADED|NO DATA/i.test(stateText));
     }
     if(accuracy){
@@ -170,6 +170,9 @@
     const platform=window.PadGradePlatform||{};
     if(!platform.nativePrecisionLocation) return;
     const meta=platform.lastLocationMeta||{};
+    // Once the shared provider has failed over, the map's display-only watch must
+    // never promote the visible source label back to Precision Location.
+    if(meta.provider==='native') return;
     platform.lastLocationMeta={provider:'precision-location',solutionMode:meta.solutionMode||'Precision Location',solutionState:state,fixAgeMs:Number.isFinite(+meta.fixAgeMs)?+meta.fixAgeMs:0,timestamp:Number.isFinite(+meta.timestamp)?+meta.timestamp:Date.now()};
   }
 
@@ -184,7 +187,7 @@
           err=>{
             companionMapPosition=null;setCompanionState('ERROR');
             const message=el('gpsMapMessage');
-            if(message){const detail=err&&err.message?String(err.message):'Precision Location data connection failed.';message.textContent=detail;message.classList.remove('hidden');}
+            if(message){const detail=err&&err.message?String(err.message):'Location data connection failed.';message.textContent=detail;message.classList.remove('hidden');}
             updateSourceUi(getGpsPosition());
           },
           {enableHighAccuracy:true,maximumAge:500,timeout:15000}
@@ -296,6 +299,14 @@
     const recenter=el('gpsMapRecenter');if(recenter)recenter.addEventListener('click',centerNow);
     updateMap();
     pollTimer=setInterval(updateMap,UPDATE_MS);
+    window.addEventListener('padgrade-location-fallback',()=>{
+      // platform.js has already made Native GPS authoritative. Refresh the source
+      // badge immediately instead of leaving stale Precision Location text until
+      // a later position/poll happens to repaint it.
+      companionMapPosition=null;
+      updateSourceUi(getGpsPosition());
+      setTimeout(updateMap,0);
+    });
     window.addEventListener('padgrade-active-project-applied',()=>setTimeout(()=>{framedSavedPad=false;frameSavedPad(true);},0));
     window.addEventListener('beforeunload',()=>{
       if(pollTimer)clearInterval(pollTimer);pollTimer=null;
