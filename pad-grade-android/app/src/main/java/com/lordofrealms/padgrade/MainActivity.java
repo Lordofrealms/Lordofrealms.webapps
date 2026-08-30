@@ -194,6 +194,11 @@ public final class MainActivity extends Activity {
         return true;
     }
 
+    @Override protected void onResume() {
+        super.onResume();
+        if (nativeBridge != null) nativeBridge.onHostResume();
+    }
+
     @Override protected void onSaveInstanceState(Bundle outState) { if (webView != null) webView.saveState(outState); super.onSaveInstanceState(outState); }
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {

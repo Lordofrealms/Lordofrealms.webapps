@@ -102,6 +102,7 @@
   }
 
   function apply(){
+    if(window.__padGradeCompareFastV107)return false;
     installStyle();
     const map=compareMap();if(!map)return false;
     const enriched=enhancePointSource(map),styled=stylePoints(map);
@@ -112,6 +113,7 @@
   function observeCompare(){
     let attempts=0;
     const timer=setInterval(()=>{
+      if(window.__padGradeCompareFastV107){clearInterval(timer);window.__padGradeComparePresentationV086='superseded-by-v107-authoritative-renderer';return;}
       const mapEl=document.getElementById(COMPARE_MAP_ID);
       if(!mapEl){if(++attempts>180)clearInterval(timer);return;}
       if(apply())clearInterval(timer);

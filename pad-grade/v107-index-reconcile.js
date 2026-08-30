@@ -69,14 +69,18 @@
     const text=JSON.stringify(state,null,2),token=diag()?.start?.('index.write',{entries:state.projects.length});const ok=await rawWrite(INDEX_FILE,text);if(ok)catalogState=state;diag()?.end?.(token,{ok,size:text.length});return ok;
   }
 
-  async function migrateSingle(raw,filename,detail,used){
-    const p=fmt.normalizeProject(raw,filename);if(!p)return [];
-    ensureFileId(p,filename,used);const target=canonicalName(p),text=fmt.serializeV6(p,target),hash=await sha256(text);
-    const writeNeeded=Number(raw?.schemaVersion||raw?.version||1)!==fmt.CURRENT_SCHEMA||!fmt.parseHeaderText(String(raw?._pgHeader?JSON.stringify({_pgHeader:raw._pgHeader}):''))||target!==filename;
-    let finalName=filename,finalDetail=detail;
-    if(writeNeeded&&!criticalRecoveryActive()){
-      const ok=await rawWrite(target,text);if(ok){finalName=target;if(target!==filename)await rawDelete(filename);const d=metadata().find(x=>x.name===target);if(d)finalDetail=d;diag()?.mark?.('project.schema-upgraded',{from:Number(raw?.schemaVersion||raw?.version||1),to:6,filename,target});}
-    }
+  async function migrateSingle(raw,filename,detail,used,rawText=null){
+    const sourceSchema=Number(raw?.schemaVersion||raw?.version||1),p=fmt.normalizeProject(raw,filename);if(!p)return [];
+    ensureFileId(p,filename,used);const target=canonicalName(p),text=fmt.serializeV6(p,target);
+    const writeNeeded=sourceSchema!==fmt.CURRENT_SCHEMA||!fmt.parseHeaderText(String(raw?._pgHeader?JSON.stringify({_pgHeader:raw._pgHeader}):''))||target!==filename;
+    let finalName=filename,finalDetail=detail,hash=null;
+    if(writeNeeded){
+      if(!criticalRecoveryActive()){
+        const ok=await rawWrite(target,text);
+        if(ok){finalName=target;if(target!==filename)await rawDelete(filename);const d=metadata().find(x=>x.name===target);if(d)finalDetail=d;hash=await sha256(text);diag()?.mark?.('project.schema-upgraded',{from:sourceSchema,to:6,filename,target});}
+        else{const e=entryFromProject(p,filename,detail,rawText?await sha256(rawText):null,null);e.schemaVersion=sourceSchema;e.needsUpgrade=true;diag()?.mark?.('project.schema-upgrade-deferred',{filename,sourceSchema,reason:'write-failed'});return[e];}
+      }else{const e=entryFromProject(p,filename,detail,rawText?await sha256(rawText):null,null);e.schemaVersion=sourceSchema;e.needsUpgrade=true;diag()?.mark?.('project.schema-upgrade-deferred',{filename,sourceSchema,reason:'recovery-write-locked'});return[e];}
+    }else hash=rawText?await sha256(rawText):await sha256(text);
     putLocal(p);return [entryFromProject(p,finalName,finalDetail,hash,null)];
   }
   async function importBackup(raw,filename,detail,used){
@@ -90,7 +94,7 @@
     if(h){const prior=priorEntries.find(x=>x.projectId===h.id)||priorEntries[0]||null;diag()?.mark?.('index.header-match',{filename:detail.name,schemaVersion:h.schemaVersion});return [entryFromHeader(h,detail.name,detail,prior)];}
     const token=diag()?.start?.('project.full-read',{filename:detail.name,reason:'new-or-legacy'}),text=await rawRead(detail.name),raw=parse(text,null);diag()?.end?.(token,{ok:!!raw,size:text?.length||0});if(!raw)return [];
     if(isBackup(raw))return importBackup(raw,detail.name,detail,used);
-    return migrateSingle(raw,detail.name,detail,used);
+    return migrateSingle(raw,detail.name,detail,used,text);
   }
 
   async function reconcileAll(reason='background'){
@@ -99,7 +103,7 @@
       const token=diag()?.start?.('index.reconcile',{reason}),stored=await readIndex(),details=metadata();
       const old=Array.isArray(stored.projects)?stored.projects:[],byFile=new Map();for(const e of old){if(!byFile.has(e.filename))byFile.set(e.filename,[]);byFile.get(e.filename).push(e);}
       const used=new Set(old.map(e=>fmt.validFileId(e.fileId)).filter(Boolean)),next=[];let fast=0,headers=0,changed=0;
-      for(const detail of details){const prior=byFile.get(detail.name)||[];if(prior.length&&prior.every(e=>sameMeta(e,detail))){next.push(...prior);fast++;diag()?.mark?.('index.fast-match',{filename:detail.name,size:detail.size,lastModified:detail.lastModified});continue;}
+      for(const detail of details){const prior=byFile.get(detail.name)||[];if(prior.length&&prior.every(e=>sameMeta(e,detail)&&!e.needsUpgrade)){next.push(...prior);fast++;diag()?.mark?.('index.fast-match',{filename:detail.name,size:detail.size,lastModified:detail.lastModified});continue;}
         const rows=await inspectChanged(detail,prior,used);if(rows.length){next.push(...rows);changed++;if(rows.every(e=>e.schemaVersion===6))headers++;}await new Promise(r=>setTimeout(r,0));}
       catalogState={format:INDEX_FORMAT,indexVersion:INDEX_VERSION,updatedAt:nowIso(),projects:next};syncLocalCatalog(next);if(!criticalRecoveryActive())await writeIndex(catalogState);
       const result={files:details.length,projects:next.length,fastMatches:fast,changedFiles:changed,zeroProjectReads:fast===details.length,reason,at:Date.now()};window.__padGradeLastFolderSync=result;
@@ -187,6 +191,7 @@
   installLazyProjectUiAndExport();
   window.addEventListener('padgrade-project-folder-selected',resetForFolder);
   window.addEventListener('padgrade-project-folder-indexed',()=>{if(indexReady())prepareMinimumRecovery();});
+  window.addEventListener('padgrade-project-folder-refreshed',event=>{diag()?.mark?.('index.folder-metadata-refreshed',event?.detail||{});if(indexReady())scheduleSync(50,'folder-refreshed');});
   window.addEventListener('padgrade-durable-sync-ready',()=>{if(indexReady())prepareMinimumRecovery();});
   window.addEventListener('padgrade-active-project-applied',()=>scheduleSync(2200,'active-project'));
   window.addEventListener('padgrade-recovery-visual-released',()=>scheduleSync(1600,'recovery-released'));

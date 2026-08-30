@@ -53,6 +53,7 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
     private volatile boolean projectFileCacheLoaded = false;
     private volatile boolean projectFileCacheLoading = false;
     private volatile boolean projectFolderRecoveryPending = false;
+    private volatile long lastProjectFileRefreshRequestMs = 0L;
 
     private boolean headingActive;
     private double lastLatitude = Double.NaN;
@@ -86,6 +87,15 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
     @JavascriptInterface public boolean isProjectFolderIndexReady() { return projectFileCacheLoaded; }
     @JavascriptInterface public boolean isProjectFolderRecoveryPending() { return projectFolderRecoveryPending; }
     @JavascriptInterface public void completeProjectFolderRecovery() { projectFolderRecoveryPending = false; }
+    @JavascriptInterface public void refreshProjectFileIndexAsync() { refreshProjectFileCacheAsync(true); }
+
+    /** Recheck the chosen folder after returning from another app/device-copy workflow. */
+    public void onHostResume() {
+        long now = System.currentTimeMillis();
+        if (now - lastProjectFileRefreshRequestMs < 750L) return;
+        lastProjectFileRefreshRequestMs = now;
+        refreshProjectFileCacheAsync(true);
+    }
 
     private static boolean isProjectCandidateName(String name) {
         if (name == null) return false;
@@ -321,53 +331,59 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
         projectFileCacheLoading = false;
     }
 
-    private void ensureProjectFileCache() {
-        if (projectFileCacheLoaded) return;
-        DocumentFile folder = getProjectFolder();
-        if (folder == null) return;
-        DocumentFile[] files;
-        try { files = folder.listFiles(); }
-        catch (RuntimeException ex) { files = new DocumentFile[0]; }
-        Map<String, Long> sizes = new LinkedHashMap<>(), modified = new LinkedHashMap<>();
-        for (DocumentFile file : files) {
-            if (file == null) continue;
-            String name = file.getName();if (name == null) continue;
-            long size = 0L, mtime = 0L;
-            try { size = Math.max(0L, file.length()); } catch (RuntimeException ignored) {}
-            try { mtime = Math.max(0L, file.lastModified()); } catch (RuntimeException ignored) {}
-            sizes.put(name, size);modified.put(name, mtime);
-        }
+    private void refreshProjectFileCacheAsync(boolean force) {
         synchronized (folderCacheLock) {
-            projectFileCache.clear();projectFileSizeCache.clear();projectFileModifiedCache.clear();
-            for (DocumentFile file : files) {
-                if (file == null) continue;
-                String name = file.getName();
-                if (name != null) projectFileCache.put(name, file);
-            }
-            projectFileSizeCache.putAll(sizes);projectFileModifiedCache.putAll(modified);
-            projectFileCacheLoaded = true;
-            projectFileCacheLoading = false;
-        }
-    }
-
-    private void primeProjectFileCacheAsync() {
-        synchronized (folderCacheLock) {
-            if (projectFileCacheLoaded || projectFileCacheLoading) return;
+            if (projectFileCacheLoading) return;
+            if (!force && projectFileCacheLoaded) return;
             projectFileCacheLoading = true;
         }
         Thread worker = new Thread(() -> {
             long started = System.nanoTime();
-            try { ensureProjectFileCache(); }
-            finally {
-                int count;
+            boolean changed = false;
+            int count = 0;
+            try {
+                DocumentFile folder = getProjectFolder();
+                if (folder == null) return;
+                DocumentFile[] listed;
+                try { listed = folder.listFiles(); }
+                catch (RuntimeException ex) { listed = new DocumentFile[0]; }
+                Map<String, DocumentFile> nextFiles = new LinkedHashMap<>();
+                Map<String, Long> nextSizes = new LinkedHashMap<>(), nextModified = new LinkedHashMap<>();
+                for (DocumentFile file : listed) {
+                    if (file == null) continue;
+                    String name = file.getName(); if (name == null) continue;
+                    long size = 0L, mtime = 0L;
+                    try { size = Math.max(0L, file.length()); } catch (RuntimeException ignored) {}
+                    try { mtime = Math.max(0L, file.lastModified()); } catch (RuntimeException ignored) {}
+                    nextFiles.put(name, file); nextSizes.put(name, size); nextModified.put(name, mtime);
+                }
+                synchronized (folderCacheLock) {
+                    changed = !projectFileCache.keySet().equals(nextFiles.keySet());
+                    if (!changed) {
+                        for (String name : nextFiles.keySet()) {
+                            if (!projectFileSizeCache.getOrDefault(name, -1L).equals(nextSizes.getOrDefault(name, -2L)) ||
+                                !projectFileModifiedCache.getOrDefault(name, -1L).equals(nextModified.getOrDefault(name, -2L))) { changed = true; break; }
+                        }
+                    }
+                    projectFileCache.clear(); projectFileCache.putAll(nextFiles);
+                    projectFileSizeCache.clear(); projectFileSizeCache.putAll(nextSizes);
+                    projectFileModifiedCache.clear(); projectFileModifiedCache.putAll(nextModified);
+                    projectFileCacheLoaded = true; count = projectFileCache.size();
+                }
+            } finally {
                 synchronized (folderCacheLock) { projectFileCacheLoading = false; count = projectFileCache.size(); }
                 double durationMs = elapsedMs(started);
-                evaluate("window.__padGradeProjectFolderIndexed && window.__padGradeProjectFolderIndexed();try{window.dispatchEvent(new CustomEvent('padgrade-project-folder-indexed',{detail:{durationMs:" + durationMs + ",fileCount:" + count + "}}));}catch(e){}");
+                if (force) {
+                    evaluate("try{window.dispatchEvent(new CustomEvent('padgrade-project-folder-refreshed',{detail:{durationMs:" + durationMs + ",fileCount:" + count + ",changed:" + changed + "}}));}catch(e){}");
+                } else {
+                    evaluate("window.__padGradeProjectFolderIndexed && window.__padGradeProjectFolderIndexed();try{window.dispatchEvent(new CustomEvent('padgrade-project-folder-indexed',{detail:{durationMs:" + durationMs + ",fileCount:" + count + "}}));}catch(e){}");
+                }
             }
-        }, "PadGradeFolderIndex");
-        worker.setDaemon(true);
-        worker.start();
+        }, force ? "PadGradeFolderRefresh" : "PadGradeFolderIndex");
+        worker.setDaemon(true); worker.start();
     }
+
+    private void primeProjectFileCacheAsync() { refreshProjectFileCacheAsync(false); }
 
     private DocumentFile findProjectFile(String filename) {
         if (filename == null) return null;
