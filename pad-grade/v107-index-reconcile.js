@@ -45,7 +45,11 @@
     try{const bytes=new TextEncoder().encode(String(text||'')),digest=await crypto.subtle.digest('SHA-256',bytes);return [...new Uint8Array(digest)].map(x=>x.toString(16).padStart(2,'0')).join('');}catch(e){return null;}
   }
   function entryFromProject(p,filename,detail,hash=null,backupIndex=null){const c=fmt.catalogFromProject(p);return {filename,fileId:p.fileId||null,projectId:p.id,schemaVersion:Number(p.schemaVersion||p.version||fmt.CURRENT_SCHEMA),name:c.name,createdAt:p.createdAt||null,modifiedAt:p.modifiedAt||null,status:p.status==='archived'?'archived':'open',width:c.width,length:c.length,cols:c.cols,rows:c.rows,fullyMeasured:!!c.fullyMeasured,gpsReady:!!c.gpsReady,size:Math.max(0,Number(detail?.size)||0),lastModified:Math.max(0,Number(detail?.lastModified)||0),sha256:hash||null,backupIndex:Number.isInteger(backupIndex)?backupIndex:null};}
-  function entryFromHeader(h,filename,detail,prior=null){const c=h.catalog||{};return {filename,fileId:h.fileId||null,projectId:h.id,schemaVersion:Number(h.schemaVersion)||fmt.CURRENT_SCHEMA,name:String(c.name||prior?.name||'Pad'),createdAt:h.createdAt||prior?.createdAt||null,modifiedAt:h.modifiedAt||prior?.modifiedAt||null,status:h.status==='archived'?'archived':'open',width:Number(c.width)||0,length:Number(c.length)||0,cols:Math.round(Number(c.cols)||0),rows:Math.round(Number(c.rows)||0),fullyMeasured:!!c.fullyMeasured,gpsReady:!!c.gpsReady,size:detail.size,lastModified:detail.lastModified,sha256:prior&&sameMeta(prior,detail)?prior.sha256||null:null,backupIndex:null};}
+  function modifiedMs(x){const t=Date.parse(x?.modifiedAt||x?.exportedAt||x?.createdAt||'');return Number.isFinite(t)?t:0;}
+  function entryFromHeader(h,filename,detail,prior=null){
+    const c=h.catalog||{},local=getLocal(h.id),remoteAt=modifiedMs(h),localAt=modifiedMs(local);
+    return {filename,fileId:h.fileId||null,projectId:h.id,schemaVersion:Number(h.schemaVersion)||fmt.CURRENT_SCHEMA,name:String(c.name||prior?.name||'Pad'),createdAt:h.createdAt||prior?.createdAt||null,modifiedAt:h.modifiedAt||prior?.modifiedAt||null,status:h.status==='archived'?'archived':'open',width:Number(c.width)||0,length:Number(c.length)||0,cols:Math.round(Number(c.cols)||0),rows:Math.round(Number(c.rows)||0),fullyMeasured:!!c.fullyMeasured,gpsReady:!!c.gpsReady,size:detail.size,lastModified:detail.lastModified,sha256:prior&&sameMeta(prior,detail)?prior.sha256||null:null,backupIndex:null,localBodyStale:!!local&&remoteAt>=localAt};
+  }
   function localMetaFromEntry(e){return {id:e.projectId,name:e.name||'Pad',createdAt:e.createdAt||nowIso(),modifiedAt:e.modifiedAt||e.createdAt||nowIso(),status:e.status==='archived'?'archived':'open',fileId:e.fileId||undefined,durableFilename:e.filename,schemaVersion:e.schemaVersion,fullyMeasured:!!e.fullyMeasured,gpsReady:!!e.gpsReady,width:e.width,length:e.length,cols:e.cols,rows:e.rows};}
 
   function syncLocalCatalog(entries){
@@ -113,11 +117,15 @@
 
   function findEntry(id){return catalogState.projects.find(e=>e.projectId===id)||null;}
   async function loadProject(id){
-    if(!id)return null;const local=getLocal(id);if(local)return fmt.normalizeProject(local,null);
-    if(!catalogState.projects.length&&hasFolder()&&indexReady())await reconcileAll('lazy-load-catalog');const e=findEntry(id);if(!e)return null;
-    const token=diag()?.start?.('project.full-read',{filename:e.filename,reason:'user-load',projectId:id}),text=await rawRead(e.filename),raw=parse(text,null);diag()?.end?.(token,{ok:!!raw,size:text?.length||0});if(!raw)return null;
+    if(!id)return null;
+    if(!catalogState.projects.length&&hasFolder()&&indexReady())await reconcileAll('lazy-load-catalog');
+    const e=findEntry(id),local=getLocal(id);
+    if(local&&!e?.localBodyStale)return fmt.normalizeProject(local,null);
+    if(!e)return local?fmt.normalizeProject(local,null):null;
+    if(local&&e.localBodyStale)diag()?.mark?.('project.local-body-stale',{projectId:id,filename:e.filename});
+    const token=diag()?.start?.('project.full-read',{filename:e.filename,reason:e.localBodyStale?'durable-newer-than-local':'user-load',projectId:id}),text=await rawRead(e.filename),raw=parse(text,null);diag()?.end?.(token,{ok:!!raw,size:text?.length||0});if(!raw)return null;
     let p=null;if(isBackup(raw)){const list=Array.isArray(raw.projects)?raw.projects:[];if(Number.isInteger(e.backupIndex)&&list[e.backupIndex])p=fmt.normalizeProject(list[e.backupIndex],`${e.filename}#${e.backupIndex}`);if(!p)for(const x of list){const q=fmt.normalizeProject(x,e.filename);if(q?.id===id){p=q;break;}}}else p=fmt.normalizeProject(raw,e.filename);
-    if(!p)return null;putLocal(p);const hash=await sha256(text);if(e.sha256&&hash&&e.sha256!==hash)diag()?.mark?.('index.hash-mismatch',{filename:e.filename,projectId:id});if(hash)e.sha256=hash;syncLocalCatalog(catalogState.projects);if(!criticalRecoveryActive())writeSerial=writeSerial.then(()=>writeIndex(catalogState));return p;
+    if(!p)return null;putLocal(p);const hash=await sha256(text);if(e.sha256&&hash&&e.sha256!==hash)diag()?.mark?.('index.hash-mismatch',{filename:e.filename,projectId:id});if(hash)e.sha256=hash;delete e.localBodyStale;syncLocalCatalog(catalogState.projects);if(!criticalRecoveryActive())writeSerial=writeSerial.then(()=>writeIndex(catalogState));return p;
   }
 
   function catalog(){

@@ -223,9 +223,25 @@
     return true;
   }
 
+  function reloadActiveProject(project){
+    if(!project?.id||project.id!==activeId())return false;
+    const started=nowMs();clearProjectOwnedMapState();
+    const applied=applyProjectRuntime(project);if(!applied)return false;
+    refreshProjectOverlays(project.id);persistLastProject(project);
+    try{window.dispatchEvent(new CustomEvent('padgrade-active-project-applied',{detail:{id:project.id,from:project.id,inPlace:true,durableReload:true}}));}catch(e){}
+    diagMark('project.active-durable-reload',{projectId:project.id,elapsedMs:+(nowMs()-started).toFixed(1)});return true;
+  }
+
   function queueProjectSwitch(target){
-    if(!target||target===activeId())return;queuedSwitch=target;
-    requestAnimationFrame(()=>{const id=queuedSwitch;queuedSwitch=null;if(id)switchProject(id);});
+    if(!target)return;queuedSwitch=target;
+    requestAnimationFrame(async()=>{
+      const id=queuedSwitch;queuedSwitch=null;if(!id)return;
+      const before=projectFor(id),wasActive=id===activeId();let loaded=before;
+      try{const index=window.PadGradeProjectIndexV107;if(index?.loadProject)loaded=await index.loadProject(id)||before;}catch(e){console.warn('Pad Grade lazy durable project load failed',e);}
+      if(!loaded)return;
+      if(wasActive){if(before&&String(before.modifiedAt||'')===String(loaded.modifiedAt||''))return;reloadActiveProject(loaded);return;}
+      switchProject(id);
+    });
   }
 
   document.addEventListener('click',event=>{

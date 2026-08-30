@@ -60,11 +60,13 @@ const api=window.PadGradeProjectIndexV107;assert(api,'index controller must inst
   r=await api.reconcile('copy-in');
   assert.strictEqual(r.projects,3);assert.strictEqual(projectBodyReads,readsBeforeCopy,'new schema-6 copy-in should use bounded header only');assert(headReads>headsBeforeCopy);
   assert(api.catalog().some(x=>x.id==='pg-c'));
+  let loadedC=await api.loadProject('pg-c');assert.strictEqual(loadedC.settings.name,'C');
 
   const replaced=JSON.parse(v6('pg-c','JKLM25','C replaced'));replaced.modifiedAt='2026-08-30T13:00:00.000Z';replaced._pgHeader.modifiedAt=replaced.modifiedAt;replaced._pgHeader.catalog.name='C replaced';putDisk('JKLM25-pg-c.padgrade',JSON.stringify(replaced,null,2));
   const readsBeforeReplace=projectBodyReads;
   await api.reconcile('same-name-replacement');
-  assert.strictEqual(projectBodyReads,readsBeforeReplace,'changed schema-6 same-name replacement should use header only');assert.strictEqual(api.catalog().find(x=>x.id==='pg-c').name,'C replaced');
+  assert.strictEqual(projectBodyReads,readsBeforeReplace,'changed schema-6 same-name replacement reconciliation should use header only');assert.strictEqual(api.catalog().find(x=>x.id==='pg-c').name,'C replaced');
+  loadedC=await api.loadProject('pg-c');assert(projectBodyReads>readsBeforeReplace,'stale cached body must be re-read lazily after durable replacement');assert.strictEqual(loadedC.settings.name,'C replaced');
 
   putDisk('MNPQ26-pg-d.padgrade',JSON.stringify(v5('pg-d','MNPQ26','D')));failNextProjectWrite=true;
   const beforeFailed=projectBodyReads;
