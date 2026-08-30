@@ -23,10 +23,10 @@ jobs:
           node --check pad-grade/v113-dev.js
           node pad-grade/v110-staged-heat-selftest.js
           node pad-grade/v111-resilience-selftest.js
-      - name: Verify v1.1.3 policies
+      - name: Verify retained v1.1.3 policies in current DEV
         run: |
-          grep -F 'versionCode = 85' pad-grade-android/app/build.gradle.kts
-          grep -F 'versionName = "1.1.3"' pad-grade-android/app/build.gradle.kts
+          grep -E 'versionCode = [0-9]+' pad-grade-android/app/build.gradle.kts
+          grep -E 'versionName = "[0-9]+\.[0-9]+\.[0-9]+"' pad-grade-android/app/build.gradle.kts
           grep -F 'v113-dev.js?v=20260830-1' pad-grade/index.html
           grep -F 'auto-or-exact-single-raster-99-297-891-no-crossfade' pad-grade/v113-dev.js
           grep -F 'stage-new-hide-old-same-task-zero-fade-no-overlap-frame' pad-grade/v113-dev.js

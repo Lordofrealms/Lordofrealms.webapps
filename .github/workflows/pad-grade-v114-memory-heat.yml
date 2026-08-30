@@ -1,0 +1,46 @@
+name: Pad Grade v1.1.4 Memory + Heat
+
+"on":
+  pull_request:
+    branches: [pad-grade-dev, main]
+    paths:
+      - 'pad-grade/**'
+      - 'pad-grade-android/**'
+      - '.github/workflows/pad-grade-v114-memory-heat.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify web diagnostics and exclusivity
+        run: |
+          node --check pad-grade/v114-dev.js
+          node --check pad-grade/v114-heat-memory-selftest.js
+          node pad-grade/v114-heat-memory-selftest.js
+          grep -F 'v114-dev.js?v=20260830-2' pad-grade/index.html
+          grep -F 'single-visible-heat-authority-cache-protected-memory-measurement-no-auto-trim' pad-grade/v114-dev.js
+          grep -F 'heatmap.stale-raster-show-suppressed' pad-grade/v114-dev.js
+          grep -F 'heatmap.cache-layer-retirement-suppressed' pad-grade/v114-dev.js
+          grep -F 'memory.snapshot' pad-grade/v114-dev.js
+          grep -F 'pgDiagnosticMemorySnapshot' pad-grade/v114-dev.js
+      - name: Verify Android memory instrumentation and version
+        run: |
+          grep -F 'versionCode = 86' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.1.4"' pad-grade-android/app/build.gradle.kts
+          grep -F 'getMemorySnapshot()' pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeLifecycleBridge.java
+          grep -F 'summary.graphics' pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeLifecycleBridge.java
+          grep -F 'deviceAvailKb' pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeLifecycleBridge.java
+          grep -F 'lastTrimLevel' pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeLifecycleBridge.java
+          grep -F '## v1.1.4 — development build' pad-grade/CHANGELOG.md
+          grep -F '## v1.1.4 — development build (86)' pad-grade-android/CHANGELOG.md
+      - name: Retained Pad Grade regression tests
+        run: |
+          node pad-grade/v110-staged-heat-selftest.js
+          node pad-grade/v111-resilience-selftest.js
+          node pad-grade/project-format-v107-selftest.js
+          node pad-grade/v107-index-reconcile-selftest.js
