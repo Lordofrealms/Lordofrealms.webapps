@@ -2,9 +2,8 @@
  *
  * The application UI and local grade grid never wait on a CDN. Android packages
  * pinned MapLibre 5.16.0 locally. Map-specific modules load asynchronously after
- * local project UI is usable. v0.9.8 uses the already-loaded v095 fast-grid owner
- * as the single survey-grid owner; the older v087 polling overlay is no longer
- * installed in parallel.
+ * local project UI is usable. During Android legal preload, DOM/grid/layout work
+ * may proceed while MapLibre/map-network startup remains gated until acceptance.
  */
 (function installPadGradeMapLibreLoader(){
   'use strict';
@@ -15,6 +14,7 @@
   const CDN_CSS='https://unpkg.com/maplibre-gl@5.16.0/dist/maplibre-gl.css';
   let started=false,appModulesStarted=false;
 
+  function legalPreloadActive(){try{return window.__padGradeLegalReleased!==true&&new URLSearchParams(location.search).get('legalPreload')==='1';}catch(e){return false;}}
   function addCss(){
     if(document.querySelector('link[data-padgrade-maplibre-css]'))return;
     const link=document.createElement('link');link.rel='stylesheet';link.href=LOCAL_CSS;link.dataset.padgradeMaplibreCss='local';
@@ -37,7 +37,13 @@
   }
   function mapLibreAvailable(){return !!(window.maplibregl&&typeof window.maplibregl.Map==='function');}
   function loadMapLibre(){
-    if(started)return;started=true;addCss();if(mapLibreAvailable()){loadPadGradeMapModules();return;}
+    if(started)return;
+    if(legalPreloadActive()){
+      window.__padGradeMapDeferredForLegalV098=true;
+      try{window.PadGradeDiag?.mark?.('legal.preload-map-deferred',{networkDeferred:true});}catch(e){}
+      return;
+    }
+    started=true;window.__padGradeMapDeferredForLegalV098=false;addCss();if(mapLibreAvailable()){loadPadGradeMapModules();return;}
     let fellBack=false;
     const fallback=()=>{
       if(fellBack||mapLibreAvailable()){if(mapLibreAvailable())loadPadGradeMapModules();return;}
@@ -49,7 +55,8 @@
 
   window.__padGradeStartMapLibre=loadMapLibre;
   window.__padGradeMapLibraryPolicy='local-apk-first-async-cdn-fallback-never-block-project-grid';
-  window.__padGradeMapModuleOrderV098='hook-map-construction-with-preloaded-v095-single-grid-owner';
+  window.__padGradeMapModuleOrderV098='legal-gated-hook-map-construction-with-preloaded-v095-single-grid-owner';
   window.__padGradeMapModuleOrderV094=window.__padGradeMapModuleOrderV098;
+  window.addEventListener('padgrade-legal-accepted',()=>setTimeout(loadMapLibre,0),{once:true});
   setTimeout(loadMapLibre,0);
 })();
