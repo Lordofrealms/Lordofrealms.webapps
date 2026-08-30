@@ -1,0 +1,32 @@
+name: Apply Pad Grade v1.1.5 Update
+
+'on':
+  push:
+    branches: [work/pad-grade-v115-flicker-memory-export]
+    paths:
+      - '.github/v115-apply-trigger.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/pad-grade-v115-flicker-memory-export
+      - name: Apply v1.1.5 packaging and documentation
+        run: python3 .github/scripts/apply_pad_grade_v115.py
+      - name: Validate generated runtime and tests
+        run: |
+          node --check pad-grade/v115-dev.js
+          node pad-grade/v115-flicker-memory-selftest.js
+      - name: Commit generated v1.1.5 changes and remove temporary updater
+        run: |
+          rm -f .github/scripts/apply_pad_grade_v115.py .github/workflows/apply-pad-grade-v115.yml .github/v115-apply-trigger.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Pad Grade v1.1.5: flicker-free heat handoff and usable memory export"
+          git push origin HEAD:work/pad-grade-v115-flicker-memory-export
