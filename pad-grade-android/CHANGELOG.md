@@ -6,6 +6,22 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v1.0.5 — development build
+
+### Added
+- Packaged the new **Map tap diagnostics** Advanced Settings switch. The v1.0.4 MapLibre tap tracer and temporary **ML** crosshair now default off and can be enabled for troubleshooting without changing normal map behavior.
+- Packaged the **Map grid hitbox padding** Advanced Settings slider from **0% to 45%**, defaulting to **10%**.
+
+### Changed
+- Bumped the separately installable DEV Android package to **version 1.0.5 / versionCode 77**. Build 76 remains the published v1.0.4 diagnostic build and is not reused.
+- Near-miss taps outside a visible GPS-map survey point can use an oriented expanded ellipse based on the configured percentage of projected point spacing. The total semi-axis is capped at 45% of spacing so adjacent targets retain dead space.
+- Expanded hit testing requires exactly one matching point and has no nearest-point fallback. Probe Surface mode bypasses the expanded measurement hitboxes.
+- Taps directly on the existing rendered point circle still use the established MapLibre layer-selection path.
+- The lower rectangular measurement grid remains unchanged; none of the withdrawn v1.0.3 lower-grid experiment is packaged.
+
+### Known issues
+- The earlier intermittent wrong-point selection was not reproduced during the v1.0.4 diagnostic test. The default 10% padding therefore needs field verification as a touch-usability improvement. If wrong-point selection returns, enable both the map-specific diagnostic switch and the general Diagnostic timing log before exporting a diagnostic log.
+
 ## v1.0.4 — development build
 
 ### Added
