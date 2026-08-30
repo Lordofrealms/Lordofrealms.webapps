@@ -4,6 +4,22 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v1.0.2 — development build
+
+### Changed
+- The GPS source badge and state indicator now follow the shared geolocation provider's authoritative runtime state. The map's display-only watch can no longer promote the visible provider back to **Precision Location** after the shared provider has already failed over to Android/WebView native geolocation.
+- The map listens for the existing `padgrade-location-fallback` event and refreshes the source badge immediately when native fallback begins instead of waiting for a later map polling cycle or GPS fix to repaint the header.
+- Native fallback status preserves the provider's current **WAITING**, **ACTIVE**, or **ERROR** state in the map header rather than synthesizing a Precision-state label from the companion availability flag.
+- The v1.0.2 GPS map runtime is cache-busted so upgraded DEV installs cannot continue running the older source-label behavior from WebView cache.
+
+### Fixed
+- Fixed the condition where Precision Location could correctly fail over to native GPS and continue supplying positions while the map header still displayed **Precision Location** or **STOPPED**.
+- Prevented the map's secondary/display GPS watch from overwriting `PadGradePlatform.lastLocationMeta` with a Precision Location provider after native failover was already authoritative.
+- Added a regression gate that syntax-checks both the provider and map layers and verifies the native-provider guard and fallback-event UI refresh remain present.
+
+### Known issues
+- This remains a development build for device verification. Test by starting GPS with Precision Location available, causing the companion to stop/fail, and confirming that fixes continue through native GPS while the badge changes promptly to **Native GPS** and stays there for the remainder of that GPS subscription session.
+
 ## v1.0.1 — development build
 
 ### Changed
