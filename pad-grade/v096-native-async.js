@@ -85,9 +85,16 @@
   };
   diag()?.mark?.('file.async-bridge-installed',{nativeAsync:!!(native&&typeof native.readProjectFileAsync==='function'),version:'1.0.7',recoveryMutationLock:true,headerReads:typeof native?.readProjectFileHeadAsync==='function',cachedMetadata:typeof native?.listProjectFileDetails==='function'});
 
+  function loadCompareFast(){
+    if(document.querySelector('script[data-padgrade-v107-compare-fast]'))return;
+    const script=document.createElement('script');script.src='v107-compare-fast.js?v=20260830-1';script.async=false;script.dataset.padgradeV107CompareFast='1';
+    script.onerror=()=>console.error('Pad Grade v1.0.7 indexed comparison module failed to load');
+    (document.head||document.documentElement).appendChild(script);
+  }
   function loadIndexController(){
-    if(document.querySelector('script[data-padgrade-v107-index-reconcile]'))return;
-    const script=document.createElement('script');script.src='v107-index-reconcile.js?v=20260830-1';script.async=false;script.dataset.padgradeV107IndexReconcile='1';
+    const existing=document.querySelector('script[data-padgrade-v107-index-reconcile]');
+    if(existing){if(window.PadGradeProjectIndexV107)loadCompareFast();else existing.addEventListener('load',loadCompareFast,{once:true});return;}
+    const script=document.createElement('script');script.src='v107-index-reconcile.js?v=20260830-1';script.async=false;script.dataset.padgradeV107IndexReconcile='1';script.onload=loadCompareFast;
     script.onerror=()=>console.error('Pad Grade v1.0.7 indexed reconciliation controller failed to load');
     (document.head||document.documentElement).appendChild(script);
   }
