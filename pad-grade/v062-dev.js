@@ -109,10 +109,4 @@
   window.__padGradeGridStartupGateV094='reveal-only-never-rerender-authoritative-grid';
 })();
 
-(function loadPadGrade063(){
-  const script=document.createElement('script');
-  script.src='v063-dev.js?v=20260825-1';
-  script.dataset.padgradeV063='1';
-  script.onerror=()=>console.error('Pad Grade v0.6.2 GPS heat-map module failed to load');
-  document.body.appendChild(script);
-})();
+// v1.0.9: v063-dev.js is loaded exactly once by index.html.

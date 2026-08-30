@@ -6,6 +6,27 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v1.0.9 — development build
+
+### Added
+- Added four concurrent whole-raster heat-map tiers for both the normal GPS project map and Project Comparison: **33 → 99 → 297 → 891**. All four calculations start together instead of waiting for an earlier tier to finish.
+- Added monotonic atomic promotion: a completed raster replaces the displayed raster only when it is a higher tier for the same surface. A late 33/99/297 result can never downgrade a higher-resolution image that already finished.
+- Replaced the old 64-pixel whole-axis minimum with a grid-aware quality floor of **3 raster pixels between adjacent survey points** on each axis. For the normal 9×9, 64×76 ft pad, the requested tiers are approximately 28×33, 83×99, 250×297, and 750×891.
+- Extended heat diagnostics across all four tiers, including generation-start, worker-post, worker-complete, visible, and late-tier-skipped events.
+
+### Fixed
+- Fixed the normal heat map being initialized twice. `index.html` is now the sole loader for `v063-dev.js`; the legacy dynamic loader in `v062-dev.js` was removed.
+- Added a singleton guard inside the normal heat-map engine so an accidental future duplicate script load cannot create another set of workers/timers.
+
+### Changed
+- The normal and comparison heat maps now use the same **33/99/297/891** progressive policy while retaining complete-raster CanvasSource swaps with no partial bands or blank-frame transition.
+- Project Comparison remains independent of the normal project heat map. Opening comparison does **not** cancel or defer regular-map heat work; no global worker-throttling policy was added.
+- Android DEV package is **version 1.0.9 / build 81**. Schema 6, schema-6 → schema-5 rollback, project indexing, first-install recovery protection, and the fixed 15% GPS-map hitbox behavior are unchanged.
+
+### DEV verification
+- Export diagnostics after a normal heat-map load and a Project Comparison load. Confirm only one regular generation is started, all four tiers are posted once per surface generation, the first coarse raster appears quickly, and visible tiers only move upward.
+- Compare 33/99/297/891 worker runtimes to determine whether the new concurrent progression materially improves time-to-first-heat and time-to-297/891 on the test phone.
+
 ## v1.0.8 — development build
 
 ### Added

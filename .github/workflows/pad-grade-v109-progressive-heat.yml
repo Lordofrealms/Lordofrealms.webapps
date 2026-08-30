@@ -1,0 +1,67 @@
+name: Pad Grade v1.0.9 Progressive Heat
+
+on:
+  pull_request:
+    branches: [pad-grade-dev, main]
+    paths:
+      - 'pad-grade/**'
+      - 'pad-grade-android/**'
+      - '.github/workflows/pad-grade-v109-progressive-heat.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate progressive heat sources
+        run: |
+          node --check pad-grade/v062-dev.js
+          node --check pad-grade/v063-dev.js
+          node --check pad-grade/v107-compare-fast.js
+          node --check pad-grade/v109-progressive-heat-selftest.js
+          node pad-grade/v109-progressive-heat-selftest.js
+      - name: Verify exact four-tier policy and singleton loading
+        run: |
+          grep -F 'TIERS=Object.freeze([33,99,297,891])' pad-grade/v063-dev.js
+          grep -F 'TIERS=Object.freeze([33,99,297,891])' pad-grade/v107-compare-fast.js
+          grep -F 'window.__padGradeHeatmapEngineV109' pad-grade/v063-dev.js
+          ! grep -F '(function loadPadGrade063(){' pad-grade/v062-dev.js
+          test "$(grep -c 'src="v063-dev.js' pad-grade/index.html)" -eq 1
+      - name: Verify grid-aware low-resolution floor
+        run: |
+          grep -F 'const minX=(cols-1)*3+1,minY=(rows-1)*3+1;' pad-grade/v063-dev.js
+          grep -F '*3+1,minY=' pad-grade/v107-compare-fast.js
+          ! grep -F 'Math.max(64,Math.round(tier' pad-grade/v063-dev.js
+          ! grep -F 'Math.max(64,Math.round(t*c.width' pad-grade/v107-compare-fast.js
+      - name: Verify concurrent workers and monotonic atomic promotion
+        run: |
+          grep -F 'for(const tier of TIERS)buildRaster' pad-grade/v063-dev.js
+          grep -F 'for(const t of TIERS)startTier' pad-grade/v107-compare-fast.js
+          grep -F "reason:'higher-tier-already-visible'" pad-grade/v063-dev.js
+          grep -F "reason:'higher-tier-already-visible'" pad-grade/v107-compare-fast.js
+          grep -F 'progressiveTiers:TIERS.slice(),monotonic:true' pad-grade/v063-dev.js
+          ! grep -F 'function scheduleHigh(' pad-grade/v063-dev.js
+          ! grep -F 'setTimeout(()=>post(HIGH' pad-grade/v107-compare-fast.js
+      - name: Verify diagnostics and unchanged independent comparison policy
+        run: |
+          grep -F 'heatmap.regular-generation-started' pad-grade/v063-dev.js
+          grep -F 'heatmap.regular-worker-posted' pad-grade/v063-dev.js
+          grep -F 'heatmap.regular-worker-complete' pad-grade/v063-dev.js
+          grep -F 'heatmap.regular-tier-skipped' pad-grade/v063-dev.js
+          grep -F 'compare.heat-generation-started' pad-grade/v107-compare-fast.js
+          grep -F 'compare.heat-worker-posted' pad-grade/v107-compare-fast.js
+          grep -F 'compare.heat-worker-complete' pad-grade/v107-compare-fast.js
+          grep -F 'compare.heat-tier-skipped' pad-grade/v107-compare-fast.js
+          ! grep -F '__padGradeHeatmapEngineV109' pad-grade/v107-compare-fast.js
+      - name: Verify v1.0.9 DEV metadata and retained safety behavior
+        run: |
+          grep -F 'versionCode = 81' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.0.9"' pad-grade-android/app/build.gradle.kts
+          grep -F '<title>Pad Grade Mapper v1.0.9 DEV</title>' pad-grade/index.html
+          grep -F '## v1.0.9 — development build' pad-grade/CHANGELOG.md
+          grep -F 'const HITBOX_PADDING_PCT=15;' pad-grade/v106-map-hitbox.js
+          grep -F 'CURRENT_SCHEMA=6,ROLLBACK_SCHEMA=5' pad-grade/project-format-v107.js
