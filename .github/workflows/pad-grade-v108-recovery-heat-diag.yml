@@ -1,0 +1,161 @@
+name: Pad Grade v1.0.8 Recovery + Heat Diagnostics
+
+on:
+  pull_request:
+    branches: [pad-grade-dev, main]
+    paths:
+      - 'pad-grade/**'
+      - 'pad-grade-android/**'
+      - '.github/workflows/pad-grade-v108-recovery-heat-diag.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Syntax check v1.0.8 runtime
+        run: |
+          node --check pad-grade/v108-recovery-save-guard.js
+          node --check pad-grade/v108-index-fastpath.js
+          node --check pad-grade/v096-native-async.js
+          node --check pad-grade/v107-index-reconcile.js
+          node --check pad-grade/v107-compare-fast.js
+          node --check pad-grade/v063-dev.js
+          node --check pad-grade/heatmap-raster-worker-v078.js
+          node --check pad-grade/v090-first-run-guard.js
+          node --check pad-grade/v071-dev.js
+          node --check pad-grade/v070-dev.js
+
+      - name: Preserve schema 6 and rollback contract
+        run: |
+          node pad-grade/project-format-v107-selftest.js
+          node pad-grade/v107-index-reconcile-selftest.js
+          grep -F 'CURRENT_SCHEMA=6,ROLLBACK_SCHEMA=5' pad-grade/project-format-v107.js
+          grep -F 'downgradeFolderToV5' pad-grade/v107-index-reconcile.js
+          grep -F 'versionCode = 80' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.0.8"' pad-grade-android/app/build.gradle.kts
+          grep -F '<title>Pad Grade Mapper v1.0.8 DEV</title>' pad-grade/index.html
+
+      - name: Verify recovery race defenses
+        run: |
+          grep -F 'v108-recovery-save-guard.js?v=20260830-1' pad-grade/index.html
+          grep -F '__padGradeRecoveryReloadPlannedV108=true' pad-grade/v090-first-run-guard.js
+          grep -F '__padGradeRecoveryReloadPlannedV108=true' pad-grade/v071-dev.js
+          grep -F '__padGradeRecoveryReloadPlannedV108=true' pad-grade/v070-dev.js
+          grep -F 'loadProject(id,forceDurable=false)' pad-grade/v107-index-reconcile.js
+          grep -F '!forceDurable&&!e?.localBodyStale' pad-grade/v107-index-reconcile.js
+          grep -F 'loadProject(desired,forceDurableActive)' pad-grade/v107-index-reconcile.js
+          grep -F 'recovery.active-durable-force-load' pad-grade/v107-index-reconcile.js
+          grep -F 'recovery.autosave-local-write-blocked' pad-grade/v108-recovery-save-guard.js
+          grep -F 'recovery.autosave-durable-write-blocked' pad-grade/v108-recovery-save-guard.js
+
+      - name: Exercise recovery save guard behavior
+        run: |
+          node <<'NODE'
+          const fs=require('fs'),vm=require('vm'),assert=require('assert');
+          class Storage {
+            constructor(){this.m=new Map();}
+            setItem(k,v){this.m.set(String(k),String(v));}
+            getItem(k){return this.m.has(String(k))?this.m.get(String(k)):null;}
+            removeItem(k){this.m.delete(String(k));}
+          }
+          const localStorage=new Storage();
+          const listeners={};
+          const calls={writes:0,reads:0};
+          const indexA=JSON.stringify({format:'PadGradeProjectIndex',indexVersion:1,updatedAt:'a',projects:[{filename:'ABC.padgrade',projectId:'p1',size:10,lastModified:1}]});
+          const indexB=JSON.stringify({format:'PadGradeProjectIndex',indexVersion:1,updatedAt:'b',projects:[{filename:'ABC.padgrade',projectId:'p1',size:10,lastModified:1}]});
+          const files={
+            read:async name=>{calls.reads++;return name==='Pad-Grade-Project-Index.pgindex'?indexA:'x';},
+            write:async(name,text)=>{calls.writes++;return true;},
+            writeResult:async(name,text)=>{calls.writes++;return {ok:true};}
+          };
+          const events=[];
+          const window={
+            PadGradeFiles:files,
+            PadGradeDiag:{mark:(n,d)=>events.push([n,d])},
+            addEventListener:(n,fn)=>{(listeners[n]??=[]).push(fn);}
+          };
+          const context={window,Storage,localStorage,Promise,JSON,String,Map,console};
+          vm.runInNewContext(fs.readFileSync('pad-grade/v108-recovery-save-guard.js','utf8'),context,{filename:'v108-recovery-save-guard.js'});
+
+          // Ordinary writes still work.
+          localStorage.setItem('padGradeProjectV5:p1','full');
+          assert.equal(localStorage.getItem('padGradeProjectV5:p1'),'full');
+
+          // An unchanged index (projects identical; updatedAt differs) is skipped.
+          (async()=>{
+            await window.PadGradeFiles.read('Pad-Grade-Project-Index.pgindex');
+            const before=calls.writes;
+            assert.equal(await window.PadGradeFiles.write('Pad-Grade-Project-Index.pgindex',indexB),true);
+            assert.equal(calls.writes,before);
+            assert(events.some(x=>x[0]==='index.write-skipped-unchanged'));
+
+            // Only an explicitly planned recovery unload engages the block.
+            window.__padGradeRecoveryReloadPlannedV108=true;
+            for(const fn of listeners.beforeunload||[])fn({});
+            assert.equal(window.__padGradeRecoverySaveGuardV108.isBlocked(),true);
+            localStorage.setItem('padGradeProjectV5:p1','tiny');
+            localStorage.setItem('padGradeProjectsV5','bad-index');
+            localStorage.setItem('unrelatedPref','ok');
+            assert.equal(localStorage.getItem('padGradeProjectV5:p1'),'full');
+            assert.equal(localStorage.getItem('padGradeProjectsV5'),null);
+            assert.equal(localStorage.getItem('unrelatedPref'),'ok');
+            const writesBeforeProject=calls.writes;
+            assert.equal(await window.PadGradeFiles.write('ABC-p1.padgrade','tiny'),false);
+            assert.equal(calls.writes,writesBeforeProject);
+            assert.equal(await window.PadGradeFiles.write('Pad-Grade-Settings.pgsettings','{}'),true);
+            assert.equal(calls.writes,writesBeforeProject+1);
+            assert(events.some(x=>x[0]==='recovery.autosave-block-engaged'));
+            assert(events.some(x=>x[0]==='recovery.autosave-local-write-blocked'));
+            assert(events.some(x=>x[0]==='recovery.autosave-durable-write-blocked'));
+            console.log('v1.0.8 recovery save guard behavioral test passed');
+          })().catch(e=>{console.error(e);process.exit(1);});
+          NODE
+
+      - name: Verify in-memory index fast path
+        run: |
+          grep -F 'index.catalog-memory-hit' pad-grade/v108-index-fastpath.js
+          grep -F 'padgrade-project-folder-selected' pad-grade/v108-index-fastpath.js
+          grep -F 'padgrade-project-folder-indexed' pad-grade/v108-index-fastpath.js
+          grep -F 'padgrade-project-folder-refreshed' pad-grade/v108-index-fastpath.js
+          grep -F 'index.write-skipped-unchanged' pad-grade/v108-recovery-save-guard.js
+          grep -F 'v108-index-fastpath.js?v=20260830-1' pad-grade/v096-native-async.js
+
+      - name: Verify comparison presentation and early async heat kickoff
+        run: |
+          node pad-grade/project-compare-selftest.js
+          grep -F 'pgCompareLegendBar .cut{background:linear-gradient' pad-grade/v107-compare-fast.js
+          grep -F 'pgCompareLegendBar .grade{background:#4f8f3a}' pad-grade/v107-compare-fast.js
+          grep -F 'pgCompareLegendBar .fill{background:linear-gradient' pad-grade/v107-compare-fast.js
+          grep -F 'startHeat(serial);makeMap(g,serial);' pad-grade/v107-compare-fast.js
+          ! grep -F "geometry();M.on('click',probe);startHeat" pad-grade/v107-compare-fast.js
+          grep -F 'compare.heat-buffered-until-map' pad-grade/v107-compare-fast.js
+          grep -F 'mapReady=true;flushPendingHeat();' pad-grade/v107-compare-fast.js
+
+      - name: Verify apples-to-apples heat-map diagnostics
+        run: |
+          grep -F 'workerElapsedMs' pad-grade/heatmap-raster-worker-v078.js
+          grep -F 'rasterizeElapsedMs' pad-grade/heatmap-raster-worker-v078.js
+          grep -F 'colorElapsedMs' pad-grade/heatmap-raster-worker-v078.js
+          grep -F "context:'regular'" pad-grade/v063-dev.js
+          grep -F 'heatmap.regular-worker-posted' pad-grade/v063-dev.js
+          grep -F 'heatmap.regular-worker-complete' pad-grade/v063-dev.js
+          grep -F 'heatmap.regular-visible' pad-grade/v063-dev.js
+          grep -F "context:'comparison'" pad-grade/v107-compare-fast.js
+          grep -F 'compare.heat-worker-posted' pad-grade/v107-compare-fast.js
+          grep -F 'compare.heat-worker-complete' pad-grade/v107-compare-fast.js
+          grep -F 'compare.heat-visible' pad-grade/v107-compare-fast.js
+          grep -F 'totalPostToVisibleMs' pad-grade/v063-dev.js
+          grep -F 'totalPostToVisibleMs' pad-grade/v107-compare-fast.js
+          grep -F 'heatmap-raster-worker-v078.js?v=20260830-4' pad-grade/v078-dev.js
+          grep -F 'heatmap-raster-worker-v078.js?v=20260830-4' pad-grade/v107-compare-fast.js
+
+      - name: Preserve fixed 15 percent map hitbox behavior
+        run: |
+          grep -F 'const FIXED_PADDING_PCT=15' pad-grade/v106-map-hitbox.js
+          ! grep -F 'mapGridHitboxPaddingPct' pad-grade/v106-map-hitbox.js
