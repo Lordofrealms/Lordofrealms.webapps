@@ -34,9 +34,11 @@ assert(resilience.includes('recovery.partial-reveal'));
 assert(!resilience.includes('completeProjectFolderRecovery'));
 assert(!resilience.includes('__padGradeEndRecoveryVisualHold'));
 
-// The v1.1.1 runtime remains present inside later DEV builds.
-assert(index.includes('<title>Pad Grade Mapper v1.1.1 DEV</title>'));
+// The v1.1.1 runtime remains present inside later DEV builds. Do not pin this
+// retained behavior test to a later package version; current-version metadata is
+// verified by that release's own gate.
+assert(/<title>Pad Grade Mapper v\d+\.\d+\.\d+ DEV<\/title>/.test(index));
 assert(index.includes('src="v111-resilience.js?v=20260830-1"'));
-assert(gradle.includes('versionCode = 85'));
-assert(gradle.includes('versionName = "1.1.3"'));
-console.log('v1.1.1 resilience/startup self-test passed inside v1.1.3 DEV build');
+assert(/versionCode = \d+/.test(gradle));
+assert(/versionName = "\d+\.\d+\.\d+"/.test(gradle));
+console.log('v1.1.1 resilience/startup self-test passed inside current DEV build');
