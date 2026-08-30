@@ -1,4 +1,4 @@
-/* Pad Grade v1.0.7 DEV — Promise-based durable file bridge.
+/* Pad Grade v1.0.8 DEV — Promise-based durable file bridge.
  * Android performs SAF reads/writes/deletes on its background file executor.
  * v1.0.7 adds cached file metadata plus bounded schema-header reads so routine
  * reconciliation does not need full project-file reads.
@@ -83,12 +83,13 @@
     deleteResult:filename=>request('delete',filename),
     list,details
   };
-  diag()?.mark?.('file.async-bridge-installed',{nativeAsync:!!(native&&typeof native.readProjectFileAsync==='function'),version:'1.0.7',recoveryMutationLock:true,headerReads:typeof native?.readProjectFileHeadAsync==='function',cachedMetadata:typeof native?.listProjectFileDetails==='function'});
+  diag()?.mark?.('file.async-bridge-installed',{nativeAsync:!!(native&&typeof native.readProjectFileAsync==='function'),version:'1.0.8',recoveryMutationLock:true,headerReads:typeof native?.readProjectFileHeadAsync==='function',cachedMetadata:typeof native?.listProjectFileDetails==='function'});
 
   function loadCompareFast(){
+    if(!window.__padGradeCatalogMemoryFastPathV108){const existingFast=document.querySelector('script[data-padgrade-v108-index-fastpath]');if(existingFast){existingFast.addEventListener('load',loadCompareFast,{once:true});return;}const fast=document.createElement('script');fast.src='v108-index-fastpath.js?v=20260830-1';fast.async=false;fast.dataset.padgradeV108IndexFastpath='1';fast.onload=loadCompareFast;fast.onerror=()=>console.error('Pad Grade v1.0.8 catalog fast path failed to load');(document.head||document.documentElement).appendChild(fast);return;}
     if(document.querySelector('script[data-padgrade-v107-compare-fast]'))return;
-    const script=document.createElement('script');script.src='v107-compare-fast.js?v=20260830-1';script.async=false;script.dataset.padgradeV107CompareFast='1';
-    script.onerror=()=>console.error('Pad Grade v1.0.7 indexed comparison module failed to load');
+    const script=document.createElement('script');script.src='v107-compare-fast.js?v=20260830-2';script.async=false;script.dataset.padgradeV107CompareFast='1';
+    script.onerror=()=>console.error('Pad Grade v1.0.8 indexed comparison module failed to load');
     (document.head||document.documentElement).appendChild(script);
   }
   function loadIndexController(){

@@ -69,6 +69,8 @@
   }
   function reloadNormally(){location.reload();}
   function reloadRecoveredDurable(){
+    window.__padGradeRecoveryReloadPlannedV108=true;
+    try{window.PadGradeDiag?.mark?.('recovery.reload-planned',{owner:'first-run'});}catch(e){}
     beginRecoveryVisual();
     setTimeout(()=>{try{location.reload();}catch(e){endRecoveryVisual();}},40);
   }

@@ -238,45 +238,50 @@
   }
 
   function buildRaster(tier,points,key){
-    if(activeJob||!points||points.length<3)return;
-    const map=mapInstance();if(!mapUsable(map))return;
-    const r=resolutionForTier(tier),jobId=++jobSerial;
-    let w;
-    try{w=new Worker(WORKER_URL);}catch(e){console.warn('Pad Grade heat-map raster worker could not start',e);return;}
-    const job={id:jobId,key,tier,resolution:r};worker=w;activeJob=job;
+  if(activeJob||!points||points.length<3)return;
+  const map=mapInstance();if(!mapUsable(map))return;
+  const r=resolutionForTier(tier),jobId=++jobSerial,now=()=>typeof performance!=='undefined'&&performance.now?performance.now():Date.now();
+  let w;
+  try{w=new Worker(WORKER_URL);}catch(e){console.warn('Pad Grade heat-map raster worker could not start',e);return;}
+  const job={id:jobId,key,tier,resolution:r,postedAt:0};worker=w;activeJob=job;
 
-    w.onmessage=event=>{
-      const msg=event.data||{};
-      if(!activeJob||activeJob.id!==jobId||msg.jobId!==jobId)return;
-      if(msg.type==='empty'||msg.type==='error'){
-        if(msg.type==='error')console.warn('Pad Grade heat-map raster worker error',msg.message||'unknown');
-        try{w.terminate();}catch(e){}worker=null;activeJob=null;return;
-      }
-      if(msg.type!=='complete')return;
-      try{w.terminate();}catch(e){}worker=null;
-      try{
-        const canvas=canvasFromBuffer(msg);
-        if(!activeJob||activeJob.id!==jobId||currentSurfaceKey!==key){activeJob=null;return;}
-        const installed=installRasterCanvas(canvas,key,tier,msg.nx,msg.ny);
-        activeJob=null;
-        if(installed&&tier===LOW_TIER)scheduleHigh(measuredPoints(),key);
-      }catch(error){
-        console.warn('Pad Grade heat-map canvas conversion failed',error);
-        if(activeJob&&activeJob.id===jobId)activeJob=null;
-      }
-    };
-    w.onerror=event=>{
-      console.warn('Pad Grade heat-map raster worker crashed',event?.message||event);
-      try{w.terminate();}catch(e){}worker=null;if(activeJob&&activeJob.id===jobId)activeJob=null;
-    };
-
-    try{
-      w.postMessage({type:'build',jobId,tier,nx:r.nx,ny:r.ny,rowsPerSlice:tier===LOW_TIER?18:10,settings:{width:cfg().width,length:cfg().length,target:cfg().target,tol:cfg().tol},points});
-    }catch(e){
-      console.warn('Pad Grade heat-map raster request failed',e);
-      try{w.terminate();}catch(ignore){}worker=null;activeJob=null;
+  w.onmessage=event=>{
+    const msg=event.data||{};
+    if(!activeJob||activeJob.id!==jobId||msg.jobId!==jobId)return;
+    if(msg.type==='empty'||msg.type==='error'){
+      if(msg.type==='error')console.warn('Pad Grade heat-map raster worker error',msg.message||'unknown');
+      try{w.terminate();}catch(e){}worker=null;activeJob=null;return;
     }
+    if(msg.type!=='complete')return;
+    const receivedAt=now(),postToWorkerMs=job.postedAt?receivedAt-job.postedAt:null;
+    try{window.PadGradeDiag?.mark?.('heatmap.regular-worker-complete',{tier,nx:msg.nx,ny:msg.ny,postToWorkerMs:Number.isFinite(postToWorkerMs)?+postToWorkerMs.toFixed(1):undefined,workerElapsedMs:msg.workerElapsedMs,rasterizeElapsedMs:msg.rasterizeElapsedMs,colorElapsedMs:msg.colorElapsedMs,setupElapsedMs:msg.setupElapsedMs});}catch(e){}
+    try{w.terminate();}catch(e){}worker=null;
+    try{
+      const canvasStarted=now(),canvas=canvasFromBuffer(msg),canvasElapsedMs=now()-canvasStarted;
+      if(!activeJob||activeJob.id!==jobId||currentSurfaceKey!==key){activeJob=null;return;}
+      const installStarted=now(),installed=installRasterCanvas(canvas,key,tier,msg.nx,msg.ny),installElapsedMs=now()-installStarted,totalMs=job.postedAt?now()-job.postedAt:null;
+      if(installed)try{window.PadGradeDiag?.mark?.('heatmap.regular-visible',{tier,nx:msg.nx,ny:msg.ny,totalPostToVisibleMs:Number.isFinite(totalMs)?+totalMs.toFixed(1):undefined,workerElapsedMs:msg.workerElapsedMs,rasterizeElapsedMs:msg.rasterizeElapsedMs,colorElapsedMs:msg.colorElapsedMs,canvasElapsedMs:+canvasElapsedMs.toFixed(1),installElapsedMs:+installElapsedMs.toFixed(1)});}catch(e){}
+      activeJob=null;
+      if(installed&&tier===LOW_TIER)scheduleHigh(measuredPoints(),key);
+    }catch(error){
+      console.warn('Pad Grade heat-map canvas conversion failed',error);
+      if(activeJob&&activeJob.id===jobId)activeJob=null;
+    }
+  };
+  w.onerror=event=>{
+    console.warn('Pad Grade heat-map raster worker crashed',event?.message||event);
+    try{w.terminate();}catch(e){}worker=null;if(activeJob&&activeJob.id===jobId)activeJob=null;
+  };
+
+  try{
+    job.postedAt=now();
+    try{window.PadGradeDiag?.mark?.('heatmap.regular-worker-posted',{tier,nx:r.nx,ny:r.ny,points:points.length,jobId});}catch(e){}
+    w.postMessage({type:'build',context:'regular',jobId,tier,nx:r.nx,ny:r.ny,rowsPerSlice:tier===LOW_TIER?18:10,settings:{width:cfg().width,length:cfg().length,target:cfg().target,tol:cfg().tol},points});
+  }catch(e){
+    console.warn('Pad Grade heat-map raster request failed',e);
+    try{w.terminate();}catch(ignore){}worker=null;activeJob=null;
   }
+}
 
   function syncSurface(){
     cleanupLegacyGridLayers();

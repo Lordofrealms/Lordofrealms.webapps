@@ -114,6 +114,8 @@
     // The correct ACTIVE_KEY and portable settings are already stored. Hide the
     // one intentional reload and reveal only after v0.7.2's explicit final apply.
     beginVisualHold();
+    window.__padGradeRecoveryReloadPlannedV108=true;
+    try{window.PadGradeDiag?.mark?.('recovery.reload-planned',{owner:'v071'});}catch(e){}
     setTimeout(()=>{
       try{location.reload();}
       catch(e){endVisualHold();}
