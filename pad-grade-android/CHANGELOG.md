@@ -6,6 +6,27 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v1.0.4 — development build
+
+### Added
+- Packaged the diagnostic-only GPS/MapLibre point-tap alignment tracer from the canonical web app, including the temporary **ML** event-position crosshair and the expanded local diagnostic-log fields used to compare the physical touch, MapLibre event coordinates, projected survey points, selected feature, and final edit-dialog point.
+
+### Changed
+- Bumped the separately installable DEV Android package to **version 1.0.4 / versionCode 76**. Build 75 remains consumed and is not reused.
+- The APK is intentionally based on the exact tested v1.0.2 runtime plus the new diagnostic module. The withdrawn v1.0.3 lower-grid experiment is not packaged.
+- No map hitbox size or point-selection algorithm is changed in this diagnostic build.
+
+### Known issues
+- The reported GPS-map point misselection remains intentionally unfixed while the new diagnostic data is collected. Reproduce the problem with diagnostic logging enabled and export the log from **Settings → Advanced Settings**.
+
+## v1.0.3 — withdrawn development build
+
+### Changed
+- A DEV-only lower rectangular-grid sizing experiment was packaged while investigating a reported point-selection problem.
+
+### Known issues
+- The issue was subsequently confirmed to concern the GPS/MapLibre map grid rather than the lower measurement grid. The v1.0.3 runtime changes were withdrawn and rolled back completely before v1.0.4.
+
 ## v0.9.8 — development build
 
 ### Changed
