@@ -1,0 +1,1 @@
+wire indexed lazy load into normal project open
