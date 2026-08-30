@@ -22,7 +22,7 @@ jobs:
           node --check pad-grade/v114-dev.js
           node --check pad-grade/v114-heat-memory-selftest.js
           node pad-grade/v114-heat-memory-selftest.js
-          grep -F 'v114-dev.js?v=20260830-1' pad-grade/index.html
+          grep -F 'v114-dev.js?v=20260830-2' pad-grade/index.html
           grep -F 'single-visible-heat-authority-cache-protected-memory-measurement-no-auto-trim' pad-grade/v114-dev.js
           grep -F 'heatmap.stale-raster-show-suppressed' pad-grade/v114-dev.js
           grep -F 'heatmap.cache-layer-retirement-suppressed' pad-grade/v114-dev.js
