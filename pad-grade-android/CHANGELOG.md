@@ -1,3 +1,11 @@
+# Changelog
+
+All notable Android packaging and release changes for Pad Grade are documented here.
+
+The Android app packages the canonical web application from `../pad-grade`; feature and interpolation history therefore lives primarily in [`../pad-grade/CHANGELOG.md`](../pad-grade/CHANGELOG.md). This file records Android-specific packaging, channel, and release information.
+
+Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
+
 ## v1.0.9 — development build
 
 ### Added
@@ -18,14 +26,6 @@
 ### DEV verification
 - Export diagnostics after a normal heat-map load and a Project Comparison load. Confirm only one regular generation is started, all four tiers are posted once per surface generation, the first coarse raster appears quickly, and visible tiers only move upward.
 - Compare 33/99/297/891 worker runtimes to determine whether the new concurrent progression materially improves time-to-first-heat and time-to-297/891 on the test phone.
-
-# Changelog
-
-All notable Android packaging and release changes for Pad Grade are documented here.
-
-The Android app packages the canonical web application from `../pad-grade`; feature and interpolation history therefore lives primarily in [`../pad-grade/CHANGELOG.md`](../pad-grade/CHANGELOG.md). This file records Android-specific packaging, channel, and release information.
-
-Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
 ## v1.0.8 — development build
 
