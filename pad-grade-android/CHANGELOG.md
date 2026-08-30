@@ -6,6 +6,27 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v1.1.3 — development build
+
+### Added
+- Packaged the separate lossless 891 heat-map cache and visible-idle one-project-at-a-time background cache generation for other projects. Cache files are disposable and keyed to exact surface inputs; the `.padgrade` project remains authoritative.
+- Added persistent Android Activity/process/WebView lifecycle breadcrumbs to the existing DEV diagnostic export, including process and Activity identity, saved-state restoration, memory-trim callbacks, and renderer termination details.
+- Added handled WebView renderer recovery with `onRenderProcessGone()` so renderer reclamation can rebuild the WebView without an unhandled app-process exit.
+
+### Changed
+- Replaced the v1.1.2 cross-fade diagnostic with exact Auto/99/297/891 display controls and packaged the literal no-overlap normal heat-map tier swap.
+- Packaged reusable project switching: outgoing project-owned map content is blanked before the chooser closes, existing MapLibre/grid infrastructure is reused where safe, and same-dimension lower-grid cells are updated in place.
+- Bumped the separately installable DEV package to **version 1.1.3 / versionCode 85**. Build 84 remains the v1.1.2 diagnostic package and is not reused.
+
+### Fixed
+- Removed the intentional two-animation-frame overlap between completed heat-map tiers.
+- Removed the v1.1.2 double project-overlay teardown while preserving the requirement that no previous-project grid or heat content is visible after the project dialog closes.
+
+### DEV verification
+- Verify exact raster inspection and no dark/blank tier-transition frame, then repeat same-size/different-size project switches looking specifically for stale outgoing content.
+- Complete an 891 map, restart, and verify the unchanged project restores from its `.pgheatcache`; change a reading and verify regeneration.
+- Reproduce the prior several-minute background/reopen case and export diagnostics to determine whether Android killed the process/Activity or the WebView renderer.
+
 ## v1.1.2 — development build
 
 ### Added

@@ -4,6 +4,33 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v1.1.3 — development build
+
+### Added
+- Added a lossless **final 891 heat-map cache** stored separately from the authoritative `.padgrade` project file. The cache is keyed to the exact surface inputs (pad dimensions, target/tolerance, and measured point coordinates/readings), so a changed project cannot accidentally reuse a stale raster.
+- Added lazy background cache generation for other projects. Pad Grade processes at most one non-active project at a time, only while the app is visible and foreground heat-map work is idle, and pauses background cache work immediately when the app is hidden.
+- Added persistent Android lifecycle breadcrumbs for `Activity` create/start/resume/pause/stop/destroy, memory-trim pressure, WebView creation/page load, process ID, Activity instance ID, saved-state restoration, and WebView renderer termination. These events are imported into the existing privacy-safe DEV diagnostic log after a restart.
+- Added WebView renderer-loss recovery via `onRenderProcessGone()`, allowing the host Activity to rebuild the WebView instead of allowing an unhandled renderer termination to take down the app process.
+
+### Changed
+- Replaced the v1.1.2 cross-fade inspector with exact **Auto / 99 / 297 / 891** controls. Manual inspection displays exactly one completed raster at normal heat-map opacity; there is no cross-fade or intermediate synthetic resolution.
+- Regular heat-map promotion now performs a literal visual swap: the previously visible complete raster is hidden in the same synchronous MapLibre update that stages the new complete raster. `raster-fade-duration` remains zero, eliminating the intentional two-frame 99→297→891 overlap from v1.1.2 and earlier.
+- Project switching still lazy-loads the selected target while the Projects dialog is visible, but “target ready” now means only that its project data is available. The outgoing project's lower grid, GeoJSON grid sources, and heat layers are blanked/hidden **before** the dialog closes; the new project then applies immediately.
+- Project switching now reuses the existing MapLibre instance and, when possible, the existing survey-grid GeoJSON sources/layers instead of removing/recreating them. Same-dimension lower measurement grids reuse their existing cell DOM and update values/classes in place; different row/column geometry still performs a full grid rebuild.
+- A valid cached 891 raster is decoded and displayed directly on reload and suppresses the otherwise redundant 99/297/891 regular calculation for that unchanged surface. The authoritative project file remains small and cache files are disposable/rebuildable.
+- Android DEV package is **version 1.1.3 / build 85**.
+
+### Fixed
+- Fixed the brief double-opacity/darker heat-map artifact caused by keeping both old and new complete raster layers visible for two animation frames during tier promotion.
+- Removed the v1.1.2 double project-overlay teardown path and the diagnostic cross-fade runtime.
+- Prevented outgoing project geometry/heat content from remaining visible while reusable sources/layers are updated for the incoming project.
+
+### DEV verification
+- Compare exact 99, 297, and 891 modes. Each manual mode must show one raster only, with no opacity blend. Return to Auto and verify 99→297→891 transitions do not briefly darken or blank.
+- Switch repeatedly between same-size and different-size projects. Confirm the old project's grid/heat map is gone before the chooser closes, no stale geometry appears, and same-size lower grids log `grid.cells-reused`.
+- Let an 891 surface complete, close/restart the app, and verify `heatmap.cache-hit` / `heatmap.cache-visible` appears without a new regular 99/297/891 calculation for the unchanged surface. Change a reading and verify the old cache is rejected and a new final cache is written.
+- Leave the app in the background long enough to reproduce the prior full restart, then export diagnostics. The log should now distinguish a new Android process/Activity from a WebView renderer termination and include any preceding memory-trim events.
+
 ## v1.1.2 — development build
 
 ### Added

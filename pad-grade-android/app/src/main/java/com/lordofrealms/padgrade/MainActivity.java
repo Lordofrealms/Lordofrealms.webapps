@@ -13,6 +13,7 @@ import android.os.Bundle;
 import android.view.WindowInsets;
 import android.window.OnBackInvokedDispatcher;
 import android.webkit.GeolocationPermissions;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -48,9 +49,12 @@ public final class MainActivity extends Activity {
     private Bundle pendingInitialState;
     private boolean modernBackRegistered = false;
     private boolean legalReleasePending = false;
+    private final String activityInstanceId = Long.toString(android.os.SystemClock.elapsedRealtime(), 36) + "-" + Integer.toHexString(System.identityHashCode(this));
+    private PadGradeLifecycleBridge lifecycleBridge;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        PadGradeLifecycleBridge.log(this, "activity.onCreate", activityInstanceId, savedInstanceState != null, null, null, null, "new-activity");
         getWindow().setStatusBarColor(Color.rgb(11, 15, 20));
         getWindow().setNavigationBarColor(Color.rgb(11, 15, 20));
         pendingInitialState = savedInstanceState;
@@ -75,6 +79,7 @@ public final class MainActivity extends Activity {
         pendingInitialState = null;
 
         webView = new WebView(this);
+        PadGradeLifecycleBridge.log(this, "webview.created", activityInstanceId, savedInstanceState != null, null, null, null, legalPreload ? "legal-preload" : (savedInstanceState == null ? "fresh-load" : "restore-state"));
         webView.setOnApplyWindowInsetsListener((view, windowInsets) -> {
             Insets bars = windowInsets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
             android.view.ViewGroup.LayoutParams raw = view.getLayoutParams();
@@ -105,6 +110,8 @@ public final class MainActivity extends Activity {
 
         nativeBridge = new PadGradeNativeBridge(this, webView);
         webView.addJavascriptInterface(nativeBridge, "PadGradeNative");
+        lifecycleBridge = new PadGradeLifecycleBridge(this);
+        webView.addJavascriptInterface(lifecycleBridge, "PadGradeLifecycle");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) { return assetLoader.shouldInterceptRequest(request.getUrl()); }
@@ -113,8 +120,23 @@ public final class MainActivity extends Activity {
                 Uri uri = request.getUrl(); return !APP_ORIGIN.equals(uri.getScheme() + "://" + uri.getAuthority());
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, String url) { return url == null || !url.startsWith(APP_ORIGIN + "/"); }
+            @Override public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                PadGradeLifecycleBridge.log(MainActivity.this, "webview.rendererGone", activityInstanceId, false, null,
+                        detail == null ? null : detail.didCrash(), detail == null ? null : detail.rendererPriorityAtExit(), "recovering-webview");
+                if (view != webView) { try { view.destroy(); } catch (RuntimeException ignored) {} return true; }
+                if (nativeBridge != null) { nativeBridge.destroy(); nativeBridge = null; }
+                try { view.removeJavascriptInterface("PadGradeNative"); } catch (RuntimeException ignored) {}
+                try { view.removeJavascriptInterface("PadGradeLifecycle"); } catch (RuntimeException ignored) {}
+                try { view.stopLoading(); } catch (RuntimeException ignored) {}
+                try { view.destroy(); } catch (RuntimeException ignored) {}
+                webView = null; lifecycleBridge = null;
+                initializeWebView(null, false);
+                return true;
+            }
+
             @Override public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                PadGradeLifecycleBridge.log(MainActivity.this, "webview.pageFinished", activityInstanceId, false, null, null, null, url != null && url.contains("legalPreload=1") ? "legal-preload" : "app-page");
                 if (LegalNoticeActivity.isAccepted(MainActivity.this) && (legalReleasePending || (url != null && url.contains("legalPreload=1")))) {
                     releaseLegalPreload();
                 }
@@ -194,9 +216,35 @@ public final class MainActivity extends Activity {
         return true;
     }
 
+    @Override protected void onStart() {
+        super.onStart();
+        PadGradeLifecycleBridge.log(this, "activity.onStart", activityInstanceId, false, null, null, null, null);
+    }
+
     @Override protected void onResume() {
         super.onResume();
+        PadGradeLifecycleBridge.log(this, "activity.onResume", activityInstanceId, false, null, null, null, null);
         if (nativeBridge != null) nativeBridge.onHostResume();
+    }
+
+    @Override protected void onPause() {
+        PadGradeLifecycleBridge.log(this, "activity.onPause", activityInstanceId, false, null, null, null, null);
+        super.onPause();
+    }
+
+    @Override protected void onStop() {
+        PadGradeLifecycleBridge.log(this, "activity.onStop", activityInstanceId, false, null, null, null, null);
+        super.onStop();
+    }
+
+    @Override public void onTrimMemory(int level) {
+        PadGradeLifecycleBridge.log(this, "process.onTrimMemory", activityInstanceId, false, level, null, null, null);
+        super.onTrimMemory(level);
+    }
+
+    @Override public void onLowMemory() {
+        PadGradeLifecycleBridge.log(this, "process.onLowMemory", activityInstanceId, false, null, null, null, null);
+        super.onLowMemory();
     }
 
     @Override protected void onSaveInstanceState(Bundle outState) { if (webView != null) webView.saveState(outState); super.onSaveInstanceState(outState); }
@@ -264,10 +312,11 @@ public final class MainActivity extends Activity {
     @Override public void onBackPressed() { handleBackAction(); }
 
     @Override protected void onDestroy() {
+        PadGradeLifecycleBridge.log(this, "activity.onDestroy", activityInstanceId, false, null, null, null, isChangingConfigurations() ? "configuration-change" : "destroy");
         if (nativeBridge != null) nativeBridge.destroy();
         if (fileChooserCallback != null) { fileChooserCallback.onReceiveValue(null); fileChooserCallback = null; }
         pendingSaveText = null;
-        if (webView != null) { webView.removeJavascriptInterface("PadGradeNative"); webView.destroy(); webView = null; }
+        if (webView != null) { webView.removeJavascriptInterface("PadGradeNative"); webView.removeJavascriptInterface("PadGradeLifecycle"); webView.destroy(); webView = null; }
         super.onDestroy();
     }
 }
