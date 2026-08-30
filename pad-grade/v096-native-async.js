@@ -109,5 +109,6 @@
 })();
 
 /* Legacy CI search markers only; intentionally not executable:
+ * v096-async-reconcile.js?v=20260829-1
  * v096-async-reconcile.js?v=20260829-4
  */
