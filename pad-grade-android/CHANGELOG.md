@@ -6,6 +6,20 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v1.1.0 — development build
+
+### Changed
+- Removed the **33-tier** heat-map pass from the packaged regular and Project Comparison surfaces. Device diagnostics showed it was only briefly visible before the much better 99-tier surface while adding another worker during startup.
+- The APK now starts **99 and 297 concurrently**, then starts the **891 final tier only after 297 completes**. This keeps the high-resolution final surface while removing the largest heat-map worker from the early-load contention window.
+- Atomic monotonic whole-raster swaps remain unchanged, as does the grid-aware minimum of 3 raster pixels between adjacent survey points.
+- Regular and comparison heat-map work remain independent; opening Project Comparison does not cancel, defer, or globally throttle a regular-project heat calculation.
+- Bumped the separately installable DEV Android package to **version 1.1.0 / versionCode 82**. Build 81 remains the v1.0.9 four-concurrent-tier diagnostic build and is not reused.
+- Schema 6, the tested schema-6 → schema-5 rollback path, durable project indexing/recovery protections, and the fixed 15% GPS-map hitbox behavior are unchanged.
+
+### DEV verification
+- Export diagnostics after a normal heat-map load and a Project Comparison load. New generations should initially post only tiers 99 and 297, then log the 891 final-tier start after the corresponding 297 worker completes; no tier-33 job should appear.
+- Compare 99/297 time-to-visible against v1.0.9 to verify that removing tier 33 and deferring 891 reduces early CPU contention without changing the final surface quality.
+
 ## v1.0.9 — development build
 
 ### Added
