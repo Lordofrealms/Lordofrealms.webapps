@@ -1,8 +1,8 @@
 /* Pad Grade v1.0.7 DEV — canonical schema 6 project format + schema 5 rollback.
  *
- * Durable .padgrade files advance to schema 6.  The first JSON member is a
+ * Durable .padgrade files advance to schema 6. The first JSON member is a
  * deliberately small _pgHeader object so Android can identify/version/catalog a
- * project with a bounded prefix read.  Project data remains losslessly
+ * project with a bounded prefix read. Project data remains losslessly
  * downgradeable to the schema-5 shape understood by the v1.0.6 generation.
  */
 (function(root,factory){
@@ -42,23 +42,32 @@
     const readings={};for(const [key,val] of Object.entries(input.readings||{})){const n=Number(val);if(Number.isFinite(n))readings[key]=n;}
     const fileId=fileIdFromFilename(filename)||validFileId(input.fileId)||undefined;
     delete input._pgHeader;
+    // Preserve any schema-5 setting fields we do not currently interpret. The
+    // normalized known fields overwrite only their own keys, making v5→v6→v5
+    // rollback additive rather than destructive if an older/newer build stored
+    // extra settings that this build does not need to understand.
+    const settings={...clone(s),
+      width:clamp(s.width,.1,100000,64),length:clamp(s.length,.1,100000,76),
+      cols:Math.round(clamp(s.cols,2,200,9)),rows:Math.round(clamp(s.rows,2,200,9)),
+      target:Number.isFinite(Number(s.target))?Number(s.target):64,
+      tol:Math.max(0,Number.isFinite(Number(s.tol))?Number(s.tol):.5),
+      refCorner:s.refCorner||'SW',name:s.name||input.name||String(filename||'Pad').replace(/\.(padgrade(\.json)?|json)$/i,'')||'Pad'
+    };
     return {...input,
       app:'Pad Grade Mapper Mobile',schemaVersion:CURRENT_SCHEMA,version:CURRENT_SCHEMA,id,fileId,createdAt,modifiedAt,
-      status:input.status==='archived'?'archived':'open',
-      settings:{
-        width:clamp(s.width,.1,100000,64),length:clamp(s.length,.1,100000,76),
-        cols:Math.round(clamp(s.cols,2,200,9)),rows:Math.round(clamp(s.rows,2,200,9)),
-        target:Number.isFinite(Number(s.target))?Number(s.target):64,
-        tol:Math.max(0,Number.isFinite(Number(s.tol))?Number(s.tol):.5),
-        refCorner:s.refCorner||'SW',name:s.name||input.name||String(filename||'Pad').replace(/\.(padgrade(\.json)?|json)$/i,'')||'Pad'
-      },
+      status:input.status==='archived'?'archived':'open',settings,
       readings,readingMeta:(input.readingMeta&&typeof input.readingMeta==='object')?input.readingMeta:{},
       gps:normalizeGps(input),measureMode:input.measureMode==='gps'?'gps':'manual',
       migration:{...(input.migration&&typeof input.migration==='object'?input.migration:{}),sourceVersion:Number(input.migration?.sourceVersion||sourceVersion||1)}
     };
   }
 
-  function fullyMeasured(p){const s=p?.settings||{},need=Math.max(0,Math.round(+s.rows||0)*Math.round(+s.cols||0));if(!need)return false;let count=0;for(const v of Object.values(p?.readings||{}))if(Number.isFinite(Number(v)))count++;return count>=need;}
+  function fullyMeasured(p){
+    const s=p?.settings||{},rows=Math.round(+s.rows||0),cols=Math.round(+s.cols||0),r=p?.readings;
+    if(rows<1||cols<1||!r||typeof r!=='object')return false;
+    for(let y=0;y<rows;y++)for(let x=0;x<cols;x++)if(!Number.isFinite(Number(r[`${y},${x}`])))return false;
+    return true;
+  }
   function gpsReady(p){const c=p?.gps?.corners;if(!c||typeof c!=='object')return false;return ['SW','SE','NE','NW'].every(k=>c[k]&&Number.isFinite(+c[k].lat)&&Number.isFinite(+c[k].lon));}
   function catalogFromProject(p){const s=p?.settings||{};return {name:String(s.name||'Pad'),width:+s.width||0,length:+s.length||0,cols:Math.round(+s.cols||0),rows:Math.round(+s.rows||0),fullyMeasured:fullyMeasured(p),gpsReady:gpsReady(p)};}
   function headerFromProject(project){const p=normalizeProject(project)||project;if(!p)return null;return {format:FORMAT,schemaVersion:CURRENT_SCHEMA,id:p.id||null,fileId:validFileId(p.fileId)||null,createdAt:p.createdAt||null,modifiedAt:p.modifiedAt||null,status:p.status==='archived'?'archived':'open',catalog:catalogFromProject(p)};}
