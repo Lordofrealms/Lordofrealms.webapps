@@ -1,0 +1,36 @@
+name: Pad Grade v1.1.6 Background Suspension
+
+on:
+  push:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/v116-dev.js'
+      - 'pad-grade/v116-background-suspend-selftest.js'
+      - 'pad-grade/index.html'
+      - 'pad-grade/CHANGELOG.md'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - 'pad-grade-android/CHANGELOG.md'
+      - '.github/workflows/pad-grade-v116-background-suspend.yml'
+  pull_request:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/v116-dev.js'
+      - 'pad-grade/v116-background-suspend-selftest.js'
+      - 'pad-grade/index.html'
+      - 'pad-grade/CHANGELOG.md'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - 'pad-grade-android/CHANGELOG.md'
+      - '.github/workflows/pad-grade-v116-background-suspend.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check v1.1.6 runtime
+        run: |
+          node --check pad-grade/v116-dev.js
+          node --check pad-grade/v116-background-suspend-selftest.js
+      - name: Run v1.1.6 regression gate
+        run: node pad-grade/v116-background-suspend-selftest.js

@@ -1,0 +1,31 @@
+const fs=require('fs');
+function read(path){return fs.readFileSync(path,'utf8');}
+function must(text,needle,label){if(!text.includes(needle))throw new Error(`${label}: missing ${needle}`);}
+const runtime=read('pad-grade/v116-dev.js');
+const index=read('pad-grade/index.html');
+const gradle=read('pad-grade-android/app/build.gradle.kts');
+const webLog=read('pad-grade/CHANGELOG.md');
+const androidLog=read('pad-grade-android/CHANGELOG.md');
+
+must(runtime,"const VERSION='1.1.6'",'runtime version');
+must(runtime,'background.gps-suspended','GPS suspend diagnostics');
+must(runtime,'background.gps-resumed','GPS resume diagnostics');
+must(runtime,"['usgs-cached-imagery','usgs-naip-plus']",'primary imagery IDs');
+must(runtime,"['pg-compare-usgs-cached','pg-compare-usgs-naip']",'compare imagery IDs');
+must(runtime,'window.__padGradeImagerySuspendedV116=true','imagery suspend flag');
+must(runtime,"memorySnapshot('v116-background-after-gps-suspend')",'post-GPS memory sample');
+must(runtime,"memorySnapshot('v116-background-after-imagery-unload')",'post-imagery memory sample');
+must(runtime,'Barrier 1:','first heat render barrier');
+must(runtime,'Barrier 2:','second heat render barrier');
+must(runtime,'event.stopImmediatePropagation()','delayed real inspector click');
+must(runtime,'state.button.click()','synthetic target click after hold render');
+must(runtime,"window.__padGradeV116BackgroundPolicy='pause-active-geolocation-watches-unload-usgs-raster-sources-layers-keep-map-project-grid-heat-state-restore-on-visible'",'narrow background policy');
+
+must(index,'Pad Grade Mapper v1.1.6 DEV','index title');
+must(index,'src="v116-dev.js?v=20260830-1"','runtime script');
+must(gradle,'versionCode = 88','Android versionCode');
+must(gradle,'versionName = "1.1.6"','Android versionName');
+must(webLog,'## v1.1.6 — development build','web changelog');
+must(androidLog,'## v1.1.6 — development build (88)','Android changelog');
+
+console.log('v1.1.6 background suspension / heat handoff self-test passed');
