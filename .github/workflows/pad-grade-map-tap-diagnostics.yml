@@ -1,0 +1,58 @@
+name: Pad Grade Map Tap Diagnostics
+
+on:
+  push:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/v104-map-tap-diagnostics.js'
+      - 'pad-grade/index.html'
+      - 'pad-grade/CHANGELOG.md'
+      - 'pad-grade-android/CHANGELOG.md'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - '.github/workflows/pad-grade-map-tap-diagnostics.yml'
+  pull_request:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/v104-map-tap-diagnostics.js'
+      - 'pad-grade/index.html'
+      - 'pad-grade/CHANGELOG.md'
+      - 'pad-grade-android/CHANGELOG.md'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - '.github/workflows/pad-grade-map-tap-diagnostics.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax check diagnostic module
+        run: node --check pad-grade/v104-map-tap-diagnostics.js
+
+      - name: Verify diagnostic-only map tap instrumentation
+        run: |
+          grep -F 'v104-map-tap-diagnostics.js?v=20260830-1' pad-grade/index.html
+          grep -F 'Pad Grade Mapper v1.0.4 DEV' pad-grade/index.html
+          grep -F "POINT_LAYER='pad-grade-grid-points-layer'" pad-grade/v104-map-tap-diagnostics.js
+          grep -F "map.tap-alignment" pad-grade/v104-map-tap-diagnostics.js
+          grep -F "map.tap-open-point" pad-grade/v104-map-tap-diagnostics.js
+          grep -F "map.tap-dialog-result" pad-grade/v104-map-tap-diagnostics.js
+          grep -F "queryRenderedFeatures" pad-grade/v104-map-tap-diagnostics.js
+          grep -F "nearestClientLabel" pad-grade/v104-map-tap-diagnostics.js
+          grep -F "nearestEventLabel" pad-grade/v104-map-tap-diagnostics.js
+          grep -F "eventDeltaX" pad-grade/v104-map-tap-diagnostics.js
+          grep -F "canvasBitmapWidth" pad-grade/v104-map-tap-diagnostics.js
+          grep -F "pointerEvents:'none'" pad-grade/v104-map-tap-diagnostics.js
+          grep -F 'does NOT enlarge hit targets' pad-grade/v104-map-tap-diagnostics.js
+          grep -F 'versionCode = 76' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.0.4"' pad-grade-android/app/build.gradle.kts
+          grep -F '## v1.0.4 — development build' pad-grade/CHANGELOG.md
+          grep -F '## v1.0.3 — withdrawn development build' pad-grade/CHANGELOG.md
+          grep -F 'version **1.0.4 / build 76**' pad-grade/CHANGELOG.md
+          grep -F 'No map hitbox size or point-selection algorithm is changed' pad-grade-android/CHANGELOG.md
+
+      - name: Confirm v1.0.3 lower-grid experiment is absent
+        run: |
+          ! grep -F 'v103-grid-hitbox-fix' pad-grade/index.html
+          ! test -f pad-grade/v103-grid-hitbox-fix.js
