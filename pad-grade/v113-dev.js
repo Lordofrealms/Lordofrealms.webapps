@@ -36,6 +36,7 @@
   let switchSerial=0;
   let inspectorMode='auto';
   let inspectorUi=null;
+  let visibleCachedKey='';
   let openButtonObserver=null;
   let lifecycleImportTimer=null;
 
@@ -175,6 +176,15 @@
       finally{cacheLoads.delete(memoryKey);}
     })();cacheLoads.set(memoryKey,promise);return promise;
   }
+  function dropVisibleCachedRaster(reason='surface-invalidated'){
+    if(!visibleCachedKey)return false;
+    const map=mapInstance();
+    if(map){
+      for(let slot=0;slot<2;slot++){const lid=`${HEAT_LAYER_PREFIX}${slot}`,sid=`${HEAT_SOURCE_PREFIX}${slot}`;try{if(map.getLayer(lid))map.removeLayer(lid);}catch(e){}try{if(map.getSource(sid))map.removeSource(sid);}catch(e){}}
+      try{map.triggerRepaint?.();}catch(e){}
+    }
+    mark('heatmap.cache-invalidated',{reason});visibleCachedKey='';return true;
+  }
   function installCachedRaster(item){
     if(!item||item.projectId!==activeId()||item.key!==currentSurfaceKey())return false;
     const map=mapInstance(),coords=imageCoordinates();if(!map||!coords)return false;
@@ -185,7 +195,7 @@
       map.addLayer({id:lid,type:'raster',source:sid,paint:{'raster-opacity':heatOpacity(),'raster-fade-duration':0}},layerAnchor(map));
       map.setLayoutProperty(lid,'visibility',heatEnabled()&&inspectorMode==='auto'?'visible':'none');
       window.__padGradeHeatmapMesh={tier:891,nx:item.nx,ny:item.ny,cells:item.nx*item.ny,raster:true,canvasSource:true,atomicSwap:true,cached:true,progressiveTiers:TIERS.slice(),monotonic:true};
-      tierCache.set(891,{...item});
+      tierCache.set(891,{...item});visibleCachedKey=item.key;
       try{map.getSource(sid)?.play?.();map.triggerRepaint?.();requestAnimationFrame(()=>map.getSource(sid)?.pause?.());}catch(e){}
       mark('heatmap.cache-visible',{projectId:item.projectId,tier:891,nx:item.nx,ny:item.ny});updateInspectorUi();return true;
     }catch(e){mark('heatmap.cache-install-failed',{projectId:item.projectId,error:String(e?.message||e).slice(0,120)});return false;}
@@ -199,6 +209,14 @@
     }
     send();
   }
+  function canvasPngDataUrl(canvas){
+    return new Promise(resolve=>{
+      try{
+        if(typeof canvas.toBlob!=='function'){resolve(canvas.toDataURL('image/png'));return;}
+        canvas.toBlob(blob=>{if(!blob){resolve(null);return;}try{const reader=new FileReader();reader.onload=()=>resolve(typeof reader.result==='string'?reader.result:null);reader.onerror=()=>resolve(null);reader.readAsDataURL(blob);}catch(e){resolve(null);}},'image/png');
+      }catch(e){resolve(null);}
+    });
+  }
   function scheduleCacheWrite(projectId,key,canvas,nx,ny,source='worker'){
     if(!projectId||!key||!canvas||!nx||!ny)return;
     const memoryKey=`${projectId}|${key}`;if(cacheWriteKeys.has(memoryKey))return;cacheWriteKeys.add(memoryKey);
@@ -206,7 +224,7 @@
       try{
         if(document.visibilityState==='hidden'){cacheWriteKeys.delete(memoryKey);setTimeout(()=>scheduleCacheWrite(projectId,key,canvas,nx,ny,source),1500);return;}
         const files=window.PadGradeFiles;if(!files?.write){cacheWriteKeys.delete(memoryKey);return;}
-        const started=now(),png=canvas.toDataURL('image/png');
+        const started=now(),png=await canvasPngDataUrl(canvas);if(!png){mark('heatmap.cache-encode-failed',{projectId,source});return;}
         const payload=JSON.stringify({format:CACHE_FORMAT,version:CACHE_VERSION,projectId,surfaceKey:key,tier:891,nx,ny,createdAt:new Date().toISOString(),png});
         const ok=await files.write(cacheFilename(projectId),payload);if(ok){cacheMemory.set(memoryKey,{projectId,key,tier:891,nx,ny,canvas,createdAt:new Date().toISOString(),cached:true});mark('heatmap.cache-written',{projectId,tier:891,nx,ny,bytes:payload.length,source,elapsedMs:+(now()-started).toFixed(1)});}else mark('heatmap.cache-write-skipped',{projectId,source});
       }catch(e){mark('heatmap.cache-write-failed',{projectId,error:String(e?.message||e).slice(0,120),source});}
@@ -232,12 +250,17 @@
       }
       postMessage(message,transfer){
         if(!this.__pg113HeatWorker||message?.type!=='build')return arguments.length>1?NativeWorker.prototype.postMessage.call(this,message,transfer):NativeWorker.prototype.postMessage.call(this,message);
-        const context=String(message.context||''),job={context,tier:+message.tier,key:surfaceKeyFromBuild(message),projectId:activeId()};this.__pg113Jobs.set(message.jobId,job);if(context==='regular')foregroundHeatJobs++;
+        const context=String(message.context||''),job={context,tier:+message.tier,key:surfaceKeyFromBuild(message),projectId:activeId()};this.__pg113Jobs.set(message.jobId,job);if(context==='regular'){foregroundHeatJobs++;if(visibleCachedKey&&job.key!==visibleCachedKey)dropVisibleCachedRaster('surface-key-changed');if(backgroundWorker){try{backgroundWorker.terminate();}catch(e){}backgroundWorker=null;mark('heatmap.background-cache-preempted',{reason:'foreground-heat'});}}
         const send=()=>{try{if(arguments.length>1)NativeWorker.prototype.postMessage.call(this,message,transfer);else NativeWorker.prototype.postMessage.call(this,message);}catch(e){this.__pg113Jobs.delete(message.jobId);if(context==='regular')foregroundHeatJobs=Math.max(0,foregroundHeatJobs-1);throw e;}};
         if(context==='regular'&&(+message.tier===99||+message.tier===297)){
           resolveCacheForBuild(this,message,send).catch(()=>send());return;
         }
         send();
+      }
+      terminate(){
+        for(const job of this.__pg113Jobs.values())if(job.context==='regular')foregroundHeatJobs=Math.max(0,foregroundHeatJobs-1);
+        this.__pg113Jobs.clear();
+        return NativeWorker.prototype.terminate.call(this);
       }
     }
     window.Worker=PadGrade113Worker;
@@ -284,7 +307,7 @@
       try{map.triggerRepaint?.();}catch(e){}
     }
     const shell=document.querySelector('.gridShell');if(shell)shell.style.visibility='hidden';
-    tierCache.clear();clearInspectorLayers();updateInspectorUi();mark('project.switch-outgoing-hidden',{elapsedMs:+(now()-started).toFixed(1)});
+    tierCache.clear();visibleCachedKey='';clearInspectorLayers();updateInspectorUi();mark('project.switch-outgoing-hidden',{elapsedMs:+(now()-started).toFixed(1)});
   }
   function showProjectGrid(){const map=mapInstance();if(!map)return;try{for(const id of GRID_LAYERS)if(map.getLayer(id))map.setLayoutProperty(id,'visibility','visible');map.triggerRepaint?.();}catch(e){}}
   function closeProjectsDialog(){const dlg=document.getElementById('projectsDlg');if(dlg?.open)try{dlg.close();}catch(e){dlg.removeAttribute('open');}}
@@ -307,7 +330,7 @@
     const base=window.__padGradeSwitchProjectInPlace;let ok=false;switchGuard=true;
     try{ok=typeof base==='function'&&!!base(target);}catch(e){mark('project.switch-v113-apply-failed',{to:target,error:String(e?.message||e).slice(0,120)});}finally{switchGuard=false;}
     const shell=document.querySelector('.gridShell');if(shell)shell.style.visibility='visible';showProjectGrid();claimOpenButtons();
-    if(!ok){button.disabled=false;button.textContent=oldText;return;}
+    if(!ok){button.disabled=false;button.textContent=oldText;try{window.pgDrawSurface?.();}catch(e){}return;}
     mark('project.switch-v113-complete',{from,to:target,elapsedMs:+(now()-started).toFixed(1),reusedMap:true});
     setTimeout(()=>{loadActiveCache();renderInspector();scheduleBackgroundCaching(2500);},0);
   }
