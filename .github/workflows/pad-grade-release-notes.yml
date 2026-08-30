@@ -5,6 +5,7 @@ on:
     branches: [main, pad-grade-dev]
     paths:
       - 'pad-grade/CHANGELOG.md'
+      - 'pad-grade/CHANGELOG_STABLE.md'
       - 'pad-grade-android/app/build.gradle.kts'
       - '.github/workflows/pad-grade-release-notes.yml'
   workflow_dispatch:
@@ -27,9 +28,11 @@ jobs:
           if [ "$BRANCH" = "main" ]; then
             CHANNEL=stable
             RELEASE_TAG="pad-grade-v$VERSION"
+            CHANGELOG_SOURCE="pad-grade/CHANGELOG_STABLE.md"
           elif [ "$BRANCH" = "pad-grade-dev" ]; then
             CHANNEL=dev
             RELEASE_TAG="pad-grade-dev-v$VERSION"
+            CHANGELOG_SOURCE="pad-grade/CHANGELOG.md"
           else
             echo "Unsupported branch: $BRANCH" >&2
             exit 1
@@ -37,17 +40,18 @@ jobs:
           echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "BUILD_CHANNEL=$CHANNEL" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
+          echo "CHANGELOG_SOURCE=$CHANGELOG_SOURCE" >> "$GITHUB_ENV"
 
       - name: Verify changelog section exists
         run: |
-          python3 - "$APP_VERSION" <<'PY'
+          python3 - "$APP_VERSION" "$CHANGELOG_SOURCE" <<'PY'
           import re, sys
           from pathlib import Path
-          version=sys.argv[1]
-          text=Path('pad-grade/CHANGELOG.md').read_text(encoding='utf-8')
+          version,source=sys.argv[1:]
+          text=Path(source).read_text(encoding='utf-8')
           pat=re.compile(rf'^## v{re.escape(version)}(?:\s+—.*)?$', re.M)
           if not pat.search(text):
-              raise SystemExit(f'Missing detailed changelog section for v{version}')
+              raise SystemExit(f'Missing detailed changelog section for v{version} in {source}')
           PY
 
       - name: Wait for matching Android build
@@ -77,17 +81,17 @@ jobs:
 
       - name: Build detailed release notes
         run: |
-          python3 - "$APP_VERSION" "$BUILD_CHANNEL" /tmp/pad-grade-release-notes.md <<'PY'
+          python3 - "$APP_VERSION" "$BUILD_CHANNEL" "$CHANGELOG_SOURCE" /tmp/pad-grade-release-notes.md <<'PY'
           import re, sys
           from pathlib import Path
-          version,channel,out=sys.argv[1:]
-          lines=Path('pad-grade/CHANGELOG.md').read_text(encoding='utf-8').splitlines()
+          version,channel,source,out=sys.argv[1:]
+          lines=Path(source).read_text(encoding='utf-8').splitlines()
           start=None
           for i,line in enumerate(lines):
               if re.fullmatch(rf'## v{re.escape(version)}(?:\s+—.*)?', line):
                   start=i; break
           if start is None:
-              raise SystemExit(f'Missing changelog section for v{version}')
+              raise SystemExit(f'Missing changelog section for v{version} in {source}')
           end=len(lines)
           for i in range(start+1,len(lines)):
               if lines[i].startswith('## '):
@@ -126,11 +130,11 @@ jobs:
           if ! gh release view pad-grade-dev-v0.9.9 >/dev/null 2>&1; then
             exit 0
           fi
-          python3 - 0.9.9 dev /tmp/pad-grade-release-notes-099.md <<'PY'
+          python3 - 0.9.9 dev pad-grade/CHANGELOG.md /tmp/pad-grade-release-notes-099.md <<'PY'
           import re, sys
           from pathlib import Path
-          version,channel,out=sys.argv[1:]
-          lines=Path('pad-grade/CHANGELOG.md').read_text(encoding='utf-8').splitlines()
+          version,channel,source,out=sys.argv[1:]
+          lines=Path(source).read_text(encoding='utf-8').splitlines()
           start=None
           for i,line in enumerate(lines):
               if re.fullmatch(rf'## v{re.escape(version)}(?:\s+—.*)?', line):
