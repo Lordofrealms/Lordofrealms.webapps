@@ -1,0 +1,93 @@
+name: Pad Grade v1.1.1 Bundle Apply Stage
+
+on:
+  push:
+    branches: [pad-grade-dev-v111-resilience]
+    paths:
+      - '.github/workflows/pad-grade-v111-bundle-apply-stage.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pad-grade-dev-v111-resilience
+          fetch-depth: 0
+      - name: Apply validated v1.1.1 bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/pad-grade-v111.bundle.part{01..08} > /tmp/pg-v111.b64
+          base64 -d /tmp/pg-v111.b64 > /tmp/pg-v111.tar.gz
+          gzip -t /tmp/pg-v111.tar.gz
+          rm -rf /tmp/pg-v111-out && mkdir -p /tmp/pg-v111-out
+          tar -xzf /tmp/pg-v111.tar.gz -C /tmp/pg-v111-out
+
+          cp /tmp/pg-v111-out/pad-grade/v063-dev.js pad-grade/v063-dev.js
+          cp /tmp/pg-v111-out/pad-grade/v111-resilience.js pad-grade/v111-resilience.js
+          cp /tmp/pg-v111-out/pad-grade/v111-resilience-selftest.js pad-grade/v111-resilience-selftest.js
+          cp /tmp/pg-v111-out/.github/workflows/pad-grade-v111-resilience.yml .github/workflows/pad-grade-v111-resilience.yml
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_one(path, old, new, label):
+              p=Path(path); text=p.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'{path}: missing patch anchor: {label}')
+              p.write_text(text.replace(old,new,1),encoding='utf-8')
+
+          replace_one('pad-grade/index.html','<title>Pad Grade Mapper v1.1.0 DEV</title>','<title>Pad Grade Mapper v1.1.1 DEV</title>','html title')
+          replace_one('pad-grade/index.html','<script src="v075-startup.js?v=20260829-5"></script>\n<script src="init.js?v=20260819-1"></script>','<script src="v075-startup.js?v=20260829-5"></script>\n<script src="v111-resilience.js?v=20260830-1"></script>\n<script src="init.js?v=20260819-1"></script>','v111 loader')
+          replace_one('pad-grade-android/app/build.gradle.kts','versionCode = 82','versionCode = 83','versionCode')
+          replace_one('pad-grade-android/app/build.gradle.kts','versionName = "1.1.0"','versionName = "1.1.1"','versionName')
+
+          for path,section_path in [('pad-grade/CHANGELOG.md','/tmp/pg-v111-out/tmp/pg-web-section.md'),('pad-grade-android/CHANGELOG.md','/tmp/pg-v111-out/tmp/pg-android-section.md')]:
+              p=Path(path); text=p.read_text(encoding='utf-8'); section=Path(section_path).read_text(encoding='utf-8')
+              if '## v1.1.1 — development build' not in text:
+                  marker='## v1.1.0 — development build'
+                  if marker not in text: raise SystemExit(f'{path}: v1.1.0 marker missing')
+                  p.write_text(text.replace(marker,section+marker,1),encoding='utf-8')
+
+          # Make the previous release gate validate its heat behavior as a carry-forward
+          # invariant instead of pinning the repository forever to v1.1.0 metadata.
+          p=Path('.github/workflows/pad-grade-v110-staged-heat.yml')
+          text=p.read_text(encoding='utf-8')
+          text=text.replace('      - name: Verify v1.1.0 metadata and safety carry-forward\n        run: |\n          grep -F \'versionCode = 82\' pad-grade-android/app/build.gradle.kts\n          grep -F \'versionName = "1.1.0"\' pad-grade-android/app/build.gradle.kts\n          grep -F \'<title>Pad Grade Mapper v1.1.0 DEV</title>\' pad-grade/index.html\n          grep -F \'## v1.1.0 — development build\' pad-grade/CHANGELOG.md\n          grep -F \'const HITBOX_PADDING_PCT=15;\' pad-grade/v106-map-hitbox.js\n          grep -F \'CURRENT_SCHEMA=6,ROLLBACK_SCHEMA=5\' pad-grade/project-format-v107.js\n',
+          '      - name: Verify staged-heat safety carry-forward\n        run: |\n          grep -F \'## v1.1.0 — development build\' pad-grade/CHANGELOG.md\n          grep -F \'const HITBOX_PADDING_PCT=15;\' pad-grade/v106-map-hitbox.js\n          grep -F \'CURRENT_SCHEMA=6,ROLLBACK_SCHEMA=5\' pad-grade/project-format-v107.js\n')
+          p.write_text(text,encoding='utf-8')
+
+          # Ensure the main Android gate syntax-checks and verifies the new packaged module.
+          p=Path('.github/workflows/pad-grade-android.yml')
+          text=p.read_text(encoding='utf-8')
+          text=text.replace('            v096-diagnostics.js v096-dev-defaults.js v096-native-async.js v096-async-reconcile.js \\\n            project-format-v107.js',
+                            '            v096-diagnostics.js v096-dev-defaults.js v096-native-async.js v096-async-reconcile.js v111-resilience.js \\\n            project-format-v107.js',1)
+          text=text.replace('            v096-diagnostics.js v096-dev-defaults.js v096-native-async.js \\\n            project-format-v107.js',
+                            '            v096-diagnostics.js v096-dev-defaults.js v096-native-async.js v111-resilience.js \\\n            project-format-v107.js',1)
+          anchor='          unzip -p "$APK" assets/v063-dev.js | grep -F "canvasSource:true"\n'
+          if anchor in text and 'assets/v111-resilience.js' not in text:
+              text=text.replace(anchor,anchor+'          unzip -p "$APK" assets/v111-resilience.js | grep -F "generation-scoped-style-event-plus-bounded-retry-project-owner-verification"\n',1)
+          p.write_text(text,encoding='utf-8')
+          PY
+
+          node --check pad-grade/v063-dev.js
+          node --check pad-grade/v111-resilience.js
+          node --check pad-grade/v111-resilience-selftest.js
+          node pad-grade/v110-staged-heat-selftest.js
+          node pad-grade/v111-resilience-selftest.js
+
+          rm -f .github/pad-grade-v111.bundle.part{01..08}
+          rm -f .github/workflows/pad-grade-v111-apply.yml
+          rm -f .github/workflows/pad-grade-v111-bundle-inspect.yml
+          rm -f .github/workflows/pad-grade-v111-bundle-apply-stage.yml
+
+          git config user.name 'Lordofrealms'
+          git config user.email 'djwilsonou@gmail.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'Pad Grade v1.1.1 DEV — resilient overlays and smoother startup'
+          git push origin HEAD:pad-grade-dev-v111-resilience
