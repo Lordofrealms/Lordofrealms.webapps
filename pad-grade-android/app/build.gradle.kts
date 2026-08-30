@@ -49,8 +49,10 @@ android {
         manifestPlaceholders["appLabel"] = if (padGradeDevBuild) "Pad Grade DEV" else "Pad Grade"
         minSdk = 31
         targetSdk = 36
+        // Versioning rule: every changed test/release APK gets a new versionCode.
+        // User-visible behavior changes also advance versionName before the build is published.
         versionCode = 67
-        versionName = "0.9.8"
+        versionName = "0.9.9"
     }
 
     buildTypes {
