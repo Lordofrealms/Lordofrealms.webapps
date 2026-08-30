@@ -1,4 +1,4 @@
-/* Pad Grade v0.9.8 DEV — non-blocking MapLibre bootstrap.
+/* Pad Grade v1.0.2 DEV — non-blocking MapLibre bootstrap.
  *
  * The application UI and local grade grid never wait on a CDN. Android packages
  * pinned MapLibre 5.16.0 locally. Map-specific modules load asynchronously after
@@ -29,8 +29,8 @@
   function loadPadGradeMapModules(){
     if(appModulesStarted)return;appModulesStarted=true;dispatchReady();
     loadScript('map-instance-hook-v064.js?v=20260829-4','padgrade-map-instance-hook-runtime',()=>{
-      loadScript('map.js?v=20260829-2','padgrade-map-runtime',()=>{
-        window.__padGradeMapRuntimeReadyV098=true;window.__padGradeMapRuntimeReadyV094=true;window.__padGradeMapRuntimeReadyV087=true;
+      loadScript('map.js?v=20260830-1','padgrade-map-runtime',()=>{
+        window.__padGradeMapRuntimeReadyV102=true;window.__padGradeMapRuntimeReadyV098=true;window.__padGradeMapRuntimeReadyV094=true;window.__padGradeMapRuntimeReadyV087=true;
         try{window.dispatchEvent(new Event('padgrade-map-runtime-ready'));}catch(e){}
       });
     });
@@ -55,6 +55,7 @@
 
   window.__padGradeStartMapLibre=loadMapLibre;
   window.__padGradeMapLibraryPolicy='local-apk-first-async-cdn-fallback-never-block-project-grid';
+  window.__padGradeMapModuleOrderV102='legal-gated-hook-map-construction-with-provider-authoritative-gps-source-ui';
   window.__padGradeMapModuleOrderV098='legal-gated-hook-map-construction-with-preloaded-v095-single-grid-owner';
   window.__padGradeMapModuleOrderV094=window.__padGradeMapModuleOrderV098;
   window.addEventListener('padgrade-legal-accepted',()=>setTimeout(loadMapLibre,0),{once:true});
