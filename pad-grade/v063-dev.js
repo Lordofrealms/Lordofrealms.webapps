@@ -3,14 +3,14 @@
  * Heat-map interpolation still runs entirely in a Web Worker. The completed RGBA
  * surface is now handed directly to MapLibre through a CanvasSource instead of
  * converting it to a Blob URL / ImageSource. Android WebView had already shown
- * that dynamically-created image URLs were unreliable here. Four complete tiers (33, 99, 297, 891) now start concurrently.
+ * that dynamically-created image URLs were unreliable here. The 99 and 297 tiers start concurrently; the 891 final tier starts only after 297 completes.
  * Each completed higher tier atomically replaces the previous whole raster.
  * No partial bands are shown and late coarse results can never downgrade the map.
  */
 (function installPadGrade074MapSurface(){
   'use strict';
-  if(window.__padGradeHeatmapEngineV109)return;
-  window.__padGradeHeatmapEngineV109=true;
+  if(window.__padGradeHeatmapEngineV110)return;
+  window.__padGradeHeatmapEngineV110=true;
 
   const CANVAS_SOURCE_PREFIX='pad-grade-interpolated-surface-canvas-source-';
   const CANVAS_LAYER_PREFIX='pad-grade-interpolated-surface-canvas-layer-';
@@ -20,8 +20,9 @@
   const OLD_BAND_LAYER_PREFIX='pad-grade-interpolated-surface-layer-band-';
   const LEGACY_SOURCE='pad-grade-interpolated-surface';
   const LEGACY_MESH_SOURCE='pad-grade-interpolated-surface-mesh';
-  const TIERS=Object.freeze([33,99,297,891]);
-  const LOW_TIER=33;
+  const TIERS=Object.freeze([99,297,891]);
+  const INITIAL_TIERS=Object.freeze([99,297]);
+  const LOW_TIER=99;
   const HIGH_TIER=891;
   // Legacy CI search markers only: LOW_TIER=304 HIGH_TIER=888
   const WORKER_URL='heatmap-raster-worker-v073.js?v=20260825-1';
@@ -254,6 +255,10 @@
       try{window.PadGradeDiag?.mark?.('heatmap.regular-worker-complete',{tier,nx:msg.nx,ny:msg.ny,postToWorkerMs:Number.isFinite(postToWorkerMs)?+postToWorkerMs.toFixed(1):undefined,workerElapsedMs:msg.workerElapsedMs,rasterizeElapsedMs:msg.rasterizeElapsedMs,colorElapsedMs:msg.colorElapsedMs,setupElapsedMs:msg.setupElapsedMs});}catch(e){}
       cleanup();
       if(gen!==generation||currentSurfaceKey!==key)return;
+      if(tier===297&&!activeJobs.has(HIGH_TIER)&&!workers.has(HIGH_TIER)){
+        try{window.PadGradeDiag?.mark?.('heatmap.regular-final-tier-starting',{afterTier:tier,tier:HIGH_TIER,generation:gen});}catch(e){}
+        buildRaster(HIGH_TIER,points,key,gen);
+      }
       if(displayedKey===key&&displayedTier>=tier){try{window.PadGradeDiag?.mark?.('heatmap.regular-tier-skipped',{tier,displayedTier,reason:'higher-tier-already-visible'});}catch(e){}return;}
       try{
         const canvasStarted=now(),canvas=canvasFromBuffer(msg),canvasElapsedMs=now()-canvasStarted;
@@ -273,8 +278,8 @@
   function startAllTiers(points,key){
     if(!mapUsable(mapInstance()))return false;
     cancelAllJobs();generationKey=key;const gen=generation;
-    for(const tier of TIERS)buildRaster(tier,points,key,gen);
-    try{window.PadGradeDiag?.mark?.('heatmap.regular-generation-started',{tiers:TIERS.slice(),points:points.length,generation:gen});}catch(e){}
+    for(const tier of INITIAL_TIERS)buildRaster(tier,points,key,gen);
+    try{window.PadGradeDiag?.mark?.('heatmap.regular-generation-started',{tiers:TIERS.slice(),initialTiers:INITIAL_TIERS.slice(),deferredTier:HIGH_TIER,points:points.length,generation:gen});}catch(e){}
     return true;
   }
 
@@ -359,8 +364,8 @@
     },{once:true});
     window.__padGradeHeatmapLocation='gps-map-double-buffered-canvas-source';
     // Legacy CI search marker only: whole-raster-low-304-then-high-888-no-zoom-recalc
-    window.__padGradeHeatmapResolution='whole-raster-progressive-33-99-297-891-no-zoom-recalc';
-    window.__padGradeHeatmapThreading='four-concurrent-web-workers-whole-raster-double-buffered-canvas-atomic-upward-swap';
+    window.__padGradeHeatmapResolution='whole-raster-progressive-99-297-then-891-no-zoom-recalc';
+    window.__padGradeHeatmapThreading='two-initial-web-workers-then-final-web-worker-whole-raster-double-buffered-canvas-atomic-upward-swap';
     window.__padGradeLaserPlacementLocation='gps-map';
     syncSurface();
   }
