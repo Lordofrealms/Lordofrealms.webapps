@@ -1,12 +1,13 @@
-/* Pad Grade v0.9.7 DEV — first-install durable-storage choice.
+/* Pad Grade v0.9.8 DEV — first-install durable-storage choice.
  *
  * A clean Android install does not create a default project until the user has
  * resolved storage choice. Selecting a durable folder always attempts fresh
  * settings/project recovery first. If that folder contains no Pad Grade state at
  * all, it is treated as first use and the initial project is created there. If
  * Pad Grade state exists but cannot be recovered, return to the choice dialog
- * rather than silently overwriting/adding state. The stable-style recovery
- * curtain is painted BEFORE the native picker opens.
+ * rather than silently overwriting/adding state. During Android legal-preload,
+ * generic local layout may run underneath the Terms screen, but storage choice
+ * remains gated until the native activity reports acceptance.
  */
 (function installPadGrade090FirstRunGuard(){
   'use strict';
@@ -35,6 +36,7 @@
   function hasFolder(){try{return !!native?.hasProjectFolder?.();}catch(e){return false;}}
   function indexReady(){try{return typeof native?.isProjectFolderIndexReady==='function'?!!native.isProjectFolderIndexReady():true;}catch(e){return false;}}
   function hasExistingLocalState(){return realIndex().length>0||!!localStorage.getItem(ACTIVE_KEY)||projectKeys().length>0||!!localStorage.getItem(LEGACY_KEY);}
+  function legalPreloadActive(){try{return window.__padGradeLegalReleased!==true&&new URLSearchParams(location.search).get('legalPreload')==='1';}catch(e){return false;}}
   function sentinelMeta(){return {id:SENTINEL,name:'Waiting for storage choice…',createdAt:new Date().toISOString(),modifiedAt:new Date().toISOString(),status:'archived',firstRunSentinel:true};}
   function installSentinel(){if(!index().some(x=>x?.id===SENTINEL))localStorage.setItem(INDEX_KEY,JSON.stringify([sentinelMeta()]));}
   function removeSentinel(){localStorage.setItem(INDEX_KEY,JSON.stringify(index().filter(x=>x?.id!==SENTINEL)));try{window.__padGradeRefreshProjectIndex?.();}catch(e){}}
@@ -71,7 +73,7 @@
     setTimeout(()=>{try{location.reload();}catch(e){endRecoveryVisual();}},40);
   }
   function writeDefaultProject(durable){
-    if(!armed)return;stopRecoveryCoverKeepalive();closeChoice();removeSentinel();if(realIndex().length||localStorage.getItem(ACTIVE_KEY)){armed=false;endRecoveryVisual();return;}
+    if(!armed||legalPreloadActive())return;stopRecoveryCoverKeepalive();closeChoice();removeSentinel();if(realIndex().length||localStorage.getItem(ACTIVE_KEY)){armed=false;endRecoveryVisual();return;}
     const p=defaultProject();
     localStorage.setItem(`${PROJECT_PREFIX}${p.id}`,JSON.stringify(p));
     localStorage.setItem(INDEX_KEY,JSON.stringify([{id:p.id,name:p.settings.name,createdAt:p.createdAt,modifiedAt:p.modifiedAt,status:'open'}]));
@@ -83,7 +85,7 @@
     armed=false;window.__padGradeFirstRunPending=false;reloadNormally();
   }
   function chooseRestoredProjectOrResolve(minimum=null,full=null,note=''){
-    if(!armed)return;stopRecoveryCoverKeepalive();closeChoice();const projects=realIndex();
+    if(!armed||legalPreloadActive())return;stopRecoveryCoverKeepalive();closeChoice();const projects=realIndex();
     if(projects.length){
       removeSentinel();
       let active=localStorage.getItem(ACTIVE_KEY);
@@ -93,15 +95,13 @@
     const noProjectFiles=Number(minimum?.fileCount||full?.total||0)===0;
     const noSettings=minimum?.settingsFound!==true;
     if(minimum?.ready===true&&noProjectFiles&&noSettings){
-      // Empty selected storage is a valid brand-new installation: now that the
-      // storage decision is resolved, create the initial project in that folder.
       window.PadGradeDiag?.mark?.('recovery.first-run-empty-folder-create-default');
       writeDefaultProject(true);return;
     }
     pickerRequested=false;endRecoveryVisual();showChoice(note||'Pad Grade data was found in that folder but no usable project could be restored. Choose the folder again or select another folder.');
   }
   async function finalizeAfterIndex(){
-    if(!armed||!hasFolder()||!indexReady()||finalizeBusy)return;
+    if(!armed||legalPreloadActive()||!hasFolder()||!indexReady()||finalizeBusy)return;
     finalizeBusy=true;
     try{
       let minimum=null,full=null;
@@ -124,22 +124,22 @@
       finalizeTimer=setTimeout(()=>chooseRestoredProjectOrResolve(null,null,'That folder could not be restored. Choose it again or select another folder; no new project has been created.'),40);
     }finally{finalizeBusy=false;}
   }
-  function waitForIndex(){if(indexTimer)return;indexTimer=setInterval(()=>{if(!armed){clearInterval(indexTimer);indexTimer=null;return;}if(hasFolder()&&indexReady()){clearInterval(indexTimer);indexTimer=null;finalizeAfterIndex();}},120);}
+  function waitForIndex(){if(indexTimer||legalPreloadActive())return;indexTimer=setInterval(()=>{if(!armed){clearInterval(indexTimer);indexTimer=null;return;}if(hasFolder()&&indexReady()){clearInterval(indexTimer);indexTimer=null;finalizeAfterIndex();}},120);}
   function launchFolderPickerAfterCoverPaint(){
     const launch=()=>{
-      if(!armed||!pickerRequested)return;
+      if(!armed||!pickerRequested||legalPreloadActive())return;
       try{native.chooseProjectFolder();}catch(e){window.__padGradeProjectFolderSelectionCancelled?.();}
     };
     requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(launch,0)));
   }
   function requestFolder(forcePicker=false){
-    if(!armed||pickerRequested)return;
+    if(!armed||pickerRequested||legalPreloadActive())return;
     if(hasFolder()&&!forcePicker){beginRecoveryVisual();startRecoveryCoverKeepalive();waitForIndex();return;}
     pickerRequested=true;beginRecoveryVisual();startRecoveryCoverKeepalive();waitForIndex();launchFolderPickerAfterCoverPaint();
   }
   function closeChoice(){const dlg=document.getElementById(DIALOG_ID);if(dlg?.open)try{dlg.close();}catch(e){}}
   function showChoice(note=''){
-    if(!armed)return;let dlg=document.getElementById(DIALOG_ID);
+    if(!armed||legalPreloadActive())return;let dlg=document.getElementById(DIALOG_ID);
     if(!dlg){
       dlg=document.createElement('dialog');dlg.id=DIALOG_ID;
       dlg.innerHTML=`<div class="modal" style="max-width:520px"><h2>Choose project storage</h2><p style="line-height:1.45">Pad Grade can use a folder you choose for durable project files. Those files can survive an app uninstall and can be used to restore your projects after reinstalling.</p><p class="small">You do not have to enable this now. If you continue without a durable folder, projects stay in the app's local storage and you can connect a folder later from Projects.</p><div id="pgFirstRunStorageNote" class="small" style="min-height:1.2em;margin:8px 0;color:#e7c66a"></div><div class="modalActions"><button id="pgFirstRunLocal">Not now</button><button id="pgFirstRunDurable" class="primary">Choose durable folder</button></div></div>`;
@@ -150,21 +150,35 @@
     }
     const noteEl=dlg.querySelector('#pgFirstRunStorageNote');if(noteEl)noteEl.textContent=note;if(!dlg.open)try{dlg.showModal();}catch(e){dlg.setAttribute('open','');}
   }
+  function startFirstRunChoice(){
+    if(!armed)return;
+    if(legalPreloadActive()){
+      window.__padGradeFirstRunWaitingForLegalV098=true;
+      try{window.PadGradeDiag?.mark?.('legal.preload-layout-running',{storageChoiceDeferred:true});}catch(e){}
+      return;
+    }
+    window.__padGradeFirstRunWaitingForLegalV098=false;
+    if(hasFolder()){beginRecoveryVisual();startRecoveryCoverKeepalive();waitForIndex();}else showChoice();
+  }
 
   window.__padGradeProjectFolderSelectionCancelled=function(){if(!armed)return;pickerRequested=false;stopRecoveryCoverKeepalive();endRecoveryVisual();showChoice('Folder selection was canceled. Choose a folder, or continue locally for now.');};
   window.addEventListener('padgrade-project-folder-selected',()=>{
-    pickerRequested=false;if(armed){beginRecoveryVisual();startRecoveryCoverKeepalive();}waitForIndex();
+    pickerRequested=false;if(armed&&!legalPreloadActive()){beginRecoveryVisual();startRecoveryCoverKeepalive();}waitForIndex();
   });
   window.addEventListener('padgrade-project-folder-indexed',finalizeAfterIndex);
-  window.addEventListener('padgrade-projects-reconciled',()=>{if(armed&&hasFolder()&&indexReady())finalizeAfterIndex();});
+  window.addEventListener('padgrade-projects-reconciled',()=>{if(armed&&!legalPreloadActive()&&hasFolder()&&indexReady())finalizeAfterIndex();});
+  window.addEventListener('padgrade-legal-accepted',()=>{
+    try{window.PadGradeDiag?.mark?.('legal.accepted-release',{storageChoiceDeferred:!!window.__padGradeFirstRunWaitingForLegalV098});}catch(e){}
+    setTimeout(startFirstRunChoice,0);
+  });
 
   if(isAndroid()&&!hasExistingLocalState()){
     armed=true;window.__padGradeFirstRunPending=true;installSentinel();localStorage.setItem(PROMPT_KEY,'1');
-    const start=()=>{if(hasFolder()){beginRecoveryVisual();startRecoveryCoverKeepalive();waitForIndex();}else showChoice();};
-    if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(start,80),{once:true});else setTimeout(start,80);
+    if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(startFirstRunChoice,80),{once:true});else setTimeout(startFirstRunChoice,80);
   }
 
-  window.__padGradeFirstRunPolicyV097='no-default-before-choice-empty-durable-folder-is-first-use';
+  window.__padGradeFirstRunPolicyV098='layout-may-preload-under-legal-storage-choice-after-acceptance-no-default-before-choice';
+  window.__padGradeFirstRunPolicyV097=window.__padGradeFirstRunPolicyV098;
   window.__padGradeFirstRunRecoveryCurtainPolicyV097='prepicker-index-minimum-full-fallback-then-settled-reload';
   window.addEventListener('beforeunload',()=>{stopRecoveryCoverKeepalive();if(indexTimer)clearInterval(indexTimer);if(finalizeTimer)clearTimeout(finalizeTimer);},{once:true});
 })();
