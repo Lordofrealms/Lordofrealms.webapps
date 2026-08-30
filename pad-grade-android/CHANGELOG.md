@@ -6,6 +6,28 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v1.1.5 — development build (87)
+
+### Fixed
+- Packaged the frame-synchronized heat-map handoff that keeps the prior completed raster displayed while a requested Auto/99/297/891 raster is staged, then performs a hard zero-fade paint swap after the target has rendered once. This removes the remaining bare-map flash without restoring the prior overlapping-raster behavior or adding a visible cross-fade.
+- Cancels an in-progress handoff before project changes, map replacement, app hiding, or heat-map disable so the temporary hold can never carry outgoing-project imagery across a project boundary.
+- Fixed v1.1.4 diagnostic exports dropping the actual nested memory measurements. Current snapshots and persisted Android lifecycle snapshots are now flattened into export-safe numeric fields instead of exporting only the checkpoint label.
+
+### Diagnostics
+- `memory.snapshot` now exports total PSS, Java/native/graphics/code/stack/private-other/system/swap categories, Java/native heap values, device available/threshold memory, process importance/trim state, JS heap when exposed, canvas/heat/cache estimates, and worker counts.
+- `android.memory.lifecycle` now exports the native memory snapshot stored with Android lifecycle breadcrumbs, including measurements that survived a previous process reclamation.
+- Added heat handoff timing markers so hold/stage/commit/cleanup timing can be distinguished from interpolation calculation time.
+- Memory behavior itself remains unchanged: this build intentionally adds no automatic trimming, tile-cache reduction, larger-heap request, or background keep-alive.
+
+### Packaging
+- DEV `applicationId` remains `com.lordofrealms.padgrade.dev`.
+- Version name **1.1.5**, version code **87**.
+- IDW² math, color scaling, 99/297/891 resolutions, project schema, and the lossless 891 cache format remain unchanged.
+
+### DEV verification
+- Repeatedly switch the exact heat-map tiers and confirm there is neither a bare-map flash nor a visible overlap/cross-fade.
+- Export diagnostics and verify numeric process/device memory fields are present on `memory.snapshot` and `android.memory.lifecycle` rows before using the data to decide whether memory reduction is warranted.
+
 ## v1.1.4 — development build (86)
 
 ### Fixed

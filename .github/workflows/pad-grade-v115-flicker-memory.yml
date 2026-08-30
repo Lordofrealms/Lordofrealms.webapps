@@ -1,0 +1,36 @@
+name: Pad Grade v1.1.5 Flicker + Memory Export
+
+'on':
+  push:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/v115-dev.js'
+      - 'pad-grade/v115-flicker-memory-selftest.js'
+      - 'pad-grade/index.html'
+      - 'pad-grade/CHANGELOG.md'
+      - 'pad-grade-android/CHANGELOG.md'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - '.github/workflows/pad-grade-v115-flicker-memory.yml'
+  pull_request:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/v115-dev.js'
+      - 'pad-grade/v115-flicker-memory-selftest.js'
+      - 'pad-grade/index.html'
+      - 'pad-grade/CHANGELOG.md'
+      - 'pad-grade-android/CHANGELOG.md'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - '.github/workflows/pad-grade-v115-flicker-memory.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate v1.1.5 runtime
+        run: node --check pad-grade/v115-dev.js
+      - name: Verify flicker-free handoff and memory export contract
+        run: node pad-grade/v115-flicker-memory-selftest.js
