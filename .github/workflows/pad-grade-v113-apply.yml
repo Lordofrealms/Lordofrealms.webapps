@@ -26,7 +26,11 @@ jobs:
           cat .v113-patchparts/p* > tools/apply_pad_grade_v113.py
           python -m py_compile tools/apply_pad_grade_v113.py
           python tools/apply_pad_grade_v113.py
-          rm -rf .v113-patchparts
+          rm -rf .v113-patchparts tools/__pycache__
+          # GitHub Actions tokens cannot create/update workflow files. Keep those
+          # untouched in the bot commit; they are updated directly after source materialization.
+          git checkout HEAD -- .github/workflows
+          rm -f .github/workflows/pad-grade-v113-reuse-cache.yml
       - name: Commit implementation
         run: |
           git config user.name 'github-actions[bot]'
