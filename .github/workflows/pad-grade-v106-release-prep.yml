@@ -17,7 +17,7 @@ jobs:
         with:
           ref: pad-grade-dev-v106-fixed-hitbox
 
-      - name: Finalize v1.0.6 release-candidate files
+      - name: Finalize v1.0.6 app and changelog files
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -29,8 +29,6 @@ jobs:
                   raise SystemExit(f'missing expected text in {path}: {old!r}')
               p.write_text(text.replace(old, new, 1), encoding='utf-8')
 
-          # Normal runtime: fixed field-selected 15% hitbox, no map-specific
-          # diagnostic module and no experimental Advanced Settings controls.
           replace_once('pad-grade/index.html',
                        '<title>Pad Grade Mapper v1.0.5 DEV</title>',
                        '<title>Pad Grade Mapper v1.0.6 DEV</title>')
@@ -55,23 +53,12 @@ jobs:
               if marker not in text:
                   raise SystemExit('android changelog v1.0.5 marker missing')
               p.write_text(text.replace(marker, android_entry + marker, 1), encoding='utf-8')
-
-          # General Android CI should syntax-check the new packaged runtime module.
-          replace_once('.github/workflows/pad-grade-android.yml',
-                       '          node --check pad-grade/v096-async-reconcile.js\n',
-                       '          node --check pad-grade/v096-async-reconcile.js\n          node --check pad-grade/v106-map-hitbox.js\n')
-
-          gate = '''name: Pad Grade Fixed Map Hitbox\n\non:\n  push:\n    branches: [pad-grade-dev]\n    paths:\n      - 'pad-grade/v106-map-hitbox.js'\n      - 'pad-grade/index.html'\n      - 'pad-grade/CHANGELOG.md'\n      - 'pad-grade-android/CHANGELOG.md'\n      - 'pad-grade-android/app/build.gradle.kts'\n      - '.github/workflows/pad-grade-map-tap-diagnostics.yml'\n  pull_request:\n    branches: [pad-grade-dev]\n    paths:\n      - 'pad-grade/v106-map-hitbox.js'\n      - 'pad-grade/index.html'\n      - 'pad-grade/CHANGELOG.md'\n      - 'pad-grade-android/CHANGELOG.md'\n      - 'pad-grade-android/app/build.gradle.kts'\n      - '.github/workflows/pad-grade-map-tap-diagnostics.yml'\n  workflow_dispatch:\n\njobs:\n  verify:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n\n      - name: Syntax check fixed map hitbox module\n        run: node --check pad-grade/v106-map-hitbox.js\n\n      - name: Verify v1.0.6 fixed 15 percent safe hitboxes\n        run: |\n          grep -F 'Pad Grade Mapper v1.0.6 DEV' pad-grade/index.html\n          grep -F 'v106-map-hitbox.js?v=20260830-1' pad-grade/index.html\n          ! grep -F 'v104-map-tap-diagnostics.js' pad-grade/index.html\n          ! grep -F 'v105-map-hitbox.js' pad-grade/index.html\n          grep -F \"const HITBOX_PADDING_PCT=15\" pad-grade/v106-map-hitbox.js\n          grep -F 'const TOTAL_RADIUS_CAP=0.45' pad-grade/v106-map-hitbox.js\n          grep -F \"if(matches.length!==1)return\" pad-grade/v106-map-hitbox.js\n          grep -F 'directRenderedPointHit' pad-grade/v106-map-hitbox.js\n          grep -F 'probeModeActive' pad-grade/v106-map-hitbox.js\n          grep -F 'fixed-15pct-visible-circle-plus-spacing-padding-capped-45pct-deadspace-no-nearest-fallback' pad-grade/v106-map-hitbox.js\n          ! grep -F 'mapGridHitboxPaddingPct' pad-grade/v106-map-hitbox.js\n          ! grep -F 'MapTapDiagnostics' pad-grade/v106-map-hitbox.js\n          grep -F 'versionCode = 78' pad-grade-android/app/build.gradle.kts\n          grep -F 'versionName = \"1.0.6\"' pad-grade-android/app/build.gradle.kts\n          grep -F '## v1.0.6 — development build' pad-grade/CHANGELOG.md\n          grep -F 'fixed **15% of projected point-to-point spacing**' pad-grade/CHANGELOG.md\n          grep -F 'Android DEV package is **version 1.0.6 / build 78**.' pad-grade/CHANGELOG.md\n          grep -F '## v1.0.3 — withdrawn development build' pad-grade/CHANGELOG.md\n          grep -F '## v1.0.6 — development build' pad-grade-android/CHANGELOG.md\n\n      - name: Confirm lower measurement grid remains untouched\n        run: |\n          ! grep -F 'v103-grid-hitbox-fix' pad-grade/index.html\n          ! test -f pad-grade/v103-grid-hitbox-fix.js\n'''
-          Path('.github/workflows/pad-grade-map-tap-diagnostics.yml').write_text(gate, encoding='utf-8')
-
-          # One-shot prep workflow: remove it from the resulting candidate tree.
-          Path('.github/workflows/pad-grade-v106-release-prep.yml').unlink()
           PY
 
-      - name: Commit finalized release-candidate tree
+      - name: Commit finalized app and changelog files
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
+          git add pad-grade/index.html pad-grade/CHANGELOG.md pad-grade-android/CHANGELOG.md
           git commit -m 'Finalize v1.0.6 fixed 15 percent hitbox release candidate'
           git push origin HEAD:pad-grade-dev-v106-fixed-hitbox
