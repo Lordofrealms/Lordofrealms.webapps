@@ -3,13 +3,25 @@
  * Browser target: leaves navigator.geolocation and downloads alone.
  * Android WebView target: the wrapper exposes window.PadGradeNative. When the
  * Precision Location companion is available, we shadow navigator.geolocation
- * with a compatible provider backed by that service. If it is not installed or
- * not yet IPC-capable, the WebView falls back to ordinary browser geolocation.
+ * with a compatible provider backed by that service. If it is unavailable or
+ * later fails, active requests transparently continue on ordinary WebView/
+ * Android geolocation.
  */
 (function installPadGradePlatform(){
   'use strict';
 
   const nativeBridge=window.PadGradeNative;
+  const originalGeolocation=(function captureOriginalGeolocation(){
+    try{
+      const geo=navigator.geolocation;
+      if(!geo) return null;
+      return {
+        getCurrentPosition:typeof geo.getCurrentPosition==='function'?geo.getCurrentPosition.bind(geo):null,
+        watchPosition:typeof geo.watchPosition==='function'?geo.watchPosition.bind(geo):null,
+        clearWatch:typeof geo.clearWatch==='function'?geo.clearWatch.bind(geo):null
+      };
+    }catch(e){ return null; }
+  })();
 
   if(nativeBridge){
     try{ localStorage.setItem('padGradeTermsAcceptedVersion','2026-08-19-v1'); }catch(e){}
@@ -70,9 +82,11 @@
   let nextWatchId=1;
   const watchers=new Map();
   const oneShots=[];
+  const fallbackWatchIds=new Map();
   let lastPosition=null;
   let lastPositionReceivedAt=0;
   let startRequested=false;
+  let fallbackActive=false;
 
   function positionError(code,message){
     return {code,message:String(message||'Location unavailable')};
@@ -85,6 +99,16 @@
       solutionState:state||'UNKNOWN',
       fixAgeMs:platform.lastLocationMeta.fixAgeMs||0,
       timestamp:platform.lastLocationMeta.timestamp||0
+    };
+  }
+
+  function setNativeFallbackState(state){
+    platform.lastLocationMeta={
+      provider:'native',
+      solutionMode:'Native GPS',
+      solutionState:state||'WAITING',
+      fixAgeMs:0,
+      timestamp:Date.now()
     };
   }
 
@@ -135,7 +159,120 @@
     };
   }
 
+  function canUseNativeFallback(){
+    return !!(originalGeolocation && originalGeolocation.getCurrentPosition && originalGeolocation.watchPosition);
+  }
+
+  function acceptNativeFallbackPosition(pos){
+    if(!pos || !pos.coords || !Number.isFinite(+pos.coords.latitude) || !Number.isFinite(+pos.coords.longitude)) return false;
+    lastPosition=pos;
+    lastPositionReceivedAt=Date.now();
+    const timestamp=Number.isFinite(+pos.timestamp)?+pos.timestamp:Date.now();
+    platform.lastLocationMeta={
+      provider:'native',
+      solutionMode:'Native GPS',
+      solutionState:'ACTIVE',
+      fixAgeMs:Math.max(0,Date.now()-timestamp),
+      timestamp
+    };
+    return true;
+  }
+
+  function removeOneShot(request){
+    const index=oneShots.indexOf(request);
+    if(index>=0) oneShots.splice(index,1);
+  }
+
+  function startFallbackOneShot(request){
+    if(!request || request.fallbackStarted || !originalGeolocation || !originalGeolocation.getCurrentPosition) return;
+    request.fallbackStarted=true;
+    clearTimeout(request.timer);
+    request.timer=null;
+    try{
+      originalGeolocation.getCurrentPosition(
+        pos=>{
+          removeOneShot(request);
+          if(acceptNativeFallbackPosition(pos)){
+            try{ if(typeof request.success==='function') request.success(pos); }catch(e){}
+          }else{
+            try{ if(typeof request.error==='function') request.error(positionError(2,'Native GPS returned an invalid position.')); }catch(e){}
+          }
+          maybeReleaseSubscription();
+        },
+        err=>{
+          removeOneShot(request);
+          setNativeFallbackState('ERROR');
+          try{ if(typeof request.error==='function') request.error(err||positionError(2,'Native GPS unavailable.')); }catch(e){}
+          maybeReleaseSubscription();
+        },
+        request.options||{}
+      );
+    }catch(e){
+      removeOneShot(request);
+      setNativeFallbackState('ERROR');
+      try{ if(typeof request.error==='function') request.error(positionError(2,e&&e.message?e.message:'Native GPS could not be started.')); }catch(err){}
+      maybeReleaseSubscription();
+    }
+  }
+
+  function startFallbackWatch(id){
+    if(fallbackWatchIds.has(id) || !originalGeolocation || !originalGeolocation.watchPosition) return;
+    const watcher=watchers.get(id);
+    if(!watcher) return;
+    try{
+      const nativeId=originalGeolocation.watchPosition(
+        pos=>{
+          if(!watchers.has(id)) return;
+          if(!acceptNativeFallbackPosition(pos)) return;
+          const current=watchers.get(id);
+          try{ if(current && typeof current.success==='function') current.success(pos); }catch(e){}
+        },
+        err=>{
+          if(!watchers.has(id)) return;
+          setNativeFallbackState('ERROR');
+          const current=watchers.get(id);
+          try{ if(current && typeof current.error==='function') current.error(err||positionError(2,'Native GPS unavailable.')); }catch(e){}
+        },
+        watcher.options||{}
+      );
+      fallbackWatchIds.set(id,nativeId);
+    }catch(e){
+      setNativeFallbackState('ERROR');
+      try{ if(typeof watcher.error==='function') watcher.error(positionError(2,e&&e.message?e.message:'Native GPS could not be started.')); }catch(err){}
+    }
+  }
+
+  function activateNativeFallback(reason){
+    if(fallbackActive){
+      for(const id of watchers.keys()) startFallbackWatch(id);
+      for(const request of [...oneShots]) startFallbackOneShot(request);
+      return true;
+    }
+    if(!canUseNativeFallback()) return false;
+
+    fallbackActive=true;
+    startRequested=false;
+    lastPosition=null;
+    lastPositionReceivedAt=0;
+    setNativeFallbackState('WAITING');
+    try{
+      if(typeof nativeBridge.releasePrecisionLocation==='function') nativeBridge.releasePrecisionLocation();
+    }catch(e){}
+
+    for(const id of watchers.keys()) startFallbackWatch(id);
+    for(const request of [...oneShots]) startFallbackOneShot(request);
+    try{
+      window.dispatchEvent(new CustomEvent('padgrade-location-fallback',{detail:{from:'precision-location',to:'native',reason:String(reason||'Precision Location stopped')}}));
+    }catch(e){}
+    return true;
+  }
+
   function ensureStarted(){
+    if(fallbackActive){
+      for(const id of watchers.keys()) startFallbackWatch(id);
+      for(const request of [...oneShots]) startFallbackOneShot(request);
+      return;
+    }
     if(startRequested) return;
     startRequested=true;
     setPrecisionState('STARTING','Precision Location');
@@ -143,16 +280,22 @@
       const result=nativeBridge.startPrecisionLocation();
       if(result===false){
         startRequested=false;
-        emitError(2,'Precision Location could not be started.');
+        if(!activateNativeFallback('Precision Location could not be started.')) emitError(2,'Precision Location could not be started.');
       }
     }catch(e){
       startRequested=false;
-      emitError(2,e&&e.message?e.message:'Could not start Precision Location.');
+      const message=e&&e.message?e.message:'Could not start Precision Location.';
+      if(!activateNativeFallback(message)) emitError(2,message);
     }
   }
 
   function maybeReleaseSubscription(){
     if(watchers.size || oneShots.length) return;
+    for(const [id,nativeId] of fallbackWatchIds.entries()){
+      try{ if(originalGeolocation && originalGeolocation.clearWatch) originalGeolocation.clearWatch(nativeId); }catch(e){}
+      fallbackWatchIds.delete(id);
+    }
+    fallbackActive=false;
     startRequested=false;
     try{
       if(typeof nativeBridge.releasePrecisionLocation==='function') nativeBridge.releasePrecisionLocation();
@@ -167,30 +310,41 @@
         return;
       }
       const timeout=options&&Number.isFinite(+options.timeout)?Math.max(0,+options.timeout):15000;
-      const request={success,error,timer:null};
+      const request={success,error,timer:null,options:Object.assign({},options||{},{timeout}),fallbackStarted:false};
+      oneShots.push(request);
+      if(fallbackActive){
+        startFallbackOneShot(request);
+        return;
+      }
       request.timer=setTimeout(()=>{
-        const index=oneShots.indexOf(request);
-        if(index>=0) oneShots.splice(index,1);
+        if(request.fallbackStarted) return;
+        if(activateNativeFallback('Precision Location request timed out.')) return;
+        removeOneShot(request);
         setPrecisionState('ERROR','Precision Location');
         try{ if(typeof error==='function') error(positionError(3,'Precision Location request timed out.')); }catch(e){}
         maybeReleaseSubscription();
       },timeout);
-      oneShots.push(request);
       ensureStarted();
     },
 
     watchPosition(success,error,options){
       const id=nextWatchId++;
       watchers.set(id,{success,error,options:options||{}});
-      if(lastPosition) setTimeout(()=>{
+      if(lastPosition && (!fallbackActive || platform.lastLocationMeta.provider==='native')) setTimeout(()=>{
         const current=watchers.get(id);
         if(current){ try{ current.success(lastPosition); }catch(e){} }
       },0);
-      ensureStarted();
+      if(fallbackActive) startFallbackWatch(id);
+      else ensureStarted();
       return id;
     },
 
     clearWatch(id){
+      if(fallbackWatchIds.has(id)){
+        const nativeId=fallbackWatchIds.get(id);
+        try{ if(originalGeolocation && originalGeolocation.clearWatch) originalGeolocation.clearWatch(nativeId); }catch(e){}
+        fallbackWatchIds.delete(id);
+      }
       watchers.delete(id);
       maybeReleaseSubscription();
     }
@@ -201,6 +355,7 @@
   platform.precisionGeolocation=nativeGeolocation;
 
   window.__padGradeNativeLocation=function(payload){
+    if(fallbackActive) return;
     let pos;
     try{ pos=positionFromPayload(payload); }catch(e){ pos=null; }
     if(!pos) return;
@@ -220,13 +375,20 @@
 
   window.__padGradeNativeLocationError=function(message){
     startRequested=false;
-    emitError(2,message||'Precision Location unavailable.');
-    maybeReleaseSubscription();
+    const detail=message||'Precision Location unavailable.';
+    if(!activateNativeFallback(detail)){
+      emitError(2,detail);
+      maybeReleaseSubscription();
+    }
   };
 
   window.__padGradeNativeProviderStopped=function(){
     startRequested=false;
-    setPrecisionState('STOPPED',platform.lastLocationMeta.solutionMode||'Precision Location');
+    if(!activateNativeFallback('Precision Location stopped.')){
+      setPrecisionState('STOPPED',platform.lastLocationMeta.solutionMode||'Precision Location');
+      emitError(2,'Precision Location stopped.');
+      maybeReleaseSubscription();
+    }
   };
 
   try{
