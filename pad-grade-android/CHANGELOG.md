@@ -6,6 +6,29 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v1.0.8 — development build
+
+### Added
+- Added matching heat-map timing diagnostics for the normal project surface and Project Comparison. Both 304-tier and 888-tier jobs now record worker-post time, worker completion time, worker internal total/rasterization/color timing, canvas conversion time, MapLibre install time, and total post-to-visible time so the two paths can be compared directly from one exported diagnostic log.
+- Added an explicit recovered-project reload save guard. Intentional durable-recovery reloads are marked before unload, and only that unload is prevented from persisting a not-yet-applied runtime snapshot over the recovered project.
+
+### Changed
+- Project Comparison now starts its 304-tier heat-map worker immediately after the two projects have been loaded and the comparison values/shared geometry have been computed. MapLibre creation, style loading, grid installation, and imagery loading proceed in parallel; a raster that somehow finishes before the map is ready is buffered and installed as soon as the authoritative comparison grid exists.
+- The comparison picker now uses an already-verified in-memory durable catalog without rereading `Pad-Grade-Project-Index.pgindex` or touching SAF. Folder select/index/refresh events explicitly dirty that cache so externally copied or replaced files still force a real reconciliation before the catalog is trusted again.
+- During durable first-install/folder recovery, the selected active project body is force-read from its authoritative `.padgrade` file once instead of trusting a preexisting local cached body. This is a second defense against stale/partial local state surviving the recovery reload.
+- Unchanged durable-index rewrites are suppressed. The indexed project entries are compared independently of the index `updatedAt` timestamp, so a reconciliation that proves the same project catalog no longer writes the same `.pgindex` contents back to SAF.
+- Android DEV package is **version 1.0.8 / build 80**. Schema 6 and its tested schema-6 → schema-5 rollback path are unchanged, and the fixed 15% GPS-map hitbox behavior is unchanged.
+
+### Fixed
+- Fixed a first-install recovery race where a correctly recovered/upgraded project could be overwritten during the intentional recovery reload by the legacy before-unload autosave snapshot. The diagnostic log that exposed this showed an approximately 18 KB recovered project being rewritten to roughly 1.1 KB; v1.0.8 blocks that recovery-only snapshot while leaving ordinary autosave intact.
+- Fixed the Project Comparison legend bar disappearing while its CUT / GRADE / FILL text remained visible. The authoritative comparison renderer now owns the gradient-bar CSS instead of depending on the retired v0.8.6 presentation override.
+- Removed the remaining comparison-picker delay caused by forcing a durable reconciliation even when the in-memory catalog had already been verified and no folder-change event had occurred.
+
+### Known issues / DEV verification
+- Re-test a clean install against an existing durable folder and verify the previous active project opens with its readings/GPS state intact and that no unexpectedly tiny replacement project file is written during the recovery reload.
+- Export a diagnostic log after allowing both the normal project heat map and comparison heat map to reach 304 and 888 tiers. Compare `heatmap.regular-*` against `compare.heat-*` events before changing the shared interpolation algorithm.
+- Confirm the comparison CUT / GRADE / FILL gradient bar, grid labels, probe behavior, imagery, Android Back exit, and progressive heat-map replacement before stable promotion.
+
 ## v1.0.7 — development build
 
 ### Added

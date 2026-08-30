@@ -116,13 +116,14 @@
   }
 
   function findEntry(id){return catalogState.projects.find(e=>e.projectId===id)||null;}
-  async function loadProject(id){
+  async function loadProject(id,forceDurable=false){
     if(!id)return null;
     if(!catalogState.projects.length&&hasFolder()&&indexReady())await reconcileAll('lazy-load-catalog');
     const e=findEntry(id),local=getLocal(id);
-    if(local&&!e?.localBodyStale)return fmt.normalizeProject(local,null);
+    if(local&&!forceDurable&&!e?.localBodyStale)return fmt.normalizeProject(local,null);
     if(!e)return local?fmt.normalizeProject(local,null):null;
-    if(local&&e.localBodyStale)diag()?.mark?.('project.local-body-stale',{projectId:id,filename:e.filename});
+    if(local&&e?.localBodyStale)diag()?.mark?.('project.local-body-stale',{projectId:id,filename:e.filename});
+    if(forceDurable)diag()?.mark?.('recovery.active-durable-force-load',{projectId:id,filename:e.filename});
     const token=diag()?.start?.('project.full-read',{filename:e.filename,reason:e.localBodyStale?'durable-newer-than-local':'user-load',projectId:id}),text=await rawRead(e.filename),raw=parse(text,null);diag()?.end?.(token,{ok:!!raw,size:text?.length||0});if(!raw)return null;
     let p=null;if(isBackup(raw)){const list=Array.isArray(raw.projects)?raw.projects:[];if(Number.isInteger(e.backupIndex)&&list[e.backupIndex])p=fmt.normalizeProject(list[e.backupIndex],`${e.filename}#${e.backupIndex}`);if(!p)for(const x of list){const q=fmt.normalizeProject(x,e.filename);if(q?.id===id){p=q;break;}}}else p=fmt.normalizeProject(raw,e.filename);
     if(!p)return null;putLocal(p);const hash=await sha256(text);if(e.sha256&&hash&&e.sha256!==hash)diag()?.mark?.('index.hash-mismatch',{filename:e.filename,projectId:id});if(hash)e.sha256=hash;delete e.localBodyStale;syncLocalCatalog(catalogState.projects);if(!criticalRecoveryActive())writeSerial=writeSerial.then(()=>writeIndex(catalogState));return p;
@@ -140,7 +141,8 @@
       const token=diag()?.start?.('recovery.minimum',{indexedV107:true,writeLocked:criticalRecoveryActive()}),settings=parse(await rawRead(SETTINGS_FILE),null);if(settings?.appPrefs)try{localStorage.setItem(PREF_KEY,JSON.stringify(settings.appPrefs));}catch(e){}
       try{diag()?.refreshEnabledFromPrefs?.('durable-settings');}catch(e){}
       const desired=settings?.lastProjectId||localStorage.getItem(ACTIVE_KEY)||null;await readIndex();let restored=null;
-      if(desired){restored=getLocal(desired);if(!restored){let entry=findEntry(desired);if(!entry){const details=metadata(),suffix=`${desired}.padgrade`.toLowerCase(),d=details.find(x=>x.name.toLowerCase().endsWith(suffix));if(d){const rows=await inspectChanged(d,[],new Set(catalogState.projects.map(x=>x.fileId).filter(Boolean)));if(rows.length){catalogState.projects.push(...rows);syncLocalCatalog(catalogState.projects);entry=rows.find(x=>x.projectId===desired)||null;}}}if(entry)restored=await loadProject(desired);}
+      const forceDurableActive=!!desired&&(recoveryPending()||criticalRecoveryActive());
+      if(desired){restored=forceDurableActive?null:getLocal(desired);if(forceDurableActive)diag()?.mark?.('recovery.active-durable-force-request',{projectId:desired});if(!restored){let entry=findEntry(desired);if(!entry){const details=metadata(),suffix=`${desired}.padgrade`.toLowerCase(),d=details.find(x=>x.name.toLowerCase().endsWith(suffix));if(d){const rows=await inspectChanged(d,[],new Set(catalogState.projects.map(x=>x.fileId).filter(Boolean)));if(rows.length){catalogState.projects.push(...rows);syncLocalCatalog(catalogState.projects);entry=rows.find(x=>x.projectId===desired)||null;}}}if(entry)restored=await loadProject(desired,forceDurableActive);}
         if(restored&&restored.status!=='archived')localStorage.setItem(ACTIVE_KEY,desired);}
       if(metadata().length===0&&!settings)try{native.completeProjectFolderRecovery?.();}catch(e){}
       const result={ready:true,restoredId:restored?.id||null,fileCount:metadata().length,settingsFound:!!settings,writeLocked:criticalRecoveryActive(),indexedV107:true};window.__padGradeMinimumDurableRecoveryV096=result;
@@ -205,5 +207,5 @@
   window.addEventListener('padgrade-recovery-visual-released',()=>scheduleSync(1600,'recovery-released'));
   window.addEventListener('load',()=>scheduleSync(2400,'window-load'),{once:true});
   if(hasFolder()&&indexReady())setTimeout(()=>prepareMinimumRecovery(),0);
-  diag()?.mark?.('index.controller-installed',{version:'1.0.7',schema:6,rollbackSchema:5,indexFile:INDEX_FILE,metadataFastPath:true,headerReadChars:4096,hashOnFullReadOrWrite:true});
+  diag()?.mark?.('index.controller-installed',{version:'1.0.8',schema:6,rollbackSchema:5,indexFile:INDEX_FILE,metadataFastPath:true,headerReadChars:4096,hashOnFullReadOrWrite:true});
 })();

@@ -94,6 +94,8 @@
     // Do NOT start the expensive all-project reconciliation before this reload.
     // The recovered active project and appPrefs are already local, so reload first
     // and let the normal reconciler run afterward from a warm native folder cache.
+    window.__padGradeRecoveryReloadPlannedV108=true;
+    try{window.PadGradeDiag?.mark?.('recovery.reload-planned',{owner:'v070'});}catch(e){}
     setTimeout(()=>{try{location.reload();}catch(e){}},40);
   }
 
