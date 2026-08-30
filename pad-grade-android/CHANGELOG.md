@@ -15,6 +15,7 @@ Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical 
 ### Changed
 - Project Comparison now starts its 304-tier heat-map worker immediately after the two projects have been loaded and the comparison values/shared geometry have been computed. MapLibre creation, style loading, grid installation, and imagery loading proceed in parallel; a raster that somehow finishes before the map is ready is buffered and installed as soon as the authoritative comparison grid exists.
 - The comparison picker now uses an already-verified in-memory durable catalog without rereading `Pad-Grade-Project-Index.pgindex` or touching SAF. Folder select/index/refresh events explicitly dirty that cache so externally copied or replaced files still force a real reconciliation before the catalog is trusted again.
+- During durable first-install/folder recovery, the selected active project body is force-read from its authoritative `.padgrade` file once instead of trusting a preexisting local cached body. This is a second defense against stale/partial local state surviving the recovery reload.
 - Unchanged durable-index rewrites are suppressed. The indexed project entries are compared independently of the index `updatedAt` timestamp, so a reconciliation that proves the same project catalog no longer writes the same `.pgindex` contents back to SAF.
 - Android DEV package is **version 1.0.8 / build 80**. Schema 6 and its tested schema-6 → schema-5 rollback path are unchanged, and the fixed 15% GPS-map hitbox behavior is unchanged.
 
