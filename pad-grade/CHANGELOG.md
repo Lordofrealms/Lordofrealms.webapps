@@ -4,6 +4,26 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v1.0.5 — development build
+
+### Added
+- Added a dedicated **Map tap diagnostics** switch under **Settings → Advanced Settings**. The v1.0.4 GPS/MapLibre tap tracer and temporary magenta **ML** crosshair now default **off** and can be enabled only when point-selection troubleshooting is needed. The general **Diagnostic timing log** must also be enabled for those map-tap records to persist/export.
+- Added a **Map grid hitbox padding** slider under **Advanced Settings**, adjustable from **0% to 45%** with a default of **10%**. The setting is stored in local app preferences and applies to the GPS/MapLibre survey-point grid only.
+
+### Changed
+- Taps directly on a visible survey-point circle continue through the existing MapLibre layer click path unchanged. The new hitbox logic only supplements near-miss taps that land outside every rendered point circle.
+- Expanded hitboxes are oriented ellipses centered on each projected survey point. Each semi-axis starts with the visible point radius (6 px normally, 9 px for the current target) and adds the configured percentage of the corresponding projected point-to-point spacing.
+- The total clickable semi-axis is capped at **45% of neighboring point spacing**, even when the selected padding or zoom level would otherwise make the target larger. This preserves genuine dead space between adjacent survey points instead of letting expanded targets intentionally meet or overlap.
+- An expanded near-miss tap is accepted only when it falls inside exactly one survey-point ellipse. A tap matching zero or multiple expanded targets does nothing; there is no nearest-point fallback or tie-breaking guess.
+- Expanded measurement-point hit testing is disabled while **Probe Surface** mode is active so probe taps remain owned by the probe workflow.
+- Android DEV package is **version 1.0.5 / build 77**. Build 76 remains the v1.0.4 diagnostic package and is not reused.
+- The lower rectangular measurement grid is unchanged from the restored v1.0.2 baseline; the withdrawn v1.0.3 lower-grid experiment remains absent.
+
+### Known issues
+- The previously reported intermittent wrong-point opening was not reproduced during the v1.0.4 diagnostic test session. v1.0.5 therefore treats the new padding as a touch-usability improvement rather than claiming to fix an unconfirmed coordinate-offset fault.
+- Field-test the default **10%** padding at normal working zoom by tapping both point centers and a few pixels outside the visible circles. Setting the slider to **0%** restores visible-circle-only behavior for comparison.
+- If a wrong-point selection reappears, enable both **Map tap diagnostics** and the general **Diagnostic timing log**, reproduce the tap, then export the diagnostic log from **Settings → Advanced Settings**.
+
 ## v1.0.4 — development build
 
 ### Added
@@ -235,7 +255,7 @@ Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical 
 - Existing-project startup and project-to-project switching again use a brief black **Loading project…** curtain so intermediate settings/grid/map states are not painted to the user. The curtain waits only for local project/layout settling and does not wait for USGS imagery.
 
 ### Fixed
-- Project switching now carries the intended target project through the reload in session storage and reapplies that target in the head of the new document before any project manager or autosave owner can read active-project state.
+- Project switching now carries the intended target project through the reload in session storage and reapplies that target in its head before any project manager or autosave owner can read active-project state.
 - Prevented the older `beforeunload` autosave path from effectively switching the new document back to the project being left.
 - Durable reconciliation now treats an already-selected local active project as authoritative; a stale durable `lastProjectId` is only a fallback when no active project exists. This prevents old-grid/new-heat-map mixtures after switching projects.
 - Durable recovery of a newer copy of the current project is also covered briefly while its settings/grid/map state is applied, avoiding visible multi-stage repaint.
