@@ -6,6 +6,22 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v1.1.4 — development build (86)
+
+### Fixed
+- Fixed multiple normal heat-map raster slots becoming visible simultaneously after an otherwise atomic 99→297→891 swap.
+- Fixed manual resolution inspection allowing a normal Auto raster to remain visible underneath the selected 99/297/891 inspector raster.
+- Prevented an already-loaded cached 891 final raster from being visually replaced by lower-tier regular work that was already in flight.
+
+### Diagnostics
+- Lifecycle breadcrumbs now include native process/device memory snapshots: total PSS, dirty memory, Java/native heaps, graphics/code/stack/private-other/system categories, available/threshold device RAM, process importance, and trim state.
+- Web diagnostics now add `memory.snapshot` checkpoints with JS heap (where available), canvas/CanvasSource backing-store estimates, decoded heat-cache estimates, and heat-worker inventory.
+- Memory instrumentation is observation-only in this build; it does not automatically trim MapLibre, canvases, or caches.
+
+### Packaging
+- DEV `applicationId` remains `com.lordofrealms.padgrade.dev`.
+- Version name **1.1.4**, version code **86**.
+
 ## v1.1.3 — development build
 
 ### Added
