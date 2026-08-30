@@ -1,11 +1,11 @@
-/* Pad Grade v0.9.9 DEV — grading target calculation optimization.
+/* Pad Grade v1.0.0 DEV — grading target calculation optimization.
  *
  * Preserves the existing 90-resolution equal-area sample grid and global IDW²
  * interpolation. The Delaunay-union coverage test is replaced by the equivalent
  * convex-hull coverage test, and the target-independent sampled surface/sorted
  * elevations are cached until measured points or pad/grid geometry actually change.
  */
-(function installPadGrade099GradeCalcOptimization(){
+(function installPadGrade100GradeCalcOptimization(){
   'use strict';
 
   const CALC_RESOLUTION=90;
@@ -110,8 +110,9 @@
     try{window.PadGradeDiag?.mark?.('grading-calc.apply-reused-result',{cachedResult:true});}catch(e){}
   };
 
-  window.__padGradeGradeCalcOptimizationV099={
-    version:'0.9.9',resolution:CALC_RESOLUTION,
+  document.title='Pad Grade Mapper v1.0.0 DEV';
+  window.__padGradeGradeCalcOptimizationV100={
+    version:'1.0.0',resolution:CALC_RESOLUTION,
     policy:'same-90-grid-same-global-idw2-convex-hull-coverage-single-surface-cache-no-apply-recalc',
     clearCache(){cache={key:'',surface:null,values:null,sorted:null,neutral:NaN};}
   };
