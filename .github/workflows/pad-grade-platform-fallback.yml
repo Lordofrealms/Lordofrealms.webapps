@@ -1,0 +1,30 @@
+name: Pad Grade Precision Fallback
+
+on:
+  push:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/platform.js'
+      - 'pad-grade/platform-fallback-selftest.js'
+      - '.github/workflows/pad-grade-platform-fallback.yml'
+  pull_request:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/platform.js'
+      - 'pad-grade/platform-fallback-selftest.js'
+      - '.github/workflows/pad-grade-platform-fallback.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate fallback provider
+        run: |
+          node --check pad-grade/platform.js
+          node --check pad-grade/platform-fallback-selftest.js
+          node pad-grade/platform-fallback-selftest.js
