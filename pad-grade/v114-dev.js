@@ -52,8 +52,11 @@
   }
   function chooseNormal(map){
     const ids=normalLayers(map);
+    // A newly staged slot is intentionally hidden before the synchronous swap.
+    // Prefer that explicit authority over whichever retired slot is still visible.
+    if(activeNormalLayer&&ids.includes(activeNormalLayer))return activeNormalLayer;
     const currentlyVisible=ids.filter(id=>visible(map,id));
-    activeNormalLayer=currentlyVisible[currentlyVisible.length-1]||activeNormalLayer||ids[ids.length-1]||'';
+    activeNormalLayer=currentlyVisible[currentlyVisible.length-1]||ids[ids.length-1]||'';
     return activeNormalLayer;
   }
   function selectedInspectLayer(){return inspectorMode==='auto'?'':`${INSPECT_LAYER_PREFIX}${inspectorMode}`;}
