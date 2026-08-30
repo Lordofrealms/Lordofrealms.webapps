@@ -1,0 +1,60 @@
+name: Pad Grade v1.0.7 Lazy Open Fix
+
+on:
+  push:
+    branches: [pad-grade-dev-v107-index-compare]
+    paths: ['.github/v107-lazy-open-trigger.txt']
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pad-grade-dev-v107-index-compare
+          fetch-depth: 0
+      - name: Wire durable lazy bodies into project switching
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          idx=Path('pad-grade/v107-index-reconcile.js')
+          s=idx.read_text()
+          marker="  function entryFromHeader(h,filename,detail,prior=null){const c=h.catalog||{};return {filename,fileId:h.fileId||null,projectId:h.id,schemaVersion:Number(h.schemaVersion)||fmt.CURRENT_SCHEMA,name:String(c.name||prior?.name||'Pad'),createdAt:h.createdAt||prior?.createdAt||null,modifiedAt:h.modifiedAt||prior?.modifiedAt||null,status:h.status==='archived'?'archived':'open',width:Number(c.width)||0,length:Number(c.length)||0,cols:Math.round(Number(c.cols)||0),rows:Math.round(Number(c.rows)||0),fullyMeasured:!!c.fullyMeasured,gpsReady:!!c.gpsReady,size:detail.size,lastModified:detail.lastModified,sha256:prior&&sameMeta(prior,detail)?prior.sha256||null:null,backupIndex:null};}\n"
+          assert marker in s
+          repl="""  function modifiedMs(x){const t=Date.parse(x?.modifiedAt||x?.exportedAt||x?.createdAt||'');return Number.isFinite(t)?t:0;}\n  function entryFromHeader(h,filename,detail,prior=null){\n    const c=h.catalog||{},local=getLocal(h.id),remoteAt=modifiedMs(h),localAt=modifiedMs(local);\n    return {filename,fileId:h.fileId||null,projectId:h.id,schemaVersion:Number(h.schemaVersion)||fmt.CURRENT_SCHEMA,name:String(c.name||prior?.name||'Pad'),createdAt:h.createdAt||prior?.createdAt||null,modifiedAt:h.modifiedAt||prior?.modifiedAt||null,status:h.status==='archived'?'archived':'open',width:Number(c.width)||0,length:Number(c.length)||0,cols:Math.round(Number(c.cols)||0),rows:Math.round(Number(c.rows)||0),fullyMeasured:!!c.fullyMeasured,gpsReady:!!c.gpsReady,size:detail.size,lastModified:detail.lastModified,sha256:prior&&sameMeta(prior,detail)?prior.sha256||null:null,backupIndex:null,localBodyStale:!!local&&remoteAt>=localAt};\n  }\n"""
+          s=s.replace(marker,repl,1)
+          old="""  async function loadProject(id){\n    if(!id)return null;const local=getLocal(id);if(local)return fmt.normalizeProject(local,null);\n    if(!catalogState.projects.length&&hasFolder()&&indexReady())await reconcileAll('lazy-load-catalog');const e=findEntry(id);if(!e)return null;\n    const token=diag()?.start?.('project.full-read',{filename:e.filename,reason:'user-load',projectId:id}),text=await rawRead(e.filename),raw=parse(text,null);diag()?.end?.(token,{ok:!!raw,size:text?.length||0});if(!raw)return null;\n"""
+          assert old in s
+          new="""  async function loadProject(id){\n    if(!id)return null;\n    if(!catalogState.projects.length&&hasFolder()&&indexReady())await reconcileAll('lazy-load-catalog');\n    const e=findEntry(id),local=getLocal(id);\n    if(local&&!e?.localBodyStale)return fmt.normalizeProject(local,null);\n    if(!e)return local?fmt.normalizeProject(local,null):null;\n    if(local&&e.localBodyStale)diag()?.mark?.('project.local-body-stale',{projectId:id,filename:e.filename});\n    const token=diag()?.start?.('project.full-read',{filename:e.filename,reason:e.localBodyStale?'durable-newer-than-local':'user-load',projectId:id}),text=await rawRead(e.filename),raw=parse(text,null);diag()?.end?.(token,{ok:!!raw,size:text?.length||0});if(!raw)return null;\n"""
+          s=s.replace(old,new,1)
+          old="""    if(!p)return null;putLocal(p);const hash=await sha256(text);if(e.sha256&&hash&&e.sha256!==hash)diag()?.mark?.('index.hash-mismatch',{filename:e.filename,projectId:id});if(hash)e.sha256=hash;syncLocalCatalog(catalogState.projects);if(!criticalRecoveryActive())writeSerial=writeSerial.then(()=>writeIndex(catalogState));return p;\n"""
+          assert old in s
+          new="""    if(!p)return null;putLocal(p);const hash=await sha256(text);if(e.sha256&&hash&&e.sha256!==hash)diag()?.mark?.('index.hash-mismatch',{filename:e.filename,projectId:id});if(hash)e.sha256=hash;delete e.localBodyStale;syncLocalCatalog(catalogState.projects);if(!criticalRecoveryActive())writeSerial=writeSerial.then(()=>writeIndex(catalogState));return p;\n"""
+          s=s.replace(old,new,1)
+          idx.write_text(s)
+
+          sw=Path('pad-grade/v090-project-switch-boundary.js')
+          s=sw.read_text()
+          old="""  function queueProjectSwitch(target){\n    if(!target||target===activeId())return;queuedSwitch=target;\n    requestAnimationFrame(()=>{const id=queuedSwitch;queuedSwitch=null;if(id)switchProject(id);});\n  }\n"""
+          assert old in s
+          new="""  function reloadActiveProject(project){\n    if(!project?.id||project.id!==activeId())return false;\n    const started=nowMs();clearProjectOwnedMapState();\n    const applied=applyProjectRuntime(project);if(!applied)return false;\n    refreshProjectOverlays(project.id);persistLastProject(project);\n    try{window.dispatchEvent(new CustomEvent('padgrade-active-project-applied',{detail:{id:project.id,from:project.id,inPlace:true,durableReload:true}}));}catch(e){}\n    diagMark('project.active-durable-reload',{projectId:project.id,elapsedMs:+(nowMs()-started).toFixed(1)});return true;\n  }\n\n  function queueProjectSwitch(target){\n    if(!target)return;queuedSwitch=target;\n    requestAnimationFrame(async()=>{\n      const id=queuedSwitch;queuedSwitch=null;if(!id)return;\n      const before=projectFor(id),wasActive=id===activeId();let loaded=before;\n      try{const index=window.PadGradeProjectIndexV107;if(index?.loadProject)loaded=await index.loadProject(id)||before;}catch(e){console.warn('Pad Grade lazy durable project load failed',e);}\n      if(!loaded)return;\n      if(wasActive){if(before&&String(before.modifiedAt||'')===String(loaded.modifiedAt||''))return;reloadActiveProject(loaded);return;}\n      switchProject(id);\n    });\n  }\n"""
+          s=s.replace(old,new,1)
+          sw.write_text(s)
+
+          test=Path('pad-grade/v107-index-reconcile-selftest.js')
+          s=test.read_text()
+          old="""  putDisk('JKLM25-pg-c.padgrade',v6('pg-c','JKLM25','C'));\n  const readsBeforeCopy=projectBodyReads,headsBeforeCopy=headReads;\n  r=await api.reconcile('copy-in');\n  assert.strictEqual(r.projects,3);assert.strictEqual(projectBodyReads,readsBeforeCopy,'new schema-6 copy-in should use bounded header only');assert(headReads>headsBeforeCopy);\n  assert(api.catalog().some(x=>x.id==='pg-c'));\n\n  const replaced=JSON.parse(v6('pg-c','JKLM25','C replaced'));replaced.modifiedAt='2026-08-30T13:00:00.000Z';replaced._pgHeader.modifiedAt=replaced.modifiedAt;replaced._pgHeader.catalog.name='C replaced';putDisk('JKLM25-pg-c.padgrade',JSON.stringify(replaced,null,2));\n  const readsBeforeReplace=projectBodyReads;\n  await api.reconcile('same-name-replacement');\n  assert.strictEqual(projectBodyReads,readsBeforeReplace,'changed schema-6 same-name replacement should use header only');assert.strictEqual(api.catalog().find(x=>x.id==='pg-c').name,'C replaced');\n"""
+          assert old in s
+          new="""  putDisk('JKLM25-pg-c.padgrade',v6('pg-c','JKLM25','C'));\n  const readsBeforeCopy=projectBodyReads,headsBeforeCopy=headReads;\n  r=await api.reconcile('copy-in');\n  assert.strictEqual(r.projects,3);assert.strictEqual(projectBodyReads,readsBeforeCopy,'new schema-6 copy-in should use bounded header only');assert(headReads>headsBeforeCopy);\n  assert(api.catalog().some(x=>x.id==='pg-c'));\n  let loadedC=await api.loadProject('pg-c');assert.strictEqual(loadedC.settings.name,'C');\n\n  const replaced=JSON.parse(v6('pg-c','JKLM25','C replaced'));replaced.modifiedAt='2026-08-30T13:00:00.000Z';replaced._pgHeader.modifiedAt=replaced.modifiedAt;replaced._pgHeader.catalog.name='C replaced';putDisk('JKLM25-pg-c.padgrade',JSON.stringify(replaced,null,2));\n  const readsBeforeReplace=projectBodyReads;\n  await api.reconcile('same-name-replacement');\n  assert.strictEqual(projectBodyReads,readsBeforeReplace,'changed schema-6 same-name replacement reconciliation should use header only');assert.strictEqual(api.catalog().find(x=>x.id==='pg-c').name,'C replaced');\n  loadedC=await api.loadProject('pg-c');assert(projectBodyReads>readsBeforeReplace,'stale cached body must be re-read lazily after durable replacement');assert.strictEqual(loadedC.settings.name,'C replaced');\n"""
+          s=s.replace(old,new,1)
+          test.write_text(s)
+          PY
+          git config user.name 'Pad Grade CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add pad-grade/v107-index-reconcile.js pad-grade/v090-project-switch-boundary.js pad-grade/v107-index-reconcile-selftest.js
+          git commit -m 'Pad Grade v1.0.7: lazy-load copied projects through normal project switch'
+          git push origin HEAD:pad-grade-dev-v107-index-compare
