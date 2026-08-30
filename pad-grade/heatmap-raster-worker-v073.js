@@ -1,8 +1,14 @@
-/* Pad Grade v0.7.3 DEV — whole-image IDW² heat-map worker.
+/* Pad Grade v1.1.2 DEV — whole-image IDW² heat-map worker.
  *
  * The worker never publishes partial map bands. It calculates an entire raster
  * off the UI thread, yielding between small row batches so cancellation remains
  * responsive. The main thread swaps the completed image atomically into MapLibre.
+ *
+ * Color normalization is project-data based, not raster-sample based: every tier
+ * derives the same cut/fill endpoints from the measured points. After IDW
+ * rasterization, each measured point is also stamped into its nearest raster
+ * pixel with its exact normalized color. That keeps the visible palette anchors
+ * stable as 99 -> 297 -> 891 refines the pixels around them.
  */
 'use strict';
 
@@ -72,6 +78,28 @@ function idw2(x,y,points){
   return sw?sv/sw:NaN;
 }
 
+function writePixel(j,ix,iy,color){
+  ix=Math.max(0,Math.min(j.nx-1,ix|0));
+  iy=Math.max(0,Math.min(j.ny-1,iy|0));
+  const o=(iy*j.nx+ix)*4;
+  j.rgba[o]=color[0];j.rgba[o+1]=color[1];j.rgba[o+2]=color[2];j.rgba[o+3]=255;
+}
+function stampMeasuredPointAnchors(j){
+  let count=0;
+  for(const p of j.points){
+    // The raster itself samples pixel centers. A finite coarse raster therefore
+    // may miss a measured point (especially an edge/corner) by up to half a
+    // pixel. Pinning the nearest pixel to the exact measured-point color keeps
+    // each progressive tier on the same visible color endpoints without changing
+    // the continuous IDW calculation used everywhere else.
+    const ix=Math.round((p.x/j.width)*(j.nx-1));
+    const iy=Math.round((1-(p.y/j.length))*(j.ny-1));
+    writePixel(j,ix,iy,surfaceColor(p.v-j.target,j.tol,j.maxCut,j.maxFill));
+    count++;
+  }
+  return count;
+}
+
 function startBuild(msg){
   const points=(msg.points||[]).map(p=>({x:+p.x,y:+p.y,v:+p.v})).filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)&&Number.isFinite(p.v));
   const hull=convexHull(points);
@@ -108,7 +136,8 @@ function processSlice(){
   j.row=end;
   if(j.row<j.ny){setTimeout(processSlice,0);return;}
   const done=job;job=null;
-  postMessage({type:'complete',jobId:done.id,tier:done.tier,nx:done.nx,ny:done.ny,cells:done.cells,buffer:done.rgba.buffer},[done.rgba.buffer]);
+  const anchorPixels=stampMeasuredPointAnchors(done);
+  postMessage({type:'complete',jobId:done.id,tier:done.tier,nx:done.nx,ny:done.ny,cells:done.cells,anchorPixels,buffer:done.rgba.buffer},[done.rgba.buffer]);
 }
 
 self.onmessage=event=>{
