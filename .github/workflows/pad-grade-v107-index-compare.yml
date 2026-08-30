@@ -1,0 +1,53 @@
+name: Pad Grade v1.0.7 Index + Compare
+
+on:
+  pull_request:
+    paths:
+      - 'pad-grade/project-format-v107.js'
+      - 'pad-grade/project-format-v107-selftest.js'
+      - 'pad-grade/v096-native-async.js'
+      - 'pad-grade/v107-index-reconcile.js'
+      - 'pad-grade/v107-compare-fast.js'
+      - 'pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - '.github/workflows/pad-grade-v107-index-compare.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax check v1.0.7 modules
+        run: |
+          node --check pad-grade/project-format-v107.js
+          node --check pad-grade/v096-native-async.js
+          node --check pad-grade/v107-index-reconcile.js
+          node --check pad-grade/v107-compare-fast.js
+          node --check pad-grade/project-format-v107-selftest.js
+      - name: Verify schema 6 rollback contract
+        run: |
+          node pad-grade/project-format-v107-selftest.js
+          grep -F "CURRENT_SCHEMA=6,ROLLBACK_SCHEMA=5" pad-grade/project-format-v107.js
+          grep -F "_pgHeader" pad-grade/project-format-v107.js
+          grep -F "downgradeFolderToV5" pad-grade/v107-index-reconcile.js
+      - name: Verify metadata/header fast path
+        run: |
+          grep -F "listProjectFileDetails" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
+          grep -F "readProjectFileHeadAsync" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
+          grep -F "index.fast-match" pad-grade/v107-index-reconcile.js
+          grep -F "zeroProjectReads" pad-grade/v107-index-reconcile.js
+          grep -F "Pad-Grade-Project-Index.pgindex" pad-grade/v107-index-reconcile.js
+      - name: Verify comparison consumes shared index and progressive renderer
+        run: |
+          grep -F "PadGradeProjectIndexV107" pad-grade/v107-compare-fast.js
+          grep -F "Promise.all([A.loadProject" pad-grade/v107-compare-fast.js
+          grep -F "compare.grid-visible" pad-grade/v107-compare-fast.js
+          grep -F "compare.low-heat-visible" pad-grade/v107-compare-fast.js
+          grep -F "compare.high-heat-visible" pad-grade/v107-compare-fast.js
+          grep -F "'circle-radius':6" pad-grade/v107-compare-fast.js
+          grep -F "'text-field':['get','label']" pad-grade/v107-compare-fast.js
+          grep -F "pgCompareLegendV086" pad-grade/v107-compare-fast.js
