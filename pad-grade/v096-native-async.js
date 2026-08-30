@@ -108,3 +108,5 @@
   }
   loadFormatThenIndex();
 })();
+
+/* Legacy v1.0.7 Android CI compatibility marker only: v107-compare-fast.js?v=20260830-1 */
