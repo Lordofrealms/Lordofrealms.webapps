@@ -49,7 +49,10 @@ public final class PadGradeLifecycleBridge {
             if (detail != null && !detail.isBlank()) row.put("detail", detail.length() > 180 ? detail.substring(0, 180) : detail);
         } catch (Exception ignored) {}
         next.put(row);
-        prefs.edit().putInt(SEQ, seq).putString(EVENTS, next.toString()).apply();
+        // Lifecycle breadcrumbs are specifically intended to survive abrupt process
+        // reclamation, so use commit() here rather than an async apply(). The record
+        // is tiny and this code only runs at coarse Android lifecycle boundaries.
+        prefs.edit().putInt(SEQ, seq).putString(EVENTS, next.toString()).commit();
     }
 
     @JavascriptInterface public String getEvents() {
