@@ -30,9 +30,8 @@ jobs:
       - name: Syntax check fixed map hitbox module
         run: node --check pad-grade/v106-map-hitbox.js
 
-      - name: Verify v1.0.6 fixed 15 percent safe hitboxes
+      - name: Verify fixed 15 percent safe hitboxes remain unchanged
         run: |
-          grep -F 'Pad Grade Mapper v1.0.6 DEV' pad-grade/index.html
           grep -F 'v106-map-hitbox.js?v=20260830-1' pad-grade/index.html
           ! grep -F 'v104-map-tap-diagnostics.js' pad-grade/index.html
           ! grep -F 'v105-map-hitbox.js' pad-grade/index.html
@@ -44,13 +43,16 @@ jobs:
           grep -F 'fixed-15pct-visible-circle-plus-spacing-padding-capped-45pct-deadspace-no-nearest-fallback' pad-grade/v106-map-hitbox.js
           ! grep -F 'mapGridHitboxPaddingPct' pad-grade/v106-map-hitbox.js
           ! grep -F 'MapTapDiagnostics' pad-grade/v106-map-hitbox.js
-          grep -F 'versionCode = 78' pad-grade-android/app/build.gradle.kts
-          grep -F 'versionName = "1.0.6"' pad-grade-android/app/build.gradle.kts
           grep -F '## v1.0.6 — development build' pad-grade/CHANGELOG.md
           grep -F 'fixed **15% of projected point-to-point spacing**' pad-grade/CHANGELOG.md
-          grep -F 'Android DEV package is **version 1.0.6 / build 78**.' pad-grade/CHANGELOG.md
           grep -F '## v1.0.3 — withdrawn development build' pad-grade/CHANGELOG.md
           grep -F '## v1.0.6 — development build' pad-grade-android/CHANGELOG.md
+
+      - name: Confirm current candidate advances version without changing hitbox policy
+        run: |
+          grep -E 'Pad Grade Mapper v1\.0\.[6-9] DEV' pad-grade/index.html
+          grep -E 'versionCode = (7[8-9]|[89][0-9]|[1-9][0-9]{2,})' pad-grade-android/app/build.gradle.kts
+          grep -E 'versionName = "1\.0\.[6-9]"' pad-grade-android/app/build.gradle.kts
 
       - name: Confirm lower measurement grid remains untouched
         run: |
