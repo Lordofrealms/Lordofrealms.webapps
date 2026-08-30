@@ -6,6 +6,25 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v1.1.1 — development build
+
+### Added
+- Packaged the generation-scoped map-overlay repair controller, including bounded retries across transient MapLibre style states, a direct project-grid fallback when the style object exists but full style loading is temporarily incomplete, and lifecycle diagnostics for repair attempts/results, WebGL recovery, and GPS provider/state changes.
+
+### Changed
+- The packaged recovery experience now reveals the restored project UI/lower grid as soon as they are ready while leaving the existing durable recovery/write lock intact. The GPS map card uses its own temporary **Restoring project map…** veil until the saved project grid has been restored.
+- Regular 99/297 heat-map workers may begin before MapLibre finishes startup; completed rasters are buffered and installed when the map becomes usable. The 891 tier remains deferred until 297 completes, and Project Comparison remains independent.
+- Bumped the separately installable DEV package to **version 1.1.1 / versionCode 83**. Build 82 remains the v1.1.0 staged-heat package and is not reused.
+
+### Fixed
+- Fixed the intermittent blank project-grid/heat-map state caused by a project switch landing inside a transient MapLibre `isStyleLoaded() === false` window.
+- Fixed regular heat-map results being thrown away if a worker completed just before the map could accept its CanvasSource.
+- Reduced perceived settings-restore/initial-startup delay by no longer using GPS-map readiness as a prerequisite for visually revealing an otherwise restored project.
+
+### DEV verification
+- Exercise GPS provider fallback/blips, repeated project switches, app resume, and a clean durable-folder restore. Confirm the correct grid/heat map recover without reopening a project and that the new local map veil disappears once the active project grid is truly present.
+- Export diagnostics after a startup/switch test and confirm the new overlay/GPS lifecycle events contain timing/state but no GPS coordinates or rod readings.
+
 ## v1.1.0 — development build
 
 ### Changed

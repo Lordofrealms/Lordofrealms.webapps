@@ -1,0 +1,50 @@
+name: Pad Grade v1.1.1 Resilient Overlays
+
+on:
+  pull_request:
+    branches: [pad-grade-dev, main]
+    paths:
+      - 'pad-grade/**'
+      - 'pad-grade-android/**'
+      - '.github/workflows/pad-grade-v111-resilience.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate v1.1.1 sources
+        run: |
+          node --check pad-grade/v063-dev.js
+          node --check pad-grade/v111-resilience.js
+          node --check pad-grade/v111-resilience-selftest.js
+          node pad-grade/v110-staged-heat-selftest.js
+          node pad-grade/v111-resilience-selftest.js
+      - name: Verify resilient overlay and startup policy
+        run: |
+          grep -F 'const pendingRasters=new Map()' pad-grade/v063-dev.js
+          grep -F 'heatmap.regular-buffered-before-map' pad-grade/v063-dev.js
+          grep -F 'project-state-first-workers-buffer-raster-until-map-ready' pad-grade/v063-dev.js
+          grep -F 'generation-scoped-style-event-plus-bounded-retry-project-owner-verification' pad-grade/v111-resilience.js
+          grep -F 'map.overlay-direct-grid-install' pad-grade/v111-resilience.js
+          grep -F 'recovery.partial-reveal' pad-grade/v111-resilience.js
+          grep -F 'Restoring project map…' pad-grade/v111-resilience.js
+          grep -F 'gps.provider-state' pad-grade/v111-resilience.js
+          ! grep -F 'completeProjectFolderRecovery' pad-grade/v111-resilience.js
+          ! grep -F '__padGradeEndRecoveryVisualHold' pad-grade/v111-resilience.js
+      - name: Verify v1.1.1 metadata and changelogs
+        run: |
+          grep -F 'versionCode = 83' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.1.1"' pad-grade-android/app/build.gradle.kts
+          grep -F '<title>Pad Grade Mapper v1.1.1 DEV</title>' pad-grade/index.html
+          grep -F 'src="v111-resilience.js?v=20260830-1"' pad-grade/index.html
+          grep -F '## v1.1.1 — development build' pad-grade/CHANGELOG.md
+          grep -F '## v1.1.1 — development build' pad-grade-android/CHANGELOG.md
+          grep -F 'TIERS=Object.freeze([99,297,891])' pad-grade/v063-dev.js
+          grep -F 'INITIAL_TIERS=Object.freeze([99,297])' pad-grade/v063-dev.js
+          grep -F 'CURRENT_SCHEMA=6,ROLLBACK_SCHEMA=5' pad-grade/project-format-v107.js
+          grep -F 'const HITBOX_PADDING_PCT=15;' pad-grade/v106-map-hitbox.js
