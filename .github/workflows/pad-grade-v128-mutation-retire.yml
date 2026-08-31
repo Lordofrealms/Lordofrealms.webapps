@@ -1,0 +1,51 @@
+name: Pad Grade v1.2.8 Mutation + Retire
+
+on:
+  push:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/v128-dev.js'
+      - 'pad-grade/v128-mutation-retire-selftest.js'
+      - 'pad-grade/v127-startup-map-gate.js'
+      - 'pad-grade/v127-dev.js'
+      - 'pad-grade/v122-dev.js'
+      - 'pad-grade/v063-dev.js'
+      - 'pad-grade/index.html'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - '.github/workflows/pad-grade-v128-mutation-retire.yml'
+  pull_request:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/v128-dev.js'
+      - 'pad-grade/v128-mutation-retire-selftest.js'
+      - 'pad-grade/v127-startup-map-gate.js'
+      - 'pad-grade/v127-dev.js'
+      - 'pad-grade/v122-dev.js'
+      - 'pad-grade/v063-dev.js'
+      - 'pad-grade/index.html'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - '.github/workflows/pad-grade-v128-mutation-retire.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax
+        run: |
+          node --check pad-grade/v128-dev.js
+          node --check pad-grade/v127-startup-map-gate.js
+          node --check pad-grade/v128-mutation-retire-selftest.js
+      - name: v1.2.8 mutation and startup regression
+        run: node pad-grade/v128-mutation-retire-selftest.js
+      - name: Carry forward protected heat lifecycle regressions
+        run: |
+          node pad-grade/v122-canvas-handoff-selftest.js
+          node pad-grade/v126-generation-cancel-selftest.js
+          node pad-grade/v127-lifecycle-selftest.js
+          node pad-grade/v127-startup-map-gate-selftest.js
+      - name: Version
+        run: |
+          grep -F 'versionCode = 100' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.2.8"' pad-grade-android/app/build.gradle.kts

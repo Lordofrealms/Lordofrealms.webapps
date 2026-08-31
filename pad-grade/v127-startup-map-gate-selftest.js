@@ -9,11 +9,11 @@ const classList=makeClassList();
 const styles=new Map();
 const document={
   documentElement:{classList},head:{appendChild(el){if(el.id)styles.set(el.id,el);}},
-  getElementById(id){return styles.get(id)||null;},
-  createElement(){return {id:'',textContent:'',remove(){if(this.id)styles.delete(this.id);}};}
+  getElementById(id){return styles.get(id)||null;},querySelector(){return null;},
+  createElement(){return {id:'',textContent:'',dataset:{},remove(){if(this.id)styles.delete(this.id);}};}
 };
 const local=new Map(),session=new Map();
-const localStorage={getItem:k=>local.has(k)?local.get(k):null,setItem:(k,v)=>local.set(k,String(v)),removeItem:k=>local.delete(k)};
+const localStorage={getItem:k=>local.has(k)?local.get(k):null,setItem:(k,v)=>local.set(k,String(v)),removeItem:k=>local.delete(k),get length(){return local.size;},key:i=>[...local.keys()][i]??null};
 const sessionStorage={getItem:k=>session.has(k)?session.get(k):null,setItem:(k,v)=>session.set(k,String(v)),removeItem:k=>session.delete(k)};
 let timerSeq=0;
 const timers=new Map();
@@ -34,9 +34,11 @@ assert(firstFailsafe,'initial six-second failsafe missing');
 vm.runInNewContext(gate,ctx,{filename:'v127-startup-map-gate.js'});
 assert(classList.contains('padGradeV127BaseMapGate'),'base-map preference gate did not attach');
 
-// The map gate may prefer a rendered map, but it must never renew the recovery timer.
+// The normal map-preference path may not renew the recovery timer. v1.2.8 has a
+// separate fresh-install precover path which is intentionally allowed to call
+// begin() at head time / legal release; this non-Android test does not enter it.
 const activeSixSecondBefore=[...timers.values()].filter(t=>t.ms===6000&&!t.cancelled).length;
-assert.strictEqual(activeSixSecondBefore,1,'map gate created or renewed a six-second recovery timer');
+assert.strictEqual(activeSixSecondBefore,1,'map preference gate created or renewed a six-second recovery timer');
 fire(firstFailsafe);
 assert(!classList.contains('padGradeRecoveryHold'),'legacy six-second failsafe was prevented by map gate');
 assert.strictEqual(windowObj.__padGradeBaseMapRenderedV127,false,'test unexpectedly rendered map');
@@ -54,5 +56,7 @@ fire(renewalB);
 assert(!classList.contains('padGradeRecoveryHold'),'renewed six-second failsafe did not eventually reveal');
 
 assert(gate.includes('preservesLegacyFailsafe:true'),'preserved-failsafe diagnostic contract missing');
-assert(!gate.includes("__padGradeBeginRecoveryVisualHold?.();"),'map gate must not re-arm recovery itself');
-console.log('Pad Grade v1.2.7 startup map preference / six-second safety self-test passed');
+const keepCovered=gate.slice(gate.indexOf('function keepCovered'),gate.indexOf('function observeSafetyRelease'));
+assert(!keepCovered.includes('__padGradeBeginRecoveryVisualHold?.();'),'base-map wait must not re-arm recovery itself');
+assert(gate.includes("armFreshInstallCover('head-before-body')"),'v1.2.8 fresh-install head precover missing');
+console.log('Pad Grade v1.2.7/v1.2.8 startup map preference / six-second safety self-test passed');

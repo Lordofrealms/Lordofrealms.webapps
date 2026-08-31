@@ -1,3 +1,48 @@
+# Pad Grade Mapper v1.2.8 — DEV BUILD
+
+## v1.2.8 — authoritative mutation blanking, stale-canvas retirement, and first-run precover
+
+### Fixed — changed points no longer leave an obsolete heat map looking finished
+- A real point change now follows the explicit visual/data order **cancel obsolete heat work → apply the point mutation → hide the now-invalid heat map → resolve cache or generate replacement heat**.
+- v1.2.7 remains the cancellation owner, so physical worker termination still happens before the reading is mutated. v1.2.8 wraps that established contract and hides the derived surface only after the new point value is authoritative.
+- The protected v1.2.2 permanent MapLibre heat source/layer are **not removed or recreated**. v1.2.8 clears the user-visible heat state by hiding the existing canonical layer in place, then the next valid cached/generated frame uses the same flickerless presenter to make it visible again.
+- Point deletion and heat-affecting settings application use the same cancel/mutate/clear/refresh boundary.
+- v1.2.8 requests an immediate regular-heat sync after the clear so a replacement/cache restore does not have to wait for the legacy 900 ms maintenance interval.
+
+### Fixed — obsolete canvases stop being retried every 900 ms
+- The v1.2.7 field log showed repeated `heatmap.v127-stale-canvas-suppressed` entries at roughly 0.9-second spacing even after an old generation was dead. The source was traced to the legacy v1.1.1 regular heat engine: its 900 ms `syncSurface()` maintenance loop unconditionally calls `ensureDisplayedRaster()` and can retain/re-offer its previous `displayedCanvas`.
+- v1.2.8 retires the old virtual canvas-source/layer records and cancels pending legacy presentation verification/commit timers as soon as a new authoritative surface mutation occurs.
+- A lightweight retired-canvas admission guard sits ahead of the v1.2.7 provenance guard. If the legacy maintenance loop tries to re-offer a retired canvas, it is stopped immediately rather than repeatedly entering the full stale-provenance/logging path.
+- The immutable v1.2.7 provenance guard remains installed as a correctness safety net for any stale canvas that did not come through the retired legacy path.
+
+### Fixed — fresh install stays covered through storage selection startup
+- The first-run recovery curtain is now armed from the head-loaded startup gate **before the normal workspace body can paint** on a genuinely fresh Android install.
+- When Terms of Use is accepted, that same cover is renewed immediately before the existing first-run storage controller presents the storage choice/folder picker. This closes the brief workspace flash that could occur between the native legal screen and project-storage selection.
+- Existing installs with project/local state do not take the fresh-install precover path.
+- The historical recovery **6-second maximum reveal remains intact** for ordinary map startup. The map-readiness preference still does not continuously re-arm that safety timer. The existing first-run directory-selection controller may continue renewing the hold while storage selection/recovery is actively unresolved, as before.
+
+### Performance / diagnostics
+- New markers identify the authoritative post-mutation boundary, legacy presentation retirement, canonical heat hiding, immediate replacement refresh, and the first suppressed retry from a retired canvas.
+- This build keeps the v1.2.7 sequential **99 → 297 → 891** generation strategy because the v1.2.7 field log showed materially lower renderer/WebView scheduling delay and faster 99/297 completion than the prior co-generated 99+297 path.
+
+### Protected behavior unchanged
+- The v1.2.2 completed-canvas flickerless presentation architecture and its maintenance/change-control warning remain in force. v1.2.8 does not recreate the canonical heat source/layer.
+- IDW²/local-surface interpolation math, color calculation, 99 / 297 / 891 resolutions, final 891 cache format, project schema, GPS calculations, Project Comparison math, and imagery sources are unchanged.
+
+### Changed
+- Android DEV package is **version 1.2.8 / build 100** and installs separately from stable.
+
+### DEV verification
+- Change a measured point while 297 or 891 is running. The old worker should terminate first, the numeric/grid state should update, and the old heat map should disappear immediately rather than remaining visible until replacement heat arrives.
+- On an uncached new surface, confirm the heat map remains blank until the new 99 appears, then progresses 99 → 297 → 891 with the existing flickerless completed-frame handoffs.
+- Change a point away from a value and then back to an exact surface with a valid final 891 cache. The heat should blank on mutation and the cached 891 should return without a stale lower tier repainting over it.
+- Inspect diagnostics after several point changes. Repeated ~900 ms `heatmap.v127-stale-canvas-suppressed` spam from the same retired canvas should be gone; at most the new v1.2.8 retired-retry marker should appear once per retired canvas.
+- Clear app data/reinstall. Confirm Terms of Use transitions directly into the covered storage-choice/durable-folder flow without the normal workspace flashing first.
+- Confirm ordinary startup still reveals by the base-map render when available, with the historical 6-second safety reveal still able to win on a deliberately slow/non-rendering map.
+- Confirm heat transitions remain flickerless and the v1.2.2 permanent source/layer are never recreated.
+
+---
+
 # Pad Grade Mapper v1.2.7 — DEV BUILD
 
 ## v1.2.7 — point-mutation cancellation, sequential heat generation, and startup visual gating
