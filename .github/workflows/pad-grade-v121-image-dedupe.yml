@@ -39,8 +39,8 @@ jobs:
           if(!atLeast(name,'1.2.1'))throw new Error('Android versionName regressed below v1.2.1');
           if(!(code>=93))throw new Error('Android versionCode regressed below build 93');
           NODE
-          grep -F 'src="v120-dev.js?v=20260831-1' pad-grade/index.html
-          grep -F 'src="v121-dev.js?v=20260831-1' pad-grade/index.html
+          grep -F 'src="v120-dev.js?v=' pad-grade/index.html
+          grep -F 'src="v121-dev.js?v=' pad-grade/index.html
           grep -F 'one-inflight-load-per-unique-url' pad-grade/v121-dev.js
           grep -F '## v1.2.1 — development build' pad-grade/CHANGELOG.md
           grep -F '## v1.2.1 — development build (93)' pad-grade-android/CHANGELOG.md

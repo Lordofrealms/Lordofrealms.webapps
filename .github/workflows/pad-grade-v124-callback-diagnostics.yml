@@ -34,5 +34,6 @@ jobs:
         run: |
           grep -F 'MAINTENANCE / CHANGE-CONTROL NOTE — FLICKERLESS HEAT PRESENTATION' pad-grade/v122-dev.js
           grep -F 'requires explicit developer' pad-grade/v122-dev.js
-          grep -F 'versionCode = 96' pad-grade-android/app/build.gradle.kts
-          grep -F 'versionName = "1.2.4"' pad-grade-android/app/build.gradle.kts
+          grep -F 'src="v124-dev.js?v=' pad-grade/index.html
+          grep -F 'versionCode = ' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "' pad-grade-android/app/build.gradle.kts

@@ -1,0 +1,45 @@
+name: Pad Grade v1.2.5 Renderer Pressure
+
+on:
+  pull_request:
+    branches: [pad-grade-dev, main]
+    paths:
+      - 'pad-grade/**'
+      - 'pad-grade-android/**'
+      - '.github/workflows/pad-grade-v125-renderer-pressure.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax checks
+        run: |
+          node --check pad-grade/v096-diagnostics.js
+          node --check pad-grade/v120-dev.js
+          node --check pad-grade/v122-dev.js
+          node --check pad-grade/v124-dev.js
+          node --check pad-grade/v125-dev.js
+          node --check pad-grade/v125-renderer-pressure-selftest.js
+      - name: Verify v1.2.5 append diagnostics, heat token path, and switch paint barrier
+        run: node pad-grade/v125-renderer-pressure-selftest.js
+      - name: Retain v1.2.2 flickerless completed-canvas regression
+        run: node pad-grade/v122-canvas-handoff-selftest.js
+      - name: Retain v1.2.3 exact-tier consistency regression
+        run: node pad-grade/v123-inspector-consistency-selftest.js
+      - name: Retain v1.2.4 callback timing and picker retirement regression
+        run: node pad-grade/v124-callback-diagnostics-selftest.js
+      - name: Verify current DEV version and changelog
+        run: |
+          grep -F '<title>Pad Grade Mapper v1.2.5 DEV</title>' pad-grade/index.html
+          grep -F 'src="v125-dev.js?v=20260831-1"' pad-grade/index.html
+          grep -F 'versionCode = 97' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.2.5"' pad-grade-android/app/build.gradle.kts
+          grep -F '# Pad Grade Mapper v1.2.5 — DEV BUILD' pad-grade/RELEASE_NOTES.md
+          grep -F 'IndexedDB' pad-grade/RELEASE_NOTES.md
+          grep -F 'two-animation-frame paint barrier' pad-grade/RELEASE_NOTES.md
+          grep -F 'MAINTENANCE / CHANGE-CONTROL NOTE — FLICKERLESS HEAT PRESENTATION' pad-grade/v122-dev.js

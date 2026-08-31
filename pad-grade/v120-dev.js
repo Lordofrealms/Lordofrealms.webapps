@@ -5,6 +5,13 @@
  * MapLibre CanvasSources. They are only offscreen frame inputs. The permanent source is
  * created only after the current style is fully loaded, then updated in-place with a
  * complete PNG data URL using the URL-only ImageSource.updateImage contract in pinned MapLibre 5.16.0. Main and Project Comparison use the same controller.
+ *
+ * v1.2.5 compatibility optimization: when the later v1.2.2 direct completed-canvas
+ * presentation is active and v1.2.5 explicitly opts in, this legacy controller uses a
+ * unique lightweight data-URL token instead of synchronously PNG-encoding the full heat
+ * canvas. v1.2.2 resolves that token back to the already-complete canvas and performs the
+ * same protected in-place texture refresh. The original PNG path remains as a fallback
+ * for historical/self-test execution when the direct-canvas runtime is not active.
  */
 (function installPadGrade120Dev(){
   'use strict';
@@ -29,6 +36,7 @@
   const controllers=new Set();
   let primaryProjectSerial=0;
   let hidden=document.visibilityState==='hidden';
+  let frameSerial=0;
 
   const mark=(name,details)=>{try{window.PadGradeDiag?.mark?.(name,details);}catch(e){}};
   const clone=v=>{try{return JSON.parse(JSON.stringify(v));}catch(e){return v;}};
@@ -80,12 +88,21 @@
     }catch(e){return null;}
   }
   async function encodeCompleteCanvas(canvas){
-    if(!canvas||typeof canvas.toDataURL!=='function')return null;
+    if(!canvas)return null;
     const started=performance.now?.()||Date.now();
     try{
+      const stats=sampleFrame(canvas)||{};
+      // v1.2.5 approved optimization. v1.2.2 never needs the PNG bytes: it uses
+      // frame.url only as an identity token to locate candidate.source.canvas.
+      // Keep a data:image/png prefix so a failed/missing later shim degrades into
+      // the old verifier path instead of introducing an unknown URL scheme.
+      if(window.__padGradeDirectCanvasTokenTransportV125===true&&window.__padGradeDevV122===true){
+        const token=`data:image/png;base64,UEFHUkFERS1DQU5WQVMtVE9LRU4=#pgv125-${++frameSerial}`;
+        return {url:token,kind:'CanvasFrameToken',width:+canvas.width||0,height:+canvas.height||0,encodedChars:0,encodeMs:Math.max(0,(performance.now?.()||Date.now())-started),directCanvasToken:true,...stats};
+      }
+      if(typeof canvas.toDataURL!=='function')return null;
       const url=canvas.toDataURL('image/png');
       if(!url||!url.startsWith('data:image/png'))return null;
-      const stats=sampleFrame(canvas)||{};
       return {url,kind:'PNGDataURL',width:+canvas.width||0,height:+canvas.height||0,encodedChars:url.length,encodeMs:Math.max(0,(performance.now?.()||Date.now())-started),...stats};
     }catch(e){mark('heatmap.v120-frame-encode-failed',{error:String(e?.message||e).slice(0,160)});return null;}
   }
@@ -106,7 +123,7 @@
       if(!source){
         state.baseAddSource(state.cfg.canonicalSource,{type:'image',url:frame.url,coordinates:coords});
         source=state.baseGetSource(state.cfg.canonicalSource);created=true;
-        mark('heatmap.v120-image-source-created',{map:state.role,styleEpoch:state.styleEpoch,source:state.cfg.canonicalSource,transport:'url',initialFrame:true});
+        mark('heatmap.v120-image-source-created',{map:state.role,styleEpoch:state.styleEpoch,source:state.cfg.canonicalSource,transport:frame.directCanvasToken?'canvas-token':'url',initialFrame:true});
       }
       if(!state.baseGetLayer(state.cfg.canonicalLayer)){
         const layer={id:state.cfg.canonicalLayer,type:'raster',source:state.cfg.canonicalSource,layout:{visibility:'none'},paint:{'raster-opacity':state.cfg.opacity(),'raster-fade-duration':0}};
@@ -156,7 +173,7 @@
       const previous=state.currentFrame;
       state.currentFrame=frame;state.currentSource=candidate.source.id;state.currentLayer=candidate.id;state.committedStyleEpoch=state.styleEpoch;
       showCanonical(state);
-      mark('heatmap.v120-image-committed',{map:state.role,styleEpoch:state.styleEpoch,layer:candidate.id,source:candidate.source.id,tier:candidate.source.tier||0,width:frame.width,height:frame.height,kind:frame.kind,transport:'url',sourceLoaded:true,verifiedImageWidth:dims.width,verifiedImageHeight:dims.height,verifyMs:Math.max(0,(performance.now?.()||Date.now())-started),reason});
+      mark('heatmap.v120-image-committed',{map:state.role,styleEpoch:state.styleEpoch,layer:candidate.id,source:candidate.source.id,tier:candidate.source.tier||0,width:frame.width,height:frame.height,kind:frame.kind,transport:frame.directCanvasToken?'canvas-token':'url',sourceLoaded:true,verifiedImageWidth:dims.width,verifiedImageHeight:dims.height,verifyMs:Math.max(0,(performance.now?.()||Date.now())-started),reason});
       if(previous&&previous!==frame)previous.url='';
       return;
     }
@@ -173,11 +190,11 @@
     if(state.verifyTimer){clearTimeout(state.verifyTimer);state.verifyTimer=null;}
     try{
       if(!ensured.created)source.updateImage({url:frame.url,coordinates:coords});
-      mark('heatmap.v120-image-requested',{map:state.role,styleEpoch:state.styleEpoch,layer:candidate.id,source:candidate.source.id,tier:candidate.source.tier||0,width:frame.width,height:frame.height,kind:frame.kind,transport:'url',encodedChars:frame.encodedChars||0,encodeMs:frame.encodeMs||0,sampleNonTransparent:frame.sampleNonTransparent??null,samplePixels:frame.samplePixels??null,reason,initialSource:ensured.created});
+      mark('heatmap.v120-image-requested',{map:state.role,styleEpoch:state.styleEpoch,layer:candidate.id,source:candidate.source.id,tier:candidate.source.tier||0,width:frame.width,height:frame.height,kind:frame.kind,transport:frame.directCanvasToken?'canvas-token':'url',encodedChars:frame.encodedChars||0,encodeMs:frame.encodeMs||0,sampleNonTransparent:frame.sampleNonTransparent??null,samplePixels:frame.samplePixels??null,reason,initialSource:ensured.created});
       verifyRequestedFrame(state,request,source,previousImage,candidate,frame,reason,started,0);
       return true;
     }catch(e){
-      mark('heatmap.v120-image-commit-failed',{map:state.role,styleEpoch:state.styleEpoch,error:String(e?.message||e).slice(0,180),reason,transport:'url'});
+      mark('heatmap.v120-image-commit-failed',{map:state.role,styleEpoch:state.styleEpoch,error:String(e?.message||e).slice(0,180),reason,transport:frame.directCanvasToken?'canvas-token':'url'});
       return false;
     }
   }
@@ -199,7 +216,7 @@
     record.api=api;state.sources.set(record.id,record);
     encodeCompleteCanvas(canvas).then(frame=>{
       if(record.removed)return;if(!frame){mark('heatmap.v120-frame-encode-failed',{map:state.role,source:record.id});return;}
-      record.frame=frame;mark('heatmap.v120-frame-ready',{map:state.role,source:record.id,tier:record.tier||0,width:frame?.width||0,height:frame?.height||0,kind:frame?.kind||'none',encodedChars:frame?.encodedChars||0,encodeMs:frame?.encodeMs||0,sampleNonTransparent:frame?.sampleNonTransparent??null,samplePixels:frame?.samplePixels??null});scheduleCommit(state,'frame-ready');
+      record.frame=frame;mark('heatmap.v120-frame-ready',{map:state.role,source:record.id,tier:record.tier||0,width:frame?.width||0,height:frame?.height||0,kind:frame?.kind||'none',transport:frame?.directCanvasToken?'canvas-token':'url',encodedChars:frame?.encodedChars||0,encodeMs:frame?.encodeMs||0,sampleNonTransparent:frame?.sampleNonTransparent??null,samplePixels:frame?.samplePixels??null});scheduleCommit(state,'frame-ready');
     }).catch(e=>mark('heatmap.v120-frame-decode-failed',{map:state.role,source:record.id,error:String(e?.message||e).slice(0,160)}));
     mark('heatmap.v120-canvas-intercepted',{map:state.role,source:record.id,tier:record.tier||0,width:+canvas?.width||0,height:+canvas?.height||0});return api;
   }

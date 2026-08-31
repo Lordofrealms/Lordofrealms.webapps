@@ -15,7 +15,9 @@ const java=fs.readFileSync(path.join(root,'../pad-grade-android/app/src/main/jav
 const gradle=fs.readFileSync(path.join(root,'../pad-grade-android/app/build.gradle.kts'),'utf8');
 const notes=read('RELEASE_NOTES.md');
 
-requireText(index,'Pad Grade Mapper v1.2.4 DEV','v1.2.4 title');
+// v1.2.4 is a retained behavior gate, not a demand that the whole app remain
+// frozen at v1.2.4. Current DEV may advance while these capabilities stay wired.
+requireText(index,'Pad Grade Mapper v','current DEV title');
 requireText(index,'v124-dev.js','v1.2.4 startup wiring');
 requireText(v124,'__padGradeResolutionInspectorEnabled=false','inspector retirement flag');
 requireText(v124,'#pg112ResolutionInspector,#pg113ResolutionInspector{display:none!important','inspector hidden UI');
@@ -30,9 +32,13 @@ for(const needle of ['nativeQueueWaitMs','androidUiPostWaitMs','webViewEvalToJsM
 for(const needle of ['FileQueueTiming','queueWaitMs','queueAheadCount','uiPostWaitMs','evalInvokedEpochMs'])requireText(java,needle,'Android callback stage timing');
 requireText(java,'Executors.newSingleThreadExecutor','file ordering remains single-threaded');
 
-requireText(gradle,'versionCode = 96','Android build number');
-requireText(gradle,'versionName = "1.2.4"','Android version');
-requireText(notes,'# Pad Grade Mapper v1.2.4 — DEV BUILD','release notes version');
+const versionName=(gradle.match(/versionName\s*=\s*"(\d+\.\d+\.\d+)"/)||[])[1];
+const versionCode=+(gradle.match(/versionCode\s*=\s*(\d+)/)||[])[1];
+const parts=v=>String(v||'').split('.').map(Number);
+const atLeast=(v,f)=>{const a=parts(v),b=parts(f);for(let i=0;i<3;i++){if((a[i]||0)!==(b[i]||0))return (a[i]||0)>(b[i]||0);}return true;};
+if(!atLeast(versionName,'1.2.4'))throw new Error('Android version regressed below v1.2.4');
+if(!(versionCode>=96))throw new Error('Android build regressed below 96');
+requireText(notes,'# Pad Grade Mapper v','current release-notes heading');
 requireText(notes,'specific developer agreement','release-note presentation change control');
 
-console.log('Pad Grade v1.2.4 callback diagnostics self-test passed.');
+console.log('Pad Grade v1.2.4 callback diagnostics carry-forward self-test passed.');
