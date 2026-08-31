@@ -17,20 +17,30 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Syntax check current heat runtimes
+      - name: Syntax check retained v1.2.1 heat runtime
         run: |
           node --check pad-grade/v120-dev.js
           node --check pad-grade/v121-dev.js
           node --check pad-grade/v121-image-request-selftest.js
       - name: Reproduce and block same-frame reload starvation
         run: node pad-grade/v121-image-request-selftest.js
-      - name: Verify release wiring
+      - name: Verify carry-forward release wiring
         run: |
-          grep -F '<title>Pad Grade Mapper v1.2.1 DEV</title>' pad-grade/index.html
+          node - <<'NODE'
+          const fs=require('fs');
+          const html=fs.readFileSync('pad-grade/index.html','utf8');
+          const gradle=fs.readFileSync('pad-grade-android/app/build.gradle.kts','utf8');
+          const title=(html.match(/Pad Grade Mapper v(\d+\.\d+\.\d+) DEV/)||[])[1];
+          const name=(gradle.match(/versionName\s*=\s*"(\d+\.\d+\.\d+)"/)||[])[1];
+          const code=+(gradle.match(/versionCode\s*=\s*(\d+)/)||[])[1];
+          const parts=v=>String(v||'').split('.').map(Number);
+          const atLeast=(v,f)=>{const a=parts(v),b=parts(f);for(let i=0;i<3;i++){if((a[i]||0)!==(b[i]||0))return (a[i]||0)>(b[i]||0);}return true;};
+          if(!atLeast(title,'1.2.1'))throw new Error('DEV title regressed below v1.2.1');
+          if(!atLeast(name,'1.2.1'))throw new Error('Android versionName regressed below v1.2.1');
+          if(!(code>=93))throw new Error('Android versionCode regressed below build 93');
+          NODE
           grep -F 'src="v120-dev.js?v=20260831-1' pad-grade/index.html
           grep -F 'src="v121-dev.js?v=20260831-1' pad-grade/index.html
           grep -F 'one-inflight-load-per-unique-url' pad-grade/v121-dev.js
-          grep -F 'versionCode = 93' pad-grade-android/app/build.gradle.kts
-          grep -F 'versionName = "1.2.1"' pad-grade-android/app/build.gradle.kts
           grep -F '## v1.2.1 — development build' pad-grade/CHANGELOG.md
           grep -F '## v1.2.1 — development build (93)' pad-grade-android/CHANGELOG.md
