@@ -1,3 +1,54 @@
+# Pad Grade Mapper v1.2.7 — DEV BUILD
+
+## v1.2.7 — point-mutation cancellation, sequential heat generation, and startup visual gating
+
+### Fixed — point changes cancel obsolete heat work before anything else
+- Saving a changed rod reading now makes heat-generation cancellation the first heat-related operation. The currently owned regular generation is invalidated before the reading mutation can start replacement heat work.
+- Point deletion and settings application use the same mutation-first cancellation boundary.
+- Every physical regular-worker termination is now diagnostic-visible with project, tier, generation, age, forwarding state, and cancellation reason. This closes the v1.2.6 observability gap where an older owner could terminate a worker without leaving an auditable v1.2.6 termination marker.
+- Project switching continues to cancel the outgoing generation, and v1.2.7 additionally cancels any queued-but-not-yet-forwarded regular tier owned by the superseded project/surface.
+
+### Changed — regular heat tiers are sequential for this DEV evaluation
+- For an uncached active surface, the regular heat pipeline is now **99 → 297 → 891** rather than starting 99 and 297 together.
+- The 297 request is held without forwarding raster work until the current 99 tier completes. If 99 discovers an exact valid final-891 cache, the queued 297 request is terminated without ever reaching the raster worker.
+- The existing final 891 behavior remains deferred until 297 completes.
+- New diagnostics report queued 297 work, queue wait time, release after 99, cache-hit cancellation, and worker forwarding so this DEV build can be compared directly against the prior co-generated 99/297 behavior.
+- This is intentionally a performance experiment in v1.2.7; interpolation math, tier dimensions, and color calculation are unchanged.
+
+### Fixed — stale completed rasters cannot reappear after a surface change
+- Completed regular canvases are now bound to immutable project + exact surface-key + generation provenance before they may feed the legacy canvas-source compatibility path.
+- Reuse of that same canvas is permitted only while its provenance still matches the active project/surface/generation. After a point changes, the old canvas can no longer be re-added by a later layout/visibility repair.
+- This specifically prevents the v1.2.6 failure where the correct cached 891 could be restored after returning a point to its original value and then an older 297 canvas could reappear and overwrite it.
+- Exact cached 891 canvases remain authoritative for their exact project/surface key. A cache hit can therefore restore the finished 891 while obsolete lower-tier work is cancelled instead of repainting afterward.
+
+### Changed — first-install storage setup stays covered
+- On a clean Android install, Pad Grade may continue preloading local code/layout underneath the native Terms of Use screen, but the normal workspace is now covered before the legal screen releases.
+- The first-run storage choice/native durable-folder flow therefore occurs before the normal Pad Grade workspace can become visible. Cancelling the Android folder picker returns to the storage choice while the workspace remains covered rather than exposing a partially initialized layout.
+- Existing installs with an already valid durable folder continue through normal recovery without an unnecessary folder prompt.
+
+### Changed — recovered GPS startup waits for the base map itself
+- The startup/recovery cover may no longer be released merely because project state, the lower grid, or survey-grid overlays are ready when the active project is in GPS mode.
+- v1.2.7 requires the base MapLibre map to reach a real rendered frame before the full cover can drop. It does **not** wait for the heatmap, GPS fix, NAIP refinement, or other secondary overlays.
+- The older v1.1.1 partial-reveal CSS is explicitly overridden while the v1.2.7 full startup gate is active so the ordinary app layout cannot appear before the base map is ready.
+
+### Protected behavior unchanged
+- The protected v1.2.2 flickerless completed-canvas presenter is unchanged. v1.2.7 operates upstream by controlling worker ownership and admission of completed legacy canvases; it does not recreate or replace the permanent MapLibre heat source/layer.
+- IDW²/local-surface interpolation math, color calculation, 99 / 297 / 891 resolutions, final 891 cache format, project schema, GPS calculations, Project Comparison math, and map imagery sources are unchanged.
+
+### Changed
+- Android DEV package is **version 1.2.7 / build 99** and installs separately from stable.
+
+### DEV verification
+- Change a measured point while 297 or 891 is still running. Diagnostics should show `heatmap.v127-mutation-cancel-first` before the new generation and physical termination of obsolete work.
+- Make several rapid point changes. Only the newest surface generation should continue consuming regular heat CPU.
+- For an uncached surface, confirm diagnostics show 297 queued behind 99 and released only after current 99 completes; 891 should still begin after 297.
+- Change a point away from a saved value and then back to the exact original value. The valid cached 891 should return, 297 should be skipped/cancelled, and no stale 99/297 canvas should overwrite the restored 891.
+- Reinstall/clear app data and confirm the sequence is Terms of Use → storage choice/durable folder picker → recovery/init → normal workspace, without the workspace flashing in between.
+- On a recovered GPS project, confirm the startup cover remains until the base map itself is rendered, but does not wait for the heatmap or GPS fix.
+- Confirm heat transitions remain flickerless and the v1.2.2 permanent source/layer are never recreated during tier changes.
+
+---
+
 # Pad Grade Mapper v1.2.6 — DEV BUILD
 
 ## v1.2.6 — active heat-generation cancellation and cache-aware worker ownership
