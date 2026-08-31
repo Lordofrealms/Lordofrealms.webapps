@@ -1,4 +1,4 @@
-name: Pad Grade v1.1.10 MapLibre 5.16 Heat Fix
+name: Pad Grade v1.2.0 MapLibre 5.16 Heat Fix
 
 on:
   pull_request:
@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate v1.1.10 runtime syntax
+      - name: Validate v1.2.0 runtime syntax
         run: node --check pad-grade/v120-dev.js
       - name: Validate MapLibre 5.16 cutover and version policy
         run: node pad-grade/v120-heat-fix-selftest.js
