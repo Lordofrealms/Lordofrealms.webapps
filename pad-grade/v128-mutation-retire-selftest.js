@@ -42,6 +42,7 @@ must(v122.includes('MAINTENANCE / CHANGE-CONTROL NOTE — FLICKERLESS HEAT PRESE
 // pin an obsolete 99/297/891 bitmap in memory. Source/layer tombstones make the
 // 900 ms legacy repair loop terminate at cheap v1.2.8 getters/property no-ops rather
 // than recreating virtual presentation records or entering MapLibre.
+must(v128.includes('if(!map.__padGradeV127ProvenanceGuard)return false;'), 'v1.2.8 tombstone guard can install inside the v1.2.7 provenance wrapper');
 must(v128.includes('if(NORMAL_SOURCE_RE.test(sid)&&canvas&&retiredCanvases.has(canvas))'), 'retired-canvas admission guard missing');
 must(v128.includes('canvas.width=1;canvas.height=1'), 'retired canvas backing store is not released');
 must(v128.includes('const retiredSourceIds=new Set()')&&v128.includes('const retiredLayerIds=new Set()'), 'legacy producer tombstone sets missing');
