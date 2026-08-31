@@ -1,0 +1,46 @@
+name: Pad Grade v1.2.2 Direct Completed Canvas
+
+on:
+  pull_request:
+    branches: [pad-grade-dev, main]
+    paths:
+      - 'pad-grade/**'
+      - 'pad-grade-android/**'
+      - '.github/workflows/pad-grade-v121-image-dedupe.yml'
+      - '.github/workflows/pad-grade-v122-direct-canvas.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax check current heat runtimes
+        run: |
+          node --check pad-grade/v120-dev.js
+          node --check pad-grade/v121-dev.js
+          node --check pad-grade/v122-dev.js
+          node --check pad-grade/v122-canvas-handoff-selftest.js
+      - name: Verify direct complete-canvas handoff and no tier-swap recreation
+        run: node pad-grade/v122-canvas-handoff-selftest.js
+      - name: Carry forward prior heat regression gates
+        run: |
+          node pad-grade/v121-image-request-selftest.js
+          node pad-grade/v120-heat-fix-selftest.js
+          node pad-grade/v110-staged-heat-selftest.js
+          node pad-grade/v111-resilience-selftest.js
+      - name: Verify v1.2.2 release wiring
+        run: |
+          grep -F '<title>Pad Grade Mapper v1.2.2 DEV</title>' pad-grade/index.html
+          grep -F 'src="v120-dev.js?v=20260831-1' pad-grade/index.html
+          grep -F 'src="v122-dev.js?v=20260831-1' pad-grade/index.html
+          grep -F 'src="v121-dev.js?v=20260831-1' pad-grade/index.html
+          grep -F 'window.__padGradeDevV121=true' pad-grade/v122-dev.js
+          grep -F "type:'canvas',canvas:displayCanvas" pad-grade/v122-dev.js
+          grep -F "tierSwapSourceRecreate:false" pad-grade/v122-dev.js
+          grep -F "tierSwapLayerRecreate:false" pad-grade/v122-dev.js
+          grep -F 'versionCode = 94' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.2.2"' pad-grade-android/app/build.gradle.kts
