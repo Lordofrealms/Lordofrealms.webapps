@@ -1,5 +1,36 @@
 # Changelog
 
+## v1.1.10 — development build
+
+### Fixed — MapLibre 5.16.0 image transport
+- The v1.1.9 diagnostic log exposed the actual blank-heat root cause: Pad Grade pins **MapLibre GL JS 5.16.0**, whose `ImageSource.updateImage()` implementation silently returns when only `image: ImageBitmap` is supplied. v1.1.9 therefore logged successful calls that MapLibre ignored, leaving the permanent source on its transparent placeholder.
+- Completed worker/cache canvases are now encoded to a local PNG data URL and supplied through the **`url` contract that MapLibre 5.16.0 actually implements**. The first permanent ImageSource is created with the real completed frame URL rather than a transparent placeholder, and later resolutions call `updateImage({url, coordinates})`.
+- A frame is no longer called committed merely because `updateImage()` returned. v1.1.10 waits until the ImageSource reports loaded and verifies that MapLibre's decoded image object changed and has the expected raster dimensions before making the canonical layer visible and emitting `heatmap.v120-image-committed`.
+
+### Fixed — style readiness and Project Comparison
+- Heat presentation no longer waits for `map.isStyleLoaded()` to become true after `style.load`. With the USGS raster stacks, `isStyleLoaded()` can remain false while imagery requests are still outstanding even though the style is already safe to mutate. That delayed the main heat map by many seconds and could block Compare indefinitely.
+- `style.load` now establishes the presentation generation. Main and Compare may add their permanent local heat source/layer immediately after that event, independently of slow or stalled satellite imagery.
+- Compare resolution diagnostics now report the actual 99 / 297 / 891 tier inferred from canvas dimensions instead of mistaking its double-buffer slot suffix (`0` / `1`) for a tier.
+
+### Diagnostics / regression coverage
+- Added `heatmap.v120-image-requested`, verified `heatmap.v120-image-committed`, and `heatmap.v120-image-verify-failed` events. Frame/request rows include PNG encode timing, encoded length, and a tiny alpha sample so a future failure can distinguish blank worker pixels from MapLibre presentation failure.
+- The v1.1.10 runtime self-test emulates the **MapLibre 5.16.0 URL-only `updateImage` behavior**: direct `image` updates are deliberately ignored by the fake source. It also holds `isStyleLoaded()` false after `style.load` to prove both Main and Compare still create and verify the heat image.
+- Historical v1.1.9 tests remain as carry-forward tests, but no longer require the broken v1.1.9 runtime to be executable.
+
+### Changed
+- Active heat presentation moves from `v119-dev.js` to `v120-dev.js`. v1.1.9 remains in the repository for regression/history only.
+- Android DEV package is **version 1.1.10 / build 92**.
+- The v1.1.9 GPS permission denial/retry behavior is carried forward unchanged while it is being field-tested.
+
+### Unchanged
+- IDW² interpolation math, measured-point/color-scale math, 99 / 297 / 891 worker resolutions, final 891 cache format, project schema, project-grid geometry, Project Comparison delta math, GPS suspension on minimize, and retained satellite imagery are unchanged.
+
+### DEV verification
+- Confirm the main heat map appears shortly after the map style becomes ready; it should not wait for all USGS imagery to finish loading.
+- Switch **Auto → 99 → 297 → 891 → Auto** and confirm every completed tier visibly replaces the prior completed tier with no blank frame or crossfade.
+- Open Project Comparison and confirm its heat map appears even while satellite imagery is still loading.
+- Continue the v1.1.9 GPS permission test: deny/choose **Not now**, confirm Manual fallback, then select GPS Guided again to retry.
+
 ## v1.1.9 — development build
 
 ### Fixed — permanent heat presentation cutover

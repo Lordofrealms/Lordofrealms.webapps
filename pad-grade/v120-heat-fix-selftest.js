@@ -1,0 +1,20 @@
+const fs=require('fs');
+const html=fs.readFileSync('pad-grade/index.html','utf8');
+const js=fs.readFileSync('pad-grade/v120-dev.js','utf8');
+const gradle=fs.readFileSync('pad-grade-android/app/build.gradle.kts','utf8');
+function ok(v,m){if(!v)throw new Error(m);}
+ok(html.includes('Pad Grade Mapper v1.1.10 DEV'),'v1.1.10 DEV title missing');
+ok(html.includes('src="v120-dev.js'),'v120 runtime not loaded');
+ok(!html.includes('<script src="v119-dev.js'),'v119 runtime still executable');
+ok(js.includes("source.updateImage({url:frame.url,coordinates:coords})"),'MapLibre 5.16 URL update contract missing');
+ok(!js.includes('updateImage({image:'),'unsupported direct ImageBitmap update remains');
+ok(!js.includes('TRANSPARENT_PIXEL'),'transparent placeholder remains');
+ok(js.includes('state.styleEpoch>0||!!state.map.isStyleLoaded?.()'),'style.load readiness fallback missing');
+ok(js.includes('source.loaded?.()===true'),'source loaded verification missing');
+ok(js.includes('source.image!==previousImage'),'decoded image replacement verification missing');
+ok(js.includes('heatmap.v120-image-requested')&&js.includes('heatmap.v120-image-committed')&&js.includes('heatmap.v120-image-verify-failed'),'v120 verification diagnostics missing');
+ok(!/baseAddSource\([^\n]+type:\s*['"]canvas['"]/.test(js),'v120 adds a real MapLibre CanvasSource');
+ok(js.includes("id==='gpsMap'")&&js.includes("id==='pgCompareMap'"),'shared main/compare constructor hook missing');
+ok(js.includes('gps.permission-denied-manual-fallback'),'GPS denial/manual fallback not carried forward');
+ok(gradle.includes('versionCode = 92')&&gradle.includes('versionName = "1.1.10"'),'Android version/build mismatch');
+console.log('Pad Grade v1.1.10 static self-test passed');
