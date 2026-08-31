@@ -99,7 +99,7 @@
         mark('heatmap.v119-image-source-created',{map:state.role,styleEpoch:state.styleEpoch,source:state.cfg.canonicalSource});
       }
       if(!state.baseGetLayer(state.cfg.canonicalLayer)){
-        const layer={id:state.cfg.canonicalLayer,type:'raster',source:state.cfg.canonicalSource,layout:{visibility:'none'},paint:{'raster-opacity':state.cfg.opacity(),'raster-fade-duration':0,'raster-resampling':'linear'}};
+        const layer={id:state.cfg.canonicalLayer,type:'raster',source:state.cfg.canonicalSource,layout:{visibility:'none'},paint:{'raster-opacity':state.cfg.opacity(),'raster-fade-duration':0}};
         const before=anchor(state);before?state.baseAddLayer(layer,before):state.baseAddLayer(layer);
         mark('heatmap.v119-image-layer-created',{map:state.role,styleEpoch:state.styleEpoch,layer:state.cfg.canonicalLayer});
       }
