@@ -1,3 +1,40 @@
+# Pad Grade Mapper v1.2.6 — DEV BUILD
+
+## v1.2.6 — active heat-generation cancellation and cache-aware worker ownership
+
+### Fixed — stale heat-map generations are actively terminated
+- Project switching no longer relies on merely ignoring stale worker results. Once the outgoing project overlays are confirmed hidden, v1.2.6 actively cancels the outgoing regular heat generation and terminates every still-owned 99 / 297 / 891 worker.
+- The lifecycle controller maintains a single active regular generation identity and enforces at most one active worker for each tier in that generation. If a duplicate same-tier worker is requested, the older worker is terminated instead of allowing two copies to continue consuming CPU.
+- Surface-generation replacement also cancels the previous generation before admitting the new one.
+- New diagnostics expose generation ownership, duplicate-tier prevention, explicit worker termination, generation cancellation, and a runtime invariant check showing the number of active identities/jobs.
+
+### Fixed — final 891 cache gating survives the v0.7.8 worker redirect
+- The v1.1.3 cache controller originally recognized only the old `heatmap-raster-worker-v073.js` URL. The active v0.7.8 surface layer redirects that worker to `heatmap-raster-worker-v078.js`, which meant the v1.1.3 cache/preemption wrapper could fail to identify the redirected worker as heat work.
+- v1.2.6 explicitly repairs that worker identity after redirection. The existing v1.1.3 cache path can therefore again prove a valid cached 891 before native 99/297 raster work is posted.
+- When the cached final 891 is valid for the active project/surface, lower-tier 99/297 requests terminate through the cache-hit path instead of generating redundant smaller rasters.
+- Restoring the v1.1.3 heat-worker identity also restores its foreground-vs-background preemption behavior, preventing background cache generation from competing with a newly requested foreground regular heat generation.
+
+### Changed — Projects dialog waits only for outgoing removal
+- v1.2.5 held the Projects dialog until the replacement project had been applied and then waited two more paint frames. That was stronger than intended and could make the chooser remain visible while replacement heat work continued.
+- v1.2.6 makes the original boundary explicit: after the outgoing grid/heat overlays are hidden, the app waits two animation frames so that cleared state is painted, then closes the Projects dialog.
+- The dialog does **not** wait for target heat generation, target heat presentation, or target-project completion before it is allowed to close.
+
+### Protected behavior unchanged
+- The protected v1.2.2 flickerless completed-canvas presentation remains unchanged: no canonical heat source/layer recreation was introduced.
+- IDW²/local-surface interpolation math, color calculation, 99 / 297 / 891 resolutions, final 891 cache format, project schema, GPS behavior, Project Comparison math, and map imagery behavior are unchanged.
+
+### Changed
+- Android DEV package is **version 1.2.6 / build 98** and installs separately from stable.
+
+### DEV verification
+- Start a project with an uncached heat map and switch projects while 99/297/891 work is still running. Diagnostics should show `heatmap.v126-generation-cancelled` and `heatmap.v126-worker-terminated`; no outgoing worker should continue after `project.switch-outgoing-hidden`.
+- Repeatedly trigger redraw/switch activity and confirm `heatmap.v126-generation-invariant` remains `ok: true`, with one active generation identity and no duplicate tier ownership.
+- Reopen a project with a valid final 891 cache. Diagnostics should show `heatmap.v126-lower-tier-skipped-final-cache` for lower tiers rather than native lower-tier raster generation.
+- Switch projects and confirm the chooser disappears after the outgoing overlays are painted away; it must not remain on screen waiting for the replacement heat map.
+- Confirm the heat map still progresses/appears with no blank flash or flicker and that the v1.2.2 permanent presentation source/layer remains intact.
+
+---
+
 # Pad Grade Mapper v1.2.5 — DEV BUILD
 
 ## v1.2.5 — renderer-pressure cleanup and project-switch visual boundary
