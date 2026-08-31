@@ -109,4 +109,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: gh pr comment "$PR_NUMBER" --body "✅ Verified GitHub Release published successfully with direct Pad Grade APK asset: Pad-Grade-v0.4.5.apk."
+        run: |
+          gh pr comment "$PR_NUMBER" --body "✅ Verified GitHub Release published successfully with direct Pad Grade APK asset: Pad-Grade-v0.4.5.apk."
