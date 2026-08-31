@@ -49,6 +49,8 @@ must(startupTag>=0&&startupTag<bodyTag, 'startup/precover gate must load before 
 must(startup.includes('isFreshAndroidInstall()'), 'fresh-install head detection missing');
 must(startup.includes("armFreshInstallCover('head-before-body')"), 'fresh-install cover not armed before body');
 must(startup.includes("window.addEventListener('padgrade-legal-accepted',()=>armFreshInstallCover('legal-accepted-before-storage-choice'))"), 'Terms-to-storage transition is not re-covered immediately');
+must(startup.includes('html.padGradeRecoveryHold.padGradeFirstRunSetupV127 body>*{visibility:hidden!important}'), 'fresh-install workspace hiding still depends on a later runtime-ready class');
+must(startup.indexOf('ensureStyle();')<startup.indexOf('if(isFreshAndroidInstall())'), 'fresh-install CSS must exist before the precover is armed');
 must(startup.includes('safetyMaxMs:6000')&&!startup.includes('setInterval(()=>armFreshInstallCover'), 'map/precover layer must preserve the 6-second max rather than continuously rearming it');
 
 console.log('Pad Grade v1.2.8 mutation/retirement + fresh-install precover self-test passed');
