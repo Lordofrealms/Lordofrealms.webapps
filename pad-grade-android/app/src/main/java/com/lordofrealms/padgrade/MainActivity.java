@@ -10,6 +10,7 @@ import android.graphics.Insets;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.view.WindowInsets;
 import android.window.OnBackInvokedDispatcher;
 import android.webkit.GeolocationPermissions;
@@ -50,11 +51,13 @@ public final class MainActivity extends Activity {
     private boolean modernBackRegistered = false;
     private boolean legalReleasePending = false;
     private boolean webViewTimersPaused = false;
+    private boolean pendingOneTimeLocationRecoveryNotice = false;
     private final String activityInstanceId = Long.toString(android.os.SystemClock.elapsedRealtime(), 36) + "-" + Integer.toHexString(System.identityHashCode(this));
     private PadGradeLifecycleBridge lifecycleBridge;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        pendingOneTimeLocationRecoveryNotice = PadGradeLifecycleBridge.consumeOneTimePermissionRevokedExitNotice(this);
         PadGradeLifecycleBridge.recordHistoricalExitReasons(this, activityInstanceId);
         PadGradeLifecycleBridge.log(this, "activity.onCreate", activityInstanceId, savedInstanceState != null, null, null, null, "new-activity");
         getWindow().setStatusBarColor(Color.rgb(11, 15, 20));
@@ -74,6 +77,7 @@ public final class MainActivity extends Activity {
             return;
         }
         initializeWebView(savedInstanceState, false);
+        maybeShowOneTimeLocationRecoveryNotice();
     }
 
     private void initializeWebView(Bundle savedInstanceState, boolean legalPreload) {
@@ -81,6 +85,10 @@ public final class MainActivity extends Activity {
         pendingInitialState = null;
 
         webView = new WebView(this);
+        // WebView.pauseTimers() is process-global. A prior Activity can pause the timer
+        // pool and then be destroyed during hard reload, so every new foreground WebView
+        // explicitly resumes the global pool instead of trusting an Activity-local flag.
+        try { webView.resumeTimers(); } catch (RuntimeException ignored) {}
         PadGradeLifecycleBridge.log(this, "webview.created", activityInstanceId, savedInstanceState != null, null, null, null, legalPreload ? "legal-preload" : (savedInstanceState == null ? "fresh-load" : "restore-state"));
         webView.setOnApplyWindowInsetsListener((view, windowInsets) -> {
             Insets bars = windowInsets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
@@ -148,11 +156,13 @@ public final class MainActivity extends Activity {
         webView.setWebChromeClient(new WebChromeClient() {
             @Override public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
                 if (origin == null || !origin.startsWith(APP_ORIGIN)) { callback.invoke(origin, false, false); return; }
-                if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) callback.invoke(origin, true, false);
-                else {
-                    pendingGeoOrigin = origin; pendingGeoCallback = callback;
-                    requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, LOCATION_PERMISSION_REQUEST);
+                if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                    callback.invoke(origin, true, false);
+                    return;
                 }
+                if (pendingGeoCallback != null) { callback.invoke(origin, false, false); return; }
+                pendingGeoOrigin = origin; pendingGeoCallback = callback;
+                showLocationPermissionEducationThenRequest();
             }
 
             @Override public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
@@ -227,11 +237,16 @@ public final class MainActivity extends Activity {
     }
 
     private void resumeWebViewFromBackground() {
-        if (webView == null || !webViewTimersPaused) return;
+        if (webView == null) return;
+        boolean wasPausedHere = webViewTimersPaused;
+        // resumeTimers() is global to all WebViews in this process. Always call it on
+        // foreground resume so a destroyed/recreated Activity cannot inherit a globally
+        // paused timer pool while its own local flag starts false.
         try { webView.resumeTimers(); } catch (RuntimeException ignored) {}
         try { webView.onResume(); } catch (RuntimeException ignored) {}
         webViewTimersPaused = false;
-        PadGradeLifecycleBridge.log(this, "webview.backgroundResumed", activityInstanceId, false, null, null, null, "resumeTimers+onResume");
+        PadGradeLifecycleBridge.log(this, "webview.backgroundResumed", activityInstanceId, false, null, null, null,
+                wasPausedHere ? "resumeTimers+onResume" : "global-resumeTimers+onResume");
     }
 
     @Override protected void onStart() {
@@ -272,8 +287,11 @@ public final class MainActivity extends Activity {
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == LOCATION_PERMISSION_REQUEST && pendingGeoCallback != null) {
-            boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
-            pendingGeoCallback.invoke(pendingGeoOrigin, granted, false); pendingGeoCallback = null; pendingGeoOrigin = null;
+            boolean fineGranted = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+            boolean coarseGranted = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+            pendingGeoCallback.invoke(pendingGeoOrigin, fineGranted, false);
+            pendingGeoCallback = null; pendingGeoOrigin = null;
+            if (!fineGranted && coarseGranted) showPreciseLocationRequired();
         }
     }
 
@@ -283,6 +301,7 @@ public final class MainActivity extends Activity {
             if (resultCode == RESULT_OK && LegalNoticeActivity.isAccepted(this)) {
                 if (webView == null) initializeWebView(pendingInitialState, false);
                 else { legalReleasePending = true; releaseLegalPreload(); }
+                maybeShowOneTimeLocationRecoveryNotice();
             } else finish();
             return;
         }
@@ -309,6 +328,62 @@ public final class MainActivity extends Activity {
                 out.write(text.getBytes(StandardCharsets.UTF_8)); out.flush();
             } catch (IOException | RuntimeException ex) { Toast.makeText(this, "Could not save file: " + ex.getMessage(), Toast.LENGTH_LONG).show(); }
         }
+    }
+
+    private void clearPendingGeolocationRequest(boolean grant) {
+        if (pendingGeoCallback == null) return;
+        try { pendingGeoCallback.invoke(pendingGeoOrigin, grant, false); } catch (RuntimeException ignored) {}
+        pendingGeoCallback = null; pendingGeoOrigin = null;
+    }
+
+    private void showLocationPermissionEducationThenRequest() {
+        if (isFinishing() || isDestroyed()) { clearPendingGeolocationRequest(false); return; }
+        new AlertDialog.Builder(this)
+                .setTitle("Before Android asks for location")
+                .setMessage("Pad Grade needs Precise location for GPS Guided surveying.\n\n" +
+                        "On the Android permission screen, choose “While using the app” and keep Precise location enabled.\n\n" +
+                        "Avoid “Only this time.” Android can revoke one-time location access after Pad Grade is minimized and terminate the app, making it look like Pad Grade closed.\n\n" +
+                        "Pad Grade suspends GPS while minimized and does not request background location.")
+                .setNegativeButton("Not now", (dialog, which) -> clearPendingGeolocationRequest(false))
+                .setPositiveButton("Continue", (dialog, which) -> requestPermissions(
+                        new String[]{Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION},
+                        LOCATION_PERMISSION_REQUEST))
+                .setOnCancelListener(dialog -> clearPendingGeolocationRequest(false))
+                .show();
+    }
+
+    private void showPreciseLocationRequired() {
+        if (isFinishing() || isDestroyed()) return;
+        new AlertDialog.Builder(this)
+                .setTitle("Precise location required")
+                .setMessage("Android granted approximate location only. GPS Guided surveying needs Precise location. Open Pad Grade app settings, choose Location, enable Precise location, and use “While using the app”.")
+                .setNegativeButton("Not now", null)
+                .setPositiveButton("Open App Settings", (dialog, which) -> openAppSettings())
+                .show();
+    }
+
+    private void openAppSettings() {
+        try {
+            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (RuntimeException ex) {
+            Toast.makeText(this, "Could not open app settings.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void maybeShowOneTimeLocationRecoveryNotice() {
+        if (!pendingOneTimeLocationRecoveryNotice || isFinishing() || isDestroyed()) return;
+        pendingOneTimeLocationRecoveryNotice = false;
+        getWindow().getDecorView().post(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            new AlertDialog.Builder(this)
+                    .setTitle("Temporary location access closed Pad Grade")
+                    .setMessage("Android ended the previous Pad Grade process when its “Only this time” location permission was revoked.\n\n" +
+                            "For reliable GPS Guided surveying, choose “While using the app” and Precise location. Pad Grade suspends GPS while minimized and does not need background location access.")
+                    .setNegativeButton("OK", null)
+                    .setPositiveButton("Open App Settings", (dialog, which) -> openAppSettings())
+                    .show();
+        });
     }
 
     private void confirmBackExit() {

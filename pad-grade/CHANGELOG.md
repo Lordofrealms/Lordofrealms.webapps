@@ -4,6 +4,42 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v1.1.8 — development build
+
+### Fixed
+- Replaced the broken v1.1.7 heat-image authority token with **current-candidate commit semantics**. A completed frame is evaluated against the heat layer/source that is authoritative *when decoding finishes*; routine legacy visibility, overlay-repair, and layer-sync chatter no longer invalidates every valid `ImageBitmap` before it can be committed.
+- The regular project map and **Project Comparison** now use the same presentation model: one permanent MapLibre `ImageSource` + raster layer per map. Existing workers still calculate complete rasters offscreen, and the previously committed image stays painted while a replacement is prepared. Temporary removal of legacy double-buffer slots no longer blanks the permanent image, eliminating the source/layer handoff that caused visible resolution flicker.
+- Fixed hard reload/recreation inheriting a globally paused WebView timer pool. `WebView.pauseTimers()` is process-global, so every foreground `Activity.onResume()` and every newly created foreground WebView now calls `resumeTimers()` even when that Activity's local `webViewTimersPaused` flag starts false.
+- Added an app-level recovery notice for Android exits reported as `PERMISSION_CHANGE` with `one-time permission revoked`. This query uses Android `ApplicationExitInfo` directly and works even when Pad Grade diagnostic logging is disabled.
+
+### Changed
+- **Removed the v1.1.6/v1.1.7 USGS imagery unload/restore experiment.** Satellite imagery remains attached to both MapLibre instances when Pad Grade is minimized. The experiment only saved a small amount of host-process memory and added avoidable lifecycle complexity.
+- **Retained GPS suspension on minimize.** Existing geolocation watch IDs remain stable while their underlying Precision Location/native GPS subscriptions are stopped in the background and restarted on return. In-progress stabilized corner capture is still cancelled rather than completing across a GPS gap.
+- Android DEV package is **version 1.1.8 / build 90**.
+
+### Added — informed Android location permission flow
+- Before Pad Grade triggers Android's first location permission sheet, it now explains that GPS Guided surveying needs **Precise location**, recommends **While using the app**, and warns that choosing **Only this time** can later cause Android to revoke the one-time grant and terminate the Pad Grade process after minimization.
+- The explanation also makes clear that Pad Grade suspends GPS while minimized and therefore does **not** need background-location permission.
+- Pad Grade now requests coarse + fine foreground location together so Android can present its standard Approximate/Precise choice. After the permission result, Pad Grade verifies that `ACCESS_FINE_LOCATION` is actually granted before allowing WebView geolocation. If Android grants approximate-only access, Pad Grade explains that Precise is required and offers **Open App Settings**.
+- If Android later terminates Pad Grade because a one-time location grant is revoked, the next launch shows a one-time recovery dialog with **Open App Settings**. The exit fingerprint is stored natively so the same historical death is not shown repeatedly.
+
+### Diagnostics
+- Retained v1.1.4 native memory measurement and v1.1.5-style flattened export fields, but removed the v1.1.7 periodic lifecycle polling path. Lifecycle/exit rows are imported at startup/resume instead of keeping a JavaScript polling timer alive.
+- Added `heatmap.v118-*` markers for both `primary` and `compare` map roles, including completed-frame readiness and successful permanent-image commits.
+- Background markers now explicitly report `imagery: retained`; only GPS suspension is performed by the web runtime.
+
+### Unchanged
+- IDW²/local-surface interpolation math, measured-point color scaling, project schema, final 891 disk cache, normal 99/297/891 worker scheduling, Project Comparison delta math, map camera/project state, and the intentional separate Compare MapLibre instance are unchanged.
+- Pad Grade still does not request background location, `largeHeap`, a foreground keep-alive service, or automatic heat-cache trimming.
+
+### DEV verification
+- On the main map, confirm the heat map loads, then switch **Auto → 99 → 297 → 891 → Auto** repeatedly. The old completed image should remain visible until the new complete frame replaces it, with no bare-map flash, dark overlap, cross-fade, or horizontal progressive-paint bars.
+- Open Project Comparison and allow its low/high heat resolutions to replace one another. It should use the same permanent-image behavior without the prior comparison-map flicker.
+- Hard reload the app. The project grid and map should continue booting immediately rather than remaining frozen until the Activity is closed/reopened.
+- Revoke location first, tap **Enable Location**, and verify Pad Grade's explanation appears *before* Android's permission sheet. Choose While using + Precise and verify GPS starts. Repeat with Approximate-only and verify Pad Grade does not silently accept it as precise surveying input.
+- Minimize with GPS active and confirm the underlying GPS watches suspend/resume while satellite imagery remains attached. If Only this time is deliberately chosen and Android later terminates the process, the next launch should explain the permission-change exit even with Diagnostics turned off.
+
+
 ## v1.1.7 — development build
 
 ### Changed
