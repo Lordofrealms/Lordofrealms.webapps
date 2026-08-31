@@ -150,6 +150,11 @@ jobs:
           echo "ARTIFACT_NAME=pad-grade-$CHANNEL" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
 
+      - name: Verify release notes match app version
+        run: |
+          test -s pad-grade/RELEASE_NOTES.md
+          grep -F "## v$APP_VERSION —" pad-grade/RELEASE_NOTES.md
+
       - name: Build debug APK
         run: |
           if [ "$BUILD_CHANNEL" = "dev" ]; then
@@ -238,12 +243,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="Pad Grade Mapper — stable Android build. See the canonical Pad Grade changelog for the changes in v$APP_VERSION."
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION" --notes "$NOTES"
+            gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION" --notes-file pad-grade/RELEASE_NOTES.md
             gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
           else
-            gh release create "$RELEASE_TAG" "$APK_NAME" --target "$GITHUB_SHA" --title "Pad Grade v$APP_VERSION" --notes "$NOTES"
+            gh release create "$RELEASE_TAG" "$APK_NAME" --target "$GITHUB_SHA" --title "Pad Grade v$APP_VERSION" --notes-file pad-grade/RELEASE_NOTES.md
           fi
 
       - name: Publish dev GitHub Pre-release APK
@@ -251,19 +255,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="Pad Grade Mapper — development/test Android build from pad-grade-dev. See the canonical Pad Grade changelog for the changes in v$APP_VERSION. Installs separately from stable as Pad Grade DEV."
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes "$NOTES" --prerelease
+            gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes-file pad-grade/RELEASE_NOTES.md --prerelease
             gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
           else
-            gh release create "$RELEASE_TAG" "$APK_NAME" --target "$GITHUB_SHA" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes "$NOTES" --prerelease
+            gh release create "$RELEASE_TAG" "$APK_NAME" --target "$GITHUB_SHA" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes-file pad-grade/RELEASE_NOTES.md --prerelease
           fi
 
       - name: Verify stable GitHub Release APK
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | grep -Fx "$APK_NAME"
+        run: |
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | grep -Fx "$APK_NAME"
+          gh release view "$RELEASE_TAG" --json body --jq '.body' | grep -F "## v$APP_VERSION —"
 
       - name: Verify dev GitHub Pre-release APK
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/pad-grade-dev'
@@ -272,3 +277,4 @@ jobs:
         run: |
           test "$(gh release view "$RELEASE_TAG" --json isPrerelease --jq '.isPrerelease')" = "true"
           gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | grep -Fx "$APK_NAME"
+          gh release view "$RELEASE_TAG" --json body --jq '.body' | grep -F "## v$APP_VERSION —"
