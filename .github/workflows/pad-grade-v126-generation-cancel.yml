@@ -1,0 +1,43 @@
+name: Pad Grade v1.2.6 Heat Generation Cancellation
+
+on:
+  push:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/v126-dev.js'
+      - 'pad-grade/v126-generation-cancel-selftest.js'
+      - 'pad-grade/index.html'
+      - 'pad-grade/RELEASE_NOTES.md'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - '.github/workflows/pad-grade-v126-generation-cancel.yml'
+  pull_request:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/v126-dev.js'
+      - 'pad-grade/v126-generation-cancel-selftest.js'
+      - 'pad-grade/index.html'
+      - 'pad-grade/RELEASE_NOTES.md'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - '.github/workflows/pad-grade-v126-generation-cancel.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check lifecycle controller
+        run: node --check pad-grade/v126-dev.js
+      - name: Run generation cancellation regression
+        run: node pad-grade/v126-generation-cancel-selftest.js
+      - name: Verify runtime wiring and release identity
+        run: |
+          grep -F '<title>Pad Grade Mapper v1.2.6 DEV</title>' pad-grade/index.html
+          grep -F 'src="v126-dev.js?v=20260831-1"' pad-grade/index.html
+          grep -F 'versionCode = 98' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.2.6"' pad-grade-android/app/build.gradle.kts
+          grep -F '## v1.2.6 —' pad-grade/RELEASE_NOTES.md
+          grep -F "project-switch-outgoing-removed" pad-grade/v126-dev.js
+          grep -F "duplicate-tier-replaced" pad-grade/v126-dev.js
+          grep -F "__pg113HeatWorker=true" pad-grade/v126-dev.js
+          grep -F "waitedForTargetHeat:false" pad-grade/v126-dev.js
