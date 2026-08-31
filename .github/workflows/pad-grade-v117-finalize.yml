@@ -1,0 +1,40 @@
+name: Pad Grade v1.1.7 Finalize
+
+on:
+  push:
+    branches:
+      - pad-grade-dev-v117-idle-image-source
+    paths:
+      - 'pad-grade/v117-finalize.py'
+      - '.github/workflows/pad-grade-v117-finalize.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pad-grade-dev-v117-idle-image-source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply final runtime and changelog corrections
+        run: python3 pad-grade/v117-finalize.py
+      - name: Validate v1.1.7 runtime and self-test
+        run: |
+          node --check pad-grade/v117-dev.js
+          node pad-grade/v117-image-idle-selftest.js
+      - name: Commit finalized files
+        run: |
+          git config user.name 'Lordofrealms'
+          git config user.email 'djwilsonou@gmail.com'
+          git add pad-grade/v117-dev.js pad-grade/v117-image-idle-selftest.js pad-grade/CHANGELOG.md pad-grade-android/CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo 'No finalization changes needed.'
+            exit 0
+          fi
+          git commit -m 'Pad Grade v1.1.7: finalize runtime and changelogs'
+          git push origin HEAD:pad-grade-dev-v117-idle-image-source
