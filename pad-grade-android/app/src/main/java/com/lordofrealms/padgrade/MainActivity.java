@@ -291,7 +291,11 @@ public final class MainActivity extends Activity {
             boolean coarseGranted = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
             pendingGeoCallback.invoke(pendingGeoOrigin, fineGranted, false);
             pendingGeoCallback = null; pendingGeoOrigin = null;
-            if (!fineGranted && coarseGranted) showPreciseLocationRequired();
+            if (!fineGranted) {
+                switchToManualAfterLocationDenial();
+                if (coarseGranted) showPreciseLocationRequired();
+                else if (!shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)) showLocationPermissionSettingsRequired();
+            }
         }
     }
 
@@ -334,6 +338,14 @@ public final class MainActivity extends Activity {
         if (pendingGeoCallback == null) return;
         try { pendingGeoCallback.invoke(pendingGeoOrigin, grant, false); } catch (RuntimeException ignored) {}
         pendingGeoCallback = null; pendingGeoOrigin = null;
+        if (!grant) switchToManualAfterLocationDenial();
+    }
+
+    private void switchToManualAfterLocationDenial() {
+        if (webView == null || isFinishing() || isDestroyed()) return;
+        webView.post(() -> webView.evaluateJavascript(
+                "(function(){var b=document.getElementById('manualModeBtn');if(b&&!b.classList.contains('activeMode'))b.click();var i=document.getElementById('gpsInstruction');if(i)i.textContent='Location permission was not granted. Select GPS Guided to try again.';})();",
+                null));
     }
 
     private void showLocationPermissionEducationThenRequest() {
@@ -358,6 +370,16 @@ public final class MainActivity extends Activity {
                 .setTitle("Precise location required")
                 .setMessage("Android granted approximate location only. GPS Guided surveying needs Precise location. Open Pad Grade app settings, choose Location, enable Precise location, and use “While using the app”.")
                 .setNegativeButton("Not now", null)
+                .setPositiveButton("Open App Settings", (dialog, which) -> openAppSettings())
+                .show();
+    }
+
+    private void showLocationPermissionSettingsRequired() {
+        if (isFinishing() || isDestroyed()) return;
+        new AlertDialog.Builder(this)
+                .setTitle("Location permission is disabled")
+                .setMessage("GPS Guided requires Precise location. Android is no longer offering the normal permission prompt for Pad Grade. Enable Location and Precise location in App Settings, then return and select GPS Guided again.")
+                .setNegativeButton("Cancel", null)
                 .setPositiveButton("Open App Settings", (dialog, which) -> openAppSettings())
                 .show();
     }

@@ -14,5 +14,6 @@ ok(js.includes('legacyMapLibreCanvasSources:false'),'legacy CanvasSource cutover
 ok(!/baseAddSource\([^\n]+type:\s*['\"]canvas['\"]/.test(js),'v119 adds a real MapLibre CanvasSource');
 ok(js.includes("id==='gpsMap'")&&js.includes("id==='pgCompareMap'"),'shared main/compare constructor hook missing');
 ok(js.includes('gps.permission-denied-manual-fallback'),'permission denial manual fallback missing');
+ok(js.includes('geo.getCurrentPosition=function'),'initial getCurrentPosition denial fallback missing');
 ok(gradle.includes('versionCode = 91')&&gradle.includes('versionName = "1.1.9"'),'Android version/build mismatch');
 console.log('Pad Grade v1.1.9 heat cutover self-test passed');

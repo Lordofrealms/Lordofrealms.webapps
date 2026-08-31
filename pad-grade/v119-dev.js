@@ -227,9 +227,10 @@
     try{const manual=document.getElementById('manualModeBtn');if(manual&&!manual.classList.contains('activeMode'))manual.click();const i=document.getElementById('gpsInstruction');if(i)i.textContent='Location permission was not granted. Select GPS Guided to try again.';mark('gps.permission-denied-manual-fallback',{version:VERSION});}catch(e){}
   }
   function installSuspendableGps(){
-    if(geoInstalled)return true;const geo=navigator.geolocation;if(!geo||typeof geo.watchPosition!=='function'||typeof geo.clearWatch!=='function')return false;geoInstalled=true;geoBase={watch:geo.watchPosition.bind(geo),clear:geo.clearWatch.bind(geo)};
+    if(geoInstalled)return true;const geo=navigator.geolocation;if(!geo||typeof geo.watchPosition!=='function'||typeof geo.clearWatch!=='function')return false;geoInstalled=true;geoBase={watch:geo.watchPosition.bind(geo),clear:geo.clearWatch.bind(geo),get:typeof geo.getCurrentPosition==='function'?geo.getCurrentPosition.bind(geo):null};
     const start=r=>{if(!r||geoSuspended||r.underlyingId!=null)return;try{r.underlyingId=geoBase.watch(pos=>{if(!geoSuspended&&geoWatches.has(r.virtualId))r.success?.(pos);},err=>{if(!geoSuspended&&geoWatches.has(r.virtualId)){if(+err?.code===1)setTimeout(manualFallbackFromPermission,0);r.error?.(err);}},r.options);}catch(e){r.underlyingId=null;try{r.error?.(e);}catch(_){}}};
     try{
+      if(geoBase.get)geo.getCurrentPosition=function(success,error,options){return geoBase.get(success,err=>{if(+err?.code===1)setTimeout(manualFallbackFromPermission,0);try{error?.(err);}catch(_){}},options);};
       geo.watchPosition=function(success,error,options){const virtualId=nextWatch++,r={virtualId,underlyingId:null,success,error,options:options||{}};geoWatches.set(virtualId,r);start(r);mark('background.gps-watch-registered',{virtualId,activeUnderlying:r.underlyingId!=null,totalVirtual:geoWatches.size});return virtualId;};
       geo.clearWatch=function(id){const r=geoWatches.get(id);if(!r)return geoBase.clear(id);geoWatches.delete(id);if(r.underlyingId!=null){try{geoBase.clear(r.underlyingId);}catch(e){}r.underlyingId=null;}mark('background.gps-watch-cleared',{virtualId:id,totalVirtual:geoWatches.size});};
     }catch(e){return false;}

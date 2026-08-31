@@ -18,6 +18,7 @@
 ### Changed — location denial/retry behavior
 - Pad Grade still uses the v1.1.8 informed Android permission explanation before the OS location prompt. If the resulting geolocation request is denied or the user chooses **Not now**, v1.1.9 automatically returns the workflow to **Manual** instead of leaving the UI visually stuck in GPS Guided mode without usable GPS.
 - Selecting **GPS Guided** again is the retry action; Pad Grade requests foreground location again through the existing informed permission flow. The removed standalone Enable GPS control is not restored.
+- If Android has stopped presenting the normal permission dialog after repeated/permanent denial, the failed retry returns to Manual and offers **Open App Settings** so Precise + While Using access can be restored explicitly.
 
 ### Diagnostics
 - Added `heatmap.v119-*` events for constructor/controller installation, style readiness, intercepted complete canvases, ImageBitmap readiness, permanent source/layer creation, successful image commits, and commit/create failures.
