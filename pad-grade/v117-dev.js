@@ -180,6 +180,7 @@
   }
 
   function requestCanonicalCommit(state,reason){
+    const map=state?.map;if(!map)return false;
     const candidate=chooseCandidate(state);
     if(!candidate){
       if(!heatEnabled()||hidden||state.projectBlank)canonicalVisible(state,false);

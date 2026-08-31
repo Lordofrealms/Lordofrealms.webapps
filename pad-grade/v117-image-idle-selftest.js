@@ -23,6 +23,7 @@ for(const needle of [
   "type:'image'",
   'createImageBitmap(canvas)',
   'updateImage({image:frame.image,coordinates:coords})',
+  'const map=state?.map;if(!map)return false;',
   "'raster-fade-duration':0",
   'window.__padGradeDevV115=true',
   'window.__padGradeDevV116=true',

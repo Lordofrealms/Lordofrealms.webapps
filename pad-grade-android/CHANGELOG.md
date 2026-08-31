@@ -6,6 +6,30 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v1.1.7 — development build (89)
+
+### Changed
+- Updated the separately installable Android DEV package to **versionName 1.1.7 / versionCode 89**.
+- A stopped Pad Grade Activity now explicitly quiesces its WebView with `WebView.onPause()` plus `WebView.pauseTimers()`. `resumeTimers()` and `WebView.onResume()` restore it when the Activity returns.
+- The web runtime keeps the v1.1.6 GPS-watch/USGS-imagery background suspension, then the native host stops WebView timer/layout/parsing activity at `onStop()`.
+
+### Added
+- Added `ApplicationExitInfo` history capture during `Activity.onCreate()`. Previous host-process exits are persisted with reason, status/signal, importance, sampled PSS/RSS, timestamp, and Android's description so a later diagnostic export can identify why Android terminated Pad Grade.
+- Added explicit native lifecycle rows `webview.backgroundPaused` and `webview.backgroundResumed`.
+- Packaged the v1.1.7 permanent-ImageSource heat-map runtime and regression self-test.
+
+### Heat-map presentation
+- The Android package now uses the v1.1.7 web presentation path: one permanent MapLibre `ImageSource`/raster layer receives only fully completed `ImageBitmap` frames. The existing heat workers/math/resolutions are unchanged.
+- `raster-fade-duration` remains zero and the previous completed image remains displayed until the next completed image is ready; no live canvas is exposed to MapLibre while being painted.
+
+### Fixed
+- The image-commit cleanup path now keeps an explicit reference to the active MapLibre instance until the previous completed bitmap is safe to release after render.
+
+### DEV verification
+- Minimize for several minutes and confirm the lifecycle log reaches `webview.backgroundPaused` after `activity.onStop`.
+- If the process is reclaimed, reopen the app and export diagnostics; `android.process.exit-reason` should report Android's historical reason/status.
+- Exercise Auto/99/297/891 heat switching and confirm there are no partial horizontal bars, blank frames, dark overlap, or cross-fades.
+
 ## v1.1.6 — development build (88)
 
 ### Changed
