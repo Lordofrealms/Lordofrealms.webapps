@@ -3,7 +3,15 @@ const html=fs.readFileSync('pad-grade/index.html','utf8');
 const js=fs.readFileSync('pad-grade/v120-dev.js','utf8');
 const gradle=fs.readFileSync('pad-grade-android/app/build.gradle.kts','utf8');
 function ok(v,m){if(!v)throw new Error(m);}
-ok(html.includes('Pad Grade Mapper v1.2.0 DEV'),'v1.2.0 DEV title missing');
+function semverAtLeast(value,floor){
+  const a=String(value||'').split('.').map(Number),b=String(floor||'').split('.').map(Number);
+  for(let i=0;i<3;i++){const x=a[i]||0,y=b[i]||0;if(x!==y)return x>y;}
+  return true;
+}
+const titleVersion=(html.match(/Pad Grade Mapper v(\d+\.\d+\.\d+) DEV/)||[])[1];
+const code=Number((gradle.match(/versionCode\s*=\s*(\d+)/)||[])[1]);
+const name=(gradle.match(/versionName\s*=\s*"(\d+\.\d+\.\d+)"/)||[])[1];
+ok(!!titleVersion&&semverAtLeast(titleVersion,'1.2.0'),'current DEV title regressed below v1.2.0');
 ok(html.includes('src="v120-dev.js'),'v120 runtime not loaded');
 ok(!html.includes('<script src="v119-dev.js'),'v119 runtime still executable');
 ok(js.includes("source.updateImage({url:frame.url,coordinates:coords})"),'MapLibre 5.16 URL update contract missing');
@@ -16,5 +24,6 @@ ok(js.includes('heatmap.v120-image-requested')&&js.includes('heatmap.v120-image-
 ok(!/baseAddSource\([^\n]+type:\s*['"]canvas['"]/.test(js),'v120 adds a real MapLibre CanvasSource');
 ok(js.includes("id==='gpsMap'")&&js.includes("id==='pgCompareMap'"),'shared main/compare constructor hook missing');
 ok(js.includes('gps.permission-denied-manual-fallback'),'GPS denial/manual fallback not carried forward');
-ok(gradle.includes('versionCode = 92')&&gradle.includes('versionName = "1.2.0"'),'Android version/build mismatch');
-console.log('Pad Grade v1.2.0 static self-test passed');
+ok(Number.isFinite(code)&&code>=92,'Android versionCode regressed below build 92');
+ok(!!name&&semverAtLeast(name,'1.2.0'),'Android versionName regressed below 1.2.0');
+console.log('Pad Grade v1.2.0 carry-forward static self-test passed');
