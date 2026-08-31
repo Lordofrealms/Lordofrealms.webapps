@@ -58,6 +58,10 @@
 
   function patchRetiredCanvasAdmission(map){
     if(!map||map.__padGradeV128RetiredCanvasGuard)return !!map;
+    // v1.2.8 is head-injected asynchronously. Never risk installing underneath
+    // v1.2.7: wait until its provenance wrapper is present, then become the outer
+    // cheap/tombstone guard. attach() will retry until this condition is true.
+    if(!map.__padGradeV127ProvenanceGuard)return false;
     // Install after v1.2.7/v1.2.0. Normal calls continue through those wrappers.
     // Retired legacy slot IDs are represented by inert tombstones so the v1.1.1
     // 900 ms repair loop never gets far enough to recreate virtual layers, schedule
@@ -118,7 +122,7 @@
     if(typeof baseMoveLayer==='function')map.moveLayer=function(id,before){if(retiredLayerIds.has(String(id||'')))return this;return before===undefined?baseMoveLayer(id):baseMoveLayer(id,before);};
 
     map.__padGradeV128RetiredCanvasGuard=true;mapPatched=map;
-    mark('heatmap.v128-retired-canvas-guard-installed',{projectId:activeProjectId(),legacyProducerTombstones:true});
+    mark('heatmap.v128-retired-canvas-guard-installed',{projectId:activeProjectId(),legacyProducerTombstones:true,outerToV127:true});
     return true;
   }
 
