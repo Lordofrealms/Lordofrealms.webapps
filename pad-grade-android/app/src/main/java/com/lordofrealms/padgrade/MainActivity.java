@@ -49,11 +49,13 @@ public final class MainActivity extends Activity {
     private Bundle pendingInitialState;
     private boolean modernBackRegistered = false;
     private boolean legalReleasePending = false;
+    private boolean webViewTimersPaused = false;
     private final String activityInstanceId = Long.toString(android.os.SystemClock.elapsedRealtime(), 36) + "-" + Integer.toHexString(System.identityHashCode(this));
     private PadGradeLifecycleBridge lifecycleBridge;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        PadGradeLifecycleBridge.recordHistoricalExitReasons(this, activityInstanceId);
         PadGradeLifecycleBridge.log(this, "activity.onCreate", activityInstanceId, savedInstanceState != null, null, null, null, "new-activity");
         getWindow().setStatusBarColor(Color.rgb(11, 15, 20));
         getWindow().setNavigationBarColor(Color.rgb(11, 15, 20));
@@ -129,7 +131,7 @@ public final class MainActivity extends Activity {
                 try { view.removeJavascriptInterface("PadGradeLifecycle"); } catch (RuntimeException ignored) {}
                 try { view.stopLoading(); } catch (RuntimeException ignored) {}
                 try { view.destroy(); } catch (RuntimeException ignored) {}
-                webView = null; lifecycleBridge = null;
+                webView = null; lifecycleBridge = null; webViewTimersPaused = false;
                 initializeWebView(null, false);
                 return true;
             }
@@ -216,6 +218,22 @@ public final class MainActivity extends Activity {
         return true;
     }
 
+    private void pauseWebViewForBackground() {
+        if (webView == null || webViewTimersPaused) return;
+        try { webView.onPause(); } catch (RuntimeException ignored) {}
+        try { webView.pauseTimers(); } catch (RuntimeException ignored) {}
+        webViewTimersPaused = true;
+        PadGradeLifecycleBridge.log(this, "webview.backgroundPaused", activityInstanceId, false, null, null, null, "onPause+pauseTimers");
+    }
+
+    private void resumeWebViewFromBackground() {
+        if (webView == null || !webViewTimersPaused) return;
+        try { webView.resumeTimers(); } catch (RuntimeException ignored) {}
+        try { webView.onResume(); } catch (RuntimeException ignored) {}
+        webViewTimersPaused = false;
+        PadGradeLifecycleBridge.log(this, "webview.backgroundResumed", activityInstanceId, false, null, null, null, "resumeTimers+onResume");
+    }
+
     @Override protected void onStart() {
         super.onStart();
         PadGradeLifecycleBridge.log(this, "activity.onStart", activityInstanceId, false, null, null, null, null);
@@ -224,6 +242,7 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         PadGradeLifecycleBridge.log(this, "activity.onResume", activityInstanceId, false, null, null, null, null);
+        resumeWebViewFromBackground();
         if (nativeBridge != null) nativeBridge.onHostResume();
     }
 
@@ -234,6 +253,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onStop() {
         PadGradeLifecycleBridge.log(this, "activity.onStop", activityInstanceId, false, null, null, null, null);
+        pauseWebViewForBackground();
         super.onStop();
     }
 
@@ -317,6 +337,7 @@ public final class MainActivity extends Activity {
         if (fileChooserCallback != null) { fileChooserCallback.onReceiveValue(null); fileChooserCallback = null; }
         pendingSaveText = null;
         if (webView != null) { webView.removeJavascriptInterface("PadGradeNative"); webView.removeJavascriptInterface("PadGradeLifecycle"); webView.destroy(); webView = null; }
+        webViewTimersPaused = false;
         super.onDestroy();
     }
 }
