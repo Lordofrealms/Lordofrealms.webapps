@@ -1,0 +1,36 @@
+name: Pad Grade v1.2.1 ImageSource Request Dedupe
+
+on:
+  pull_request:
+    branches: [pad-grade-dev, main]
+    paths:
+      - 'pad-grade/**'
+      - 'pad-grade-android/**'
+      - '.github/workflows/pad-grade-v121-image-dedupe.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax check current heat runtimes
+        run: |
+          node --check pad-grade/v120-dev.js
+          node --check pad-grade/v121-dev.js
+          node --check pad-grade/v121-image-request-selftest.js
+      - name: Reproduce and block same-frame reload starvation
+        run: node pad-grade/v121-image-request-selftest.js
+      - name: Verify release wiring
+        run: |
+          grep -F '<title>Pad Grade Mapper v1.2.1 DEV</title>' pad-grade/index.html
+          grep -F 'src="v120-dev.js?v=20260831-1' pad-grade/index.html
+          grep -F 'src="v121-dev.js?v=20260831-1' pad-grade/index.html
+          grep -F 'one-in-flight-load-per-unique-url' pad-grade/v121-dev.js
+          grep -F 'versionCode = 93' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.2.1"' pad-grade-android/app/build.gradle.kts
+          grep -F '## v1.2.1 — development build' pad-grade/CHANGELOG.md
+          grep -F '## v1.2.1 — development build (93)' pad-grade-android/CHANGELOG.md
