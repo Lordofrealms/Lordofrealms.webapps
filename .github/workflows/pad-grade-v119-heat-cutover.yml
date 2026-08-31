@@ -1,0 +1,30 @@
+name: Pad Grade v1.1.9 Heat Cutover
+
+on:
+  pull_request:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/**'
+      - 'pad-grade-android/**'
+      - '.github/workflows/pad-grade-v119-heat-cutover.yml'
+  push:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/**'
+      - 'pad-grade-android/**'
+      - '.github/workflows/pad-grade-v119-heat-cutover.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  v119-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate v1.1.9 runtime syntax
+        run: node --check pad-grade/v119-dev.js
+      - name: Validate cutover/version policy
+        run: node pad-grade/v119-heat-cutover-selftest.js
+      - name: Exercise permanent ImageSource controller
+        run: node pad-grade/v119-runtime-selftest.js
