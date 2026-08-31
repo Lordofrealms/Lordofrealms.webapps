@@ -8,6 +8,7 @@ function semverAtLeast(value,floor){
 }
 const html=read('pad-grade/index.html');
 const src=read('pad-grade/v115-dev.js');
+const current=read('pad-grade/v119-dev.js');
 const gradle=read('pad-grade-android/app/build.gradle.kts');
 const changelog=read('pad-grade/CHANGELOG.md');
 const androidChangelog=read('pad-grade-android/CHANGELOG.md');
@@ -15,9 +16,12 @@ const titleVersion=(html.match(/<title>Pad Grade Mapper v([0-9]+\.[0-9]+\.[0-9]+
 const versionCode=Number((gradle.match(/versionCode\s*=\s*(\d+)/)||[])[1]);
 const versionName=(gradle.match(/versionName\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"/)||[])[1];
 must(!!titleVersion&&semverAtLeast(titleVersion,'1.1.5'),'current DEV title carries v1.1.5 or later');
-must(html.includes('src="v115-dev.js?v=20260830-1"'),'v115 runtime loaded');
+must(html.includes('src="v119-dev.js'),'current v1.1.9 runtime loaded');
+must(!html.includes('<script src="v115-dev.js'),'superseded v1.1.5 runtime no longer executable');
 must(Number.isFinite(versionCode)&&versionCode>=87,'current versionCode carries build 87 or later');
 must(!!versionName&&semverAtLeast(versionName,'1.1.5'),'current versionName carries v1.1.5 or later');
+// Historical v1.1.5 behavior remains regression-readable even though its handoff runtime
+// is no longer active after the permanent ImageSource cutover.
 must(src.includes("HOLD_LAYER_ID='pad-grade-v115-heat-handoff-hold'"),'same-source hold layer exists');
 must(src.includes('STAGE_OPACITY=0.000001'),'near-transparent staging is explicit');
 must(src.includes("map.once?.('render'"),'handoff waits for a MapLibre render');
@@ -25,10 +29,11 @@ must(src.includes("map.setPaintProperty(targetId,'raster-opacity',targetOpacity)
 must(src.includes("map.setPaintProperty(HOLD_LAYER_ID,'raster-opacity',0)"),'hold hard paint disable');
 must(src.includes('projectOpen')&&src.includes("button[data-act=\"open\"]"),'project switch cancels pending handoff');
 must(src.includes('no-crossfade-no-bare-map'),'no-crossfade/no-bare-map policy');
-for(const key of ['totalPssKb','graphicsPssKb','javaHeapPssKb','nativeHeapPssKb','deviceAvailKb','canvasTotalKb','decodedCacheEstimatedKb','foregroundWorkerCount'])must(src.includes(key),`memory export includes ${key}`);
+for(const key of ['totalPssKb','graphicsPssKb','javaHeapPssKb','nativeHeapPssKb','deviceAvailKb','canvasTotalKb','decodedCacheEstimatedKb','foregroundWorkerCount'])must(src.includes(key),`historical memory export includes ${key}`);
 must(src.includes("mark('android.memory.lifecycle'"),'persisted lifecycle memory exported');
 must(src.includes('PadGradeLifecycle'),'native lifecycle bridge consumed');
 must(src.includes('no-auto-trim'),'memory remains measurement-only');
+must(current.includes('legacyMapLibreCanvasSources:false'),'current permanent ImageSource cutover retained');
 must(changelog.indexOf('## v1.1.5 — development build')<changelog.indexOf('## v1.1.4 — development build'),'v1.1.5 canonical changelog retained in order');
 must(changelog.includes('bare-map flicker'),'canonical flicker fix documented');
 must(changelog.includes('memory-export bug'),'canonical memory export repair documented');

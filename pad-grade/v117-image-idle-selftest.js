@@ -16,6 +16,8 @@ const main=text(path.join(android,'app/src/main/java/com/lordofrealms/padgrade/M
 const life=text(path.join(android,'app/src/main/java/com/lordofrealms/padgrade/PadGradeLifecycleBridge.java'));
 const gradle=text(path.join(android,'app/build.gradle.kts'));
 
+// Historical v1.1.7 implementation remains testable as history, but later releases are
+// allowed to remove it from executable startup when they replace the presentation path.
 for(const needle of [
   "const VERSION='1.1.7'",
   "IMAGE_SOURCE_ID='pad-grade-v117-heat-image-source'",
@@ -34,10 +36,10 @@ for(const needle of [
 ])has(v117,needle,'v117-dev.js');
 
 if(!/<title>Pad Grade Mapper v\d+\.\d+\.\d+ DEV<\/title>/.test(index))throw new Error('index.html: current DEV title missing');
-const i117=index.indexOf('src="v117-dev.js?v=20260830-1"');
-const i115=index.indexOf('src="v115-dev.js?v=20260830-1"');
-const i116=index.indexOf('src="v116-dev.js?v=20260830-1"');
-if(!(i117>=0&&i115>i117&&i116>i117))throw new Error('index.html: retained v1.1.7 runtime must remain before superseded v1.1.5/v1.1.6 runtimes');
+has(index,'src="v119-dev.js','index.html current heat cutover');
+for(const old of ['v115-dev.js','v116-dev.js','v117-dev.js','v118-dev.js']){
+  if(index.includes(`<script src="${old}`))throw new Error(`index.html: superseded ${old} must not remain executable after v1.1.9 cutover`);
+}
 
 for(const needle of [
   'PadGradeLifecycleBridge.recordHistoricalExitReasons(this, activityInstanceId);',

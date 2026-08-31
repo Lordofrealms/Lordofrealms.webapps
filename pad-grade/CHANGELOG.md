@@ -1,5 +1,38 @@
 # Changelog
 
+## v1.1.9 — development build
+
+### Fixed — permanent heat presentation cutover
+- Replaced the unsuccessful v1.1.7/v1.1.8 heat-presentation experiment with a single shared **style-owned MapLibre ImageSource controller** used by both the regular project map and Project Comparison. The controller is installed at map construction, but it does not create its real image source/layer until MapLibre reports the current style fully loaded.
+- Completed 99 / 297 / 891 worker canvases are now intercepted **before they become real MapLibre CanvasSources**. They remain offscreen frame inputs only. After a complete canvas is decoded to an `ImageBitmap` when supported, the already-existing permanent ImageSource is updated in place. No real legacy heat CanvasSource or double-buffer heat layer is added to MapLibre by v1.1.9.
+- The permanent source/layer is created once per genuine MapLibre style generation and rebuilt only after a subsequent `style.load`. It is no longer recreated opportunistically from every heat commit attempt while `isStyleLoaded()` is false, which was the reason v1.1.8 repeatedly logged source/layer creation without ever reaching `heatmap.v118-image-committed`.
+- Resolution replacement retains the previously committed complete image while a new frame is decoding. Temporary removal of legacy virtual slots does not blank the permanent image. `raster-fade-duration` remains zero, so there is no intentional crossfade.
+- Main and Compare now share the same controller implementation and lifecycle rules instead of separate presentation behavior.
+
+### Changed — old presentation path removed from executable startup
+- The app no longer executes `v114-dev.js`, `v115-dev.js`, `v116-dev.js`, `v117-dev.js`, or `v118-dev.js`. Those historical files remain in the repository only for history/regression reference. Their heat authority, render-barrier, imagery-unload, and prior ImageSource shims are not part of the v1.1.9 runtime.
+- `v113-dev.js` remains responsible for worker scheduling, the 99/297/891 resolution inspector, project heat cache, and project-switch reuse. Its completed canvases are virtual inputs to v1.1.9; they are never installed as actual MapLibre CanvasSources.
+- Retained GPS suspension on minimize. Satellite imagery remains attached while minimized. Android WebView timer pause/resume and native `ApplicationExitInfo` one-time-permission recovery from v1.1.8 remain in the Android host.
+- Android DEV package is **version 1.1.9 / build 91**.
+
+### Changed — location denial/retry behavior
+- Pad Grade still uses the v1.1.8 informed Android permission explanation before the OS location prompt. If the resulting geolocation request is denied or the user chooses **Not now**, v1.1.9 automatically returns the workflow to **Manual** instead of leaving the UI visually stuck in GPS Guided mode without usable GPS.
+- Selecting **GPS Guided** again is the retry action; Pad Grade requests foreground location again through the existing informed permission flow. The removed standalone Enable GPS control is not restored.
+- If Android has stopped presenting the normal permission dialog after repeated/permanent denial, the failed retry returns to Manual and offers **Open App Settings** so Precise + While Using access can be restored explicitly.
+
+### Diagnostics
+- Added `heatmap.v119-*` events for constructor/controller installation, style readiness, intercepted complete canvases, ImageBitmap readiness, permanent source/layer creation, successful image commits, and commit/create failures.
+- A healthy map should show one source/layer creation per style generation followed by `heatmap.v119-image-committed`; repeated source/layer creation without a style generation change is treated as a regression.
+
+### Unchanged
+- IDW² interpolation math, color-scale math, measured-point values, 99 / 297 / 891 target resolutions, worker rasterization, final 891 disk cache format, project schema, project-grid geometry, comparison delta math, and the intentional separate Compare MapLibre instance are unchanged.
+
+### DEV verification
+- Confirm the main project heat map appears on initial load. Switch **Auto → 99 → 297 → 891 → Auto** repeatedly; each completed image should replace the previous completed image with no blank frame, dark overlap, crossfade, or progressive horizontal bars.
+- Open Project Comparison and confirm its heat map appears and progresses through its worker tiers using the same permanent ImageSource behavior.
+- Switch projects, hard reload, and minimize/resume; no outgoing-project heat may remain visible and the permanent image should recover after a genuine style reload.
+- Deny the informed location request or choose **Not now** and confirm Pad Grade returns to Manual. Select GPS Guided again and confirm that action retries the location flow.
+
 All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
