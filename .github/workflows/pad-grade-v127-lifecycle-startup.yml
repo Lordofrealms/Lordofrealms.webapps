@@ -1,0 +1,61 @@
+name: Pad Grade v1.2.7 Lifecycle + Startup Gate
+
+on:
+  push:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/v127-dev.js'
+      - 'pad-grade/v127-startup-map-gate.js'
+      - 'pad-grade/v127-lifecycle-selftest.js'
+      - 'pad-grade/v127-startup-map-gate-selftest.js'
+      - 'pad-grade/index.html'
+      - 'pad-grade/RELEASE_NOTES.md'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - '.github/workflows/pad-grade-v127-lifecycle-startup.yml'
+  pull_request:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/v127-dev.js'
+      - 'pad-grade/v127-startup-map-gate.js'
+      - 'pad-grade/v127-lifecycle-selftest.js'
+      - 'pad-grade/v127-startup-map-gate-selftest.js'
+      - 'pad-grade/index.html'
+      - 'pad-grade/RELEASE_NOTES.md'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - '.github/workflows/pad-grade-v127-lifecycle-startup.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check v1.2.7 runtime
+        run: |
+          node --check pad-grade/v127-dev.js
+          node --check pad-grade/v127-startup-map-gate.js
+          node --check pad-grade/v127-startup-map-gate-selftest.js
+      - name: Run v1.2.7 lifecycle regression
+        run: node pad-grade/v127-lifecycle-selftest.js
+      - name: Verify base-map preference preserves six-second safety cap
+        run: node pad-grade/v127-startup-map-gate-selftest.js
+      - name: Carry forward protected no-flicker presentation regression
+        run: node pad-grade/v122-canvas-handoff-selftest.js
+      - name: Carry forward v1.2.6 generation cancellation regression
+        run: node pad-grade/v126-generation-cancel-selftest.js
+      - name: Verify runtime wiring and release identity
+        run: |
+          grep -F '<title>Pad Grade Mapper v1.2.7 DEV</title>' pad-grade/index.html
+          grep -F 'src="v127-startup-map-gate.js?v=20260831-1"' pad-grade/index.html
+          grep -F 'src="v127-dev.js?v=20260831-1"' pad-grade/index.html
+          grep -F 'versionCode = 99' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.2.7"' pad-grade-android/app/build.gradle.kts
+          grep -F '## v1.2.7 —' pad-grade/RELEASE_NOTES.md
+          grep -F 'mutationCancelFirst:true' pad-grade/v127-dev.js
+          grep -F "sequentialRegularTiers:'99-then-297-then-891'" pad-grade/v127-dev.js
+          grep -F 'immutableCanvasProvenance:true' pad-grade/v127-dev.js
+          grep -F 'startupCoverRequiresBaseMap:true' pad-grade/v127-dev.js
+          grep -F 'protectedV122PresentationUnchanged:true' pad-grade/v127-dev.js
+          grep -F 'preservesLegacyFailsafe:true' pad-grade/v127-startup-map-gate.js
+          grep -F 'safetyMaxMs:6000' pad-grade/v127-startup-map-gate.js
+          ! grep -F '__padGradeBeginRecoveryVisualHold?.();' pad-grade/v127-startup-map-gate.js
