@@ -34,9 +34,9 @@ jobs:
           node pad-grade/v111-resilience-selftest.js
       - name: Verify v1.2.2 presentation remains wired under current DEV
         run: |
-          grep -F 'src="v120-dev.js?v=20260831-1' pad-grade/index.html
-          grep -F 'src="v122-dev.js?v=20260831-1' pad-grade/index.html
-          grep -F 'src="v121-dev.js?v=20260831-1' pad-grade/index.html
+          grep -F 'src="v120-dev.js?v=' pad-grade/index.html
+          grep -F 'src="v122-dev.js?v=' pad-grade/index.html
+          grep -F 'src="v121-dev.js?v=' pad-grade/index.html
           grep -F 'window.__padGradeDevV121=true' pad-grade/v122-dev.js
           grep -F "type:'canvas',canvas:displayCanvas" pad-grade/v122-dev.js
           grep -F "tierSwapSourceRecreate:false" pad-grade/v122-dev.js

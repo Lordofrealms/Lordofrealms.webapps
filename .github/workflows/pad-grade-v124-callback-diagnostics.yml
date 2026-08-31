@@ -1,0 +1,38 @@
+name: Pad Grade v1.2.4 Callback Diagnostics
+
+on:
+  pull_request:
+    branches: [pad-grade-dev, main]
+    paths:
+      - 'pad-grade/**'
+      - 'pad-grade-android/**'
+      - '.github/workflows/pad-grade-v124-callback-diagnostics.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax checks
+        run: |
+          node --check pad-grade/v096-native-async.js
+          node --check pad-grade/v122-dev.js
+          node --check pad-grade/v123-dev.js
+          node --check pad-grade/v124-dev.js
+          node --check pad-grade/v124-callback-diagnostics-selftest.js
+      - name: v1.2.4 diagnostic and retirement regression
+        run: node pad-grade/v124-callback-diagnostics-selftest.js
+      - name: Retain v1.2.2 flickerless completed-canvas regression
+        run: node pad-grade/v122-canvas-handoff-selftest.js
+      - name: Retain v1.2.3 exact-tier consistency regression
+        run: node pad-grade/v123-inspector-consistency-selftest.js
+      - name: Verify presentation architecture warning remains explicit
+        run: |
+          grep -F 'MAINTENANCE / CHANGE-CONTROL NOTE — FLICKERLESS HEAT PRESENTATION' pad-grade/v122-dev.js
+          grep -F 'requires explicit developer' pad-grade/v122-dev.js
+          grep -F 'versionCode = 96' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.2.4"' pad-grade-android/app/build.gradle.kts

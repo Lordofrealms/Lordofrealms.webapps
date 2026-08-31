@@ -25,13 +25,13 @@ jobs:
         run: node pad-grade/v123-inspector-consistency-selftest.js
       - name: Carry forward v1.2.2 no-flicker regression
         run: node pad-grade/v122-canvas-handoff-selftest.js
-      - name: Verify v1.2.3 release wiring
+      - name: Verify v1.2.3 behavior remains wired under current DEV
         run: |
-          grep -F '<title>Pad Grade Mapper v1.2.3 DEV</title>' pad-grade/index.html
-          grep -F 'src="v122-dev.js?v=20260831-1' pad-grade/index.html
-          grep -F 'src="v123-dev.js?v=20260831-1' pad-grade/index.html
+          grep -F '<title>Pad Grade Mapper v' pad-grade/index.html
+          grep -F 'src="v122-dev.js?v=' pad-grade/index.html
+          grep -F 'src="v123-dev.js?v=' pad-grade/index.html
           grep -F "canonicalSourceRecreate:false" pad-grade/v123-dev.js
           grep -F "canonicalLayerRecreate:false" pad-grade/v123-dev.js
-          grep -F 'versionCode = 95' pad-grade-android/app/build.gradle.kts
-          grep -F 'versionName = "1.2.3"' pad-grade-android/app/build.gradle.kts
-          grep -F '# Pad Grade Mapper v1.2.3 — DEV BUILD' pad-grade/RELEASE_NOTES.md
+          grep -F 'versionCode = ' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "' pad-grade-android/app/build.gradle.kts
+          grep -F '# Pad Grade Mapper v' pad-grade/RELEASE_NOTES.md

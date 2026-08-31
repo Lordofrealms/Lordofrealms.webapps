@@ -22,6 +22,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -47,6 +48,29 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
         thread.setDaemon(true);
         return thread;
     });
+
+    // v1.2.4 diagnostic-only accounting for the single-threaded file executor.
+    // This does not change ordering or concurrency; it only records what was ahead
+    // of each request and how long the request waited before PadGradeFileIO began it.
+    private final Object fileQueueDiagLock = new Object();
+    private final ArrayList<String> fileQueueDiagLabels = new ArrayList<>();
+
+    private static final class FileQueueTiming {
+        final long queuedNanos;
+        final long queuedEpochMs;
+        final String token;
+        final String[] ahead;
+        double queueWaitMs;
+        long ioStartEpochMs;
+        long ioFinishedEpochMs;
+
+        FileQueueTiming(long queuedNanos, long queuedEpochMs, String token, String[] ahead) {
+            this.queuedNanos = queuedNanos;
+            this.queuedEpochMs = queuedEpochMs;
+            this.token = token;
+            this.ahead = ahead;
+        }
+    }
 
     private DocumentFile cachedProjectFolder;
     private String cachedProjectFolderUri;
@@ -218,48 +242,87 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
         return deleted;
     }
 
+    private FileQueueTiming queueFileTiming(String op, String filename, String requestId) {
+        final long queuedNanos = System.nanoTime();
+        final long queuedEpochMs = System.currentTimeMillis();
+        final String token = String.valueOf(op) + ":" + String.valueOf(filename) + "@" + String.valueOf(requestId);
+        synchronized (fileQueueDiagLock) {
+            String[] ahead = fileQueueDiagLabels.toArray(new String[0]);
+            fileQueueDiagLabels.add(token);
+            return new FileQueueTiming(queuedNanos, queuedEpochMs, token, ahead);
+        }
+    }
+
+    private void startFileTiming(FileQueueTiming timing) {
+        if (timing == null) return;
+        timing.queueWaitMs = elapsedMs(timing.queuedNanos);
+        timing.ioStartEpochMs = System.currentTimeMillis();
+    }
+
+    private void finishFileTiming(FileQueueTiming timing) {
+        if (timing == null) return;
+        timing.ioFinishedEpochMs = System.currentTimeMillis();
+        synchronized (fileQueueDiagLock) { fileQueueDiagLabels.remove(timing.token); }
+    }
+
     @JavascriptInterface public void readProjectFileAsync(String filename, String requestId) {
+        final FileQueueTiming timing = queueFileTiming("read", filename, requestId);
         fileExecutor.execute(() -> {
+            startFileTiming(timing);
             long started = System.nanoTime();
             String text = null;
             String error = null;
             try { text = readProjectFile(filename); }
             catch (RuntimeException ex) { error = ex.getMessage(); }
-            emitFileOperationResult(requestId, text != null, text, elapsedMs(started), error, cachedSize(filename, text == null ? 0 : text.getBytes(StandardCharsets.UTF_8).length), cachedModified(filename));
+            double durationMs = elapsedMs(started);
+            finishFileTiming(timing);
+            emitFileOperationResult(requestId, text != null, text, durationMs, error, cachedSize(filename, text == null ? 0 : text.getBytes(StandardCharsets.UTF_8).length), cachedModified(filename), timing);
         });
     }
 
     @JavascriptInterface public void readProjectFileHeadAsync(String filename, int maxChars, String requestId) {
+        final FileQueueTiming timing = queueFileTiming("head", filename, requestId);
         fileExecutor.execute(() -> {
+            startFileTiming(timing);
             long started = System.nanoTime();
             String text = null;
             String error = null;
             try { text = readProjectFileHead(filename, maxChars); }
             catch (RuntimeException ex) { error = ex.getMessage(); }
-            emitFileOperationResult(requestId, text != null, text, elapsedMs(started), error, cachedSize(filename, 0), cachedModified(filename));
+            double durationMs = elapsedMs(started);
+            finishFileTiming(timing);
+            emitFileOperationResult(requestId, text != null, text, durationMs, error, cachedSize(filename, 0), cachedModified(filename), timing);
         });
     }
 
     @JavascriptInterface public void writeProjectFileAsync(String filename, String text, String requestId) {
         final String safeText = text == null ? "" : text;
+        final FileQueueTiming timing = queueFileTiming("write", filename, requestId);
         fileExecutor.execute(() -> {
+            startFileTiming(timing);
             long started = System.nanoTime();
             boolean ok = false;
             String error = null;
             try { ok = writeProjectFile(filename, safeText); }
             catch (RuntimeException ex) { error = ex.getMessage(); }
-            emitFileOperationResult(requestId, ok, null, elapsedMs(started), error, safeText.getBytes(StandardCharsets.UTF_8).length, cachedModified(filename));
+            double durationMs = elapsedMs(started);
+            finishFileTiming(timing);
+            emitFileOperationResult(requestId, ok, null, durationMs, error, safeText.getBytes(StandardCharsets.UTF_8).length, cachedModified(filename), timing);
         });
     }
 
     @JavascriptInterface public void deleteProjectFileAsync(String filename, String requestId) {
+        final FileQueueTiming timing = queueFileTiming("delete", filename, requestId);
         fileExecutor.execute(() -> {
+            startFileTiming(timing);
             long started = System.nanoTime();
             boolean ok = false;
             String error = null;
             try { ok = deleteProjectFile(filename); }
             catch (RuntimeException ex) { error = ex.getMessage(); }
-            emitFileOperationResult(requestId, ok, null, elapsedMs(started), error, 0, 0);
+            double durationMs = elapsedMs(started);
+            finishFileTiming(timing);
+            emitFileOperationResult(requestId, ok, null, durationMs, error, 0, 0, timing);
         });
     }
 
@@ -271,18 +334,43 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
     }
     private static double elapsedMs(long startedNanos) { return Math.max(0.0, (System.nanoTime() - startedNanos) / 1_000_000.0); }
 
-    private void emitFileOperationResult(String requestId, boolean ok, String text, double durationMs, String error, long size, long lastModified) {
-        JSONObject result = new JSONObject();
+    private void emitFileOperationResult(String requestId, boolean ok, String text, double durationMs, String error, long size, long lastModified, FileQueueTiming timing) {
+        final JSONObject result = new JSONObject();
         try {
             result.put("requestId", requestId == null ? "" : requestId);
             result.put("ok", ok);
             result.put("durationMs", durationMs);
             result.put("size", Math.max(0L, size));
             result.put("lastModified", Math.max(0L, lastModified));
+            if (timing != null) {
+                result.put("queueWaitMs", Math.max(0.0, timing.queueWaitMs));
+                result.put("queuedEpochMs", timing.queuedEpochMs);
+                result.put("ioStartEpochMs", timing.ioStartEpochMs);
+                result.put("ioFinishedEpochMs", timing.ioFinishedEpochMs);
+                result.put("queueAheadCount", timing.ahead == null ? 0 : timing.ahead.length);
+                JSONArray ahead = new JSONArray();
+                if (timing.ahead != null) for (String label : timing.ahead) ahead.put(label);
+                result.put("queueAhead", ahead);
+            }
             if (text != null) result.put("text", text);
             if (error != null && !error.isBlank()) result.put("error", error);
         } catch (Exception ignored) {}
-        evaluate("window.__padGradeNativeFileOpCompleted && window.__padGradeNativeFileOpCompleted(" + result.toString() + ");");
+
+        // v1.2.4: measure the second queue hop separately. File I/O is finished at
+        // this point; any delay before this runnable executes belongs to Android's
+        // WebView/UI-thread post queue rather than PadGradeFileIO or SAF itself.
+        final long postQueuedNanos = System.nanoTime();
+        final long postQueuedEpochMs = System.currentTimeMillis();
+        webView.post(() -> {
+            try {
+                result.put("uiPostQueuedEpochMs", postQueuedEpochMs);
+                result.put("uiPostWaitMs", elapsedMs(postQueuedNanos));
+                result.put("evalInvokedEpochMs", System.currentTimeMillis());
+            } catch (Exception ignored) {}
+            if (webView.getHandler() != null) {
+                webView.evaluateJavascript("window.__padGradeNativeFileOpCompleted && window.__padGradeNativeFileOpCompleted(" + result.toString() + ");", null);
+            }
+        });
     }
 
     public void onProjectFolderSelected(Uri uri) {
