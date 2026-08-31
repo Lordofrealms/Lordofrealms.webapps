@@ -36,21 +36,30 @@ jobs:
             v043.js v046.js v047.js v048.js v049.js v050.js v051.js v052.js v053.js \
             v060-dev.js v061-dev.js v062-dev.js v063-dev.js v064-dev.js v065-dev.js \
             v066-dev.js v067-dev.js v069-dev.js v070-dev.js v071-dev.js v071-map-ui.js \
-            v072-project-restore.js v075-startup.js v078-dev.js project-compare-core.js \
-            v081-project-compare.js v082-project-compare-fix.js v083-project-compare-fix.js \
-            v085-map-render-order.js v086-compare-presentation.js v087-compare-back.js \
-            v088-project-list-layout.js v089-imagery-recovery.js v090-first-run-guard.js \
-            v090-project-switch-boundary.js v095-map-grid-fastpath.js v095-reading-dialog.js \
-            v096-diagnostics.js v096-dev-defaults.js v096-native-async.js v096-async-reconcile.js \
-            project-format-v107.js v107-index-reconcile.js v107-compare-fast.js \
-            heatmap-raster-worker-v073.js dev-selftest.js migration-core.js grid-core.js \
-            grid-size-bootstrap-v094.js grid-size-worker-v094.js; do
+            v072-project-restore.js v075-startup.js v076-dev.js v077-dev.js v078-dev.js \
+            v080-file-id.js v081-project-compare.js v082-project-compare-fix.js \
+            v083-project-compare-fix.js v085-map-render-order.js v086-compare-presentation.js \
+            v087-compare-back.js v087-map-fast-overlay.js v088-project-list-layout.js \
+            v089-imagery-recovery.js v090-first-run-guard.js v090-project-switch-boundary.js \
+            v095-map-grid-fastpath.js v095-reading-dialog.js v096-diagnostics.js \
+            v096-dev-defaults.js v096-native-async.js v096-async-reconcile.js \
+            v099-grade-calc-opt.js v104-map-tap-diagnostics.js v105-map-hitbox.js \
+            v106-map-hitbox.js project-format-v107.js v107-index-reconcile.js \
+            v107-compare-fast.js v108-index-fastpath.js v108-recovery-save-guard.js \
+            v111-resilience.js v113-dev.js v114-dev.js v115-dev.js v116-dev.js \
+            v117-dev.js v118-dev.js v119-dev.js v120-dev.js v121-dev.js v122-dev.js \
+            v123-dev.js v124-dev.js v125-dev.js v126-dev.js project-compare-core.js \
+            heatmap-raster-worker-v073.js heatmap-raster-worker-v076.js \
+            heatmap-raster-worker-v077.js heatmap-raster-worker-v078.js \
+            dev-selftest.js migration-core.js grid-core.js grid-size-bootstrap-v094.js \
+            grid-size-worker-v094.js; do
             node --check "pad-grade/$script"
           done
           node --check pad-grade/project-format-v107-selftest.js
           node --check pad-grade/v107-index-reconcile-selftest.js
+          node --check pad-grade/v126-generation-cancel-selftest.js
 
-      - name: Verify startup, grid, storage, and CanvasSource heatmap gates
+      - name: Verify startup, grid, storage, and heatmap gates
         run: |
           grep -F "padGradeHeatmapOptInV061" pad-grade/v062-dev.js
           grep -F "platform.precisionGeolocation" pad-grade/platform.js
@@ -67,6 +76,7 @@ jobs:
           grep -F 'src="v096-diagnostics.js?v=20260829-1' pad-grade/index.html
           grep -F 'src="v096-dev-defaults.js?v=20260829-1' pad-grade/index.html
           grep -F 'src="v096-native-async.js?v=20260829-1' pad-grade/index.html
+          grep -F 'src="v126-dev.js?v=20260831-1"' pad-grade/index.html
           grep -F "__padGradePreloadedProjectId" pad-grade/v075-startup.js
           grep -F "__padGradeStartupMapSizePreapplied" pad-grade/v075-startup.js
           grep -F "local-project-settled" pad-grade/v075-startup.js
@@ -84,6 +94,16 @@ jobs:
           grep -F "never publishes partial map bands" pad-grade/heatmap-raster-worker-v073.js
           grep -F "Math.abs(diff)<=tol" pad-grade/heatmap-raster-worker-v073.js
           grep -F "dev-on-stable-off" pad-grade/v096-dev-defaults.js
+
+          # v1.2.6 regular heat lifecycle invariants. Stale generations must be
+          # actively terminated, not merely ignored at presentation time.
+          grep -F "cancelRegularGeneration('project-switch-outgoing-removed')" pad-grade/v126-dev.js
+          grep -F "terminateJob(worker,job,'duplicate-tier-replaced',true)" pad-grade/v126-dev.js
+          grep -F "this.__pg113HeatWorker=true" pad-grade/v126-dev.js
+          grep -F "heatmap.v126-generation-invariant" pad-grade/v126-dev.js
+          grep -F "heatmap.v126-lower-tier-skipped-final-cache" pad-grade/v126-dev.js
+          grep -F "waitedForTargetHeat:false" pad-grade/v126-dev.js
+          grep -F "waitedForTargetApply:false" pad-grade/v126-dev.js
 
           # v1.0.7 durable-format/index architecture replaces the old recurring
           # v096 full-file reconciliation controller on the runtime path.
@@ -113,6 +133,24 @@ jobs:
           node pad-grade/project-compare-selftest.js
           node pad-grade/project-format-v107-selftest.js
           node pad-grade/v107-index-reconcile-selftest.js
+          node pad-grade/v109-progressive-heat-selftest.js
+          node pad-grade/v110-staged-heat-selftest.js
+          node pad-grade/v111-resilience-selftest.js
+          node pad-grade/v112-resolution-inspector-selftest.js
+          node pad-grade/v114-heat-memory-selftest.js
+          node pad-grade/v115-flicker-memory-selftest.js
+          node pad-grade/v116-background-suspend-selftest.js
+          node pad-grade/v117-image-idle-selftest.js
+          node pad-grade/v119-heat-cutover-selftest.js
+          node pad-grade/v119-runtime-selftest.js
+          node pad-grade/v120-heat-fix-selftest.js
+          node pad-grade/v120-runtime-selftest.js
+          node pad-grade/v121-image-request-selftest.js
+          node pad-grade/v122-canvas-handoff-selftest.js
+          node pad-grade/v123-inspector-consistency-selftest.js
+          node pad-grade/v124-callback-diagnostics-selftest.js
+          node pad-grade/v125-renderer-pressure-selftest.js
+          node pad-grade/v126-generation-cancel-selftest.js
 
       - uses: actions/setup-java@v5
         with:
@@ -172,19 +210,23 @@ jobs:
             grid-size-worker-v094.js map-instance-hook-v064.js recovery-visual-v073.js \
             v060-dev.js v061-dev.js v062-dev.js v063-dev.js v064-dev.js v065-dev.js \
             v066-dev.js v067-dev.js v069-dev.js v070-dev.js v071-dev.js v071-map-ui.js \
-            v072-project-restore.js v075-startup.js v078-dev.js project-compare-core.js \
-            v081-project-compare.js v082-project-compare-fix.js v083-project-compare-fix.js \
-            v085-map-render-order.js v086-compare-presentation.js v087-compare-back.js \
-            v088-project-list-layout.js v089-imagery-recovery.js v090-first-run-guard.js \
-            v090-project-switch-boundary.js v095-map-grid-fastpath.js v095-reading-dialog.js \
-            v096-diagnostics.js v096-dev-defaults.js v096-native-async.js \
-            project-format-v107.js v107-index-reconcile.js v107-compare-fast.js \
-            heatmap-raster-worker-v073.js; do
+            v072-project-restore.js v075-startup.js v076-dev.js v077-dev.js v078-dev.js \
+            project-compare-core.js v081-project-compare.js v082-project-compare-fix.js \
+            v083-project-compare-fix.js v085-map-render-order.js v086-compare-presentation.js \
+            v087-compare-back.js v088-project-list-layout.js v089-imagery-recovery.js \
+            v090-first-run-guard.js v090-project-switch-boundary.js v095-map-grid-fastpath.js \
+            v095-reading-dialog.js v096-diagnostics.js v096-dev-defaults.js \
+            v096-native-async.js project-format-v107.js v107-index-reconcile.js \
+            v107-compare-fast.js v111-resilience.js v113-dev.js v120-dev.js v122-dev.js \
+            v123-dev.js v124-dev.js v125-dev.js v126-dev.js \
+            heatmap-raster-worker-v073.js heatmap-raster-worker-v076.js \
+            heatmap-raster-worker-v077.js heatmap-raster-worker-v078.js; do
             unzip -l "$APK" | grep "assets/$asset"
           done
           unzip -l "$APK" | grep 'assets/vendor/maplibre-gl.js'
           unzip -l "$APK" | grep 'assets/vendor/maplibre-gl.css'
           unzip -p "$APK" assets/index.html | grep -F 'src="v096-native-async.js?v=20260829-1'
+          unzip -p "$APK" assets/index.html | grep -F 'src="v126-dev.js?v=20260831-1"'
           unzip -p "$APK" assets/project-format-v107.js | grep -F "CURRENT_SCHEMA=6,ROLLBACK_SCHEMA=5"
           unzip -p "$APK" assets/v096-native-async.js | grep -F "v107-index-reconcile.js?v=20260830-1"
           unzip -p "$APK" assets/v096-native-async.js | grep -F "v107-compare-fast.js?v=20260830-1"
@@ -194,6 +236,9 @@ jobs:
           unzip -p "$APK" assets/v107-compare-fast.js | grep -F "pgCompareLegendV086"
           unzip -p "$APK" assets/v086-compare-presentation.js | grep -F "superseded-by-v107-authoritative-renderer"
           unzip -p "$APK" assets/v063-dev.js | grep -F "canvasSource:true"
+          unzip -p "$APK" assets/v126-dev.js | grep -F "project-switch-outgoing-removed"
+          unzip -p "$APK" assets/v126-dev.js | grep -F "duplicate-tier-replaced"
+          unzip -p "$APK" assets/v126-dev.js | grep -F "__pg113HeatWorker=true"
           unzip -p "$APK" assets/heatmap-raster-worker-v073.js | grep -F "never publishes partial map bands"
 
       - name: Verify package channel, launcher icon, and WebP integrity
