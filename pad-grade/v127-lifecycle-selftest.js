@@ -11,7 +11,7 @@ class FakeWorker{
   terminate(){this.terminated=true;}
 }
 function classList(){const s=new Set();return {add:x=>s.add(x),remove:x=>s.delete(x),contains:x=>s.has(x),_set:s};}
-const rootClass=classList(),marks=[];
+const rootClass=classList(),marks=[],windowListeners={};
 const styleHost={appendChild(){}};
 const document={
   title:'',readyState:'complete',__padGradeV127MutationCapture:false,documentElement:{classList:rootClass},head:styleHost,
@@ -29,13 +29,27 @@ const raf=[];
 const windowObj={
   Worker:FakeWorker,PadGradeDiag:{mark:(n,d)=>marks.push([n,d])},PadGradeHeatGenerationV126:{cancel:()=>0},
   document,localStorage,cfg,pgMeasuredSurfacePoints:()=>points,performance:{now:()=>100},
-  requestAnimationFrame:fn=>{raf.push(fn);return raf.length;},addEventListener(){},dispatchEvent(){},
+  requestAnimationFrame:fn=>{raf.push(fn);return raf.length;},
+  addEventListener(name,fn){(windowListeners[name]||(windowListeners[name]=[])).push(fn);},
+  dispatchEvent(event){for(const fn of windowListeners[event.type]||[])fn.call(this,event);return true;},
   __padGradeBeginRecoveryVisualHold(){rootClass.add('padGradeRecoveryHold');},
   __padGradeEndRecoveryVisualHold(){rootClass.remove('padGradeRecoveryHold');}
 };
 windowObj.window=windowObj;
-const ctx={window:windowObj,document,localStorage,performance:windowObj.performance,requestAnimationFrame:windowObj.requestAnimationFrame,MessageEvent:FakeMessageEvent,CustomEvent:function(type,init){this.type=type;this.detail=init?.detail;},setTimeout,clearTimeout,setInterval:()=>1,clearInterval(){},console};
+function CustomEvent(type,init={}){this.type=type;this.detail=init.detail;}
+const ctx={window:windowObj,document,localStorage,performance:windowObj.performance,requestAnimationFrame:windowObj.requestAnimationFrame,MessageEvent:FakeMessageEvent,CustomEvent,setTimeout,clearTimeout,setInterval:()=>1,clearInterval(){},console};
 vm.runInNewContext(code,ctx,{filename:'v127-dev.js'});
+
+// Patch a fake MapLibre instance through the same map-created event used by the app.
+const added=[];
+const fakeMap={
+  addSource(id,spec){added.push([id,spec]);return this;},
+  getCanvas(){return {width:400,height:300,getBoundingClientRect(){return {width:400,height:300};}};},
+  once(){},triggerRepaint(){},loaded(){return false;},isStyleLoaded(){return false;}
+};
+windowObj.__padGradeMapInstance=fakeMap;
+windowObj.dispatchEvent(new CustomEvent('padgrade-map-created',{detail:{map:fakeMap}}));
+assert.strictEqual(fakeMap.__padGradeV127ProvenanceGuard,true,'map provenance guard was not installed');
 
 const build={type:'build',context:'regular',jobId:1,tier:99,settings:cfg(),points};
 const w99=new windowObj.Worker('heatmap-raster-worker-v078.js?v=x');
@@ -51,39 +65,43 @@ w99.dispatchEvent(new FakeMessageEvent('message',{data:{type:'complete',jobId:1,
 assert.strictEqual(w297.posts.length,1,'297 tier was not released after current 99 completed');
 assert(marks.some(([n])=>n==='heatmap.v127-sequential-tier-released'));
 
+// The next 99 canvas is authorized by that completion and may feed the presenter.
+const currentCanvas={width:83,height:99};
+fakeMap.addSource('pad-grade-interpolated-surface-canvas-source-0',{type:'canvas',canvas:currentCanvas,coordinates:[]});
+assert.strictEqual(added.length,1,'current-generation canvas was incorrectly rejected');
+assert(marks.some(([n])=>n==='heatmap.v127-canvas-provenance-bound'));
+
 // A surface mutation must terminate active work before replacement work starts.
 windowObj.PadGradeHeatGenerationV127.beforeSurfaceMutation('selftest-point-change');
 assert.strictEqual(w297.terminated,true,'forwarded 297 worker survived point mutation');
 assert(marks.some(([n,d])=>n==='heatmap.v127-mutation-cancel-first'&&d.reason==='selftest-point-change'));
 assert(marks.some(([n])=>n==='heatmap.v127-worker-physically-terminated'));
+points=[{x:0,y:0,v:64},{x:64,y:0,v:66},{x:0,y:76,v:63}];
+
+// Re-adding the exact old canvas after the data changed must be a no-op.
+fakeMap.addSource('pad-grade-interpolated-surface-canvas-source-0',{type:'canvas',canvas:currentCanvas,coordinates:[]});
+assert.strictEqual(added.length,1,'stale canvas reached MapLibre after surface mutation');
+assert(marks.some(([n,d])=>n==='heatmap.v127-stale-canvas-suppressed'&&d.reason==='immutable-provenance-mismatch'));
 
 // Cache hit from 99 must cancel the queued 297 without ever forwarding its raster work.
-points=[{x:0,y:0,v:64},{x:64,y:0,v:66},{x:0,y:76,v:63}];
 const build2={...build,jobId:3,points};
 const c99=new windowObj.Worker('heatmap-raster-worker-v078.js?v=x');c99.postMessage(build2);
 const c297=new windowObj.Worker('heatmap-raster-worker-v078.js?v=x');c297.postMessage({...build2,jobId:4,tier:297});
 assert.strictEqual(c297.posts.length,0);
+windowObj.PadGradeDiag.mark('heatmap.cache-hit',{projectId:'project-a',tier:891,nx:750,ny:891});
+const cacheCanvas={width:750,height:891};
+fakeMap.addSource('pad-grade-interpolated-surface-canvas-source-1',{type:'canvas',canvas:cacheCanvas,coordinates:[]});
+assert.strictEqual(added.length,2,'exact cached 891 canvas was incorrectly rejected');
 c99.dispatchEvent(new FakeMessageEvent('message',{data:{type:'empty',jobId:3,tier:99,cacheHit:true}}));
 assert.strictEqual(c297.posts.length,0,'cache-hit 297 unexpectedly reached raster worker');
 assert.strictEqual(c297.terminated,true,'cache-hit queued 297 was not terminated');
 assert(marks.some(([n])=>n==='heatmap.v127-lower-tier-skipped-final-cache'));
 
-// Immutable provenance: a canvas authorized by the current generation may be reused
-// within that generation, but the same canvas must be rejected after the surface changes.
-const added=[];
-const fakeMap={
-  __padGradeV127ProvenanceGuard:false,
-  addSource(id,spec){added.push([id,spec]);return this;},
-  getCanvas(){return {width:400,height:300,getBoundingClientRect(){return {width:400,height:300};}};},
-  once(){},triggerRepaint(){},loaded(){return false;},isStyleLoaded(){return false;}
-};
-windowObj.__padGradeMapInstance=fakeMap;
-// force periodic attach path directly through the map-created event is not available in this minimal VM;
-// re-evaluate install attach by invoking the captured public snapshot path after a synthetic active apply mark.
-// The source contract itself is additionally asserted statically below.
-assert(code.includes('immutable-provenance-mismatch'));
-assert(code.includes('no-current-generation-authorization'));
-assert(code.includes('canvasProvenance'));
+// Returning to a prior surface still may not revive a regular canvas from its old generation.
+windowObj.PadGradeHeatGenerationV127.beforeSurfaceMutation('selftest-return-original');
+points=[{x:0,y:0,v:64},{x:64,y:0,v:65},{x:0,y:76,v:63}];
+fakeMap.addSource('pad-grade-interpolated-surface-canvas-source-0',{type:'canvas',canvas:currentCanvas,coordinates:[]});
+assert.strictEqual(added.length,2,'old-generation 99 canvas revived when surface key returned');
 
 // Startup UX contracts: first-run remains covered through storage selection and recovered
 // GPS projects cannot release the curtain until the base MapLibre frame has rendered.
