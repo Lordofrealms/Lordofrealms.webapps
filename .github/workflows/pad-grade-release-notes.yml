@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, pad-grade-dev]
     paths:
-      - 'pad-grade/CHANGELOG.md'
+      - 'pad-grade/RELEASE_NOTES.md'
       - 'pad-grade-android/app/build.gradle.kts'
       - '.github/workflows/pad-grade-release-notes.yml'
   workflow_dispatch:
@@ -38,80 +38,43 @@ jobs:
           echo "BUILD_CHANNEL=$CHANNEL" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
 
-      - name: Verify changelog section exists
+      - name: Verify release notes match app version
         run: |
           python3 - "$APP_VERSION" <<'PY'
           import re, sys
           from pathlib import Path
           version=sys.argv[1]
-          text=Path('pad-grade/CHANGELOG.md').read_text(encoding='utf-8')
-          pat=re.compile(rf'^## v{re.escape(version)}(?:\s+—.*)?$', re.M)
-          if not pat.search(text):
-              raise SystemExit(f'Missing detailed changelog section for v{version}')
+          text=Path('pad-grade/RELEASE_NOTES.md').read_text(encoding='utf-8')
+          if not re.search(rf'^# Pad Grade Mapper v{re.escape(version)}(?:\s+—.*)?$', text, re.M):
+              raise SystemExit(f'RELEASE_NOTES.md title does not match v{version}')
+          if not re.search(rf'^## v{re.escape(version)}(?:\s+—.*)?$', text, re.M):
+              raise SystemExit(f'RELEASE_NOTES.md is missing the v{version} change section')
           PY
 
-      - name: Wait for matching Android build
-        if: github.event_name == 'push'
+      - name: Wait for current GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           found=0
           for _ in $(seq 1 120); do
-            row=$(gh run list --workflow pad-grade-android.yml --commit "$GITHUB_SHA" --limit 5 --json status,conclusion --jq '.[0] | [.status, (.conclusion // "")] | @tsv' 2>/dev/null || true)
-            status=$(printf '%s' "$row" | cut -f1)
-            conclusion=$(printf '%s' "$row" | cut -f2)
-            if [ "$status" = "completed" ]; then
+            if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
               found=1
-              if [ "$conclusion" != "success" ]; then
-                echo "Pad Grade Android workflow completed with: $conclusion" >&2
-                exit 1
-              fi
               break
             fi
             sleep 3
           done
           if [ "$found" != "1" ]; then
-            echo "Timed out waiting for Pad Grade Android workflow for $GITHUB_SHA" >&2
+            echo "Timed out waiting for GitHub release $RELEASE_TAG" >&2
             exit 1
           fi
 
       - name: Build detailed release notes
-        run: |
-          python3 - "$APP_VERSION" "$BUILD_CHANNEL" /tmp/pad-grade-release-notes.md <<'PY'
-          import re, sys
-          from pathlib import Path
-          version,channel,out=sys.argv[1:]
-          lines=Path('pad-grade/CHANGELOG.md').read_text(encoding='utf-8').splitlines()
-          start=None
-          for i,line in enumerate(lines):
-              if re.fullmatch(rf'## v{re.escape(version)}(?:\s+—.*)?', line):
-                  start=i; break
-          if start is None:
-              raise SystemExit(f'Missing changelog section for v{version}')
-          end=len(lines)
-          for i in range(start+1,len(lines)):
-              if lines[i].startswith('## '):
-                  end=i; break
-          section='\n'.join(lines[start:end]).rstrip()+'\n'
-          intro=(
-              '# Pad Grade Mapper\n\n'
-              'Android grading and survey-planning tool for recording rod readings on a configurable pad grid, visualizing cut/fill with interpolation and heat maps, estimating earthwork, navigating survey points with GPS, and managing portable project saves with import/export and durable-folder storage.\n\n'
-          )
-          if channel=='dev':
-              intro+='**Development / test build** — installs separately from the stable app and may contain experimental changes.\n\n'
-          else:
-              intro+='**Stable Android build.**\n\n'
-          Path(out).write_text(intro+'# Changes in this build\n\n'+section,encoding='utf-8')
-          PY
+        run: cp pad-grade/RELEASE_NOTES.md /tmp/pad-grade-release-notes.md
 
       - name: Publish detailed current release notes
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "Release $RELEASE_TAG does not exist yet" >&2
-            exit 1
-          fi
           if [ "$BUILD_CHANNEL" = "dev" ]; then
             gh release edit "$RELEASE_TAG" --notes-file /tmp/pad-grade-release-notes.md --prerelease
           else
@@ -155,6 +118,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          gh release view "$RELEASE_TAG" --json body --jq '.body' | grep -F "# Pad Grade Mapper v$APP_VERSION"
           gh release view "$RELEASE_TAG" --json body --jq '.body' | grep -F "## v$APP_VERSION"
           if [ "$BUILD_CHANNEL" = "dev" ] && gh release view pad-grade-dev-v0.9.9 >/dev/null 2>&1; then
             gh release view pad-grade-dev-v0.9.9 --json body --jq '.body' | grep -F '## v0.9.9'
