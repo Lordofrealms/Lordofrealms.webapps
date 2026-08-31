@@ -18,7 +18,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Syntax check current heat runtimes
+      - name: Syntax check retained heat runtimes
         run: |
           node --check pad-grade/v120-dev.js
           node --check pad-grade/v121-dev.js
@@ -32,9 +32,8 @@ jobs:
           node pad-grade/v120-heat-fix-selftest.js
           node pad-grade/v110-staged-heat-selftest.js
           node pad-grade/v111-resilience-selftest.js
-      - name: Verify v1.2.2 release wiring
+      - name: Verify v1.2.2 presentation remains wired under current DEV
         run: |
-          grep -F '<title>Pad Grade Mapper v1.2.2 DEV</title>' pad-grade/index.html
           grep -F 'src="v120-dev.js?v=20260831-1' pad-grade/index.html
           grep -F 'src="v122-dev.js?v=20260831-1' pad-grade/index.html
           grep -F 'src="v121-dev.js?v=20260831-1' pad-grade/index.html
@@ -42,5 +41,3 @@ jobs:
           grep -F "type:'canvas',canvas:displayCanvas" pad-grade/v122-dev.js
           grep -F "tierSwapSourceRecreate:false" pad-grade/v122-dev.js
           grep -F "tierSwapLayerRecreate:false" pad-grade/v122-dev.js
-          grep -F 'versionCode = 94' pad-grade-android/app/build.gradle.kts
-          grep -F 'versionName = "1.2.2"' pad-grade-android/app/build.gradle.kts
