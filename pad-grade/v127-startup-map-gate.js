@@ -57,10 +57,23 @@
     if(document.getElementById('pg127StartupMapGateStyle'))return;
     const style=document.createElement('style');style.id='pg127StartupMapGateStyle';
     style.textContent=`
+      /* Ordinary recovery only becomes visually strict once the v1.1.1 runtime is
+         ready. Fresh-install storage setup is different: it must be opaque from
+         the first body paint, before any later runtime-ready class can exist. */
       html.padGradeRecoveryHold.${GATE_CLASS}.pg111RuntimeReady body>*{visibility:hidden!important}
       html.padGradeRecoveryHold.${GATE_CLASS}.pg111RuntimeReady body::before{display:flex!important;visibility:visible!important}
-      html.padGradeRecoveryHold.${GATE_CLASS}.padGradeFirstRunSetupV127 body>#pgFirstRunStorageChoice,
-      html.padGradeRecoveryHold.${GATE_CLASS}.padGradeFirstRunSetupV127 body>#pgFirstRunStorageChoice *{visibility:visible!important}
+      html.padGradeRecoveryHold.padGradeFirstRunSetupV127 body>*{visibility:hidden!important}
+      html.padGradeRecoveryHold.padGradeFirstRunSetupV127 body::before{
+        content:'Choose project storage to continue';
+        display:flex!important;visibility:visible!important;position:fixed;inset:0;
+        z-index:2147483000;align-items:center;justify-content:center;
+        box-sizing:border-box;padding:24px;background:#111820;color:#f5f7fa;
+        font:600 16px/1.4 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+        text-align:center;
+      }
+      html.padGradeRecoveryHold.padGradeFirstRunSetupV127 body>#pgFirstRunStorageChoice,
+      html.padGradeRecoveryHold.padGradeFirstRunSetupV127 body>#pgFirstRunStorageChoice *{visibility:visible!important}
+      html.padGradeRecoveryHold.padGradeFirstRunSetupV127 body>#pgFirstRunStorageChoice{z-index:2147483001!important}
     `;
     document.head.appendChild(style);
   }
@@ -92,6 +105,7 @@
     return true;
   }
 
+  ensureStyle();
   // This executes in <head>, before the workspace body can paint.
   if(isFreshAndroidInstall()){
     window.__padGradeFreshInstallPrecoverV128=true;
@@ -113,7 +127,6 @@
     window.__padGradeEndRecoveryVisualHold=wrapped;
   }
 
-  ensureStyle();
   if(root.classList.contains('padGradeRecoveryHold'))keepCovered('startup-install');
   window.addEventListener('padgrade-base-map-rendered',()=>releaseIfReady('base-map-rendered'));
   keepalive=setInterval(()=>{
