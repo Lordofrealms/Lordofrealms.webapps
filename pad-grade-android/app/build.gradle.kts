@@ -51,8 +51,8 @@ android {
         targetSdk = 36
         // Versioning rule: every changed test/release APK gets a new versionCode.
         // User-visible behavior changes also advance versionName before the build is published.
-        versionCode = 97
-        versionName = "1.2.5"
+        versionCode = 98
+        versionName = "1.2.6"
     }
 
     buildTypes {
