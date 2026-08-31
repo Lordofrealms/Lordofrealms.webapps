@@ -37,11 +37,22 @@ must(hideBody.includes("setLayoutProperty(CANONICAL_LAYER,'visibility','none')")
 must(!hideBody.includes('removeSource(')&&!hideBody.includes('removeLayer('), 'v1.2.8 must not recreate/remove protected canonical heat source/layer');
 must(v122.includes('MAINTENANCE / CHANGE-CONTROL NOTE — FLICKERLESS HEAT PRESENTATION')&&v122.includes('requires explicit developer\n * agreement'), 'v1.2.2 protected-presentation change-control note missing');
 
-// Retired stale canvases must stop before the v1.2.7 provenance/logging path.
-must(v128.includes('if(canvas&&retiredCanvases.has(canvas))'), 'retired-canvas admission guard missing');
-must(v128.includes('heatmap.v128-retired-canvas-retry-suppressed'), 'retired retry diagnostic missing');
+// Retired stale canvases must stop before the v1.2.7 provenance/logging path. The
+// old canvas backing store must also be collapsed so a closure reference cannot
+// pin an obsolete 99/297/891 bitmap in memory. Source/layer tombstones make the
+// 900 ms legacy repair loop terminate at cheap v1.2.8 getters/property no-ops rather
+// than recreating virtual presentation records or entering MapLibre.
+must(v128.includes('if(NORMAL_SOURCE_RE.test(sid)&&canvas&&retiredCanvases.has(canvas))'), 'retired-canvas admission guard missing');
+must(v128.includes('canvas.width=1;canvas.height=1'), 'retired canvas backing store is not released');
+must(v128.includes('const retiredSourceIds=new Set()')&&v128.includes('const retiredLayerIds=new Set()'), 'legacy producer tombstone sets missing');
+must(v128.includes('return retiredSourceStub;'), 'retired source lookup is not short-circuited');
+must(v128.includes("if(retiredLayerIds.has(String(id||'')))return this;"), 'retired layer property operations are not short-circuited');
+must(v128.includes('retiredSourceIds.delete(sid);retiredRetryLoggedSources.delete(sid);'), 'current slot reuse does not clear retired source tombstone');
+must(v128.includes('heatmap.v128-retired-source-tombstone-hit'), 'producer tombstone diagnostic missing');
+must(v128.includes('heatmap.v128-retired-canvas-retry-suppressed'), 'retired fallback admission diagnostic missing');
 must(v128.includes('state.sources.delete(id)')&&v128.includes('state.layers.delete(id)'), 'old virtual presentation references are not retired');
 must(v128.includes('clearTimeout(state.commitTimer)')&&v128.includes('clearTimeout(state.verifyTimer)'), 'old presentation callbacks are not cancelled');
+must(v128.includes('legacyProducerTombstones:true'), 'runtime does not advertise producer-level retirement');
 
 // Fresh Android installs must be covered from <head>, before the normal body can
 // paint, while preserving the original 6-second safety semantics.
