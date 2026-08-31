@@ -7,9 +7,10 @@
  * the now-invalid canonical heat and retire legacy virtual-canvas references.
  *
  * It also neutralizes the legacy v1.1.1 900 ms ensureDisplayedRaster repair loop:
- * canvases retired for an obsolete surface are rejected before they can re-enter
- * the v1.2.7 provenance guard. This removes repeated stale-canvas work/logging while
- * keeping the provenance guard as a final correctness safety net.
+ * retired raster backing stores are collapsed to 1x1 and their old virtual source/
+ * layer IDs become inert tombstones until a current generation reuses the slot.
+ * The legacy loop can keep its unrelated grid/laser maintenance duty without ever
+ * re-entering MapLibre or the provenance path for an obsolete heat canvas.
  */
 (function installPadGrade128Dev(){
   'use strict';
@@ -21,6 +22,10 @@
   const NORMAL_LAYER_RE=/^pad-grade-interpolated-surface-canvas-layer-/;
   const CANONICAL_LAYER='pad-grade-v120-heat-image-layer';
   const retiredCanvases=new WeakSet();
+  const retiredSourceIds=new Set();
+  const retiredLayerIds=new Set();
+  const retiredRetryLoggedSources=new Set();
+  const retiredSourceStub={setCoordinates(){return this;},play(){return this;},pause(){return this;}};
   let mapPatched=null;
   let installTimer=null;
   let clickBefore=null;
@@ -35,52 +40,117 @@
   }
   function activeProjectId(){try{return localStorage.getItem('padGradeActiveProjectIdV5')||'';}catch(e){return '';}}
 
+  function retireCanvasBacking(canvas){
+    if(!canvas)return null;
+    const width=+canvas.width||0,height=+canvas.height||0;
+    retiredCanvases.add(canvas);
+    try{
+      canvas.__padGradeV128RetiredWidth=width;
+      canvas.__padGradeV128RetiredHeight=height;
+      // Resetting canvas dimensions releases its large CPU-side bitmap backing store.
+      // v1.2.2 already copied the completed frame into its private canonical display
+      // canvas, so shrinking this obsolete legacy handoff canvas cannot damage the
+      // currently presented GPU/display frame (which is hidden separately below).
+      canvas.width=1;canvas.height=1;
+    }catch(e){}
+    return {width,height};
+  }
+
   function patchRetiredCanvasAdmission(map){
     if(!map||map.__padGradeV128RetiredCanvasGuard)return !!map;
-    // Install after v1.2.7 so retired legacy canvases are stopped before the more
-    // expensive provenance/logging path. New/current canvases flow unchanged.
-    const base=map.addSource?.bind(map);if(typeof base!=='function')return false;
+    // Install after v1.2.7/v1.2.0. Normal calls continue through those wrappers.
+    // Retired legacy slot IDs are represented by inert tombstones so the v1.1.1
+    // 900 ms repair loop never gets far enough to recreate virtual layers, schedule
+    // presentation commits, or enter MapLibre. A current canvas reuse clears the
+    // tombstone and follows the ordinary protected path.
+    const baseAddSource=map.addSource?.bind(map),baseGetSource=map.getSource?.bind(map),baseRemoveSource=map.removeSource?.bind(map);
+    const baseAddLayer=map.addLayer?.bind(map),baseGetLayer=map.getLayer?.bind(map),baseRemoveLayer=map.removeLayer?.bind(map);
+    const baseSetLayout=map.setLayoutProperty?.bind(map),baseSetPaint=map.setPaintProperty?.bind(map),baseMoveLayer=map.moveLayer?.bind(map);
+    if(typeof baseAddSource!=='function'||typeof baseGetSource!=='function')return false;
+
     map.addSource=function(id,spec){
-      const canvas=spec?.canvas;
-      if(canvas&&retiredCanvases.has(canvas)){
+      const sid=String(id||''),canvas=spec?.canvas;
+      if(NORMAL_SOURCE_RE.test(sid)&&canvas&&retiredCanvases.has(canvas)){
+        retiredSourceIds.add(sid);
         if(!canvas.__padGradeV128RetiredRetryLogged){
           canvas.__padGradeV128RetiredRetryLogged=true;
-          mark('heatmap.v128-retired-canvas-retry-suppressed',{source:String(id||''),width:+canvas.width||0,height:+canvas.height||0});
+          mark('heatmap.v128-retired-canvas-retry-suppressed',{source:sid,width:+canvas.__padGradeV128RetiredWidth||0,height:+canvas.__padGradeV128RetiredHeight||0,backingWidth:+canvas.width||0,backingHeight:+canvas.height||0});
         }
         return this;
       }
-      return base(id,spec);
+      if(NORMAL_SOURCE_RE.test(sid)){
+        retiredSourceIds.delete(sid);retiredRetryLoggedSources.delete(sid);
+      }
+      return baseAddSource(id,spec);
     };
+    map.getSource=function(id){
+      const sid=String(id||'');
+      if(retiredSourceIds.has(sid)){
+        if(!retiredRetryLoggedSources.has(sid)){
+          retiredRetryLoggedSources.add(sid);
+          mark('heatmap.v128-retired-source-tombstone-hit',{source:sid,legacyMaintenanceIntervalMs:900});
+        }
+        return retiredSourceStub;
+      }
+      return baseGetSource(id);
+    };
+    if(typeof baseRemoveSource==='function')map.removeSource=function(id){
+      const sid=String(id||'');
+      if(retiredSourceIds.delete(sid)){retiredRetryLoggedSources.delete(sid);return this;}
+      return baseRemoveSource(id);
+    };
+    if(typeof baseAddLayer==='function')map.addLayer=function(layer,before){
+      const lid=String(layer?.id||''),sid=String(layer?.source||'');
+      if(NORMAL_LAYER_RE.test(lid)&&retiredSourceIds.has(sid)){retiredLayerIds.add(lid);return this;}
+      if(NORMAL_LAYER_RE.test(lid))retiredLayerIds.delete(lid);
+      return before===undefined?baseAddLayer(layer):baseAddLayer(layer,before);
+    };
+    if(typeof baseGetLayer==='function')map.getLayer=function(id){
+      const lid=String(id||'');
+      if(retiredLayerIds.has(lid))return {id:lid,type:'raster',source:lid.replace('layer-','source-')};
+      return baseGetLayer(id);
+    };
+    if(typeof baseRemoveLayer==='function')map.removeLayer=function(id){
+      const lid=String(id||'');if(retiredLayerIds.delete(lid))return this;return baseRemoveLayer(id);
+    };
+    if(typeof baseSetLayout==='function')map.setLayoutProperty=function(id,name,value){if(retiredLayerIds.has(String(id||'')))return this;return baseSetLayout(id,name,value);};
+    if(typeof baseSetPaint==='function')map.setPaintProperty=function(id,name,value){if(retiredLayerIds.has(String(id||'')))return this;return baseSetPaint(id,name,value);};
+    if(typeof baseMoveLayer==='function')map.moveLayer=function(id,before){if(retiredLayerIds.has(String(id||'')))return this;return before===undefined?baseMoveLayer(id):baseMoveLayer(id,before);};
+
     map.__padGradeV128RetiredCanvasGuard=true;mapPatched=map;
-    mark('heatmap.v128-retired-canvas-guard-installed',{projectId:activeProjectId()});
+    mark('heatmap.v128-retired-canvas-guard-installed',{projectId:activeProjectId(),legacyProducerTombstones:true});
     return true;
   }
 
   function retireLegacyPresentation(reason){
     const state=window.__padGradeV120PrimaryHeatState;
-    let sources=0,layers=0,canvases=0;
+    let sources=0,layers=0,canvases=0,releasedPixels=0;
     try{
       if(state?.commitTimer){clearTimeout(state.commitTimer);state.commitTimer=null;}
       if(state?.verifyTimer){clearTimeout(state.verifyTimer);state.verifyTimer=null;}
       state.requestSerial=(state.requestSerial||0)+1;
       if(state?.sources instanceof Map){
         for(const [id,record] of [...state.sources.entries()]){
-          if(!NORMAL_SOURCE_RE.test(String(id||'')))continue;
-          if(record?.canvas){retiredCanvases.add(record.canvas);canvases++;}
+          const sid=String(id||'');if(!NORMAL_SOURCE_RE.test(sid))continue;
+          retiredSourceIds.add(sid);
+          if(record?.canvas){
+            const size=retireCanvasBacking(record.canvas);canvases++;
+            if(size)releasedPixels+=size.width*size.height;
+          }
           if(record){record.removed=true;record.frame=null;record.canvas=null;}
           state.sources.delete(id);sources++;
         }
       }
       if(state?.layers instanceof Map){
         for(const id of [...state.layers.keys()]){
-          if(!NORMAL_LAYER_RE.test(String(id||'')))continue;
-          state.layers.delete(id);layers++;
+          const lid=String(id||'');if(!NORMAL_LAYER_RE.test(lid))continue;
+          retiredLayerIds.add(lid);state.layers.delete(id);layers++;
         }
       }
       state.currentFrame=null;state.currentSource=null;state.currentLayer=null;
     }catch(e){mark('heatmap.v128-legacy-retire-error',{reason,error:String(e?.message||e).slice(0,160)});}
-    mark('heatmap.v128-legacy-presentation-retired',{reason,sources,layers,canvases});
-    return {sources,layers,canvases};
+    mark('heatmap.v128-legacy-presentation-retired',{reason,sources,layers,canvases,releasedPixels,legacyProducerTombstoned:true});
+    return {sources,layers,canvases,releasedPixels};
   }
 
   function hideCanonicalHeat(reason){
@@ -171,5 +241,5 @@
     if(window.saveCurrent?.__padGradeV128MutationOrder&&window.__padGradeMapInstance?.__padGradeV128RetiredCanvasGuard){clearInterval(installTimer);installTimer=null;}
   },100);
   window.addEventListener('beforeunload',()=>{if(installTimer)clearInterval(installTimer);},{once:true});
-  mark('heatmap.v128-runtime-installed',{version:VERSION,mutationOrder:'cancel-mutate-clear-refresh',protectedV122PresenterUnchanged:true,legacyRetiredCanvasAdmissionSuppressed:true});
+  mark('heatmap.v128-runtime-installed',{version:VERSION,mutationOrder:'cancel-mutate-clear-refresh',protectedV122PresenterUnchanged:true,legacyRetiredCanvasAdmissionSuppressed:true,legacyProducerTombstones:true});
 })();
