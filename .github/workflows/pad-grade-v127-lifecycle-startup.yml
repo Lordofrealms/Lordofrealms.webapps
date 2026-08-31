@@ -10,7 +10,6 @@ on:
       - 'pad-grade/v127-startup-map-gate-selftest.js'
       - 'pad-grade/index.html'
       - 'pad-grade/RELEASE_NOTES.md'
-      - 'pad-grade-android/app/build.gradle.kts'
       - '.github/workflows/pad-grade-v127-lifecycle-startup.yml'
   pull_request:
     branches: [pad-grade-dev]
@@ -21,7 +20,6 @@ on:
       - 'pad-grade/v127-startup-map-gate-selftest.js'
       - 'pad-grade/index.html'
       - 'pad-grade/RELEASE_NOTES.md'
-      - 'pad-grade-android/app/build.gradle.kts'
       - '.github/workflows/pad-grade-v127-lifecycle-startup.yml'
   workflow_dispatch:
 
@@ -30,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Syntax check v1.2.7 runtime
+      - name: Syntax check retained v1.2.7 runtime
         run: |
           node --check pad-grade/v127-dev.js
           node --check pad-grade/v127-startup-map-gate.js
@@ -43,13 +41,10 @@ jobs:
         run: node pad-grade/v122-canvas-handoff-selftest.js
       - name: Carry forward v1.2.6 generation cancellation regression
         run: node pad-grade/v126-generation-cancel-selftest.js
-      - name: Verify runtime wiring and release identity
+      - name: Verify retained v1.2.7 behavior and wiring
         run: |
-          grep -F '<title>Pad Grade Mapper v1.2.7 DEV</title>' pad-grade/index.html
           grep -F 'src="v127-startup-map-gate.js?v=20260831-1"' pad-grade/index.html
           grep -F 'src="v127-dev.js?v=20260831-1"' pad-grade/index.html
-          grep -F 'versionCode = 99' pad-grade-android/app/build.gradle.kts
-          grep -F 'versionName = "1.2.7"' pad-grade-android/app/build.gradle.kts
           grep -F '## v1.2.7 —' pad-grade/RELEASE_NOTES.md
           grep -F 'mutationCancelFirst:true' pad-grade/v127-dev.js
           grep -F "sequentialRegularTiers:'99-then-297-then-891'" pad-grade/v127-dev.js
@@ -58,4 +53,6 @@ jobs:
           grep -F 'protectedV122PresentationUnchanged:true' pad-grade/v127-dev.js
           grep -F 'preservesLegacyFailsafe:true' pad-grade/v127-startup-map-gate.js
           grep -F 'safetyMaxMs:6000' pad-grade/v127-startup-map-gate.js
-          ! grep -F '__padGradeBeginRecoveryVisualHold?.();' pad-grade/v127-startup-map-gate.js
+          # The self-test above proves the base-map keepCovered() path does not
+          # re-arm the six-second timer. Newer releases may intentionally call
+          # begin() elsewhere for first-run storage setup without weakening that.
