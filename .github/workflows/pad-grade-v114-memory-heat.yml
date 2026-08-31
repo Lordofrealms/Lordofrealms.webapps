@@ -27,8 +27,8 @@ jobs:
           grep -F 'heatmap.cache-layer-retirement-suppressed' pad-grade/v114-dev.js
           grep -F 'memory.snapshot' pad-grade/v114-dev.js
           grep -F 'pgDiagnosticMemorySnapshot' pad-grade/v114-dev.js
-          grep -F 'v119-dev.js?v=20260831-1' pad-grade/index.html
-          grep -F 'legacyMapLibreCanvasSources:false' pad-grade/v119-dev.js
+          grep -F 'v120-dev.js?v=20260831-1' pad-grade/index.html
+          grep -F 'legacyMapLibreCanvasSources:false' pad-grade/v120-dev.js
           ! grep -F '<script src="v114-dev.js' pad-grade/index.html
       - name: Verify retained Android memory instrumentation
         run: |
