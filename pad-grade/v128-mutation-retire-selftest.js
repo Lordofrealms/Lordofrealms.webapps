@@ -6,10 +6,12 @@ const must=(ok,msg)=>{if(!ok)throw new Error(msg);};
 
 const v128=read('v128-dev.js');
 const startup=read('v127-startup-map-gate.js');
+const firstRun=read('v090-first-run-guard.js');
 const v127=read('v127-dev.js');
 const v122=read('v122-dev.js');
 const v063=read('v063-dev.js');
 const index=read('index.html');
+const androidMain=fs.readFileSync(path.join(root,'..','pad-grade-android','app','src','main','java','com','lordofrealms','padgrade','MainActivity.java'),'utf8');
 
 // The field log showed stale-canvas suppression at ~0.9 s intervals. Preserve a
 // regression explanation proving the legacy caller we are neutralizing still is
@@ -44,13 +46,31 @@ must(v128.includes('clearTimeout(state.commitTimer)')&&v128.includes('clearTimeo
 // Fresh Android installs must be covered from <head>, before the normal body can
 // paint, while preserving the original 6-second safety semantics.
 const startupTag=index.indexOf('v127-startup-map-gate.js');
+const firstRunTag=index.indexOf('v090-first-run-guard.js');
 const bodyTag=index.indexOf('<body>');
 must(startupTag>=0&&startupTag<bodyTag, 'startup/precover gate must load before body');
+must(firstRunTag>bodyTag&&startupTag<firstRunTag, 'first-run storage controller must remain downstream of the head precover');
 must(startup.includes('isFreshAndroidInstall()'), 'fresh-install head detection missing');
 must(startup.includes("armFreshInstallCover('head-before-body')"), 'fresh-install cover not armed before body');
 must(startup.includes("window.addEventListener('padgrade-legal-accepted',()=>armFreshInstallCover('legal-accepted-before-storage-choice'))"), 'Terms-to-storage transition is not re-covered immediately');
 must(startup.includes('html.padGradeRecoveryHold.padGradeFirstRunSetupV127 body>*{visibility:hidden!important}'), 'fresh-install workspace hiding still depends on a later runtime-ready class');
 must(startup.indexOf('ensureStyle();')<startup.indexOf('if(isFreshAndroidInstall())'), 'fresh-install CSS must exist before the precover is armed');
 must(startup.includes('safetyMaxMs:6000')&&!startup.includes('setInterval(()=>armFreshInstallCover'), 'map/precover layer must preserve the 6-second max rather than continuously rearming it');
+
+// Android intentionally preloads the page beneath the native Terms Activity. The
+// preload may never expose storage choice, and acceptance must dispatch the event
+// that lets the already-head-loaded cover re-arm before the downstream first-run
+// controller opens the choice dialog. Also preserve the fast-accept fallback: if
+// the preload WebView did not exist yet, MainActivity loads the normal page only
+// after acceptance, where the same head precover runs before body paint.
+must(androidMain.includes('private static final String LEGAL_PRELOAD_URL = APP_URL + "?legalPreload=1";'), 'Android legal preload URL contract missing');
+must(androidMain.includes('initializeWebView(null, true);'), 'Android no longer preloads the WebView beneath Terms');
+must(androidMain.includes('if (legalPreload) webView.loadUrl(LEGAL_PRELOAD_URL);'), 'Android legal preload flag no longer selects the gated URL');
+must(androidMain.includes("window.dispatchEvent(new Event('padgrade-legal-accepted'))"), 'Android acceptance no longer dispatches the web release event');
+must(androidMain.includes('if (webView == null) initializeWebView(pendingInitialState, false);'), 'fast Terms acceptance fallback no longer initializes the normal page after acceptance');
+must(firstRun.includes("function legalPreloadActive(){try{return window.__padGradeLegalReleased!==true&&new URLSearchParams(location.search).get('legalPreload')==='1';"), 'first-run controller no longer recognizes Android legal preload');
+must(firstRun.includes("function showChoice(note=''){\n    if(!armed||legalPreloadActive())return;"), 'storage choice can now appear during legal preload');
+must(firstRun.includes("window.addEventListener('padgrade-legal-accepted',()=>{\n    try{window.PadGradeDiag?.mark?.('legal.accepted-release'"), 'first-run controller no longer waits for native legal acceptance');
+must(firstRun.includes('setTimeout(startFirstRunChoice,0);'), 'storage choice is not deferred until after the acceptance event returns');
 
 console.log('Pad Grade v1.2.8 mutation/retirement + fresh-install precover self-test passed');
