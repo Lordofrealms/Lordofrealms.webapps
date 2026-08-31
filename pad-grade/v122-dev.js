@@ -1,5 +1,22 @@
 /* Pad Grade v1.2.2 DEV — direct completed-canvas presentation.
  *
+ * MAINTENANCE / CHANGE-CONTROL NOTE — FLICKERLESS HEAT PRESENTATION
+ * -----------------------------------------------------------------
+ * This presentation path is intentionally structured to keep the previous complete
+ * heat-map frame visible until the next complete frame is ready, then refresh the
+ * existing MapLibre texture in place. It was reached only after substantial field
+ * debugging across multiple DEV revisions involving partial-canvas painting,
+ * source/layer recreation flicker, MapLibre ImageSource abort/reload behavior, and
+ * Android WebView data-URL decode failures.
+ *
+ * DO NOT casually replace, simplify, or re-architect the canonical heat source,
+ * layer, complete-canvas copy, or in-place texture refresh behavior below. Any
+ * change to this heat-map presentation architecture requires explicit developer
+ * agreement specifically approving a presentation change, plus the dedicated
+ * no-flicker regression coverage. Calculation/interpolation work should remain
+ * separate from this presentation block whenever possible.
+ * -----------------------------------------------------------------
+ *
  * v1.2.1 proved that the worker/cache canvases are complete and non-transparent,
  * but Android WebView never completed MapLibre's URL ImageSource decode for the
  * large local PNG data URL. v1.2.2 keeps the v1.2.0 single-authority source/layer
