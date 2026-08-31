@@ -14,6 +14,7 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 /** Persistent, privacy-safe Android lifecycle breadcrumbs for DEV diagnostics. */
 public final class PadGradeLifecycleBridge {
@@ -21,6 +22,7 @@ public final class PadGradeLifecycleBridge {
     private static final String EVENTS = "events";
     private static final String SEQ = "seq";
     private static final String LAST_EXIT_FINGERPRINT = "last_exit_fingerprint";
+    private static final String LAST_PERMISSION_NOTICE_FINGERPRINT = "last_permission_notice_fingerprint";
     private static final int MAX_EVENTS = 180;
     private final Context context;
 
@@ -226,6 +228,38 @@ public final class PadGradeLifecycleBridge {
             } catch (Exception ignored) {}
             appendRow(context, row);
         }
+    }
+
+
+    /**
+     * Application behavior path, intentionally independent of web diagnostics. Android
+     * owns ApplicationExitInfo outside the process that died, so this can explain a
+     * one-time-location revocation even when Pad Grade diagnostic logging was disabled.
+     * The fingerprint is consumed once so the same historical exit never nags again.
+     */
+    public static boolean consumeOneTimePermissionRevokedExitNotice(Context context) {
+        if (context == null) return false;
+        try {
+            ActivityManager manager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+            if (manager == null) return false;
+            List<ApplicationExitInfo> exits = manager.getHistoricalProcessExitReasons(context.getPackageName(), 0, 8);
+            if (exits == null || exits.isEmpty()) return false;
+            SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            String consumed = prefs.getString(LAST_PERMISSION_NOTICE_FINGERPRINT, "");
+            for (ApplicationExitInfo info : exits) {
+                if (info == null || info.getReason() != ApplicationExitInfo.REASON_PERMISSION_CHANGE) continue;
+                String processName = info.getProcessName();
+                if (processName != null && !processName.equals(context.getPackageName())) continue;
+                String description = info.getDescription();
+                String normalized = description == null ? "" : description.toLowerCase(Locale.ROOT);
+                if (!normalized.contains("one-time permission revoked")) continue;
+                String fingerprint = exitFingerprint(info);
+                if (fingerprint.isEmpty() || fingerprint.equals(consumed)) return false;
+                prefs.edit().putString(LAST_PERMISSION_NOTICE_FINGERPRINT, fingerprint).commit();
+                return true;
+            }
+        } catch (Exception ignored) {}
+        return false;
     }
 
     @JavascriptInterface public String getEvents() {

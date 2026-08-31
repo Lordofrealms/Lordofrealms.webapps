@@ -6,6 +6,30 @@ The Android app packages the canonical web application from `../pad-grade`; feat
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably.
 
+## v1.1.8 — development build (90)
+
+### Changed
+- Updated the separately installable Android DEV package to **versionName 1.1.8 / versionCode 90**.
+- Removed the web-side USGS imagery unload/restore experiment. Both primary and Project Comparison satellite imagery stacks remain attached while minimized; GPS watch suspension remains active.
+- The packaged heat presentation runtime now uses one permanent completed-image source on both the primary and comparison maps while retaining existing interpolation workers/cache behavior.
+
+### Added — location permission guidance and recovery
+- Before invoking Android's foreground location permission sheet, Pad Grade now explains why **Precise location** is needed, recommends **While using the app**, warns that **Only this time** may later be revoked and terminate the process, and states that Pad Grade suspends GPS when minimized so background-location access is not needed.
+- Added `ACCESS_COARSE_LOCATION` beside `ACCESS_FINE_LOCATION` and requests them together, allowing Android to expose its normal Approximate/Precise choice. Pad Grade verifies `ACCESS_FINE_LOCATION` after the result; approximate-only permission is rejected for GPS Guided surveying with an **Open App Settings** recovery path.
+- Added a diagnostics-independent native `ApplicationExitInfo` check for `PERMISSION_CHANGE / one-time permission revoked`. The next launch can explain that Android closed Pad Grade even when diagnostic logging was disabled, and consumes a native exit fingerprint so each historical termination is shown only once.
+
+### Fixed
+- Fixed Activity recreation/hard reload leaving the new WebView frozen because `WebView.pauseTimers()` is process-global while the old resume guard was Activity-local. `resumeTimers()` is now called unconditionally whenever the foreground Activity/WebView resumes.
+- Packaged the v1.1.8 current-candidate heat commit fix so a valid completed heat frame is no longer rejected merely because legacy layer-visibility synchronization ran while `createImageBitmap()` was completing.
+- Applied the corrected permanent-image heat presentation to Project Comparison as well as the normal project map.
+
+### DEV verification
+- Confirm the main heat map actually appears and rapid Auto/99/297/891 changes no longer flash the bare map.
+- Confirm comparison heat progresses from its lower to higher resolution without the old layer-swap flicker.
+- Hard reload and confirm the local grid/map initialize without requiring an exit/reopen cycle.
+- With location revoked, verify the explanatory dialog precedes Android's permission UI, then choose While using + Precise. Deliberately choosing Only this time should produce the one-time permission-revocation recovery notice after Android later terminates the process, even with Diagnostics off.
+
+
 ## v1.1.7 — development build (89)
 
 ### Changed

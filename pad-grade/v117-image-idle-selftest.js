@@ -33,11 +33,11 @@ for(const needle of [
   'process.previous-exit'
 ])has(v117,needle,'v117-dev.js');
 
-has(index,'<title>Pad Grade Mapper v1.1.7 DEV</title>','index.html');
+if(!/<title>Pad Grade Mapper v\d+\.\d+\.\d+ DEV<\/title>/.test(index))throw new Error('index.html: current DEV title missing');
 const i117=index.indexOf('src="v117-dev.js?v=20260830-1"');
 const i115=index.indexOf('src="v115-dev.js?v=20260830-1"');
 const i116=index.indexOf('src="v116-dev.js?v=20260830-1"');
-if(!(i117>=0&&i115>i117&&i116>i117))throw new Error('index.html: v1.1.7 must load before superseded v1.1.5/v1.1.6 runtimes');
+if(!(i117>=0&&i115>i117&&i116>i117))throw new Error('index.html: retained v1.1.7 runtime must remain before superseded v1.1.5/v1.1.6 runtimes');
 
 for(const needle of [
   'PadGradeLifecycleBridge.recordHistoricalExitReasons(this, activityInstanceId);',
@@ -59,8 +59,12 @@ for(const needle of [
   'isLowMemoryKillReportSupported'
 ])has(life,needle,'PadGradeLifecycleBridge.java');
 
-has(gradle,'versionCode = 89','build.gradle.kts');
-has(gradle,'versionName = "1.1.7"','build.gradle.kts');
+const codeMatch=gradle.match(/versionCode\s*=\s*(\d+)/);
+if(!codeMatch||Number(codeMatch[1])<89)throw new Error('build.gradle.kts: current versionCode must carry forward from 89');
+const nameMatch=gradle.match(/versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"/);
+if(!nameMatch)throw new Error('build.gradle.kts: semantic versionName missing');
+const version=[+nameMatch[1],+nameMatch[2],+nameMatch[3]];
+if(version[0]<1||(version[0]===1&&version[1]<1)||(version[0]===1&&version[1]===1&&version[2]<7))throw new Error('build.gradle.kts: versionName must carry forward from 1.1.7');
 
 not(v117,"type:'canvas',canvas:record.canvas,coordinates:coords",'v117 actual source');
-console.log('Pad Grade v1.1.7 ImageSource/background-idle self-test passed.');
+console.log('Pad Grade v1.1.7 ImageSource/background-idle carry-forward self-test passed.');
