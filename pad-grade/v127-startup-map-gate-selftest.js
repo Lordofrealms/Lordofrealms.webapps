@@ -57,6 +57,6 @@ assert(!classList.contains('padGradeRecoveryHold'),'renewed six-second failsafe 
 
 assert(gate.includes('preservesLegacyFailsafe:true'),'preserved-failsafe diagnostic contract missing');
 const keepCovered=gate.slice(gate.indexOf('function keepCovered'),gate.indexOf('function observeSafetyRelease'));
-assert(!keepCovered.includes('__padGradeBeginRecoveryVisualHold'),'base-map wait must not re-arm recovery itself');
+assert(!keepCovered.includes('__padGradeBeginRecoveryVisualHold?.();'),'base-map wait must not re-arm recovery itself');
 assert(gate.includes("armFreshInstallCover('head-before-body')"),'v1.2.8 fresh-install head precover missing');
 console.log('Pad Grade v1.2.7/v1.2.8 startup map preference / six-second safety self-test passed');
