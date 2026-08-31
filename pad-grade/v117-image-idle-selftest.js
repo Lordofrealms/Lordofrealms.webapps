@@ -36,9 +36,9 @@ for(const needle of [
 ])has(v117,needle,'v117-dev.js');
 
 if(!/<title>Pad Grade Mapper v\d+\.\d+\.\d+ DEV<\/title>/.test(index))throw new Error('index.html: current DEV title missing');
-has(index,'src="v119-dev.js','index.html current heat cutover');
+has(index,'src="v120-dev.js','index.html current v1.2.0 heat cutover');
 for(const old of ['v115-dev.js','v116-dev.js','v117-dev.js','v118-dev.js']){
-  if(index.includes(`<script src="${old}`))throw new Error(`index.html: superseded ${old} must not remain executable after v1.1.9 cutover`);
+  if(index.includes(`<script src="${old}`))throw new Error(`index.html: superseded ${old} must not remain executable after permanent heat cutover`);
 }
 
 for(const needle of [
