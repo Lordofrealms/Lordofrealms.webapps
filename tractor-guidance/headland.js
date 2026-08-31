@@ -16,20 +16,17 @@
 
     function parallelLike(){return pathType.value==='parallel'||pathType.value==='skip-parallel'}
     function refresh(){
-      const show=parallelLike();for(const el of box.children)el.style.display=show?'':'none';
-      if(!show)return;
+      const show=parallelLike();for(const el of box.children)el.style.display=show?'':'none';if(!show)return;
       if(pathType.value==='skip-parallel'&&Number(skip.value)<1)skip.value='1';
-      const on=toggle.checked,step=Math.max(1,(Number(skip.value)||0)+1),r=Math.max(1,Number(radius.value)||18),p=Math.max(0,Math.floor(Number(passes.value)||0));
-      passes.disabled=!on;radius.disabled=!on;
+      const on=toggle.checked,step=Math.max(1,(Number(skip.value)||0)+1),r=Math.max(1,Number(radius.value)||18),p=Math.max(0,Math.floor(Number(passes.value)||0));passes.disabled=!on;radius.disabled=!on;
       note.textContent=on?`Headland first: ${p} perimeter pass${p===1?'':'es'}. Straight passes jump ${step} row${step===1?'':'s'} per turn. Bulb-turn guidance uses a ${r.toFixed(1)} ft minimum turning radius; turns may swing opposite the final turn direction before lining up.`:`Headland turns off. Row skipping still controls straight-pass order.`;
     }
-    for(const el of [toggle,passes,skip,radius,pathType])el.addEventListener('change',refresh);
+    function invalidate(){try{if(Array.isArray(plannedSegments)&&plannedSegments.length){plannedSegments=[];planMeta=null;if(typeof setPlanCache==='function')setPlanCache(0,0,0);planProgress={spacingFt:20,covered:{}};planProgressSamples=[];if(typeof invalidateSelectedPathing==='function')invalidateSelectedPathing();if(typeof updateAll==='function')updateAll();if(typeof saveMeta==='function')saveMeta('headland or turn settings changed')}}catch(e){console.warn('Could not invalidate path after headland setting change',e)}}
+    for(const el of [toggle,passes,skip,radius])el.addEventListener('change',()=>{refresh();invalidate()});
+    pathType.addEventListener('change',refresh);
 
-    const baseCfg=cfg;
-    cfg=function(){const s=baseCfg();s.headlandEnabled=Boolean(toggle.checked&&parallelLike());s.headlandPasses=Math.max(0,Math.floor(Number(passes.value)||0));s.turnSkipRows=pathType.value==='skip-parallel'?Math.max(1,Math.floor(Number(skip.value)||1)):Math.max(0,Math.floor(Number(skip.value)||0));s.turningRadiusFt=Math.max(1,Number(radius.value)||18);return s};
-    if(typeof applyCfg==='function'){
-      const baseApply=applyCfg;applyCfg=function(s={}){baseApply(s);if(s.headlandEnabled!==undefined)toggle.checked=Boolean(s.headlandEnabled);if(s.headlandPasses!==undefined)passes.value=s.headlandPasses;if(s.turnSkipRows!==undefined)skip.value=s.turnSkipRows;if(s.turningRadiusFt!==undefined)radius.value=s.turningRadiusFt;refresh()};
-    }
+    const baseCfg=cfg;cfg=function(){const s=baseCfg();s.headlandEnabled=Boolean(toggle.checked&&parallelLike());s.headlandPasses=Math.max(0,Math.floor(Number(passes.value)||0));s.turnSkipRows=pathType.value==='skip-parallel'?Math.max(1,Math.floor(Number(skip.value)||1)):Math.max(0,Math.floor(Number(skip.value)||0));s.turningRadiusFt=Math.max(1,Number(radius.value)||18);return s};
+    if(typeof applyCfg==='function'){const baseApply=applyCfg;applyCfg=function(s={}){baseApply(s);if(s.headlandEnabled!==undefined)toggle.checked=Boolean(s.headlandEnabled);if(s.headlandPasses!==undefined)passes.value=s.headlandPasses;if(s.turnSkipRows!==undefined)skip.value=s.turnSkipRows;if(s.turningRadiusFt!==undefined)radius.value=s.turningRadiusFt;refresh()}}
     refresh();window.TractorHeadland={refresh};return true;
   }
   window.installTractorHeadland=installTractorHeadland;
