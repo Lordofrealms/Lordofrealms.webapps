@@ -68,8 +68,31 @@ jobs:
             exit 1
           fi
 
-      - name: Build detailed release notes
-        run: cp pad-grade/RELEASE_NOTES.md /tmp/pad-grade-release-notes.md
+      - name: Build current-version release notes only
+        run: |
+          python3 - "$APP_VERSION" /tmp/pad-grade-release-notes.md <<'PY'
+          import re, sys
+          from pathlib import Path
+          version,out=sys.argv[1:]
+          text=Path('pad-grade/RELEASE_NOTES.md').read_text(encoding='utf-8')
+          title=re.search(rf'^# Pad Grade Mapper v{re.escape(version)}(?:\s+—.*)?$', text, re.M)
+          section=re.search(rf'^## v{re.escape(version)}(?:\s+—.*)?$', text, re.M)
+          if not title or not section or section.start() < title.start():
+              raise SystemExit(f'Could not locate current v{version} release notes')
+          end=len(text)
+          separator=re.search(r'^---\s*$', text[section.end():], re.M)
+          next_title=re.search(r'^# Pad Grade Mapper v[0-9]+\.[0-9]+\.[0-9]+(?:\s+—.*)?$', text[section.end():], re.M)
+          candidates=[]
+          if separator: candidates.append(section.end()+separator.start())
+          if next_title: candidates.append(section.end()+next_title.start())
+          if candidates: end=min(candidates)
+          current=text[title.start():end].rstrip()+'\n'
+          version_heads=re.findall(r'^## v([0-9]+\.[0-9]+\.[0-9]+)(?:\s+—.*)?$', current, re.M)
+          if version_heads != [version]:
+              raise SystemExit(f'Expected only v{version} section, found {version_heads}')
+          Path(out).write_text(current,encoding='utf-8')
+          print(current)
+          PY
 
       - name: Publish detailed current release notes
         env:
@@ -118,8 +141,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view "$RELEASE_TAG" --json body --jq '.body' | grep -F "# Pad Grade Mapper v$APP_VERSION"
-          gh release view "$RELEASE_TAG" --json body --jq '.body' | grep -F "## v$APP_VERSION"
+          gh release view "$RELEASE_TAG" --json body --jq '.body' > /tmp/published-pad-grade-release-notes.md
+          python3 - "$APP_VERSION" /tmp/published-pad-grade-release-notes.md <<'PY'
+          import re, sys
+          from pathlib import Path
+          version,path=sys.argv[1:]
+          body=Path(path).read_text(encoding='utf-8')
+          if not re.search(rf'^# Pad Grade Mapper v{re.escape(version)}(?:\s+—.*)?$', body, re.M):
+              raise SystemExit(f'Published release missing v{version} title')
+          heads=re.findall(r'^## v([0-9]+\.[0-9]+\.[0-9]+)(?:\s+—.*)?$', body, re.M)
+          if heads != [version]:
+              raise SystemExit(f'Published release must contain only v{version}; found {heads}')
+          PY
           if [ "$BUILD_CHANNEL" = "dev" ] && gh release view pad-grade-dev-v0.9.9 >/dev/null 2>&1; then
             gh release view pad-grade-dev-v0.9.9 --json body --jq '.body' | grep -F '## v0.9.9'
           fi
