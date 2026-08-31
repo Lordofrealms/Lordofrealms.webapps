@@ -26,10 +26,11 @@
 - The first-run storage choice/native durable-folder flow therefore occurs before the normal Pad Grade workspace can become visible. Cancelling the Android folder picker returns to the storage choice while the workspace remains covered rather than exposing a partially initialized layout.
 - Existing installs with an already valid durable folder continue through normal recovery without an unnecessary folder prompt.
 
-### Changed — recovered GPS startup waits for the base map itself
-- The startup/recovery cover may no longer be released merely because project state, the lower grid, or survey-grid overlays are ready when the active project is in GPS mode.
-- v1.2.7 requires the base MapLibre map to reach a real rendered frame before the full cover can drop. It does **not** wait for the heatmap, GPS fix, NAIP refinement, or other secondary overlays.
-- The older v1.1.1 partial-reveal CSS is explicitly overridden while the v1.2.7 full startup gate is active so the ordinary app layout cannot appear before the base map is ready.
+### Changed — startup prefers a rendered base map while retaining the 6-second safety reveal
+- During recovery, v1.2.7 prefers to keep the startup cover in place until the base MapLibre map has produced a real rendered frame, rather than releasing as soon as project/grid state is ready.
+- The historical recovery **6-second maximum reveal** remains in force. If the base map has not rendered by that deadline, the failsafe is allowed to reveal the app rather than leaving an indefinite curtain.
+- Existing durable-folder/setup behavior remains unchanged: while the user is still choosing or resolving storage, the setup flow may call the recovery `begin()` primitive again, intentionally renewing the same 6-second timer.
+- The v1.2.7 map-readiness gate itself does not re-arm that failsafe and does **not** wait for heatmap, GPS fix, NAIP refinement, or other secondary overlays.
 
 ### Protected behavior unchanged
 - The protected v1.2.2 flickerless completed-canvas presenter is unchanged. v1.2.7 operates upstream by controlling worker ownership and admission of completed legacy canvases; it does not recreate or replace the permanent MapLibre heat source/layer.
@@ -44,7 +45,7 @@
 - For an uncached surface, confirm diagnostics show 297 queued behind 99 and released only after current 99 completes; 891 should still begin after 297.
 - Change a point away from a saved value and then back to the exact original value. The valid cached 891 should return, 297 should be skipped/cancelled, and no stale 99/297 canvas should overwrite the restored 891.
 - Reinstall/clear app data and confirm the sequence is Terms of Use → storage choice/durable folder picker → recovery/init → normal workspace, without the workspace flashing in between.
-- On a recovered GPS project, confirm the startup cover remains until the base map itself is rendered, but does not wait for the heatmap or GPS fix.
+- On recovered startup, confirm the cover drops when the base map renders if that occurs first, but also confirm the historical 6-second maximum reveal still releases the cover on a deliberately slow/non-rendering map. During directory selection, renewed recovery begins may extend that window as before.
 - Confirm heat transitions remain flickerless and the v1.2.2 permanent source/layer are never recreated during tier changes.
 
 ---
