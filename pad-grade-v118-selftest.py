@@ -4,7 +4,7 @@ import re
 root=Path(__file__).resolve().parent
 index=(root/'pad-grade/index.html').read_text()
 legacy=(root/'pad-grade/v118-dev.js').read_text()
-current=(root/'pad-grade/v119-dev.js').read_text()
+current=(root/'pad-grade/v120-dev.js').read_text()
 main=(root/'pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/MainActivity.java').read_text()
 life=(root/'pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeLifecycleBridge.java').read_text()
 manifest=(root/'pad-grade-android/app/src/main/AndroidManifest.xml').read_text()
@@ -15,12 +15,12 @@ def semver(value):
 
 title=re.search(r'<title>Pad Grade Mapper v(\d+\.\d+\.\d+) DEV</title>',index)
 assert title and semver(title.group(1)) >= (1,1,8)
-assert 'src="v119-dev.js' in index
+assert 'src="v120-dev.js' in index
 # v1.1.8 remains syntax/history context, while the current cutover must preserve its
 # informed-permission/background decisions without executing the failed v1.1.8 heat shim.
 for token in ['__padGradeDevV117=true','pad-grade-v118-heat-image-source','pad-grade-v118-compare-heat-image-source','pg-compare-heat-source-','background.gps-suspended','imagery:\'retained\'']:
     assert token in legacy, token
-for token in ['pad-grade-v119-heat-image-source','pad-grade-v119-compare-heat-image-source','background.gps-suspended','imagerySuspend:false','legacyMapLibreCanvasSources:false']:
+for token in ['pad-grade-v120-heat-image-source','pad-grade-v120-compare-heat-image-source','background.gps-suspended','imagerySuspend:false','legacyMapLibreCanvasSources:false']:
     assert token in current, token
 assert 'background.imagery-unloaded' not in current
 assert 'ACCESS_COARSE_LOCATION' in manifest and 'ACCESS_FINE_LOCATION' in manifest

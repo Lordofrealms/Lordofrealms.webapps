@@ -1,0 +1,32 @@
+name: Pad Grade v1.2.0 MapLibre 5.16 Heat Fix
+
+on:
+  pull_request:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/**'
+      - 'pad-grade-android/**'
+      - '.github/workflows/pad-grade-v120-heat-fix.yml'
+  push:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/**'
+      - 'pad-grade-android/**'
+      - '.github/workflows/pad-grade-v120-heat-fix.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  v120-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate v1.2.0 runtime syntax
+        run: node --check pad-grade/v120-dev.js
+      - name: Validate MapLibre 5.16 cutover and version policy
+        run: node pad-grade/v120-heat-fix-selftest.js
+      - name: Exercise URL-only ImageSource controller
+        run: node pad-grade/v120-runtime-selftest.js
+      - name: Confirm pinned MapLibre version
+        run: grep -F 'val mapLibreVersion = "5.16.0"' pad-grade-android/app/build.gradle.kts
