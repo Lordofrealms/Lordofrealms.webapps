@@ -1,0 +1,40 @@
+name: Pad Grade v1.2.0 Version Normalize Temp
+
+on:
+  push:
+    branches:
+      - pad-grade-dev-v120-maplibre516-image-fix
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pad-grade-dev-v120-maplibre516-image-fix
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Normalize release version
+        run: python v120_version_normalize.py
+      - name: Validate v1.2.0 files
+        run: |
+          rm v120_version_normalize.py
+          node --check pad-grade/v120-dev.js
+          node pad-grade/v120-heat-fix-selftest.js
+          node pad-grade/v120-runtime-selftest.js
+          node pad-grade/v119-heat-cutover-selftest.js
+          grep -F 'versionName = "1.2.0"' pad-grade-android/app/build.gradle.kts
+          ! git grep -n '1\.1\.10' -- ':!.github/workflows/pad-grade-v120-version-normalize-temp.yml'
+          git diff --check
+      - name: Commit v1.2.0 normalization
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m '[skip ci] Normalize Pad Grade version to v1.2.0'
+          git push origin HEAD:pad-grade-dev-v120-maplibre516-image-fix
