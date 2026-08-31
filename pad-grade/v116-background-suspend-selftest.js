@@ -2,7 +2,7 @@ const fs=require('fs');
 function read(path){return fs.readFileSync(path,'utf8');}
 function must(text,needle,label){if(!text.includes(needle))throw new Error(`${label}: missing ${needle}`);}
 const runtime=read('pad-grade/v116-dev.js');
-const current=read('pad-grade/v119-dev.js');
+const current=read('pad-grade/v120-dev.js');
 const index=read('pad-grade/index.html');
 const gradle=read('pad-grade-android/app/build.gradle.kts');
 const webLog=read('pad-grade/CHANGELOG.md');
@@ -25,7 +25,7 @@ must(runtime,'state.button.click()','synthetic target click after hold render');
 must(runtime,"window.__padGradeV116BackgroundPolicy='pause-active-geolocation-watches-unload-usgs-raster-sources-layers-keep-map-project-grid-heat-state-restore-on-visible'",'historical background policy');
 
 if(!/<title>Pad Grade Mapper v\d+\.\d+\.\d+ DEV<\/title>/.test(index))throw new Error('current DEV title missing');
-must(index,'src="v119-dev.js','current v1.1.9 runtime');
+must(index,'src="v120-dev.js','current v1.2.0 runtime');
 if(index.includes('<script src="v116-dev.js'))throw new Error('superseded v1.1.6 runtime must not remain executable after heat cutover');
 must(current,'background.gps-suspended','current GPS suspension retained');
 must(current,'imagerySuspend:false','current imagery suspension removed');
