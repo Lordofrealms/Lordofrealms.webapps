@@ -21,11 +21,13 @@ must(runtime,'event.stopImmediatePropagation()','delayed real inspector click');
 must(runtime,'state.button.click()','synthetic target click after hold render');
 must(runtime,"window.__padGradeV116BackgroundPolicy='pause-active-geolocation-watches-unload-usgs-raster-sources-layers-keep-map-project-grid-heat-state-restore-on-visible'",'narrow background policy');
 
-must(index,'Pad Grade Mapper v1.1.6 DEV','index title');
-must(index,'src="v116-dev.js?v=20260830-1"','runtime script');
-must(gradle,'versionCode = 88','Android versionCode');
-must(gradle,'versionName = "1.1.6"','Android versionName');
+if(!/<title>Pad Grade Mapper v\d+\.\d+\.\d+ DEV<\/title>/.test(index))throw new Error('current DEV title missing');
+must(index,'src="v116-dev.js?v=20260830-1"','retained v1.1.6 runtime script');
+const code=Number((gradle.match(/versionCode\s*=\s*(\d+)/)||[])[1]||0);
+if(code<88)throw new Error(`Android versionCode regressed below v1.1.6 baseline: ${code}`);
+const version=(gradle.match(/versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"/)||[]).slice(1).map(Number);
+if(version.length!==3||version[0]<1||(version[0]===1&&version[1]<1)||(version[0]===1&&version[1]===1&&version[2]<6))throw new Error(`Android versionName regressed below 1.1.6: ${version.join('.')}`);
 must(webLog,'## v1.1.6 — development build','web changelog');
 must(androidLog,'## v1.1.6 — development build (88)','Android changelog');
 
-console.log('v1.1.6 background suspension / heat handoff self-test passed');
+console.log('v1.1.6 background suspension / heat handoff carry-forward self-test passed');

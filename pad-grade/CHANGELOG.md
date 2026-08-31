@@ -4,6 +4,37 @@ All notable changes to Pad Grade are documented here.
 
 Entries use **Added**, **Changed**, **Fixed**, and **Known issues**. Historical entries are backfilled only where repository or release history supports them reliably. Development-only versions are identified explicitly.
 
+## v1.1.7 — development build
+
+### Changed
+- Replaced MapLibre-visible heat-map CanvasSource slots with a **single permanent ImageSource + raster layer**. The existing 99 / 297 / 891 workers still calculate the same complete rasters; each finished canvas is converted to an offscreen `ImageBitmap` when supported and committed only after the whole image exists.
+- The previously displayed completed heat image remains authoritative until the replacement bitmap is ready, then `ImageSource.updateImage()` performs a hard replacement with `raster-fade-duration: 0`. Pad Grade no longer exposes a live heat canvas to MapLibre while that canvas is being painted, specifically avoiding the earlier partial horizontal-bar failure mode.
+- v1.1.7 supersedes the v1.1.5/v1.1.6 experimental heat-handoff runtimes at startup. Their files remain in the repository for history/regression coverage, but v1.1.7 sets their runtime guards before those scripts execute and owns heat presentation itself.
+- When the Android Activity reaches `onStop()`, the host now calls `WebView.onPause()` and `WebView.pauseTimers()`. On return it calls `resumeTimers()` and `WebView.onResume()`. This stops JavaScript timers/layout/parsing work while the stopped Activity is cached instead of allowing the prior 750 ms / 1.5 s maintenance loops to continue running in the background.
+- The v1.1.6 GPS-watch and USGS-imagery suspension remains in place and runs before Android pauses the WebView. Project data, grid state, MapLibre instances, cached final heat rasters, and the completed heat image remain retained.
+- Android DEV package is **version 1.1.7 / build 89**.
+
+### Added
+- Added Android `ApplicationExitInfo` capture on the next process start. Pad Grade records previously terminated process PID/name, Android exit reason code/name, status/signal, process importance, sampled PSS/RSS, exit timestamp, Android's description when supplied, and whether the device supports explicit low-memory-kill reporting.
+- Added exported `android.process.exit-reason` diagnostics for those persisted exit records, allowing the next log after a full process restart to distinguish reasons such as `LOW_MEMORY`, `FREEZER`, `EXCESSIVE_RESOURCE_USAGE`, `SIGNALED`, crash/ANR, user stop, or other system termination.
+- Added `heatmap.v117-*` diagnostics for legacy-canvas virtualization, completed bitmap readiness, canonical ImageSource creation, image commit, stale-frame rejection, and fallback when `ImageBitmap` creation is unavailable.
+- Added a v1.1.7 regression self-test and CI workflow covering ImageSource wiring, WebView pause/resume, historical exit diagnostics, and Android version/build numbers.
+
+### Fixed
+- Eliminated the need for render-barrier/cross-layer heat handoffs. Resolution changes now replace one fully completed image with another instead of making two MapLibre heat layers coordinate visibility/opacity while sources are being retired.
+- Stopped ordinary WebView timer activity after the host Activity is fully stopped, reducing avoidable CPU/JavaScript/Binder work while Android or Samsung evaluates, freezes, or reclaims the cached process.
+- Previous-process diagnosis now survives the process death being investigated because Android exit metadata is imported into Pad Grade's persistent lifecycle breadcrumb store during the next `Activity.onCreate()`.
+- Fixed the v1.1.7 image-commit cleanup path so the active MapLibre instance is explicitly retained through the post-render release of the previous `ImageBitmap`.
+
+### Unchanged
+- IDW²/local-surface interpolation math, measured-point color scaling, 99 / 297 / 891 dimensions, 99+297 initial scheduling with deferred 891, project schema, `.pgheatcache` format, project-grid data, and Project Comparison math are unchanged.
+- This build does **not** request `largeHeap`, run a foreground/keep-alive service, or automatically discard project/heat caches to make Android retain the app.
+
+### DEV verification
+- Rapidly switch **Auto → 99 → 297 → 891 → Auto**. Each change should hold the prior complete image until the requested complete image is ready, then swap without partial bars, a bare-map flash, dark double-raster overlap, or a visible cross-fade.
+- Minimize Pad Grade for several minutes. Native lifecycle breadcrumbs should show `webview.backgroundPaused` after `activity.onStop`; no periodic JavaScript diagnostic traffic should be generated until `webview.backgroundResumed` on return.
+- If Android still kills the whole Pad Grade process while backgrounded, reopen it and export diagnostics. The new log should contain `android.process.exit-reason` from `ApplicationExitInfo`; use that reason/status together with the recorded PSS/RSS/importance to decide the next retention or memory change.
+
 ## v1.1.6 — development build
 
 ### Changed
