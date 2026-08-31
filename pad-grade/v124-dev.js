@@ -15,30 +15,34 @@
 
   const mark=(name,details)=>{try{window.PadGradeDiag?.mark?.(name,details);}catch(e){}};
 
+  // Leave the retired host connected but permanently hidden. v1.1.3 sees its
+  // existing connected host and therefore does not recreate it every attach pass.
+  // If a prior manual mode somehow survived in the DOM, force Auto exactly once.
   function retireInspector(){
-    let removed=0;
+    let found=0,forcedAuto=0;
     for(const id of ['pg112ResolutionInspector','pg113ResolutionInspector']){
       const host=document.getElementById(id);
-      if(!host)continue;
+      if(!host)continue;found++;
       try{
         const auto=host.querySelector?.('button[data-mode="auto"]');
-        if(auto&&!auto.classList.contains('primary'))auto.click();
+        if(auto&&!auto.classList.contains('primary')){auto.click();forcedAuto++;}
       }catch(e){}
-      try{host.remove();removed++;}catch(e){}
+      try{host.setAttribute('aria-hidden','true');host.dataset.pgRetired='v124';}catch(e){}
     }
-    return removed;
+    return {found,forcedAuto};
   }
 
   const style=document.createElement('style');
   style.id='pg124InspectorRetiredStyle';
-  style.textContent='#pg112ResolutionInspector,#pg113ResolutionInspector{display:none!important}';
+  style.textContent='#pg112ResolutionInspector,#pg113ResolutionInspector{display:none!important;pointer-events:none!important}';
   (document.head||document.documentElement).appendChild(style);
 
-  const firstRemoved=retireInspector();
-  const observer=new MutationObserver(()=>retireInspector());
-  try{observer.observe(document.documentElement,{childList:true,subtree:true});}catch(e){}
-  window.addEventListener('beforeunload',()=>{try{observer.disconnect();}catch(e){}},{once:true});
+  const retired=retireInspector();
+  // Older code can install the host after this script executes. One short delayed
+  // pass is enough; once connected, the old install routine reuses that same host.
+  setTimeout(retireInspector,0);
+  setTimeout(retireInspector,1000);
 
-  mark('heatmap.resolution-inspector-disabled',{version:VERSION,removed:firstRemoved,defaultMode:'auto',reason:'diagnostic-complete'});
+  mark('heatmap.resolution-inspector-disabled',{version:VERSION,found:retired.found,forcedAuto:retired.forcedAuto,defaultMode:'auto',reason:'diagnostic-complete'});
   mark('file.callback-stage-diagnostics-expected',{version:VERSION,stages:['js-bridge-call','native-file-queue','native-io','android-ui-post','webview-evaluate-to-js','js-callback-microtask']});
 })();
