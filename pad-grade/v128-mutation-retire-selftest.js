@@ -33,7 +33,7 @@ must(afterBody.indexOf('hideCanonicalHeat(reason)')<afterBody.indexOf('requestHe
 const hideBody=v128.slice(v128.indexOf('function hideCanonicalHeat'),v128.indexOf('function requestHeatRefresh'));
 must(hideBody.includes("setLayoutProperty(CANONICAL_LAYER,'visibility','none')"), 'canonical heat layer is not hidden in place');
 must(!hideBody.includes('removeSource(')&&!hideBody.includes('removeLayer('), 'v1.2.8 must not recreate/remove protected canonical heat source/layer');
-must(v122.includes('MAINTENANCE / CHANGE-CONTROL WARNING'), 'v1.2.2 protected-presentation warning missing');
+must(v122.includes('MAINTENANCE / CHANGE-CONTROL NOTE — FLICKERLESS HEAT PRESENTATION')&&v122.includes('requires explicit developer\n * agreement'), 'v1.2.2 protected-presentation change-control note missing');
 
 // Retired stale canvases must stop before the v1.2.7 provenance/logging path.
 must(v128.includes('if(canvas&&retiredCanvases.has(canvas))'), 'retired-canvas admission guard missing');
