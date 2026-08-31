@@ -1,0 +1,30 @@
+name: Pad Grade v1.1.8 Permission Heat
+
+on:
+  pull_request:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/**'
+      - 'pad-grade-android/**'
+      - 'pad-grade-v118-selftest.py'
+      - '.github/workflows/pad-grade-v118-permission-heat.yml'
+  push:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/**'
+      - 'pad-grade-android/**'
+      - 'pad-grade-v118-selftest.py'
+      - '.github/workflows/pad-grade-v118-permission-heat.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  v118-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate v1.1.8 runtime syntax
+        run: node --check pad-grade/v118-dev.js
+      - name: Validate permission, heat, background, and version policy
+        run: python pad-grade-v118-selftest.py
