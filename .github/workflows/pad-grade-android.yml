@@ -178,6 +178,31 @@ jobs:
           test -s pad-grade/RELEASE_NOTES.md
           grep -F "## v$APP_VERSION —" pad-grade/RELEASE_NOTES.md
 
+      - name: Build current-version release notes only
+        run: |
+          python3 - "$APP_VERSION" /tmp/pad-grade-release-notes.md <<'PY'
+          import re, sys
+          from pathlib import Path
+          version,out=sys.argv[1:]
+          text=Path('pad-grade/RELEASE_NOTES.md').read_text(encoding='utf-8')
+          title=re.search(rf'^# Pad Grade Mapper v{re.escape(version)}(?:\s+—.*)?$', text, re.M)
+          section=re.search(rf'^## v{re.escape(version)}(?:\s+—.*)?$', text, re.M)
+          if not title or not section or section.start() < title.start():
+              raise SystemExit(f'Could not locate current v{version} release notes')
+          end=len(text)
+          separator=re.search(r'^---\s*$', text[section.end():], re.M)
+          next_title=re.search(r'^# Pad Grade Mapper v[0-9]+\.[0-9]+\.[0-9]+(?:\s+—.*)?$', text[section.end():], re.M)
+          candidates=[]
+          if separator: candidates.append(section.end()+separator.start())
+          if next_title: candidates.append(section.end()+next_title.start())
+          if candidates: end=min(candidates)
+          current=text[title.start():end].rstrip()+'\n'
+          version_heads=re.findall(r'^## v([0-9]+\.[0-9]+\.[0-9]+)(?:\s+—.*)?$', current, re.M)
+          if version_heads != [version]:
+              raise SystemExit(f'Expected only v{version} section, found {version_heads}')
+          Path(out).write_text(current,encoding='utf-8')
+          PY
+
       - name: Build debug APK
         run: |
           if [ "$BUILD_CHANNEL" = "dev" ]; then
@@ -274,10 +299,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION" --notes-file pad-grade/RELEASE_NOTES.md
+            gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION" --notes-file /tmp/pad-grade-release-notes.md
             gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
           else
-            gh release create "$RELEASE_TAG" "$APK_NAME" --target "$GITHUB_SHA" --title "Pad Grade v$APP_VERSION" --notes-file pad-grade/RELEASE_NOTES.md
+            gh release create "$RELEASE_TAG" "$APK_NAME" --target "$GITHUB_SHA" --title "Pad Grade v$APP_VERSION" --notes-file /tmp/pad-grade-release-notes.md
           fi
 
       - name: Publish dev GitHub Pre-release APK
@@ -286,10 +311,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes-file pad-grade/RELEASE_NOTES.md --prerelease
+            gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes-file /tmp/pad-grade-release-notes.md --prerelease
             gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
           else
-            gh release create "$RELEASE_TAG" "$APK_NAME" --target "$GITHUB_SHA" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes-file pad-grade/RELEASE_NOTES.md --prerelease
+            gh release create "$RELEASE_TAG" "$APK_NAME" --target "$GITHUB_SHA" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes-file /tmp/pad-grade-release-notes.md --prerelease
           fi
 
       - name: Verify stable GitHub Release APK
@@ -298,7 +323,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | grep -Fx "$APK_NAME"
-          gh release view "$RELEASE_TAG" --json body --jq '.body' | grep -F "## v$APP_VERSION —"
+          gh release view "$RELEASE_TAG" --json body --jq '.body' > /tmp/published-pad-grade-release-notes.md
+          grep -F "## v$APP_VERSION —" /tmp/published-pad-grade-release-notes.md
+          test "$(grep -Ec '^## v[0-9]+\.[0-9]+\.[0-9]+' /tmp/published-pad-grade-release-notes.md)" -eq 1
+          test "$(grep -Ec '^# Pad Grade Mapper v[0-9]+\.[0-9]+\.[0-9]+' /tmp/published-pad-grade-release-notes.md)" -eq 1
 
       - name: Verify dev GitHub Pre-release APK
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/pad-grade-dev'
@@ -307,4 +335,7 @@ jobs:
         run: |
           test "$(gh release view "$RELEASE_TAG" --json isPrerelease --jq '.isPrerelease')" = "true"
           gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | grep -Fx "$APK_NAME"
-          gh release view "$RELEASE_TAG" --json body --jq '.body' | grep -F "## v$APP_VERSION —"
+          gh release view "$RELEASE_TAG" --json body --jq '.body' > /tmp/published-pad-grade-release-notes.md
+          grep -F "## v$APP_VERSION —" /tmp/published-pad-grade-release-notes.md
+          test "$(grep -Ec '^## v[0-9]+\.[0-9]+\.[0-9]+' /tmp/published-pad-grade-release-notes.md)" -eq 1
+          test "$(grep -Ec '^# Pad Grade Mapper v[0-9]+\.[0-9]+\.[0-9]+' /tmp/published-pad-grade-release-notes.md)" -eq 1
