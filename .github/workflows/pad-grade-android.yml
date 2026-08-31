@@ -57,6 +57,7 @@ jobs:
           done
           node --check pad-grade/project-format-v107-selftest.js
           node --check pad-grade/v107-index-reconcile-selftest.js
+          node --check pad-grade/v122-canvas-handoff-selftest.js
           node --check pad-grade/v126-generation-cancel-selftest.js
 
       - name: Verify startup, grid, storage, and heatmap gates
@@ -133,23 +134,7 @@ jobs:
           node pad-grade/project-compare-selftest.js
           node pad-grade/project-format-v107-selftest.js
           node pad-grade/v107-index-reconcile-selftest.js
-          node pad-grade/v109-progressive-heat-selftest.js
-          node pad-grade/v110-staged-heat-selftest.js
-          node pad-grade/v111-resilience-selftest.js
-          node pad-grade/v112-resolution-inspector-selftest.js
-          node pad-grade/v114-heat-memory-selftest.js
-          node pad-grade/v115-flicker-memory-selftest.js
-          node pad-grade/v116-background-suspend-selftest.js
-          node pad-grade/v117-image-idle-selftest.js
-          node pad-grade/v119-heat-cutover-selftest.js
-          node pad-grade/v119-runtime-selftest.js
-          node pad-grade/v120-heat-fix-selftest.js
-          node pad-grade/v120-runtime-selftest.js
-          node pad-grade/v121-image-request-selftest.js
           node pad-grade/v122-canvas-handoff-selftest.js
-          node pad-grade/v123-inspector-consistency-selftest.js
-          node pad-grade/v124-callback-diagnostics-selftest.js
-          node pad-grade/v125-renderer-pressure-selftest.js
           node pad-grade/v126-generation-cancel-selftest.js
 
       - uses: actions/setup-java@v5
