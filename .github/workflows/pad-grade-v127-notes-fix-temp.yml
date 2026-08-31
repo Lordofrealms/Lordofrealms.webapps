@@ -1,0 +1,53 @@
+name: Temporary Pad Grade v1.2.7 notes correction
+
+on:
+  push:
+    branches: [dev/pad-grade-v1.2.7-release-note-timeout-clarity]
+    paths:
+      - '.github/workflows/pad-grade-v127-notes-fix-temp.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  correct-notes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev/pad-grade-v1.2.7-release-note-timeout-clarity
+      - name: Correct v1.2.7 startup wording
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('pad-grade/RELEASE_NOTES.md')
+          text = p.read_text()
+          old = '''### Changed — recovered GPS startup waits for the base map itself
+          - The startup/recovery cover may no longer be released merely because project state, the lower grid, or survey-grid overlays are ready when the active project is in GPS mode.
+          - v1.2.7 requires the base MapLibre map to reach a real rendered frame before the full cover can drop. It does **not** wait for the heatmap, GPS fix, NAIP refinement, or other secondary overlays.
+          - The older v1.1.1 partial-reveal CSS is explicitly overridden while the v1.2.7 full startup gate is active so the ordinary app layout cannot appear before the base map is ready.
+          '''
+          new = '''### Changed — startup prefers a rendered base map while retaining the 6-second safety reveal
+          - During recovery, v1.2.7 prefers to keep the startup cover in place until the base MapLibre map has produced a real rendered frame, rather than releasing as soon as project/grid state is ready.
+          - The historical recovery **6-second maximum reveal** remains in force. If the base map has not rendered by that deadline, the failsafe is allowed to reveal the app rather than leaving an indefinite curtain.
+          - Existing durable-folder/setup behavior remains unchanged: while the user is still choosing or resolving storage, the setup flow may call the recovery `begin()` primitive again, intentionally renewing the same 6-second timer.
+          - The v1.2.7 map-readiness gate itself does not re-arm that failsafe and does **not** wait for heatmap, GPS fix, NAIP refinement, or other secondary overlays.
+          '''
+          if old not in text:
+              raise SystemExit('Expected old startup section not found')
+          text = text.replace(old, new, 1)
+          old_verify = '- On a recovered GPS project, confirm the startup cover remains until the base map itself is rendered, but does not wait for the heatmap or GPS fix.'
+          new_verify = '- On recovered startup, confirm the cover drops when the base map renders if that occurs first, but also confirm the historical 6-second maximum reveal still releases the cover on a deliberately slow/non-rendering map. During directory selection, renewed recovery begins may extend that window as before.'
+          if old_verify not in text:
+              raise SystemExit('Expected old verification line not found')
+          text = text.replace(old_verify, new_verify, 1)
+          p.write_text(text)
+          PY
+      - name: Commit corrected notes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pad-grade/RELEASE_NOTES.md
+          git diff --cached --check
+          git commit -m 'Clarify v1.2.7 startup six-second reveal behavior'
+          git push origin HEAD:dev/pad-grade-v1.2.7-release-note-timeout-clarity
