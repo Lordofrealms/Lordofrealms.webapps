@@ -1,0 +1,37 @@
+name: Pad Grade v1.2.9 Cache Return
+
+on:
+  push:
+    paths:
+      - 'pad-grade/v129-dev.js'
+      - 'pad-grade/v129-cache-return-selftest.js'
+      - 'pad-grade/v127-startup-map-gate.js'
+      - '.github/workflows/pad-grade-v129-cache-return.yml'
+  pull_request:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/v129-dev.js'
+      - 'pad-grade/v129-cache-return-selftest.js'
+      - 'pad-grade/v127-startup-map-gate.js'
+      - '.github/workflows/pad-grade-v129-cache-return.yml'
+
+jobs:
+  cache-return:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate v1.2.9 scripts
+        run: |
+          node --check pad-grade/v129-dev.js
+          node --check pad-grade/v129-cache-return-selftest.js
+          node --check pad-grade/v127-startup-map-gate.js
+      - name: Prove retired cache return contract
+        run: node pad-grade/v129-cache-return-selftest.js
+      - name: Preserve v1.2.8 and v1.2.2 boundaries
+        run: |
+          grep -F "if(!map.__padGradeV128RetiredCanvasGuard)return false;" pad-grade/v129-dev.js
+          grep -F "preventsRetombstone:true" pad-grade/v129-dev.js
+          grep -F "protectedV122PresenterUnchanged:true" pad-grade/v129-dev.js
+          grep -F "v128-dev.js?v=20260831-1" pad-grade/v127-startup-map-gate.js
+          grep -F "v129-dev.js?v=20260831-1" pad-grade/v127-startup-map-gate.js
+          grep -F "safetyMaxMs:6000" pad-grade/v127-startup-map-gate.js
