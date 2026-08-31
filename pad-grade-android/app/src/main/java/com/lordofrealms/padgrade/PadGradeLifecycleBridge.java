@@ -1,6 +1,7 @@
 package com.lordofrealms.padgrade;
 
 import android.app.ActivityManager;
+import android.app.ApplicationExitInfo;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Debug;
@@ -10,11 +11,16 @@ import android.webkit.JavascriptInterface;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 /** Persistent, privacy-safe Android lifecycle breadcrumbs for DEV diagnostics. */
 public final class PadGradeLifecycleBridge {
     private static final String PREFS = "pad_grade_lifecycle_diag";
     private static final String EVENTS = "events";
     private static final String SEQ = "seq";
+    private static final String LAST_EXIT_FINGERPRINT = "last_exit_fingerprint";
     private static final int MAX_EVENTS = 180;
     private final Context context;
 
@@ -85,10 +91,8 @@ public final class PadGradeLifecycleBridge {
         return out;
     }
 
-    public static synchronized void log(Context context, String event, String activityId, boolean savedState,
-                                        Integer trimLevel, Boolean rendererCrash, Integer rendererPriority,
-                                        String detail) {
-        if (context == null) return;
+    private static synchronized int appendRow(Context context, JSONObject row) {
+        if (context == null || row == null) return 0;
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         int seq = prefs.getInt(SEQ, 0) + 1;
         JSONArray prior;
@@ -100,10 +104,23 @@ public final class PadGradeLifecycleBridge {
             JSONObject old = prior.optJSONObject(i);
             if (old != null) next.put(old);
         }
-        JSONObject row = new JSONObject();
         try {
             row.put("seq", seq);
-            row.put("at", System.currentTimeMillis());
+            if (!row.has("at")) row.put("at", System.currentTimeMillis());
+        } catch (Exception ignored) {}
+        next.put(row);
+        // Lifecycle and exit breadcrumbs are specifically intended to survive abrupt
+        // process reclamation, so use commit() rather than asynchronous apply().
+        prefs.edit().putInt(SEQ, seq).putString(EVENTS, next.toString()).commit();
+        return seq;
+    }
+
+    public static void log(Context context, String event, String activityId, boolean savedState,
+                           Integer trimLevel, Boolean rendererCrash, Integer rendererPriority,
+                           String detail) {
+        if (context == null) return;
+        JSONObject row = new JSONObject();
+        try {
             row.put("event", event == null ? "lifecycle" : event);
             row.put("pid", Process.myPid());
             row.put("activity", activityId == null ? "" : activityId);
@@ -114,11 +131,101 @@ public final class PadGradeLifecycleBridge {
             if (detail != null && !detail.isBlank()) row.put("detail", detail.length() > 180 ? detail.substring(0, 180) : detail);
             row.put("memory", memorySnapshot(context));
         } catch (Exception ignored) {}
-        next.put(row);
-        // Lifecycle breadcrumbs are specifically intended to survive abrupt process
-        // reclamation, so use commit() here rather than an async apply(). The record
-        // is tiny and this code only runs at coarse Android lifecycle boundaries.
-        prefs.edit().putInt(SEQ, seq).putString(EVENTS, next.toString()).commit();
+        appendRow(context, row);
+    }
+
+    private static String reasonName(int reason) {
+        switch (reason) {
+            case 0: return "UNKNOWN";
+            case 1: return "EXIT_SELF";
+            case 2: return "SIGNALED";
+            case 3: return "LOW_MEMORY";
+            case 4: return "CRASH";
+            case 5: return "CRASH_NATIVE";
+            case 6: return "ANR";
+            case 7: return "INITIALIZATION_FAILURE";
+            case 8: return "PERMISSION_CHANGE";
+            case 9: return "EXCESSIVE_RESOURCE_USAGE";
+            case 10: return "USER_REQUESTED";
+            case 11: return "USER_STOPPED";
+            case 12: return "DEPENDENCY_DIED";
+            case 13: return "OTHER";
+            case 14: return "FREEZER";
+            case 15: return "PACKAGE_STATE_CHANGE";
+            case 16: return "PACKAGE_UPDATED";
+            default: return "REASON_" + reason;
+        }
+    }
+
+    private static String exitFingerprint(ApplicationExitInfo info) {
+        if (info == null) return "";
+        return info.getTimestamp() + ":" + info.getPid() + ":" + info.getReason() + ":" + info.getStatus();
+    }
+
+    /**
+     * Import Android's historical process-exit diagnosis into the same durable,
+     * privacy-safe breadcrumb store. This runs at the next Activity creation and
+     * therefore survives the exact class of abrupt host-process death being tested.
+     */
+    public static void recordHistoricalExitReasons(Context context, String activityId) {
+        if (context == null) return;
+        try {
+            ActivityManager manager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+            if (manager == null) return;
+            List<ApplicationExitInfo> exits = manager.getHistoricalProcessExitReasons(context.getPackageName(), 0, 8);
+            if (exits == null || exits.isEmpty()) return;
+
+            SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            String previousFingerprint = prefs.getString(LAST_EXIT_FINGERPRINT, "");
+            String newestFingerprint = exitFingerprint(exits.get(0));
+            if (!newestFingerprint.isEmpty() && newestFingerprint.equals(previousFingerprint)) return;
+
+            List<ApplicationExitInfo> unseen = new ArrayList<>();
+            for (ApplicationExitInfo info : exits) {
+                String fingerprint = exitFingerprint(info);
+                if (!previousFingerprint.isEmpty() && previousFingerprint.equals(fingerprint)) break;
+                unseen.add(info);
+            }
+            Collections.reverse(unseen);
+            boolean lowMemoryReportSupported = ActivityManager.isLowMemoryKillReportSupported();
+
+            for (ApplicationExitInfo info : unseen) {
+                JSONObject row = new JSONObject();
+                try {
+                    row.put("event", "process.previous-exit");
+                    row.put("pid", Process.myPid());
+                    row.put("activity", activityId == null ? "" : activityId);
+                    row.put("savedState", false);
+                    row.put("previousPid", info.getPid());
+                    row.put("processName", info.getProcessName() == null ? "" : info.getProcessName());
+                    row.put("exitReason", info.getReason());
+                    row.put("exitReasonName", reasonName(info.getReason()));
+                    row.put("exitStatus", info.getStatus());
+                    row.put("exitImportance", info.getImportance());
+                    row.put("exitPssKb", info.getPss());
+                    row.put("exitRssKb", info.getRss());
+                    row.put("exitTimestamp", info.getTimestamp());
+                    row.put("lowMemoryKillReportSupported", lowMemoryReportSupported);
+                    String description = info.getDescription();
+                    if (description != null && !description.isBlank()) {
+                        row.put("detail", description.length() > 180 ? description.substring(0, 180) : description);
+                    }
+                } catch (Exception ignored) {}
+                appendRow(context, row);
+            }
+
+            if (!newestFingerprint.isEmpty()) prefs.edit().putString(LAST_EXIT_FINGERPRINT, newestFingerprint).commit();
+        } catch (Exception ex) {
+            JSONObject row = new JSONObject();
+            try {
+                row.put("event", "process.previous-exit-query-failed");
+                row.put("pid", Process.myPid());
+                row.put("activity", activityId == null ? "" : activityId);
+                row.put("savedState", false);
+                row.put("detail", String.valueOf(ex.getMessage()));
+            } catch (Exception ignored) {}
+            appendRow(context, row);
+        }
     }
 
     @JavascriptInterface public String getEvents() {
