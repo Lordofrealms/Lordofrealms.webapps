@@ -29,7 +29,7 @@ jobs:
           grep -F '<title>Pad Grade Mapper v1.2.1 DEV</title>' pad-grade/index.html
           grep -F 'src="v120-dev.js?v=20260831-1' pad-grade/index.html
           grep -F 'src="v121-dev.js?v=20260831-1' pad-grade/index.html
-          grep -F 'one-in-flight-load-per-unique-url' pad-grade/v121-dev.js
+          grep -F 'one-inflight-load-per-unique-url' pad-grade/v121-dev.js
           grep -F 'versionCode = 93' pad-grade-android/app/build.gradle.kts
           grep -F 'versionName = "1.2.1"' pad-grade-android/app/build.gradle.kts
           grep -F '## v1.2.1 — development build' pad-grade/CHANGELOG.md
