@@ -52,7 +52,7 @@ android {
         // Versioning rule: every changed test/release APK gets a new versionCode.
         // User-visible behavior changes also advance versionName before the build is published.
         versionCode = 92
-        versionName = "1.1.10"
+        versionName = "1.2.0"
     }
 
     buildTypes {

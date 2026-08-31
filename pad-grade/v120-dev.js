@@ -1,6 +1,6 @@
-/* Pad Grade v1.1.10 DEV — permanent heat ImageSource cutover + GPS permission retry behavior.
+/* Pad Grade v1.2.0 DEV — permanent heat ImageSource cutover + GPS permission retry behavior.
  *
- * v1.1.10 makes one ImageSource/raster layer per MapLibre map authoritative. Existing
+ * v1.2.0 makes one ImageSource/raster layer per MapLibre map authoritative. Existing
  * workers/cache still build complete canvases, but those canvases never become real
  * MapLibre CanvasSources. They are only offscreen frame inputs. The permanent source is
  * created only after the current style is fully loaded, then updated in-place with a
@@ -19,7 +19,7 @@
   window.__padGradeDevV117=true;
   window.__padGradeDevV118=true;
 
-  const VERSION='1.1.10';
+  const VERSION='1.2.0';
   const PRIMARY_NORMAL_SOURCE='pad-grade-interpolated-surface-canvas-source-';
   const PRIMARY_NORMAL_LAYER='pad-grade-interpolated-surface-canvas-layer-';
   const PRIMARY_INSPECT_SOURCE='pad-grade-v113-inspect-source-';

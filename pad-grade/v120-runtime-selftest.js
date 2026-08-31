@@ -68,5 +68,5 @@ async function exercise(container,prefix,layerPrefix,canonical){
   const commits=marks.filter(x=>x[0]==='heatmap.v120-image-committed');
   if(commits.filter(x=>x[1].map==='primary').length<2||commits.filter(x=>x[1].map==='compare').length<2)throw new Error('missing verified main/compare commits');
   if(marks.some(x=>x[0]==='heatmap.v120-image-verify-failed'))throw new Error('unexpected verification failure');
-  console.log('Pad Grade v1.1.10 MapLibre 5.16 URL-image runtime self-test passed');
+  console.log('Pad Grade v1.2.0 MapLibre 5.16 URL-image runtime self-test passed');
 })().catch(e=>{console.error(e);process.exit(1);});
