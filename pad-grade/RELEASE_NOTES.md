@@ -1,26 +1,32 @@
-# Pad Grade Mapper v1.2.2 — DEV BUILD
+# Pad Grade Mapper v1.2.3 — DEV BUILD
 
-## v1.2.2 — development build
+## v1.2.3 — development build
 
-### Fixed — direct completed-canvas heat presentation
-- Field diagnostics from v1.2.1 confirmed that same-frame ImageSource request deduplication was working, but the first large local PNG data-URL image still never completed loading in MapLibre. The heat canvas itself was already fully populated, so the remaining failure was in the URL/decode presentation path rather than raster generation.
-- v1.2.2 bypasses that URL/decode path. A completed worker/cache canvas is copied synchronously into a private static canonical canvas used by the single permanent MapLibre heat source.
-- The existing canonical WebGL texture is refreshed in place after the completed canvas copy. Resolution changes no longer require removing or recreating the real heat source or raster layer.
-- The previously committed complete heat frame remains visible until the replacement frame is fully ready. There is no intentional crossfade and no blank handoff between 99 / 297 / 891 resolution tiers.
-- v1.2.1 remains in the repository for history/regression coverage but is runtime-suppressed by v1.2.2.
+### Fixed — Auto/manual heat-map color consistency
+- v1.2.2 field testing confirmed that the no-flicker direct-canvas presentation works, but the DEV resolution inspector could display an older completed 99 / 297 / 891 raster while **Auto** had already advanced to a newer raster of the same nominal tier.
+- The diagnostic proved this was real pixel-data divergence, not MapLibre scaling: manual 891 and Auto 891 were both 750×891 yet encoded to different PNG sizes.
+- v1.2.3 captures the exact completed canvases used by the regular/Auto path and binds the 99 / 297 / 891 picker to those same canvases. The picker no longer relies on an independently stale inspector raster when an exact Auto tier is available.
+- If a newer regular tier finishes while that manual tier is selected, the inspector virtual source is rebound to the new completed canvas immediately.
+- Exact-tier captures are cleared at the project-switch boundary so an outgoing project's raster cannot be reused by the next project.
+
+### No-flicker behavior retained
+- The v1.2.2 permanent canonical heat source/layer is unchanged.
+- Inspector rebinding only replaces v1.2.0 virtual inspector inputs; it does **not** remove or recreate the canonical MapLibre source or raster layer.
+- The previously committed complete image remains visible until the replacement completed canvas is ready, with zero intentional crossfade.
 
 ### Diagnostics / regression coverage
-- Added a no-flicker regression gate that performs 250 same-frame update attempts and verifies zero source recreation, zero layer recreation, and zero unnecessary texture re-upload.
-- Added tier-swap coverage proving a 99 → 297 replacement reuses the same canonical source and layer.
-- Added same-dimension changed-pixel coverage proving that a genuinely changed completed canvas still triggers exactly one texture refresh.
-- Existing Pad Grade startup, grid, storage, project comparison, recovery, and Android packaging regression suites remain required for the build.
+- Added `heatmap.v123-auto-tier-captured`, `heatmap.v123-inspector-bound-to-auto-tier`, `heatmap.v123-tier-cache-cleared`, and bind-failure diagnostics.
+- Added a regression test proving manual 891 receives the exact same canvas object as Auto 891, refreshes when a newer same-tier Auto canvas completes, does not leak an old-project canvas across a project switch, and never removes the canonical source/layer.
+- Existing v1.2.2 no-flicker and Android regression gates remain required.
+
+### Other field-log findings
+- No v1.2.2 heat presentation failure/timeout, renderer crash, heat worker crash, or heat-cache read/install/write failure was present in the supplied test log.
+- Long-task/timer-lag diagnostics remain visible under heavy work. On the tested device the final 891 worker calculation can take roughly 24 seconds, but it remains off-thread and no longer causes a blank heat transition.
 
 ### Changed
-- Active heat presentation moves to the v1.2.2 direct completed-canvas path while preserving the existing worker calculations, cached completed rasters, IDW² interpolation, measured-point/color-scale behavior, project schema, grid geometry, and Project Comparison math.
-- Android DEV package is **version 1.2.2 / build 94** and installs separately from the stable Pad Grade package.
+- Android DEV package is **version 1.2.3 / build 95** and installs separately from stable.
 
 ### DEV verification
-- Open a project with heat data and confirm the heat map becomes visible.
-- Switch **Auto → 99 → 297 → 891 → Auto** and watch specifically for any bare-map flash, blank frame, dark overlap, or flicker during tier replacement.
-- Open Project Comparison and confirm its heat map also appears and replaces completed tiers without recreating the visible heat source/layer.
-- If a heat problem remains, export a diagnostic log from this v1.2.2 build before changing versions so the new presentation path can be identified unambiguously.
+- Open the same project used for v1.2.2 testing and let Auto reach 891.
+- Switch **Auto → 99 → 297 → 891 → Auto**. Resolution should change shape/detail as expected, but a manual tier and Auto at that same completed tier should have the same color field.
+- Repeat 891 ↔ Auto after the final Auto 891 finishes and confirm there is no visible color jump and no flicker.
