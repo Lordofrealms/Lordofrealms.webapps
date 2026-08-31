@@ -8,7 +8,7 @@ function semverAtLeast(value,floor){
 }
 const html=read('pad-grade/index.html');
 const src=read('pad-grade/v115-dev.js');
-const current=read('pad-grade/v119-dev.js');
+const current=read('pad-grade/v120-dev.js');
 const gradle=read('pad-grade-android/app/build.gradle.kts');
 const changelog=read('pad-grade/CHANGELOG.md');
 const androidChangelog=read('pad-grade-android/CHANGELOG.md');
@@ -16,7 +16,7 @@ const titleVersion=(html.match(/<title>Pad Grade Mapper v([0-9]+\.[0-9]+\.[0-9]+
 const versionCode=Number((gradle.match(/versionCode\s*=\s*(\d+)/)||[])[1]);
 const versionName=(gradle.match(/versionName\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"/)||[])[1];
 must(!!titleVersion&&semverAtLeast(titleVersion,'1.1.5'),'current DEV title carries v1.1.5 or later');
-must(html.includes('src="v119-dev.js'),'current v1.1.9 runtime loaded');
+must(html.includes('src="v120-dev.js'),'current v1.2.0 runtime loaded');
 must(!html.includes('<script src="v115-dev.js'),'superseded v1.1.5 runtime no longer executable');
 must(Number.isFinite(versionCode)&&versionCode>=87,'current versionCode carries build 87 or later');
 must(!!versionName&&semverAtLeast(versionName,'1.1.5'),'current versionName carries v1.1.5 or later');
