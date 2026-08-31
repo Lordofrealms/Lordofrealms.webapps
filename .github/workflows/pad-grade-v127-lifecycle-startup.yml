@@ -31,7 +31,7 @@ jobs:
       - name: Run v1.2.7 lifecycle regression
         run: node pad-grade/v127-lifecycle-selftest.js
       - name: Carry forward protected no-flicker presentation regression
-        run: node pad-grade/v122-direct-canvas-selftest.js
+        run: node pad-grade/v122-canvas-handoff-selftest.js
       - name: Carry forward v1.2.6 generation cancellation regression
         run: node pad-grade/v126-generation-cancel-selftest.js
       - name: Verify runtime wiring and release identity
