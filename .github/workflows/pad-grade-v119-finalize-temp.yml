@@ -1,0 +1,78 @@
+name: Pad Grade v1.1.9 Finalize Temp
+on:
+  push:
+    branches: [pad-grade-dev-v119-heat-cutover]
+permissions:
+  contents: write
+jobs:
+  finalize:
+    if: ${{ !contains(github.event.head_commit.message, '[v119-finalize]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pad-grade-dev-v119-heat-cutover
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Apply v1.1.9 cutover metadata and tests
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          idx=Path('pad-grade/index.html')
+          s=idx.read_text()
+          s=s.replace('<title>Pad Grade Mapper v1.1.8 DEV</title>','<title>Pad Grade Mapper v1.1.9 DEV</title>')
+          old='''<script src="v113-dev.js?v=20260830-1"></script>\n<script src="v114-dev.js?v=20260830-2"></script>\n<script src="v118-dev.js?v=20260831-1"></script>\n<script src="v117-dev.js?v=20260830-1"></script>\n<script src="v115-dev.js?v=20260830-1"></script>'''
+          new='''<script src="v113-dev.js?v=20260830-1"></script>\n<script src="v119-dev.js?v=20260831-1"></script>'''
+          if old not in s:
+              raise SystemExit('expected v113-v118 script block not found')
+          s=s.replace(old,new)
+          s=s.replace('\n<script src="v116-dev.js?v=20260830-1"></script>','')
+          idx.write_text(s)
+
+          gradle=Path('pad-grade-android/app/build.gradle.kts')
+          g=gradle.read_text().replace('versionCode = 90','versionCode = 91').replace('versionName = "1.1.8"','versionName = "1.1.9"')
+          gradle.write_text(g)
+
+          entry='''## v1.1.9 — development build\n\n### Fixed — permanent heat presentation cutover\n- Replaced the unsuccessful v1.1.7/v1.1.8 heat-presentation experiment with a single shared **style-owned MapLibre ImageSource controller** used by both the regular project map and Project Comparison. The controller is installed at map construction, but it does not create its real image source/layer until MapLibre reports the current style fully loaded.\n- Completed 99 / 297 / 891 worker canvases are now intercepted **before they become real MapLibre CanvasSources**. They remain offscreen frame inputs only. After a complete canvas is decoded to an `ImageBitmap` when supported, the already-existing permanent ImageSource is updated in place. No real legacy heat CanvasSource or double-buffer heat layer is added to MapLibre by v1.1.9.\n- The permanent source/layer is created once per genuine MapLibre style generation and rebuilt only after a subsequent `style.load`. It is no longer recreated opportunistically from every heat commit attempt while `isStyleLoaded()` is false, which was the reason v1.1.8 repeatedly logged source/layer creation without ever reaching `heatmap.v118-image-committed`.\n- Resolution replacement retains the previously committed complete image while a new frame is decoding. Temporary removal of legacy virtual slots does not blank the permanent image. `raster-fade-duration` remains zero, so there is no intentional crossfade.\n- Main and Compare now share the same controller implementation and lifecycle rules instead of separate presentation behavior.\n\n### Changed — old presentation path removed from executable startup\n- The app no longer executes `v114-dev.js`, `v115-dev.js`, `v116-dev.js`, `v117-dev.js`, or `v118-dev.js`. Those historical files remain in the repository only for history/regression reference. Their heat authority, render-barrier, imagery-unload, and prior ImageSource shims are not part of the v1.1.9 runtime.\n- `v113-dev.js` remains responsible for worker scheduling, the 99/297/891 resolution inspector, project heat cache, and project-switch reuse. Its completed canvases are virtual inputs to v1.1.9; they are never installed as actual MapLibre CanvasSources.\n- Retained GPS suspension on minimize. Satellite imagery remains attached while minimized. Android WebView timer pause/resume and native `ApplicationExitInfo` one-time-permission recovery from v1.1.8 remain in the Android host.\n- Android DEV package is **version 1.1.9 / build 91**.\n\n### Changed — location denial/retry behavior\n- Pad Grade still uses the v1.1.8 informed Android permission explanation before the OS location prompt. If the resulting geolocation request is denied or the user chooses **Not now**, v1.1.9 automatically returns the workflow to **Manual** instead of leaving the UI visually stuck in GPS Guided mode without usable GPS.\n- Selecting **GPS Guided** again is the retry action; Pad Grade requests foreground location again through the existing informed permission flow. The removed standalone Enable GPS control is not restored.\n\n### Diagnostics\n- Added `heatmap.v119-*` events for constructor/controller installation, style readiness, intercepted complete canvases, ImageBitmap readiness, permanent source/layer creation, successful image commits, and commit/create failures.\n- A healthy map should show one source/layer creation per style generation followed by `heatmap.v119-image-committed`; repeated source/layer creation without a style generation change is treated as a regression.\n\n### Unchanged\n- IDW² interpolation math, color-scale math, measured-point values, 99 / 297 / 891 target resolutions, worker rasterization, final 891 disk cache format, project schema, project-grid geometry, comparison delta math, and the intentional separate Compare MapLibre instance are unchanged.\n\n### DEV verification\n- Confirm the main project heat map appears on initial load. Switch **Auto → 99 → 297 → 891 → Auto** repeatedly; each completed image should replace the previous completed image with no blank frame, dark overlap, crossfade, or progressive horizontal bars.\n- Open Project Comparison and confirm its heat map appears and progresses through its worker tiers using the same permanent ImageSource behavior.\n- Switch projects, hard reload, and minimize/resume; no outgoing-project heat may remain visible and the permanent image should recover after a genuine style reload.\n- Deny the informed location request or choose **Not now** and confirm Pad Grade returns to Manual. Select GPS Guided again and confirm that action retries the location flow.\n\n'''
+          for p in [Path('pad-grade/CHANGELOG.md'),Path('pad-grade-android/CHANGELOG.md')]:
+              text=p.read_text()
+              marker='# Changelog\n\n'
+              if marker not in text:
+                  raise SystemExit(f'changelog header missing: {p}')
+              if '## v1.1.9 — development build' not in text:
+                  text=text.replace(marker,marker+entry,1)
+              p.write_text(text)
+
+          test=Path('pad-grade/v119-heat-cutover-selftest.js')
+          test.write_text(r'''const fs=require('fs');
+const html=fs.readFileSync('pad-grade/index.html','utf8');
+const js=fs.readFileSync('pad-grade/v119-dev.js','utf8');
+const gradle=fs.readFileSync('pad-grade-android/app/build.gradle.kts','utf8');
+function ok(v,m){if(!v)throw new Error(m);}
+ok(html.includes('Pad Grade Mapper v1.1.9 DEV'),'v1.1.9 DEV title missing');
+ok(html.includes('src="v119-dev.js'),'v119 runtime not loaded');
+for(const f of ['v114-dev.js','v115-dev.js','v116-dev.js','v117-dev.js','v118-dev.js']) ok(!html.includes(`<script src="${f}`),`${f} still executable`);
+ok(js.includes("type:'image',url:TRANSPARENT_PIXEL"),'permanent ImageSource definition missing');
+ok(js.includes('isStyleLoaded'),'style-loaded gate missing');
+ok(js.includes("map.on('style.load'"),'style.load lifecycle missing');
+ok(js.includes('heatmap.v119-image-committed'),'commit diagnostic missing');
+ok(js.includes('legacyMapLibreCanvasSources:false'),'legacy CanvasSource cutover marker missing');
+ok(!/baseAddSource\([^\n]+type:\s*['\"]canvas['\"]/.test(js),'v119 adds a real MapLibre CanvasSource');
+ok(js.includes("id==='gpsMap'")&&js.includes("id==='pgCompareMap'"),'shared main/compare constructor hook missing');
+ok(js.includes('gps.permission-denied-manual-fallback'),'permission denial manual fallback missing');
+ok(gradle.includes('versionCode = 91')&&gradle.includes('versionName = "1.1.9"'),'Android version/build mismatch');
+console.log('Pad Grade v1.1.9 heat cutover self-test passed');
+''')
+          PY
+          node --check pad-grade/v119-dev.js
+          node pad-grade/v119-heat-cutover-selftest.js
+          git diff --check
+      - name: Commit finalized v1.1.9 files
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add pad-grade/index.html pad-grade/v119-dev.js pad-grade/v119-heat-cutover-selftest.js pad-grade/CHANGELOG.md pad-grade-android/CHANGELOG.md pad-grade-android/app/build.gradle.kts
+          git commit -m '[v119-finalize] Finalize Pad Grade v1.1.9 DEV heat cutover' || exit 0
+          git push origin HEAD:pad-grade-dev-v119-heat-cutover
