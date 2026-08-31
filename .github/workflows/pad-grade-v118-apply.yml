@@ -19,7 +19,9 @@ jobs:
           ref: pad-grade-dev-v118-permission-heat-fix
           fetch-depth: 0
       - name: Apply v1.1.8 files
-        run: python .github/scripts/apply_pad_grade_v118.py
+        run: |
+          python .github/scripts/apply_pad_grade_v118.py
+          sed -i "s/Path(__file__).resolve().parents\[1\]/Path(__file__).resolve().parent/" pad-grade-v118-selftest.py
       - name: Syntax and regression sanity
         run: |
           node --check pad-grade/v118-dev.js
