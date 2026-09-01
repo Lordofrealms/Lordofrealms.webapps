@@ -1,0 +1,66 @@
+name: Pad Grade Dev Release Tag Anchor
+
+on:
+  push:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/**'
+      - 'pad-grade-android/**'
+      - '.github/workflows/pad-grade-android.yml'
+      - '.github/workflows/pad-grade-dev-release-tag-anchor.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: pad-grade-dev-release-tag-anchor-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  anchor-dev-release-tag:
+    if: github.ref == 'refs/heads/pad-grade-dev'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve dev release tag
+        run: |
+          VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' pad-grade-android/app/build.gradle.kts | head -1)
+          test -n "$VERSION"
+          echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+          echo "RELEASE_TAG=pad-grade-dev-v$VERSION" >> "$GITHUB_ENV"
+
+      - name: Pre-create release tag on default branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release tag $RELEASE_TAG already exists."
+            exit 0
+          fi
+
+          DEFAULT_BRANCH=$(gh api "repos/$GITHUB_REPOSITORY" --jq '.default_branch')
+          DEFAULT_SHA=$(gh api "repos/$GITHUB_REPOSITORY/commits/$DEFAULT_BRANCH" --jq '.sha')
+
+          # GitHub's Releases API now requires Workflows:write when it must
+          # create a tag at a commit whose .github/workflows tree differs from
+          # the default branch. The built-in GITHUB_TOKEN cannot receive that
+          # permission. Creating this lightweight release-distribution tag on
+          # the default-branch commit avoids that guard. The Android workflow
+          # still builds the APK from pad-grade-dev and records the real source
+          # SHA in its Actions run; target_commitish is ignored once this tag
+          # already exists.
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f ref="refs/tags/$RELEASE_TAG" \
+            -f sha="$DEFAULT_SHA"
+
+      - name: Verify anchored tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_SHA=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')
+          DEFAULT_BRANCH=$(gh api "repos/$GITHUB_REPOSITORY" --jq '.default_branch')
+          DEFAULT_SHA=$(gh api "repos/$GITHUB_REPOSITORY/commits/$DEFAULT_BRANCH" --jq '.sha')
+          test "$TAG_SHA" = "$DEFAULT_SHA"
+          echo "$RELEASE_TAG anchored to $DEFAULT_BRANCH at $DEFAULT_SHA"
