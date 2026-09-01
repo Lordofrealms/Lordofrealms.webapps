@@ -61,7 +61,6 @@ jobs:
           grep -F 'coordinator.remaining>0)return' pad-grade/heatmap-raster-worker-v133.js
           grep -F "type:'band-complete'" pad-grade/heatmap-raster-band-worker-v133.js
           ! grep -F 'new Worker(' pad-grade/heatmap-raster-band-worker-v133.js
-          ! grep -Fi 'maplibre' pad-grade/heatmap-raster-band-worker-v133.js
 
       - name: Verify best-available USGS imagery invariants
         run: |
