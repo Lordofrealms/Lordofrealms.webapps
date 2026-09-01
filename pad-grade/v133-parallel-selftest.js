@@ -9,6 +9,8 @@ const surface=require('./surface-local-v078.js');
 
 const coordinator=fs.readFileSync(path.join(__dirname,'heatmap-raster-worker-v133.js'),'utf8');
 const bandWorker=fs.readFileSync(path.join(__dirname,'heatmap-raster-band-worker-v133.js'),'utf8');
+const stripComments=s=>s.replace(/\/\*[\s\S]*?\*\//g,'').replace(/\/\/.*$/gm,'');
+const bandCode=stripComments(bandWorker);
 
 assert(coordinator.includes("heatmap-raster-band-worker-v133.js?v=20260901-1"));
 assert(coordinator.includes("childWorkerKind:'dedicated-v133'"));
@@ -17,9 +19,9 @@ assert(coordinator.includes('bandFramesPublished:0'));
 assert(coordinator.includes("if(activeCoordinator!==coordinator||coordinator.cancelled||coordinator.remaining>0)return;"));
 assert(!coordinator.includes("if(msg.type==='build-band')"));
 assert(!coordinator.includes("type:'band-complete'"));
-assert(!bandWorker.includes('new Worker('));
-assert(!/maplibre/i.test(bandWorker));
-assert(!/canvas/i.test(bandWorker.replace(/cannot publish a\s+partial heatmap frame/i,'')));
+assert(!bandCode.includes('new Worker('));
+assert(!/maplibre/i.test(bandCode));
+assert(!/canvas/i.test(bandCode));
 assert(bandWorker.includes("type:'band-complete'"));
 assert(bandWorker.includes('Compute transport only'));
 
