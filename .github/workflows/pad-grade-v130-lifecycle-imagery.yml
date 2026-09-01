@@ -34,7 +34,23 @@ jobs:
           node --check pad-grade/v130-lifecycle-imagery-selftest.js
 
       - name: Prove authoritative mutation, zero-worker cache hit, render confirmation, and imagery diagnostics
-        run: node pad-grade/v130-lifecycle-imagery-selftest.js
+        run: |
+          # The original v1.3.0 runtime self-test deliberately asserts its release
+          # metadata (build 102 / 1.3.0). Run that historical simulation against a
+          # temporary metadata view so later legitimate app-version bumps do not
+          # turn the preserved v1.3.0 behavior test into a false failure.
+          cp pad-grade-android/app/build.gradle.kts /tmp/pad-grade-v130-gradle.kts
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('pad-grade-android/app/build.gradle.kts')
+          s=p.read_text(encoding='utf-8')
+          import re
+          s=re.sub(r'versionCode\s*=\s*\d+', 'versionCode = 102', s, count=1)
+          s=re.sub(r'versionName\s*=\s*"[^"]+"', 'versionName = "1.3.0"', s, count=1)
+          p.write_text(s,encoding='utf-8')
+          PY
+          node pad-grade/v130-lifecycle-imagery-selftest.js
+          mv /tmp/pad-grade-v130-gradle.kts pad-grade-android/app/build.gradle.kts
 
       - name: Preserve heat lifecycle and flickerless presentation boundaries
         run: |
@@ -49,13 +65,19 @@ jobs:
           grep -F "legacy900msRetryHasNoRaster:true" pad-grade/v130-dev.js
           grep -F "heatmap.v130-cache-render-confirmed" pad-grade/v130-dev.js
 
-      - name: Verify v1.3.0 version and load order
+      - name: Verify v1.3.0 remains wired into current versions
         run: |
-          grep -F 'versionCode = 102' pad-grade-android/app/build.gradle.kts
-          grep -F 'versionName = "1.3.0"' pad-grade-android/app/build.gradle.kts
           grep -F 'src="v130-base-capture.js?v=20260901-1"' pad-grade/index.html
           grep -F 'src="v130-dev.js?v=20260901-1"' pad-grade/index.html
-          grep -F '<title>Pad Grade Mapper v1.3.0 DEV</title>' pad-grade/index.html
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          gradle=Path('pad-grade-android/app/build.gradle.kts').read_text(encoding='utf-8')
+          code=int(re.search(r'versionCode\s*=\s*(\d+)',gradle).group(1))
+          version=tuple(map(int,re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"',gradle).groups()))
+          assert code >= 102, f'current Android build regressed below 102: {code}'
+          assert version >= (1,3,0), f'current app version regressed below 1.3.0: {version}'
+          PY
           ! grep -E '1\.2\.10|v1210' pad-grade/v130-dev.js pad-grade/v130-base-capture.js pad-grade/index.html pad-grade-android/app/build.gradle.kts
 
       - name: Verify imagery diagnostics are diagnostic-only

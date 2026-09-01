@@ -1,0 +1,67 @@
+name: Pad Grade v1.3.1 Parallel Heat + Imagery Diagnostics
+
+on:
+  push:
+    branches:
+      - pad-grade-dev
+      - 'pad-grade-v1.3.1-*'
+    paths:
+      - 'pad-grade/heatmap-raster-worker-v131.js'
+      - 'pad-grade/v131-worker-bootstrap.js'
+      - 'pad-grade/v131-dev.js'
+      - 'pad-grade/v131-parallel-imagery-selftest.js'
+      - 'pad-grade/index.html'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - '.github/workflows/pad-grade-v131-parallel-imagery.yml'
+  pull_request:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/heatmap-raster-worker-v131.js'
+      - 'pad-grade/v131-worker-bootstrap.js'
+      - 'pad-grade/v131-dev.js'
+      - 'pad-grade/v131-parallel-imagery-selftest.js'
+      - 'pad-grade/index.html'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - '.github/workflows/pad-grade-v131-parallel-imagery.yml'
+  workflow_dispatch:
+
+jobs:
+  verify-v131:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax check v1.3.1 runtime
+        run: |
+          node --check pad-grade/heatmap-raster-worker-v131.js
+          node --check pad-grade/v131-worker-bootstrap.js
+          node --check pad-grade/v131-dev.js
+          node --check pad-grade/v131-parallel-imagery-selftest.js
+
+      - name: Prove parallel band equivalence and lifecycle wiring
+        run: node pad-grade/v131-parallel-imagery-selftest.js
+
+      - name: Carry forward version-neutral heat lifecycle regressions
+        run: |
+          node pad-grade/v127-lifecycle-selftest.js
+          node pad-grade/v126-generation-cancel-selftest.js
+          node pad-grade/v122-canvas-handoff-selftest.js
+
+      - name: Verify version and protected load order
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          index=Path('pad-grade/index.html').read_text(encoding='utf-8')
+          gradle=Path('pad-grade-android/app/build.gradle.kts').read_text(encoding='utf-8')
+          assert 'Pad Grade Mapper v1.3.1 DEV' in index
+          assert re.search(r'versionCode\s*=\s*103\b',gradle)
+          assert re.search(r'versionName\s*=\s*"1\.3\.1"',gradle)
+          boot=index.index('v131-worker-bootstrap.js?v=20260901-1')
+          v126=index.index('v126-dev.js?v=20260831-1')
+          v127=index.index('v127-dev.js?v=20260831-1')
+          v130=index.index('v130-dev.js?v=20260901-1')
+          v131=index.index('v131-dev.js?v=20260901-1')
+          assert boot < v126 < v127 < v130 < v131
+          print('v1.3.1 protected load order verified')
+          PY

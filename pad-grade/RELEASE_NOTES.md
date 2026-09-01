@@ -1,3 +1,52 @@
+# Pad Grade Mapper v1.3.1 — DEV BUILD
+
+## v1.3.1 — adaptive final-heat parallelism and deeper NAIP timing diagnostics
+
+### Changed — final 891 heat calculation now uses adaptive CPU parallelism
+- The cache-miss progression remains **99 → 297 → 891**. The 99 and 297 tiers are intentionally unchanged and still run as single-worker calculations so the useful early heat does not create new CPU contention.
+- Only the expensive final **891** calculation is parallelized. The browser-visible lifecycle still owns exactly one 891 coordinator worker, so v1.2.7 remains authoritative for project/surface generation ownership, duplicate-tier prevention, physical cancellation, and immutable raster provenance.
+- Inside that one final worker, the 891 raster is split into independent horizontal bands. The number of compute workers is selected dynamically as **`max(1, navigator.hardwareConcurrency - 1)`**, leaving one reported logical processor outside the heat calculation while adapting automatically to different phones/tablets.
+- Every band uses the existing v0.7.9 locality-first / edge-locked IDW² interpolation and the existing heat colors. The band coordinate system is only translated in Y; a dedicated regression compares whole-raster output against 1, 2, 3, 4, 7, and 12 band reconstructions and requires identical masks/tie counts and numerically equivalent interpolated values.
+- **No partial band is ever shown.** Child results are copied into one complete 891 RGBA buffer inside the coordinator. Only after every band finishes does the coordinator publish the single completed raster through the existing protected flickerless presenter.
+- If nested workers are unavailable, the device reports only one logical processor, a child worker cannot be created, or a child fails while calculating, v1.3.1 falls back inside the same lifecycle worker to the prior whole-raster calculation rather than losing the final heat map.
+- The v1.3.0 exact-891 cache path remains ahead of real raster work. Returning to an exact cached surface should still bypass 99/297/891 computation entirely rather than unnecessarily invoking the new parallel path.
+
+### Added — detailed final-heat parallel timing diagnostics
+- `heatmap.v131-parallel-891-complete` records whether parallel execution was used, reported hardware concurrency, selected compute-worker count, child-worker creation time, time to first band result, total final-wall time, and min/average/max band-worker times.
+- The same row records aggregate rasterization/color/setup work and whether a single-worker fallback was used. This gives the next field log enough information to measure actual device scaling instead of guessing whether more/fewer workers would be better.
+- Worker setup timing is now visible separately from the final 891 calculation, making it possible to compare the small construction/fan-out cost with the CPU time saved by parallel rasterization.
+
+### Added — deeper diagnostic-only USGS / NAIP imagery request visibility
+- v1.3.0 established that the normal USGS tiled base imagery could load in well under a second while the independent high-resolution NAIP Plus probes timed out at 6.5 seconds and the real MapLibre high-resolution source did not report loaded until much later. v1.3.1 adds request-level timing to determine why.
+- A passive Resource Timing observer separately summarizes requests to `basemap.nationalmap.gov` and `imagery.nationalmap.gov`: completed request count, average/P50/P95/max duration, maximum observed request overlap, status buckets when exposed by WebView, transfer/decoded byte totals when exposed, initiator types, and whether cross-origin timing restrictions hid detailed fields.
+- Individual imagery requests taking at least **1.5 seconds**, or returning an exposed HTTP error status, get a compact `imagery.v131-resource-slow-or-error` row so a handful of pathological ImageServer calls cannot disappear inside an average.
+- MapLibre source events are counted independently for BASE USGS and HIGH_RES NAIP Plus. `imagery.v131-source-activity` reports loading/data/error event counts plus the current and peak number of outstanding tile identities observed by MapLibre. Tile coordinates are used only internally to count work and are **not written to the diagnostic log**.
+- `imagery.v131-source-config` records sanitized source configuration so the log can prove that the high-resolution path is the dynamic **ImageServer `exportImage` + NaturalColor** source rather than a cached tile path.
+- The independent high-resolution probe now matches the configured NaturalColor request. At **6.5 seconds** it records a slow marker but deliberately keeps the request alive; only at **30 seconds** is it declared a hard timeout. A high-res response arriving after the old 6.5-second window therefore records its real total elapsed time instead of being discarded diagnostically.
+- When Android WebView exposes Network Information API fields, the imagery rows include effective connection type, approximate downlink/RTT, online state, and data-saver state so server/request delay can be distinguished from obviously degraded local connectivity.
+- Privacy remains unchanged: request URLs, tile coordinates, viewed latitude/longitude, project coordinates, and rod readings are not written into these new diagnostic rows.
+
+### Protected / unchanged behavior
+- The **v1.2.2 completed-canvas flickerless presenter remains protected and unchanged**. v1.3.1 does not recreate the permanent canonical MapLibre heat source/layer, does not display individual bands, and does not add a cross-fade or partial-raster presentation path.
+- v1.3.0 remains the authoritative point-mutation/cache-return/render-confirmation owner. The cancel → snapshot → mutate → retire old producer → clear invalid heat → resolve replacement sequence is unchanged.
+- v1.2.7 remains the regular-generation cancellation/provenance owner. A stale 891 coordinator is still physically terminated when its surface/project is superseded.
+- The historical ordinary-startup **6-second maximum reveal** and the existing storage-selection renewal behavior are unchanged.
+- 99 / 297 / 891 raster dimensions, surface interpolation, heat colors, final 891 cache format, project schema, GPS calculations, Project Comparison math, map imagery providers, layer order, and imagery recovery policy are unchanged.
+
+### Changed
+- Android DEV package is **version 1.3.1 / build 103** and installs separately from stable.
+
+### DEV verification
+- Force an uncached surface change. Confirm the existing sequence is still 99 → 297 → 891 and that 99/297 remain normal single-worker jobs.
+- Let the final 891 finish and inspect `heatmap.v131-parallel-891-complete`. `computeWorkers` should equal **`max(1, hardwareConcurrency - 1)`** for that device unless the row explicitly reports a safe fallback; only one completed 891 should reach the normal presenter.
+- Change a point while 891 is running. The existing v1.2.7 cancellation diagnostics should show the stale lifecycle worker being physically terminated before replacement work proceeds; no partial band from the cancelled calculation may become visible.
+- Return to an exact cached surface. The v1.3.0 cache short-circuit should still report zero real raster workers and restore/confirm the cached 891 without needing the parallel calculation.
+- Confirm 99 → 297 → 891 presentation remains flickerless and the protected canonical source/layer is never recreated during the final parallel calculation or handoff.
+- At the close zoom where high-resolution imagery should contribute, leave the view settled long enough to capture the new resource/source summaries and 30-second-capable high-res probe. The next log should show whether NAIP delay is dominated by many concurrent `exportImage` requests, individually slow server responses, exposed HTTP failures, or MapLibre source readiness after the network work completes.
+- Confirm exported diagnostics contain no URLs, tile coordinates, map coordinates, GPS coordinates, or rod readings from the new imagery instrumentation.
+
+---
+
 # Pad Grade Mapper v1.3.0 — DEV BUILD
 
 ## v1.3.0 — authoritative heat lifecycle, verified cached-frame return, and imagery health diagnostics
