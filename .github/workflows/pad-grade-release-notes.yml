@@ -6,7 +6,6 @@ on:
     paths:
       - 'pad-grade/RELEASE_NOTES.md'
       - 'pad-grade-android/app/build.gradle.kts'
-      - '.github/workflows/pad-grade-release-notes.yml'
   workflow_dispatch:
 
 permissions:
@@ -51,20 +50,43 @@ jobs:
               raise SystemExit(f'RELEASE_NOTES.md is missing the v{version} change section')
           PY
 
-      - name: Wait for current GitHub release
+      - name: Wait for Android release publisher
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          found=0
-          for _ in $(seq 1 120); do
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            publisher_done=0
+            for _ in $(seq 1 180); do
+              runs=$(gh api "/repos/$GITHUB_REPOSITORY/actions/workflows/pad-grade-android.yml/runs?branch=$GITHUB_REF_NAME&head_sha=$GITHUB_SHA&per_page=10" 2>/dev/null || true)
+              status=$(printf '%s' "$runs" | jq -r '.workflow_runs[0].status // empty' 2>/dev/null || true)
+              conclusion=$(printf '%s' "$runs" | jq -r '.workflow_runs[0].conclusion // empty' 2>/dev/null || true)
+              run_id=$(printf '%s' "$runs" | jq -r '.workflow_runs[0].id // empty' 2>/dev/null || true)
+              if [ "$status" = "completed" ]; then
+                if [ "$conclusion" != "success" ]; then
+                  echo "Android release publisher run $run_id finished with $conclusion" >&2
+                  exit 1
+                fi
+                publisher_done=1
+                break
+              fi
+              sleep 3
+            done
+            if [ "$publisher_done" != "1" ]; then
+              echo "Timed out waiting for Android release publisher for $GITHUB_SHA" >&2
+              exit 1
+            fi
+          fi
+
+          release_ready=0
+          for _ in $(seq 1 30); do
             if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-              found=1
+              release_ready=1
               break
             fi
-            sleep 3
+            sleep 2
           done
-          if [ "$found" != "1" ]; then
-            echo "Timed out waiting for GitHub release $RELEASE_TAG" >&2
+          if [ "$release_ready" != "1" ]; then
+            echo "GitHub release $RELEASE_TAG was not visible after publisher completion" >&2
             exit 1
           fi
 
@@ -141,7 +163,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view "$RELEASE_TAG" --json body --jq '.body' > /tmp/published-pad-grade-release-notes.md
+          verified=0
+          for _ in $(seq 1 15); do
+            if gh release view "$RELEASE_TAG" --json body --jq '.body' > /tmp/published-pad-grade-release-notes.md 2>/dev/null; then
+              verified=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$verified" != "1" ]; then
+            echo "Could not read release $RELEASE_TAG after notes update" >&2
+            exit 1
+          fi
           python3 - "$APP_VERSION" /tmp/published-pad-grade-release-notes.md <<'PY'
           import re, sys
           from pathlib import Path
