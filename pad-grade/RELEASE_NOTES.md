@@ -1,42 +1,47 @@
-# Pad Grade Mapper v1.3.2 — DEV BUILD
+# Pad Grade Mapper v1.3.3 — DEV BUILD
 
-## v1.3.2 — restore heat lifecycle ownership and increase close-zoom NAIP raster density
+## v1.3.3 — best-available USGS imagery + real dedicated-band 891 parallelism
 
-### Fixed — v1.3.1 heat worker redirection no longer strips v1.2.6/v1.2.7 lifecycle methods
-- The first v1.3.1 field log showed a real regression after a point edit: 99 and 297 calculations finished, but v1.2.7 rejected their fresh canvases as `no-current-generation-authorization` while reporting `currentGeneration: 0`.
-- Root cause was the v1.3.1 worker implementation redirect. Its constructor returned a newly created parent `Worker`, which is legal JavaScript but discards the most-derived subclass prototype when that wrapper is itself extended. The v1.2.6/v1.2.7 `postMessage()` and `terminate()` overrides therefore never owned the actual redirected worker.
-- v1.3.2 inserts a corrected redirect before v1.2.6/v1.2.7. It uses `Reflect.construct(..., new.target)` against the underlying native Worker so the redirected v1.3.1 implementation is constructed with the real most-derived lifecycle prototype intact.
-- The worker URL still redirects only the historical heat raster workers to `heatmap-raster-worker-v131.js`; grid and other workers remain untouched.
-- A dedicated regression recreates the broken v1.3.1 constructor shape, layers a lifecycle subclass over the v1.3.2 redirect, and requires the derived constructor, `postMessage()`, and `terminate()` methods to remain active while the underlying URL is redirected.
+### Fixed — final 891 heatmap now uses dedicated compute workers instead of recursively spawning the coordinator
+- The v1.3.2 field log proved the intended adaptive path was not actually parallel on the 8-logical-processor test phone: both completed 891 runs reported `computeWorkers: 1`, `bandsCompleted: 0`, and `band-worker-failed`, then spent roughly 23–29 seconds in whole-raster fallback.
+- The final 891 tier now keeps one lifecycle-visible coordinator worker but spawns **dedicated compute-only band workers** from `heatmap-raster-band-worker-v133.js` using an absolute same-origin asset URL.
+- Dedicated band workers import the interpolation module directly, compute exactly one horizontal band, transfer only that raw RGBA band buffer to the coordinator, and exit. They do not recursively load the coordinator and contain no MapLibre/canvas/presentation code.
+- The adaptive count remains **`max(1, navigator.hardwareConcurrency - 1)`**. On the current 8-thread test device the expected successful path is 7 compute workers / 7 completed bands.
+- Child-worker exceptions are returned as explicit `band-error` messages so a future failure records a useful fallback reason instead of only the generic browser worker error.
 
-### Restored — regular heat generation/provenance path
-- On a cache miss, v1.2.7 should again own a nonzero generation before 99 is forwarded, release 297 only after 99 completes, authorize each completed regular canvas against that same project/surface generation, and defer 891 until the lower tiers complete.
-- Fresh 99/297 canvases should no longer be rejected against generation 0. The protected v1.2.2 completed-canvas presenter is unchanged.
-- Point/project changes still physically terminate stale lifecycle workers before replacement work becomes authoritative. For a running 891, that termination also kills the coordinator that owns its nested band workers.
-- Exact cached 891 returns remain ahead of raster work through the v1.3.0 preflight path and still require MapLibre render confirmation.
+### Protected — no row painting, no partial heatmap frames, no flicker regression
+- Parallelism changes **compute only**. Band completion messages are private to the coordinator and are never exposed as heatmap frames.
+- The coordinator allocates one full 891 RGBA array offscreen, copies each completed band into its final row range, waits until `remaining === 0`, then transfers **one complete buffer** through the existing terminal `complete` message.
+- The protected v1.2.2 canonical MapLibre/ImageSource presenter remains unchanged. It still receives only complete 99, complete 297, and complete 891 frames.
+- Whole-raster fallback is also still atomic; a failed band path does not publish already-finished rows before falling back.
+- A v1.3.3 regression divides an 891-row raster into 7 bands, reassembles them, and requires the banded result to match a monolithic raster cell-for-cell (mask/count) and value-for-value within floating-point tolerance. The test also rejects any band-worker MapLibre/canvas code or coordinator partial-frame publication path.
 
-### Changed — denser close-zoom USGS NAIP Plus image exports
-- The v1.3.1 field log showed the high-resolution NAIP Plus source was actually reaching loaded state with no source errors; after warm-up, a sampled group of high-resolution requests completed quickly. The remaining complaint is therefore treated as a visual-fidelity issue rather than another timeout/retry problem.
-- The provider remains **USGS `USGSNAIPPlus` ImageServer + `NaturalColor`**. Layer order, geographic tile footprint, close-zoom threshold, and imagery recovery policy remain unchanged.
-- Each high-resolution MapLibre logical 256 px tile now requests a **512 × 512** ImageServer export (2× raster density) instead of 256 × 256.
-- `compressionQuality=95` is requested for JPG/JPGPNG output instead of relying on the service default. This increases transmitted/detail-preserving image density without switching providers or changing project/GPS behavior.
-- The same upgrade is applied to initial map style construction and later `addSource()` calls, so the bounded imagery-recovery path cannot silently revert a repaired source to the old 256 px request.
-- New `imagery.v132-quality-policy-installed` and `imagery.v132-highres-source-upgraded` rows identify the active 512 px / quality-95 policy without logging URLs, tile coordinates, viewed coordinates, project coordinates, or rod readings.
+### Changed — generic USGS-only “best available” close-zoom imagery
+- **No Esri imagery provider was added.** The existing fast cached USGS basemap remains underneath and `USGSNAIPPlus` + `NaturalColor` remains the close-zoom provider.
+- The 512-pixel export for each 256-pixel logical tile and `compressionQuality=95` from v1.3.2 are retained.
+- Each NAIP Plus export now supplies an ImageServer mosaic rule using `resolution_value` with a reference value of 0 and `MT_FIRST`. Because the ImageServer evaluates the overlapping raster catalog for every requested tile, this makes source selection **generic and server-side** rather than hard-coding any Oklahoma/state/local coverage.
+- The intent is resolution-first selection: among overlapping NAIP Plus source rasters, prefer the source whose catalog ground-pixel size is smallest instead of relying only on the service's default year-oriented attribute rule.
+- Export resampling now requests `RSP_CubicConvolution` rather than the service's default nearest-neighbor resampling so down/up-sampling the selected aerial raster preserves smoother high-frequency image detail.
+- No source is removed/re-added when this policy changes. The rule is part of each export URL from initial style construction onward, so there is no extra imagery-layer swap cycle.
+
+### Diagnostics
+- `heatmap.v133-worker-bootstrap-installed` confirms legacy heat requests are redirected to the v1.3.3 coordinator while v1.2.6/v1.2.7 lifecycle subclasses remain intact.
+- Existing `heatmap.v131-parallel-891-complete` diagnostics remain the performance proof point. A successful v1.3.3 run should show `enabled: true`, `computeWorkers > 1`, and `bandsCompleted === computeWorkers` with no fallback reason.
+- `imagery.v133-best-available-policy-installed` and `imagery.v133-best-source-upgraded` identify the nationwide resolution-first USGS policy without logging URLs, tile coordinates, GPS coordinates, project coordinates, or rod readings.
 
 ### Protected / unchanged behavior
-- The **v1.2.2 flickerless completed-canvas presenter remains protected and unchanged**; v1.3.2 does not recreate the permanent canonical heat source/layer as part of tier handoff.
-- Heat interpolation math, colors, raster dimensions (99 / 297 / 891), final 891 cache format, point mutation order, project schema, GPS calculations, Project Comparison math, and startup/storage-cover policy are unchanged.
-- Final 891 adaptive compute policy remains **`max(1, navigator.hardwareConcurrency - 1)`** inside one lifecycle-visible coordinator, with atomic full-buffer publication and safe whole-raster fallback.
-- USGS remains the imagery provider. v1.3.2 does not select an older alternate aerial dataset or change the NAIP Plus default mosaic/date selection; it only requests a denser rendition of the same configured source.
+- Heat interpolation math, colors, raster sizes (99 / 297 / 891), final heat cache format, current project generation/cancellation ownership, point-mutation order, project schema, GPS calculations, Project Comparison math, and startup/storage-cover policy are unchanged.
+- 99 and 297 remain sequential single-worker tiers so the user still gets the same staged whole-frame progression before final 891.
+- Exact cached 891 surfaces still bypass real raster work through the existing cache path.
+- Project switching still removes the outgoing grid/heat presentation before the project dialog closes.
 
-### Changed
-- Android DEV package is **version 1.3.2 / build 104** and installs separately from stable.
+### Version
+- Android DEV package is **version 1.3.3 / build 105** and installs separately from stable.
 
 ### DEV verification
-- Change a measured point to force a cache miss. Confirm `heatmap.v127-generation-owned` reports a **nonzero** generation and that 99/297 results are not followed by `no-current-generation-authorization` suppression for the current project/surface.
-- Confirm regular presentation remains 99 → 297 → 891, with 297 released only after 99 completes and one final 891 coordinator for the current generation.
-- Let 891 finish and inspect `heatmap.v131-parallel-891-complete`; on the current 8-logical-processor test device it should select 7 compute workers unless a safe fallback is explicitly reported.
-- Change a point while 891 is running and confirm v1.2.7 physical termination retires the stale coordinator before replacement work proceeds.
-- Return to an exact cached surface and confirm the v1.3.0 zero-real-worker cache short circuit and render-confirmation path still work.
-- At close zoom, confirm `imagery.v132-quality-policy-installed` reports `exportPixels: 512`, `densityScale: 2`, and `compressionQuality: 95`; the high-resolution source should still load without changing provider/layer ordering.
-- Export a diagnostic log after the test so final-891 wall/band timing and high-resolution request timing can be compared with v1.3.1.
+- Edit a measured point so the exact final cache cannot be reused. Confirm visible heat progression remains whole-frame **99 → 297 → 891** with no partial rows/bands appearing.
+- Confirm `heatmap.v131-parallel-891-complete` for tier 891 reports `enabled: true`; on the current 8-thread phone it should report `computeWorkers: 7` and `bandsCompleted: 7`.
+- Compare final-891 `wallElapsedMs` against the v1.3.2 field runs that fell back to one worker (~25–29 seconds post-to-visible for 891). The new build should materially reduce that final-tier wall time if Android WebView permits the dedicated subworkers.
+- Change another point while 891 is running and confirm stale work is still physically terminated and never becomes visible.
+- Pan/zoom at close range and confirm `imagery.v133-best-available-policy-installed`, then confirm the high-resolution NAIP Plus source reaches loaded state without switching away from USGS.
+- Export a fresh diagnostic log after the field test so successful band counts/timing and imagery source behavior can be compared directly with v1.3.2.
