@@ -1,4 +1,4 @@
-/* Pad Grade v1.2.7/v1.2.8 DEV — base-map-preferred startup curtain gate.
+/* Pad Grade v1.2.7/v1.2.9 DEV — base-map-preferred startup curtain gate.
  *
  * Loaded immediately after the recovery-visual primitive and BEFORE the normal
  * workspace body is parsed. v1.2.8 also uses this head position to arm the same
@@ -24,7 +24,7 @@
   if(window.__padGradeV127StartupMapGate)return;
   window.__padGradeV127StartupMapGate=true;
 
-  const VERSION='1.2.8';
+  const VERSION='1.2.9';
   const root=document.documentElement;
   const GATE_CLASS='padGradeV127BaseMapGate';
   const originalEnd=window.__padGradeEndRecoveryVisualHold;
@@ -146,5 +146,11 @@
   // into a flash-prone bottom-of-body dependency just to gain this maintenance layer.
   if(!document.querySelector('script[data-padgrade-v128]')){
     const s=document.createElement('script');s.src='v128-dev.js?v=20260831-1';s.dataset.padgradeV128='1';s.async=true;document.head.appendChild(s);
+  }
+  // v1.2.9 is also head-loaded, but it does not alter startup-cover behavior. Its
+  // map wrapper waits until the v1.2.8 retired-canvas guard exists, then installs
+  // outside that guard to repair exact cached-surface returns safely.
+  if(!document.querySelector('script[data-padgrade-v129]')){
+    const s=document.createElement('script');s.src='v129-dev.js?v=20260831-1';s.dataset.padgradeV129='1';s.async=true;document.head.appendChild(s);
   }
 })();
