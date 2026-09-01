@@ -1,3 +1,69 @@
+# Pad Grade Mapper v1.3.0 — DEV BUILD
+
+## v1.3.0 — authoritative heat lifecycle, verified cached-frame return, and imagery health diagnostics
+
+### Fixed — one authoritative point-save heat lifecycle replaces the stacked wrappers
+- Field diagnostics from v1.2.9 showed a single point save could still enter multiple historical `saveCurrent()` heat wrappers. Even when those wrappers reached compatible results, repeated cancellation/snapshot/retirement bookkeeping made the mutation path harder to reason about and added avoidable work.
+- v1.3.0 captures the original point-save primitive immediately after `ui.js`, before the v1.2.7/v1.2.8/v1.2.9 heat wrappers can install. Once v1.2.7's physical-generation cancellation API is available, v1.3.0 replaces the live point-save stack with one authoritative controller.
+- A real changed reading now follows one auditable order: **cancel cache preflight and active heat generation → snapshot the valid completed 891 if present → mutate the reading once → retire the obsolete legacy raster owner → hide the invalid canonical heat → resolve exact cache or generate replacement heat**.
+- The v1.3.0 wrapper carries the v1.2.7/v1.2.8/v1.2.9 readiness markers, so their periodic installers recognize that the lifecycle is already satisfied instead of wrapping `saveCurrent()` again.
+- The underlying reading-save semantics are unchanged; v1.3.0 changes heat lifecycle ownership around that save, not how the reading itself is stored.
+
+### Fixed — exact cached 891 is resolved before a real raster Worker is created
+- The v1.2.9 field failure occurred after the app had already identified the exact cached final surface. v1.3.0 moves the exact-cache decision farther upstream to the `Worker` construction boundary.
+- Regular 99/297 requests initially receive lightweight lazy Worker shims. Before either request creates a real heat raster worker, v1.3.0 checks the bounded transition snapshot and then the durable exact 891 cache for the current **project + surface key**.
+- On an exact 891 hit, the cached frame is submitted through the existing protected presentation path and both lower-tier requests terminate as cache hits with **zero real raster Worker constructions**.
+- On a cache miss, the real v1.2.7 worker lifecycle is activated and the existing sequential **99 → 297 → 891** pipeline continues unchanged.
+- Rapid point/project changes cancel outstanding cache-preflight work before the replacement surface is admitted.
+
+### Fixed — cached heat is not considered restored until MapLibre renders it
+- v1.2.9 could report `cache-visible`, `surface-visible`, and a v1.2.2 canvas commit while the user still saw a blank heat layer. Those diagnostics proved the correct image reached the presenter but did not prove that the canonical layer had actually become visible on screen after v1.2.8 intentionally hid it.
+- v1.3.0 separates the stages explicitly: exact cache hit → cached frame submitted → v1.2.2 completed-canvas commit observed → canonical layer visibility/opacity reactivated → **MapLibre render confirmed**.
+- Cache restoration is successful only after a real render event still matches the current project/surface and the canonical heat layer is visible.
+- If that first render check fails, v1.3.0 performs one in-place visibility/opacity/texture-refresh retry. It does not start a recurring repair loop and does not recreate the protected source/layer.
+- If the one-shot retry still cannot confirm the frame, the cache is bypassed for that surface and normal heat generation is requested rather than leaving the UI in a false “cached and visible” state.
+
+### Fixed — obsolete raster ownership is retired at the legacy producer
+- v1.2.8/v1.2.9 successfully blocked stale canvases from reaching MapLibre, but field logs still showed the legacy v1.1.1 900 ms maintenance loop waking repeatedly because its closure continued to retain `displayedCanvas` / pending-raster state.
+- v1.3.0 retires that state through the legacy engine's own public draw boundary immediately after the new point value is authoritative. The retirement call temporarily presents an empty measured-point set to the legacy heat engine so its internal `removeRaster()` path clears active jobs, pending rasters, displayed canvas, active slot, and related strong references.
+- The subsequent 900 ms maintenance pass therefore has no obsolete raster to re-offer. v1.2.8 tombstones and v1.2.7 provenance checks remain installed as safety nets, but they should no longer be the normal way stale raster work is stopped.
+- The canonical v1.2.2 heat source/layer remains in place; only the invalid display is hidden until a valid replacement frame is confirmed.
+
+### Added — diagnostic-only BASE vs HIGH_RES imagery health reporting
+- The imagery providers and map behavior are unchanged in v1.3.0. The app still uses the USGS `USGSImageryOnly` tiled base source and the USGS `USGSNAIPPlus` high-resolution ImageServer overlay.
+- New diagnostics report current zoom, whether each configured imagery source is present/loaded, whether its layer is visible, and which source is expected to contribute at the current zoom.
+- BASE USGS and HIGH_RES NAIP Plus now have independent image probes. At close zoom, a successful base-tile probe is no longer treated as evidence that high-resolution NAIP is also healthy.
+- NAIP/ImageServer source errors that were historically easy to miss are recorded with provider/source/zoom context while stripping request URLs from the diagnostic message.
+- These probes are **diagnostic only**: they do not replace imagery sources, alter layer ordering, change retry/recovery policy, or introduce another imagery provider. The next field log should tell us whether the lower-resolution appearance is caused by a failed/missing high-resolution NAIP path.
+
+### Protected / unchanged behavior
+- The v1.2.2 flickerless completed-canvas presenter remains protected. v1.3.0 does **not** remove/recreate its permanent canonical MapLibre heat source or layer.
+- The v1.2.8 immediate invalid-heat blanking behavior remains: once a changed reading is authoritative, the prior derived heat is not left on screen looking finished.
+- The fresh-install Terms → durable-storage cover and ordinary startup cover are unchanged, including the historical **6-second maximum reveal** for ordinary map startup and the existing storage-selection renewal behavior.
+- IDW² interpolation math, heat colors, 99 / 297 / 891 raster dimensions, final 891 cache-file format, project schema, GPS calculations, Project Comparison math, and map imagery providers are unchanged.
+
+### Diagnostics
+- `heatmap.v130-mutation-start` / `heatmap.v130-mutation-authoritative` identify the single authoritative point-save lifecycle.
+- `heatmap.v130-exact-cache-short-circuit` reports exact-cache returns that created zero real raster workers.
+- `heatmap.v130-cache-frame-submitted`, `heatmap.v130-cache-frame-committed`, `heatmap.v130-canonical-layer-reactivated`, and `heatmap.v130-cache-render-confirmed` separate logical cache discovery from actual rendered visibility.
+- `heatmap.v130-cache-render-failed` identifies the one-shot recovery failure before the surface falls back to normal generation.
+- `heatmap.v130-legacy-owner-retired` confirms the old producer's retained raster state was cleared rather than merely rejected downstream.
+- `imagery.v130-stack-state`, `imagery.v130-source-loaded`, `imagery.v130-source-error`, and `imagery.v130-probe-result` expose BASE vs HIGH_RES imagery health independently.
+
+### Changed
+- Android DEV package is **version 1.3.0 / build 102** and installs separately from stable.
+
+### DEV verification
+- With a completed 891 visible, change one reading. Confirm diagnostics show cancellation before mutation, the changed numeric/grid state becomes authoritative, and the obsolete heat disappears immediately.
+- Change the reading back to its exact original value. The cached 891 should return without starting real 99/297 raster workers; look for `heatmap.v130-exact-cache-short-circuit` with `workersCreated: 0`.
+- Confirm the cache path does not stop at a logical “visible” marker: it should reach `heatmap.v130-cache-render-confirmed` after the protected v1.2.2 commit and canonical-layer reactivation.
+- Repeat after letting the changed surface finish its own 891 first. Returning to the original exact surface should still use the bounded transition snapshot/durable cache path when available.
+- Make several point changes and inspect the log for the old ~900 ms stale-canvas retry cadence. The legacy producer should report retirement and should no longer retain a raster that needs repeated tombstone/provenance rejection.
+- At the close zoom where the pad fills the map, inspect `imagery.v130-stack-state` and `imagery.v130-probe-result`. The log should independently state whether BASE USGS and HIGH_RES NAIP Plus loaded/probed successfully and whether HIGH_RES is the expected contributor.
+- Confirm fresh-install Terms/storage covering, ordinary 6-second startup safety behavior, sequential 99 → 297 → 891 generation on cache miss, and flickerless v1.2.2 presentation remain unchanged.
+
+---
+
 # Pad Grade Mapper v1.2.9 — DEV BUILD
 
 ## v1.2.9 — exact cached 891 return after retired-canvas cleanup
