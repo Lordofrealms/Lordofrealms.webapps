@@ -1,3 +1,40 @@
+# Pad Grade Mapper v1.2.9 — DEV BUILD
+
+## v1.2.9 — exact cached 891 return after retired-canvas cleanup
+
+### Fixed — returning a point to an exact cached surface restores the heat map again
+- The v1.2.8 field log confirmed that invalid heat is hidden immediately and that the exact final **891 cache is found** when a changed point is returned to its original value, but the cached image could still fail to reach the protected presenter.
+- Root cause: v1.1.3 keeps decoded 891 cache canvases in memory by object reference. v1.2.8 can retire that same legacy handoff canvas and collapse its backing store to **1×1**. Returning to the exact old surface then reused the logically valid cache entry but offered the already-retired canvas object, so v1.2.8 correctly rejected it while the older cache layer still reported `cache-visible`.
+- v1.2.9 installs outside the v1.2.8 retired-canvas guard. When that exact retired 891 cache object is offered, the stale attempt is stopped before it can re-tombstone a source slot, the persisted cache is verified against the **current project + exact surface key + 891 dimensions**, and the in-memory cache canvas is rehydrated from its saved PNG.
+- Presentation uses a **fresh clone** of the rehydrated cache canvas. That fresh identity passes the existing v1.2.7 provenance check and feeds the unchanged v1.2.0/v1.2.2 completed-canvas handoff normally.
+- The restored in-memory cache canvas remains reusable. Later returns to the same exact surface can clone it synchronously rather than decoding the cache file again.
+- Retired 99/297 maintenance retries continue to be stopped cheaply, and a late stale retry can no longer re-tombstone an ID after a current cache frame has reclaimed that slot.
+
+### Protected behavior unchanged
+- v1.2.8's **cancel → mutate → clear → refresh** ordering is unchanged. Invalid heat still disappears immediately after a real point/settings mutation.
+- The fresh-install Terms → storage-selection cover and ordinary base-map startup cover are unchanged, including the historical 6-second safety reveal.
+- The protected v1.2.2 permanent MapLibre heat source/layer are not removed or recreated. v1.2.9 only repairs the upstream virtual-canvas handoff into that presenter.
+- IDW²/local-surface interpolation math, heat colors, 99 / 297 / 891 resolutions, cache-file format, project schema, GPS calculations, Project Comparison math, and imagery sources are unchanged.
+
+### Diagnostics
+- `heatmap.v129-retired-retry-blocked` identifies a retired canvas stopped before v1.2.8 can re-tombstone its source ID.
+- `heatmap.v129-cache-rehydrated` identifies an exact 891 cache restored from disk and staged through a fresh canvas identity.
+- `heatmap.v129-cache-memory-reuse-cloned` identifies a later exact return that reused the already-rehydrated in-memory cache without another disk decode.
+- `heatmap.v129-cache-rehydrate-present-check` records whether the current surface is still exact and whether the canonical heat layer became visible after the repaired handoff.
+
+### Changed
+- Android DEV package is **version 1.2.9 / build 101** and installs separately from stable.
+
+### DEV verification
+- Start with a completed/cached 891 surface. Change one measured point and confirm the old heat disappears immediately as in v1.2.8.
+- Change that point back to its exact original value. The cached 891 should return quickly; diagnostics should show the v1.2.9 rehydrate path on the first return if v1.2.8 had released the resident canvas.
+- Repeat the same away-and-back sequence. The restored in-memory cache should now be reusable through a fresh clone, without another disk rehydrate.
+- Confirm no stale 99/297 frame appears over the restored 891, and repeated retired maintenance retries do not re-tombstone the current source slot.
+- Confirm fresh-install Terms/storage covering and ordinary startup covering still behave exactly like v1.2.8.
+- Confirm heat presentation remains flickerless and the v1.2.2 canonical source/layer are never recreated.
+
+---
+
 # Pad Grade Mapper v1.2.8 — DEV BUILD
 
 ## v1.2.8 — authoritative mutation blanking, stale-canvas retirement, and first-run precover
