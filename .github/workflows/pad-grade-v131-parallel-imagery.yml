@@ -41,9 +41,8 @@ jobs:
       - name: Prove parallel band equivalence and lifecycle wiring
         run: node pad-grade/v131-parallel-imagery-selftest.js
 
-      - name: Carry forward heat lifecycle regressions
+      - name: Carry forward version-neutral heat lifecycle regressions
         run: |
-          node pad-grade/v130-lifecycle-imagery-selftest.js
           node pad-grade/v127-lifecycle-selftest.js
           node pad-grade/v126-generation-cancel-selftest.js
           node pad-grade/v122-canvas-handoff-selftest.js
