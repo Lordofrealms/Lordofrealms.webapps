@@ -1,68 +1,72 @@
-name: Pad Grade v1.3.3 Quality + Parallel Gate
+name: Pad Grade v1.3.4 Diagnostic Proof Gate
 
 on:
   push:
     branches: [pad-grade-dev]
     paths:
-      - 'pad-grade/heatmap-raster-worker-v133.js'
-      - 'pad-grade/heatmap-raster-band-worker-v133.js'
+      - 'pad-grade/heatmap-raster-worker-v134.js'
+      - 'pad-grade/heatmap-raster-band-worker-v134.js'
       - 'pad-grade/v132-worker-bootstrap-fix.js'
       - 'pad-grade/v132-imagery-quality.js'
-      - 'pad-grade/v133-parallel-selftest.js'
-      - 'pad-grade/v133-imagery-best-selftest.js'
+      - 'pad-grade/v134-parallel-selftest.js'
+      - 'pad-grade/v134-imagery-selftest.js'
       - 'pad-grade/RELEASE_NOTES.md'
       - 'pad-grade-android/app/build.gradle.kts'
       - '.github/workflows/pad-grade-v133-quality-parallel.yml'
   pull_request:
     branches: [pad-grade-dev]
     paths:
-      - 'pad-grade/heatmap-raster-worker-v133.js'
-      - 'pad-grade/heatmap-raster-band-worker-v133.js'
+      - 'pad-grade/heatmap-raster-worker-v134.js'
+      - 'pad-grade/heatmap-raster-band-worker-v134.js'
       - 'pad-grade/v132-worker-bootstrap-fix.js'
       - 'pad-grade/v132-imagery-quality.js'
-      - 'pad-grade/v133-parallel-selftest.js'
-      - 'pad-grade/v133-imagery-best-selftest.js'
+      - 'pad-grade/v134-parallel-selftest.js'
+      - 'pad-grade/v134-imagery-selftest.js'
       - 'pad-grade/RELEASE_NOTES.md'
       - 'pad-grade-android/app/build.gradle.kts'
       - '.github/workflows/pad-grade-v133-quality-parallel.yml'
   workflow_dispatch:
 
 concurrency:
-  group: pad-grade-v133-${{ github.ref }}
+  group: pad-grade-v134-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  verify-v133:
+  verify-v134:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate v1.3.3 scripts
+      - name: Validate v1.3.4 scripts
         run: |
-          node --check pad-grade/heatmap-raster-worker-v133.js
-          node --check pad-grade/heatmap-raster-band-worker-v133.js
+          node --check pad-grade/heatmap-raster-worker-v134.js
+          node --check pad-grade/heatmap-raster-band-worker-v134.js
           node --check pad-grade/v132-worker-bootstrap-fix.js
           node --check pad-grade/v132-imagery-quality.js
-          node --check pad-grade/v133-parallel-selftest.js
-          node --check pad-grade/v133-imagery-best-selftest.js
+          node --check pad-grade/v134-parallel-selftest.js
+          node --check pad-grade/v134-imagery-selftest.js
 
-      - name: Run v1.3.3 regressions
+      - name: Run v1.3.4 regressions
         run: |
-          node pad-grade/v133-parallel-selftest.js
-          node pad-grade/v133-imagery-best-selftest.js
+          node pad-grade/v134-parallel-selftest.js
+          node pad-grade/v134-imagery-selftest.js
 
-      - name: Verify atomic parallel heat invariants
+      - name: Verify atomic heat + staged failure diagnostics
         run: |
-          grep -F "TARGET='heatmap-raster-worker-v133.js?v=20260901-1'" pad-grade/v132-worker-bootstrap-fix.js
-          grep -F "heatmap-raster-band-worker-v133.js?v=20260901-1" pad-grade/heatmap-raster-worker-v133.js
-          grep -F "childWorkerKind:'dedicated-v133'" pad-grade/heatmap-raster-worker-v133.js
-          grep -F 'partialFramesPublished:0' pad-grade/heatmap-raster-worker-v133.js
-          grep -F 'bandFramesPublished:0' pad-grade/heatmap-raster-worker-v133.js
-          grep -F 'coordinator.remaining>0)return' pad-grade/heatmap-raster-worker-v133.js
-          grep -F "type:'band-complete'" pad-grade/heatmap-raster-band-worker-v133.js
-          ! grep -F 'new Worker(' pad-grade/heatmap-raster-band-worker-v133.js
+          grep -F "TARGET='heatmap-raster-worker-v134.js?v=20260901-1'" pad-grade/v132-worker-bootstrap-fix.js
+          grep -F "heatmap-raster-band-worker-v134.js?v=20260901-1" pad-grade/heatmap-raster-worker-v134.js
+          grep -F "childWorkerKind:'dedicated-v134'" pad-grade/heatmap-raster-worker-v134.js
+          grep -F "stage('script-entered'" pad-grade/heatmap-raster-band-worker-v134.js
+          grep -F "stage('surface-imported'" pad-grade/heatmap-raster-band-worker-v134.js
+          grep -F "stage('build-received'" pad-grade/heatmap-raster-band-worker-v134.js
+          grep -F 'nestedBlobProbe' pad-grade/heatmap-raster-worker-v134.js
+          grep -F 'assetProbe(BAND_URL)' pad-grade/heatmap-raster-worker-v134.js
+          grep -F 'assetProbe(SURFACE_URL)' pad-grade/heatmap-raster-worker-v134.js
+          grep -F 'partialFramesPublished:0' pad-grade/heatmap-raster-worker-v134.js
+          grep -F 'bandFramesPublished:0' pad-grade/heatmap-raster-worker-v134.js
+          ! grep -F 'new Worker(' pad-grade/heatmap-raster-band-worker-v134.js
 
-      - name: Verify best-available USGS imagery invariants
+      - name: Verify imagery proof diagnostics preserve v1.3.3 policy
         run: |
           grep -F "sortField:'resolution_value'" pad-grade/v132-imagery-quality.js
           grep -F 'sortValue:0' pad-grade/v132-imagery-quality.js
@@ -70,13 +74,19 @@ jobs:
           grep -F "const INTERPOLATION='RSP_CubicConvolution'" pad-grade/v132-imagery-quality.js
           grep -F 'const EXPORT_SIZE=512' pad-grade/v132-imagery-quality.js
           grep -F 'const COMPRESSION_QUALITY=95' pad-grade/v132-imagery-quality.js
+          grep -F 'imagery.v134-live-request-policy-observed' pad-grade/v132-imagery-quality.js
+          grep -F 'imagery.v134-source-selection-proof' pad-grade/v132-imagery-quality.js
+          grep -F '/identify' pad-grade/v132-imagery-quality.js
+          grep -F 'coordinatesLogged:false' pad-grade/v132-imagery-quality.js
           grep -F 'noEsriProvider:true' pad-grade/v132-imagery-quality.js
           grep -F 'noLocalCoverageHardcode:true' pad-grade/v132-imagery-quality.js
 
       - name: Verify version and detailed release notes
         run: |
-          grep -F 'versionCode = 105' pad-grade-android/app/build.gradle.kts
-          grep -F 'versionName = "1.3.3"' pad-grade-android/app/build.gradle.kts
-          grep -F '# Pad Grade Mapper v1.3.3 — DEV BUILD' pad-grade/RELEASE_NOTES.md
-          grep -F '## v1.3.3 —' pad-grade/RELEASE_NOTES.md
-          grep -F 'no row painting, no partial heatmap frames, no flicker regression' pad-grade/RELEASE_NOTES.md
+          grep -F 'versionCode = 106' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.3.4"' pad-grade-android/app/build.gradle.kts
+          grep -F '# Pad Grade Mapper v1.3.4 — DEV BUILD' pad-grade/RELEASE_NOTES.md
+          grep -F '## Added — live imagery request proof' pad-grade/RELEASE_NOTES.md
+          grep -F '## Added — selected-source resolution proof' pad-grade/RELEASE_NOTES.md
+          grep -F '## Added — staged child heat-worker diagnostics' pad-grade/RELEASE_NOTES.md
+          grep -F '## Protected — no row painting, no partial frames, no flicker regression' pad-grade/RELEASE_NOTES.md
