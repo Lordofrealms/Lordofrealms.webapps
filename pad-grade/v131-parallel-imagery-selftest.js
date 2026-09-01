@@ -23,18 +23,23 @@ assert(runtime.includes('imagery.v131-resource-summary'),'resource timing summar
 assert(runtime.includes('imagery.v131-source-activity'),'MapLibre source activity diagnostics missing');
 assert(runtime.includes('imagery.v131-highres-probe-slow'),'late NAIP probe threshold diagnostic missing');
 assert(runtime.includes('matchesConfiguredNaturalColorRequest:true'),'high-res probe must match configured NaturalColor request');
-assert(index.includes('v131-dev.js?v=20260901-1'),'v1.3.1 runtime must be linked');
-assert(index.includes('v131-worker-bootstrap.js?v=20260901-1'),'v1.3.1 worker bootstrap must be linked');
-assert(index.includes('Pad Grade Mapper v1.3.1 DEV'),'index title must match v1.3.1');
+assert(index.includes('v131-dev.js?v=20260901-1'),'v1.3.1 runtime must remain linked');
+assert(index.includes('v131-worker-bootstrap.js?v=20260901-1'),'v1.3.1 worker implementation bootstrap must remain linked');
+const title=index.match(/<title>Pad Grade Mapper v(\d+)\.(\d+)\.(\d+) DEV<\/title>/);
+assert(title,'current DEV title must expose a semantic version');
+const currentVersion=title.slice(1).map(Number);
+assert(currentVersion[0]>1 || (currentVersion[0]===1 && (currentVersion[1]>3 || (currentVersion[1]===3 && currentVersion[2]>=1))),'current DEV title must be v1.3.1 or newer');
 const bootAt=index.indexOf('v131-worker-bootstrap.js?v=20260901-1');
 const v126At=index.indexOf('v126-dev.js?v=20260831-1');
 const v127At=index.indexOf('v127-dev.js?v=20260831-1');
 const v130At=index.indexOf('v130-dev.js?v=20260901-1');
 const v131At=index.indexOf('v131-dev.js?v=20260901-1');
-assert(bootAt>=0&&bootAt<v126At&&bootAt<v127At,'worker implementation bootstrap must sit inside the existing v1.2.6/v1.2.7 lifecycle wrappers');
+assert(bootAt>=0&&bootAt<v126At&&bootAt<v127At,'v1.3.1 implementation bootstrap must remain before the existing v1.2.6/v1.2.7 lifecycle wrappers');
 assert(v130At>=0&&v131At>v130At,'v1.3.1 observer must install outside v1.3.0 lazy-cache lifecycle');
-assert(/versionCode\s*=\s*103\b/.test(gradle),'Android build must be 103');
-assert(/versionName\s*=\s*"1\.3\.1"/.test(gradle),'Android version must be 1.3.1');
+const code=Number((gradle.match(/versionCode\s*=\s*(\d+)/)||[])[1]);
+const version=(gradle.match(/versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"/)||[]).slice(1).map(Number);
+assert(Number.isFinite(code)&&code>=103,'Android build must be 103 or newer');
+assert(version.length===3&&(version[0]>1 || (version[0]===1 && (version[1]>3 || (version[1]===3 && version[2]>=1)))),'Android version must be v1.3.1 or newer');
 
 function points(){
   const out=[];
@@ -77,4 +82,4 @@ function compare(count){
 }
 for(const count of [1,2,3,4,7,12])compare(count);
 
-console.log('Pad Grade v1.3.1 parallel heat / imagery self-test passed');
+console.log('Pad Grade v1.3.1 parallel heat / imagery carry-forward self-test passed');
