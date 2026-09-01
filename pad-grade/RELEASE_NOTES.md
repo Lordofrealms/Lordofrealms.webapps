@@ -1,121 +1,152 @@
-# Pad Grade Mapper v1.3.4 — DEV BUILD
+# Pad Grade Mapper v1.3.5 — DEV BUILD
 
-## v1.3.4 — prove imagery quality + diagnose Android child-worker failure
+## v1.3.5 — use proven Blob-worker transport for final 891 heat + complete USGS source-resolution proof
 
-This build is intentionally **diagnostic-first**. It does not change heat interpolation math, heat presentation, imagery providers, or the v1.3.3 best-available USGS selection policy. It adds the evidence needed to determine whether the imagery improvement is real in the field and exactly why the final 891 heat band workers still fail on the Android test device.
+v1.3.5 turns the v1.3.4 field diagnostics into two targeted fixes. It does **not** change heat interpolation math, heat colors, raster dimensions, project/cache formats, GPS calculations, imagery providers, or the protected whole-frame presenter.
 
-### Field evidence that drove v1.3.4
+### Field evidence that drove v1.3.5
 
-The v1.3.3 field log showed two important results:
+The v1.3.4 field log finally separated configuration from actual runtime behavior.
 
-- The upgraded `USGSNAIPPlus` source did load, and the v1.3.3 resolution-first policy was installed, but the old diagnostics could only prove **configuration**, not that live MapLibre export requests actually carried the 512-pixel/mosaic/interpolation parameters or which source raster the ImageServer selected.
-- Two fresh 891 generations still fell back to one compute worker on an 8-logical-processor device. They completed in roughly 23–25 seconds and reported `bandsCompleted: 0` with `fallbackReason: band-worker-failed:dedicated band worker failed`. The generic WebView worker error did not say whether failure occurred before script execution, during `importScripts`, while receiving the band job, during rasterization, or during message return.
+For imagery, the live-resource observer proved that the real MapLibre high-resolution requests were carrying the intended policy. During the test the app observed up to 93 high-resolution export resources, 88 of them real 512-policy requests and 5 legacy diagnostic probes, with **zero unexpected high-resolution requests**. The live requests carried the resolution-first mosaic rule, cubic resampling, Natural Color, and compression quality 95. The remaining unanswered question was whether that rule actually selected a finer source raster than the USGS service default. The paired `identify` diagnostic could not answer it because Pad Grade's privacy guard blocked its own same-service diagnostic GET.
 
-v1.3.4 instruments exactly those unknowns.
+For heat, a fresh final 891 still fell back to one worker on the 8-logical-processor Android device and took about 24.1 seconds post-to-visible, with about 23.2 seconds spent rasterizing. The important v1.3.4 failure fingerprint was:
 
-## Added — live imagery request proof
+- the external nested child reached `stage=constructed` but never emitted its first `script-entered` stage
+- the failure-only nested **Blob** worker probe returned `nestedBlob=ok`
+- the coordinator could fetch the band-worker JavaScript asset successfully (`bandAsset=200:ok:js:...`)
+- the surface asset was also locally reachable
 
-The existing v1.3.3 imagery behavior is retained unchanged:
+That combination isolates the problem to Android WebView bootstrapping an external appassets URL as a **nested worker**, not to lack of worker support, the interpolation algorithm, or the local assets themselves.
 
-- provider remains **USGSNAIPPlus**
-- rendering remains **NaturalColor**
-- each logical 256-pixel tile still requests a **512 × 512** export
-- `compressionQuality=95` remains unchanged
-- the mosaic rule still uses `resolution_value` nearest zero with `MT_FIRST`
-- resampling remains `RSP_CubicConvolution`
-- the cached USGS basemap remains underneath
-- no Esri source and no state/local coverage hard-code are added
+## Fixed — final 891 workers now use one parent-built Blob payload
 
-New v1.3.4 resource diagnostics inspect the **actual high-resolution `exportImage` resource URLs in memory** without writing the URL, bounding box, tile coordinates, or map coordinates to the diagnostic log.
+The final-tier coordinator no longer does `new Worker(externalAppassetsBandUrl)`.
 
-A real upgraded map resource produces `imagery.v134-live-request-policy-observed`. The event proves the observed network resource itself carried 512 × 512 requested pixels, the resolution-first mosaic rule, cubic interpolation, compression quality 95, and Natural Color when present in the live request.
+Instead it now:
 
-Periodic `imagery.v134-live-request-summary` rows separate actual 512-policy requests, existing 256-pixel diagnostic probes, and unexpected high-resolution export requests. This closes the previous gap where the app could say the style was configured correctly while the live map might still have been requesting something else.
+1. fetches the local `surface-local-v078.js` source inside the already-running coordinator worker
+2. fetches the local compute-only `heatmap-raster-band-worker-v135.js` source
+3. concatenates those local sources into one JavaScript payload
+4. creates one in-memory JavaScript `Blob`
+5. creates one Blob URL for that payload
+6. launches every final-891 compute worker from that same Blob URL
+7. revokes the Blob URL when the generation completes, fails, is replaced, or is cancelled
 
-## Added — selected-source resolution proof
+This uses the exact nested-worker transport that the v1.3.4 Android field log proved works on the test device.
 
-v1.3.4 adds a throttled, diagnostic-only **paired ImageServer identify test** at the current map center. For the same location it asks USGS NAIP Plus twice: once with Pad Grade's `resolution_value`-nearest-zero mosaic rule and once with the ImageServer's normal/default mosaic behavior. The log does **not** record the map center or request URL.
+The adaptive worker policy remains `max(1, hardwareConcurrency - 1)`. On the current 8-thread test device, a healthy v1.3.5 final tier should therefore use **7 compute workers**.
 
-`imagery.v134-source-selection-proof` records sanitized catalog metadata for the first-ranked source from each request: `resolution_value`, `resolution_units`, normalized `resolutionMeters` when possible, imagery year, acquisition date, agency, and returned catalog count.
+### Child worker no longer has an external bootstrap dependency
 
-It also reports whether both calls appear to select the same raster, whether the resolution-first source is actually finer than the service default, the linear resolution gain (`default / resolution-first`), the first few returned candidate resolutions, and whether a real 512-policy MapLibre request had already been observed.
+The v1.3.5 band worker has no `importScripts()` call. The interpolation implementation is already present because the coordinator prepends it to the Blob payload before creating the child workers.
 
-This gives the next field log enough evidence to distinguish **real source-resolution improvement**, **same source as default**, **policy present but not affecting source selection**, and **identify/service failure**. The paired proof is throttled and only runs at useful map zooms. It adds no new imagery provider.
+The child emits staged diagnostics beginning with:
 
-## Added — staged child heat-worker diagnostics
-
-The final 891 architecture remains coordinator + compute-only horizontal band workers, but the child worker now emits private diagnostic stage messages to the coordinator:
-
-- `script-entered`
-- `surface-imported`
+- `script-entered` with `transport: blob-bundled-v135`
+- `surface-bundled`
 - `handler-ready`
 - `build-received`
 - `raster-start`
 - `raster-complete`
 - `color-complete`
 
-These are **diagnostic messages only**. They contain no heat pixels and are never forwarded to MapLibre or the presentation layer.
+If the Android runtime still rejects the worker, these stages remain available to distinguish construction/bootstrap failures from computation or message-transfer failures.
 
-The coordinator tracks the last stage reached by each child. On a failure, the existing `fallbackReason` now includes a compact diagnostic fingerprint: child index, last completed stage, failure event type, sanitized error name/message, and worker-script basename plus line/column when WebView supplies them. This makes an immediate failure before `script-entered` distinguishable from an interpolation import failure or a compute failure.
+## Protected — no row painting, partial-band display, or flicker regression
 
-## Added — failure-only nested-worker and asset probes
+This remains a hard release invariant.
 
-Only after a real child-band failure, the coordinator performs three bounded probes before starting whole-raster fallback:
+- The child worker contains no MapLibre code and no canvas/presentation code.
+- Child workers return only private band buffers to the coordinator.
+- Completed bands are copied into their final row offsets in one offscreen full-size 891 RGBA allocation.
+- A completed band is **never** forwarded as a visible heat frame.
+- The coordinator will not publish success while `remaining > 0`.
+- If any child fails, already-computed band results are discarded before whole-raster fallback.
+- 99 and 297 remain the existing complete sequential frames.
+- The v1.2.2 canonical presenter is unchanged.
+- The visible progression remains complete-frame **99 → 297 → 891**.
 
-1. a tiny **nested Blob worker** test
-2. a same-origin fetch of `heatmap-raster-band-worker-v134.js`
-3. a same-origin fetch of `surface-local-v078.js`
+The v1.3.5 regression divides an 891-row raster into seven horizontal bands using the production band transform, reconstructs the full raster, and requires it to match a monolithic production interpolation cell-for-cell for masks/counts and within floating-point tolerance for values. It also statically rejects `importScripts`, `new Worker`, MapLibre, or canvas presentation authority in the child.
 
-The results are appended to the fallback diagnostic fingerprint.
+## Fixed — source-resolution diagnostic may call only the exact USGS identify endpoint
 
-That combination should distinguish the major Android/WebView failure classes: nested workers unsupported/broken even for a trivial Blob worker; nested workers work but same-origin child script loading fails; child script is fetchable but `importScripts` fails; or child script/import succeeds and failure occurs after the band job begins.
+The actual imagery behavior remains unchanged from v1.3.3/v1.3.4:
 
-The failure probes are bounded and **do not run on a successful parallel 891 calculation**.
+- provider: **USGSNAIPPlus**
+- rendering: **NaturalColor**
+- logical tile: 256 × 256
+- requested export: **512 × 512**
+- density scale: 2×
+- compression quality: 95
+- mosaic selection: `resolution_value` nearest zero / `MT_FIRST`
+- resampling: `RSP_CubicConvolution`
+- cached USGS imagery stays underneath
+- no Esri source
+- no state/local imagery hard-code
 
-## Protected — no row painting, no partial frames, no flicker regression
+v1.3.5 adds one narrowly scoped privacy allow-list entry:
 
-This remains a hard invariant.
+`https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/identify`
 
-- Band workers still have no MapLibre/canvas presentation code.
-- Stage/diagnostic messages contain no pixel buffers.
-- Completed band RGBA buffers are copied into one offscreen full-size coordinator buffer.
-- The coordinator still waits for every band before publishing a successful parallel frame.
-- If any band fails, already-finished bands are discarded and no partial rows are published before whole-raster fallback.
-- 99 and 297 remain complete sequential frames.
-- The existing v1.2.2 canonical presenter remains unchanged.
-- The final visible sequence remains whole-frame **99 → 297 → 891**.
+Only GET requests matching that exact service endpoint are newly permitted. Pad Grade remains default-deny for outbound network access; there is no host-wide `imagery.nationalmap.gov` exemption and no general ArcGIS exemption.
 
-The v1.3.4 regression repeats the seven-band 891 equivalence test against the real interpolation module and statically rejects presentation authority in the child worker.
+This lets the existing paired source-selection diagnostic compare, at the same location, the source ranked first by Pad Grade's resolution-first mosaic rule with the source ranked first by the normal USGS service behavior.
 
-## Diagnostics to look for in the next field log
+## Diagnostics to verify in the next field log
+
+### Final 891 heat
+
+After changing a measured point so the exact 891 cache cannot be reused, a successful parallel calculation should report:
+
+- `heatmap.v131-parallel-891-complete`
+- `enabled: true`
+- `hardwareConcurrency: 8` on the current test phone
+- `computeWorkers: 7`
+- `bandsCompleted: 7`
+- `childWorkerKind: blob-bundled-v135`
+- non-null `blobPrepElapsedMs`
+- non-null `blobSourceBytes`
+- non-null band timing fields
+- no `fallbackReason`
+
+The main performance comparison is against the v1.3.4 serial-fallback field result of roughly **24.1 seconds post-to-visible / 23.2 seconds rasterization** for the 891 tier.
 
 ### Imagery
 
-Healthy proof should include `imagery.v134-live-request-policy-observed`, `imagery.v134-live-request-summary` with `policy512Requests > 0`, and `imagery.v134-source-selection-proof`.
+The already-proven live request evidence should continue to show:
 
-The most important fields in `source-selection-proof` are `resolutionFirst.resolutionMeters`, `serviceDefault.resolutionMeters`, `resolutionImproved`, `linearResolutionGain`, `sameRaster`, and `policyActuallyObservedOnLiveRequests`.
+- `imagery.v134-live-request-policy-observed`
+- `requestedPixels: 512x512`
+- `resolutionFirstMosaic: true`
+- `compressionQuality: 95`
+- periodic summaries with `unexpectedRequests: 0`
 
-### Heatmap
+The previously blocked `imagery.v134-source-selection-proof` should now complete. The useful comparison fields are:
 
-Force at least one fresh 891 calculation by editing a measured point.
+- `resolutionFirst.resolutionMeters`
+- `serviceDefault.resolutionMeters`
+- `resolutionImproved`
+- `linearResolutionGain`
+- `sameRaster`
+- `policyActuallyObservedOnLiveRequests`
 
-If parallelism succeeds, the existing `heatmap.v131-parallel-891-complete` should report `enabled: true`, `computeWorkers > 1`, and `bandsCompleted === computeWorkers`.
-
-If it still fails, `fallbackReason` should now identify the last child stage and include `nestedBlob=...`, `bandAsset=...`, and `surfaceAsset=...`. That should be enough to choose the next fix rather than trying another blind worker-layout change.
+That will tell us whether the generic resolution-first rule produces a genuinely finer underlying aerial source at the tested location, or merely makes the same selection as USGS default there.
 
 ## Version
 
-- Android DEV package: **v1.3.4**
-- build: **106**
-- DEV application ID remains separate from stable.
+- Android DEV version: **1.3.5**
+- build: **107**
+- DEV application ID remains `com.lordofrealms.padgrade.dev`, separate from stable.
 
 ## DEV field test
 
-1. Open the normal project/map and pan/zoom at close aerial zoom for long enough to let NAIP Plus load.
-2. Pan or zoom once or twice so the paired source-selection proof has an opportunity to run.
-3. Edit a measured point to invalidate the exact final heat cache.
-4. Let the full **99 → 297 → 891** progression finish.
-5. Confirm visually that there is no horizontal row painting, partial-band display, blanking, or resolution flicker.
-6. Export a fresh diagnostic log.
+1. Install/update the v1.3.5 DEV APK.
+2. Open the normal project and pan/zoom the aerial imagery at close zoom long enough for NAIP Plus to load.
+3. Move/zoom at least once so the paired source-resolution proof runs.
+4. Edit a measured point to force a fresh heat generation rather than an exact 891 cache hit.
+5. Let the complete **99 → 297 → 891** progression finish.
+6. Watch specifically for horizontal row painting, partial bands, blanking, or tier-swap flicker; none is expected or permitted by the v1.3.5 presentation path.
+7. Export a fresh diagnostic log.
 
-That single log should now tell us both whether v1.3.3 actually improved the aerial source at the tested location and exactly where Android WebView rejects the parallel heat-worker path.
+The next log should answer both remaining questions directly: whether the Blob-worker path actually gives us seven-way final-tier computation on this Android WebView, and whether the resolution-first USGS rule selected a finer source raster at the tested location.
