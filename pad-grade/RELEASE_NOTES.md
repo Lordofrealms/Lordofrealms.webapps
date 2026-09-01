@@ -1,152 +1,154 @@
-# Pad Grade Mapper v1.3.5 — DEV BUILD
+# Pad Grade Mapper v1.3.6 — DEV BUILD
 
-## v1.3.5 — use proven Blob-worker transport for final 891 heat + complete USGS source-resolution proof
+## v1.3.6 — parallelize all heat tiers + repair USGS resolution proof
 
-v1.3.5 turns the v1.3.4 field diagnostics into two targeted fixes. It does **not** change heat interpolation math, heat colors, raster dimensions, project/cache formats, GPS calculations, imagery providers, or the protected whole-frame presenter.
+v1.3.6 extends the Android-proven Blob-worker heat path from only the final 891 tier to **all three progressive tiers: 99, 297, and 891**. It also strengthens the USGS imagery diagnostics so the next field log can determine whether the resolution-first mosaic rule is truly selecting the finest positive-resolution source available at the viewed location.
 
-### Field evidence that drove v1.3.5
+This build does **not** change heat interpolation formulas, heat colors, raster dimensions, project/cache formats, GPS calculations, imagery providers, or the protected whole-frame presenter.
 
-The v1.3.4 field log finally separated configuration from actual runtime behavior.
+## Heatmap — 99 / 297 / 891 now all use the proven Blob-band path
 
-For imagery, the live-resource observer proved that the real MapLibre high-resolution requests were carrying the intended policy. During the test the app observed up to 93 high-resolution export resources, 88 of them real 512-policy requests and 5 legacy diagnostic probes, with **zero unexpected high-resolution requests**. The live requests carried the resolution-first mosaic rule, cubic resampling, Natural Color, and compression quality 95. The remaining unanswered question was whether that rule actually selected a finer source raster than the USGS service default. The paired `identify` diagnostic could not answer it because Pad Grade's privacy guard blocked its own same-service diagnostic GET.
+v1.3.5 proved that Android WebView can execute the nested Blob worker design successfully. Two fresh 891 generations used **7 compute workers / 7 completed bands**, with no serial fallback and no evidence of partial-row presentation.
 
-For heat, a fresh final 891 still fell back to one worker on the 8-logical-processor Android device and took about 24.1 seconds post-to-visible, with about 23.2 seconds spent rasterizing. The important v1.3.4 failure fingerprint was:
+v1.3.6 applies that same path to the smaller progressive tiers as well:
 
-- the external nested child reached `stage=constructed` but never emitted its first `script-entered` stage
-- the failure-only nested **Blob** worker probe returned `nestedBlob=ok`
-- the coordinator could fetch the band-worker JavaScript asset successfully (`bandAsset=200:ok:js:...`)
-- the surface asset was also locally reachable
+- tier 99 → parallel Blob-band coordinator
+- tier 297 → parallel Blob-band coordinator
+- tier 891 → parallel Blob-band coordinator
 
-That combination isolates the problem to Android WebView bootstrapping an external appassets URL as a **nested worker**, not to lack of worker support, the interpolation algorithm, or the local assets themselves.
+The worker policy remains `max(1, hardwareConcurrency - 1)`. On the current 8-thread test phone, the expected healthy result is therefore **7 compute workers** for each tier.
 
-## Fixed — final 891 workers now use one parent-built Blob payload
+### No new sequential benchmark pass
 
-The final-tier coordinator no longer does `new Worker(externalAppassetsBandUrl)`.
+The field build intentionally does **not** run a second sequential reference calculation. That would add CPU load, delay the progressive sequence, and make the timing comparison harder to interpret.
 
-Instead it now:
+Instead, v1.3.6 records the normal per-tier parallel timings and compares them against the sequential results already captured in the immediately preceding v1.3.5 field log.
 
-1. fetches the local `surface-local-v078.js` source inside the already-running coordinator worker
-2. fetches the local compute-only `heatmap-raster-band-worker-v135.js` source
-3. concatenates those local sources into one JavaScript payload
-4. creates one in-memory JavaScript `Blob`
-5. creates one Blob URL for that payload
-6. launches every final-891 compute worker from that same Blob URL
-7. revokes the Blob URL when the generation completes, fails, is replaced, or is cancelled
+Useful v1.3.5 sequential baselines from that log were:
 
-This uses the exact nested-worker transport that the v1.3.4 Android field log proved works on the test device.
+- **99 tier:** worker time ranged roughly **0.66–1.07 s** in the sampled fresh runs; one complete visible result was about **1.13 s**, another about **2.01 s** depending on queue/startup overhead.
+- **297 tier:** worker time ranged roughly **3.78–4.80 s**; complete post-to-visible time ranged roughly **5.78–6.29 s**.
+- **891 tier:** already parallel in v1.3.5, with successful 7-worker field runs around **12.5 s** and **17.3 s** post-to-visible.
 
-The adaptive worker policy remains `max(1, hardwareConcurrency - 1)`. On the current 8-thread test device, a healthy v1.3.5 final tier should therefore use **7 compute workers**.
+The next field log should therefore let us judge whether parallelism helps 99 and 297, hurts them through worker/setup contention, or needs a smaller worker count by tier.
 
-### Child worker no longer has an external bootstrap dependency
+## Protected — no row painting or partial-frame publication
 
-The v1.3.5 band worker has no `importScripts()` call. The interpolation implementation is already present because the coordinator prepends it to the Blob payload before creating the child workers.
+The no-flicker boundary remains a hard invariant for every tier.
 
-The child emits staged diagnostics beginning with:
-
-- `script-entered` with `transport: blob-bundled-v135`
-- `surface-bundled`
-- `handler-ready`
-- `build-received`
-- `raster-start`
-- `raster-complete`
-- `color-complete`
-
-If the Android runtime still rejects the worker, these stages remain available to distinguish construction/bootstrap failures from computation or message-transfer failures.
-
-## Protected — no row painting, partial-band display, or flicker regression
-
-This remains a hard release invariant.
-
-- The child worker contains no MapLibre code and no canvas/presentation code.
-- Child workers return only private band buffers to the coordinator.
-- Completed bands are copied into their final row offsets in one offscreen full-size 891 RGBA allocation.
-- A completed band is **never** forwarded as a visible heat frame.
-- The coordinator will not publish success while `remaining > 0`.
-- If any child fails, already-computed band results are discarded before whole-raster fallback.
-- 99 and 297 remain the existing complete sequential frames.
-- The v1.2.2 canonical presenter is unchanged.
+- Child workers contain no MapLibre code and no canvas/presentation code.
+- Child workers return private band buffers only to the coordinator.
+- The coordinator copies completed bands into one offscreen full-size RGBA allocation.
+- No band is ever published directly to the map.
+- The coordinator cannot publish success while any band remains incomplete.
+- If a child fails, partial band work is discarded before fallback.
+- The existing v1.2.2 whole-frame presenter remains unchanged.
 - The visible progression remains complete-frame **99 → 297 → 891**.
 
-The v1.3.5 regression divides an 891-row raster into seven horizontal bands using the production band transform, reconstructs the full raster, and requires it to match a monolithic production interpolation cell-for-cell for masks/counts and within floating-point tolerance for values. It also statically rejects `importScripts`, `new Worker`, MapLibre, or canvas presentation authority in the child.
+The v1.3.6 regression reconstructs **99, 297, and 891** row rasters from seven bands and requires each result to match the production monolithic interpolation cell-for-cell for mask/count data and within floating-point tolerance for values.
 
-## Fixed — source-resolution diagnostic may call only the exact USGS identify endpoint
+## Imagery — fix false `0 m` diagnostic values
 
-The actual imagery behavior remains unchanged from v1.3.3/v1.3.4:
+The v1.3.5 field log proved that real MapLibre NAIP Plus requests are carrying the intended policy:
 
-- provider: **USGSNAIPPlus**
-- rendering: **NaturalColor**
-- logical tile: 256 × 256
-- requested export: **512 × 512**
-- density scale: 2×
-- compression quality: 95
-- mosaic selection: `resolution_value` nearest zero / `MT_FIRST`
-- resampling: `RSP_CubicConvolution`
-- cached USGS imagery stays underneath
-- no Esri source
-- no state/local imagery hard-code
+- requested export: **512 × 512** for a 256 logical tile
+- resolution-first mosaic rule present
+- `RSP_CubicConvolution` resampling present
+- Natural Color present
+- compression quality 95 present
+- zero unexpected high-resolution request variants in the observed sample
 
-v1.3.5 adds one narrowly scoped privacy allow-list entry:
+It also proved that the resolution-first rule selected a **different raster** from the normal USGS service default.
 
-`https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/identify`
+However, the source-resolution diagnostic reported suspicious `0` values. v1.3.6 fixes the parsing bug that caused that ambiguity: the old numeric formatter could coerce JavaScript `null` to `0`. Missing/unknown resolution values now remain unknown instead of being reported as zero.
 
-Only GET requests matching that exact service endpoint are newly permitted. Pad Grade remains default-deny for outbound network access; there is no host-wide `imagery.nationalmap.gov` exemption and no general ArcGIS exemption.
+## Imagery — independent best-positive-resolution catalog proof
 
-This lets the existing paired source-selection diagnostic compare, at the same location, the source ranked first by Pad Grade's resolution-first mosaic rule with the source ranked first by the normal USGS service behavior.
+The diagnostic now performs three same-location USGS checks:
+
+1. `identify` using Pad Grade's current resolution-first mosaic rule
+2. `identify` using the normal USGS service default
+3. an independent ImageServer `query` restricted to `resolution_value > 0`, ordered by `resolution_value ASC`
+
+The third request is diagnostic-only and asks USGS for the smallest **positive** resolution candidates intersecting the viewed map point.
+
+The resulting log now records:
+
+- selected raster `objectId`
+- service-default raster `objectId`
+- best-positive catalog raster `objectId`
+- `resolution_value` and units when actually present
+- normalized resolution in meters when trustworthy
+- `MinPS` / `MaxPS` as additional service metadata
+- whether the resolution fields were present at all
+- candidate positive resolutions
+- `selectedMatchesBestPositive`
+- `selectionVerdict` = `selected-is-best-positive`, `selected-differs-from-best-positive`, or `unknown`
+- selected-vs-default resolution gain when both are comparable
+- selected-vs-best-positive ratio when both are comparable
+
+This is diagnostic-only. **The imagery selection behavior itself is unchanged in v1.3.6.** If the new proof shows that `resolution_value` nearest zero can rank an unknown/zero-resolution catalog record ahead of a genuine finer positive-resolution raster, the following build can correct the selection rule with evidence rather than guessing.
+
+## Privacy boundary
+
+Pad Grade remains default-deny for outbound network access.
+
+v1.3.6 adds one narrowly scoped same-service GET allowance for:
+
+`https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/query`
+
+This is in addition to the already permitted exact NAIP Plus `exportImage` and `identify` endpoints. There is still no host-wide `imagery.nationalmap.gov` exemption, no general ArcGIS exemption, no analytics, and no additional imagery provider.
 
 ## Diagnostics to verify in the next field log
 
-### Final 891 heat
+### Heat
 
-After changing a measured point so the exact 891 cache cannot be reused, a successful parallel calculation should report:
+After editing a measured point so a fresh generation occurs, the log should show 99, 297, and 891 results with:
 
-- `heatmap.v131-parallel-891-complete`
 - `enabled: true`
 - `hardwareConcurrency: 8` on the current test phone
 - `computeWorkers: 7`
 - `bandsCompleted: 7`
-- `childWorkerKind: blob-bundled-v135`
-- non-null `blobPrepElapsedMs`
-- non-null `blobSourceBytes`
-- non-null band timing fields
+- `childWorkerKind: blob-bundled-v136`
+- `parallelTierPolicy: 99-297-891`
+- non-null Blob/band timing fields
+- `sequentialBenchmarkRun: false`
 - no `fallbackReason`
 
-The main performance comparison is against the v1.3.4 serial-fallback field result of roughly **24.1 seconds post-to-visible / 23.2 seconds rasterization** for the 891 tier.
+The existing legacy observer event name may still contain `parallel-891` even when its embedded `tier` is 99 or 297; use the `tier` field as authoritative.
 
 ### Imagery
 
-The already-proven live request evidence should continue to show:
+The live request proof should continue to show the real 512/resolution-first/cubic/quality-95 request policy.
 
-- `imagery.v134-live-request-policy-observed`
-- `requestedPixels: 512x512`
-- `resolutionFirstMosaic: true`
-- `compressionQuality: 95`
-- periodic summaries with `unexpectedRequests: 0`
+The new useful event is `imagery.v136-source-selection-proof`. The most important fields are:
 
-The previously blocked `imagery.v134-source-selection-proof` should now complete. The useful comparison fields are:
-
+- `resolutionFirst.objectId`
 - `resolutionFirst.resolutionMeters`
+- `serviceDefault.objectId`
 - `serviceDefault.resolutionMeters`
-- `resolutionImproved`
-- `linearResolutionGain`
-- `sameRaster`
-- `policyActuallyObservedOnLiveRequests`
-
-That will tell us whether the generic resolution-first rule produces a genuinely finer underlying aerial source at the tested location, or merely makes the same selection as USGS default there.
+- `bestPositiveCatalog.objectId`
+- `bestPositiveCatalog.resolutionMeters`
+- `selectedMatchesBestPositive`
+- `selectionVerdict`
+- `bestPositiveCandidateResolutionsMeters`
+- `diagnosticNullToZeroBugFixed: true`
 
 ## Version
 
-- Android DEV version: **1.3.5**
-- build: **107**
+- Android DEV version: **1.3.6**
+- build: **108**
 - DEV application ID remains `com.lordofrealms.padgrade.dev`, separate from stable.
 
 ## DEV field test
 
-1. Install/update the v1.3.5 DEV APK.
-2. Open the normal project and pan/zoom the aerial imagery at close zoom long enough for NAIP Plus to load.
-3. Move/zoom at least once so the paired source-resolution proof runs.
-4. Edit a measured point to force a fresh heat generation rather than an exact 891 cache hit.
-5. Let the complete **99 → 297 → 891** progression finish.
-6. Watch specifically for horizontal row painting, partial bands, blanking, or tier-swap flicker; none is expected or permitted by the v1.3.5 presentation path.
-7. Export a fresh diagnostic log.
+1. Install/update the v1.3.6 DEV APK.
+2. Open the same project used for the v1.3.5 timing log.
+3. Pan/zoom the aerial imagery at close zoom and allow the high-resolution source to settle.
+4. Move/zoom at least once so the paired identify + best-positive catalog proof runs.
+5. Edit a measured point to force a fresh heat generation rather than a cached return.
+6. Let the complete **99 → 297 → 891** sequence finish.
+7. Watch for any row painting, band seams, blanking, or tier-swap flicker; none is expected or permitted by the v1.3.6 path.
+8. Export the diagnostic log.
 
-The next log should answer both remaining questions directly: whether the Blob-worker path actually gives us seven-way final-tier computation on this Android WebView, and whether the resolution-first USGS rule selected a finer source raster at the tested location.
+That log should let us compare 99/297 parallel performance directly against the sequential timings already captured, confirm that 891 remains healthy, and finally determine whether the current USGS resolution-first rule is selecting the true finest positive-resolution imagery source.
