@@ -3,7 +3,8 @@
   const ALLOWED_GET_PREFIXES=Object.freeze([
     'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/',
     'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/',
-    'https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/exportImage'
+    'https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/exportImage',
+    'https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/identify'
   ]);
   const nativeFetch=typeof window.fetch==='function'?window.fetch.bind(window):null;
   const nativeXhrOpen=XMLHttpRequest.prototype.open;
@@ -22,8 +23,9 @@
   }
 
   // Keep project/GPS data local while permitting only the explicitly visible
-  // USGS cached and dynamic high-resolution imagery requests. Everything else
-  // remains blocked.
+  // USGS imagery requests and the same-service NAIP Plus identify request used
+  // to prove which source resolution the imagery server actually selected.
+  // Everything else remains blocked.
   if(nativeFetch){
     try{
       window.fetch=(input,init)=>{
@@ -48,7 +50,11 @@
   Object.defineProperty(window,'PAD_GRADE_PRIVACY',{value:Object.freeze({
     localProjectData:true,
     networkBlockedByDefault:true,
-    allowedNetwork:Object.freeze(['USGS National Map cached imagery','USGS NAIP Plus high-resolution imagery']),
+    allowedNetwork:Object.freeze([
+      'USGS National Map cached imagery',
+      'USGS NAIP Plus high-resolution imagery',
+      'USGS NAIP Plus selected-source resolution identify diagnostic'
+    ]),
     storage:'browser localStorage',
     origin:location.origin
   }),writable:false,configurable:false});
