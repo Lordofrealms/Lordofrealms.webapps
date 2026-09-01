@@ -1,0 +1,85 @@
+name: Pad Grade v1.3.2 Hotfix Gate
+
+on:
+  push:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/v132-worker-bootstrap-fix.js'
+      - 'pad-grade/v132-worker-bootstrap-selftest.js'
+      - 'pad-grade/v132-imagery-quality.js'
+      - 'pad-grade/v132-imagery-quality-selftest.js'
+      - 'pad-grade/index.html'
+      - 'pad-grade/RELEASE_NOTES.md'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - '.github/workflows/pad-grade-v132-hotfix-gate.yml'
+  pull_request:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/v132-worker-bootstrap-fix.js'
+      - 'pad-grade/v132-worker-bootstrap-selftest.js'
+      - 'pad-grade/v132-imagery-quality.js'
+      - 'pad-grade/v132-imagery-quality-selftest.js'
+      - 'pad-grade/index.html'
+      - 'pad-grade/RELEASE_NOTES.md'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - '.github/workflows/pad-grade-v132-hotfix-gate.yml'
+  workflow_dispatch:
+
+jobs:
+  verify-v132-hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate v1.3.2 scripts
+        run: |
+          node --check pad-grade/v132-worker-bootstrap-fix.js
+          node --check pad-grade/v132-worker-bootstrap-selftest.js
+          node --check pad-grade/v132-imagery-quality.js
+          node --check pad-grade/v132-imagery-quality-selftest.js
+
+      - name: Run v1.3.2 regressions
+        run: |
+          node pad-grade/v132-worker-bootstrap-selftest.js
+          node pad-grade/v132-imagery-quality-selftest.js
+
+      - name: Verify runtime ordering and hotfix invariants
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          index=Path('pad-grade/index.html').read_text(encoding='utf-8')
+          order=[
+              'v131-worker-bootstrap.js?v=20260901-1',
+              'v132-worker-bootstrap-fix.js?v=20260901-1',
+              'v126-dev.js?v=20260831-1',
+              'v127-dev.js?v=20260831-1',
+              'v130-dev.js?v=20260901-1',
+              'v131-dev.js?v=20260901-1',
+              'v132-imagery-quality.js?v=20260901-1',
+              'maplibre-loader.js?v=20260830-1',
+          ]
+          positions=[index.index(token) for token in order]
+          if positions != sorted(positions):
+              raise SystemExit(f'v1.3.2 runtime order invalid: {list(zip(order,positions))}')
+          if '<title>Pad Grade Mapper v1.3.2 DEV</title>' not in index:
+              raise SystemExit('v1.3.2 document title missing')
+
+          worker=Path('pad-grade/v132-worker-bootstrap-fix.js').read_text(encoding='utf-8')
+          for token in ('Reflect.construct(NativeParent,args,new.target||PadGrade132WorkerBootstrap)',
+                        '__padGradeV132WorkerBootstrapFix',
+                        'heatmap.v132-worker-bootstrap-fixed'):
+              if token not in worker: raise SystemExit(f'missing worker invariant: {token}')
+
+          imagery=Path('pad-grade/v132-imagery-quality.js').read_text(encoding='utf-8')
+          for token in ('const EXPORT_SIZE=512', 'const COMPRESSION_QUALITY=95',
+                        'imagery.v132-quality-policy-installed',
+                        'imagery.v132-highres-source-upgraded'):
+              if token not in imagery: raise SystemExit(f'missing imagery invariant: {token}')
+          PY
+
+      - name: Verify version and release notes
+        run: |
+          grep -F 'versionCode = 104' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.3.2"' pad-grade-android/app/build.gradle.kts
+          grep -F '# Pad Grade Mapper v1.3.2 — DEV BUILD' pad-grade/RELEASE_NOTES.md
+          grep -F '## v1.3.2 —' pad-grade/RELEASE_NOTES.md
