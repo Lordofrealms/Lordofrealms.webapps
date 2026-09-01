@@ -1,0 +1,86 @@
+name: Pad Grade v1.3.6 All-Tier Parallel + Imagery Gate
+
+on:
+  push:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/heatmap-raster-worker-v136.js'
+      - 'pad-grade/heatmap-raster-band-worker-v136.js'
+      - 'pad-grade/v132-worker-bootstrap-fix.js'
+      - 'pad-grade/v136-all-tier-parallel-selftest.js'
+      - 'pad-grade/privacy.js'
+      - 'pad-grade/v132-imagery-quality.js'
+      - 'pad-grade/index.html'
+      - 'pad-grade/RELEASE_NOTES.md'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - '.github/workflows/pad-grade-v136-all-tier-parallel.yml'
+  pull_request:
+    branches: [pad-grade-dev]
+  workflow_dispatch:
+
+concurrency:
+  group: pad-grade-v136-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-v136:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate v1.3.6 JavaScript
+        run: |
+          node --check pad-grade/heatmap-raster-worker-v136.js
+          node --check pad-grade/heatmap-raster-band-worker-v136.js
+          node --check pad-grade/v132-worker-bootstrap-fix.js
+          node --check pad-grade/v132-imagery-quality.js
+          node --check pad-grade/privacy.js
+          node --check pad-grade/v136-all-tier-parallel-selftest.js
+
+      - name: Run v1.3.6 all-tier regression
+        run: node pad-grade/v136-all-tier-parallel-selftest.js
+
+      - name: Verify all-tier Blob transport and atomic presentation
+        run: |
+          grep -F "heatmap-raster-worker-v136.js?v=20260901-1" pad-grade/v132-worker-bootstrap-fix.js
+          grep -F 'parallelTiers:[99,297,891]' pad-grade/v132-worker-bootstrap-fix.js
+          grep -F 'const PARALLEL_TIERS=new Set([99,297,891])' pad-grade/heatmap-raster-worker-v136.js
+          grep -F "heatmap-raster-band-worker-v136.js?v=20260901-1" pad-grade/heatmap-raster-worker-v136.js
+          grep -F 'prepareBundledWorkerBlob' pad-grade/heatmap-raster-worker-v136.js
+          grep -F 'new Worker(coordinator.blobUrl)' pad-grade/heatmap-raster-worker-v136.js
+          grep -F "childWorkerKind:'blob-bundled-v136'" pad-grade/heatmap-raster-worker-v136.js
+          grep -F "parallelTierPolicy:'99-297-891'" pad-grade/heatmap-raster-worker-v136.js
+          grep -F 'sequentialBenchmarkRun:false' pad-grade/heatmap-raster-worker-v136.js
+          grep -F 'coordinator.remaining>0)return' pad-grade/heatmap-raster-worker-v136.js
+          grep -F 'partialFramesPublished:0' pad-grade/heatmap-raster-worker-v136.js
+          grep -F 'bandFramesPublished:0' pad-grade/heatmap-raster-worker-v136.js
+          ! grep -F 'importScripts(' pad-grade/heatmap-raster-band-worker-v136.js
+          ! grep -F 'new Worker(' pad-grade/heatmap-raster-band-worker-v136.js
+
+      - name: Verify stronger USGS imagery proof without behavior change
+        run: |
+          grep -F "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/identify" pad-grade/privacy.js
+          grep -F "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/query" pad-grade/privacy.js
+          grep -F 'networkBlockedByDefault:true' pad-grade/privacy.js
+          ! grep -F "'https://imagery.nationalmap.gov/'" pad-grade/privacy.js
+          grep -F "sortField:'resolution_value'" pad-grade/v132-imagery-quality.js
+          grep -F 'const EXPORT_SIZE=512' pad-grade/v132-imagery-quality.js
+          grep -F 'const COMPRESSION_QUALITY=95' pad-grade/v132-imagery-quality.js
+          grep -F "u.searchParams.set('where','resolution_value > 0')" pad-grade/v132-imagery-quality.js
+          grep -F "u.searchParams.set('orderByFields','resolution_value ASC')" pad-grade/v132-imagery-quality.js
+          grep -F 'selectedMatchesBestPositive' pad-grade/v132-imagery-quality.js
+          grep -F 'diagnosticNullToZeroBugFixed:true' pad-grade/v132-imagery-quality.js
+          grep -F 'behaviorChanged:false' pad-grade/v132-imagery-quality.js
+
+      - name: Verify cache busts, version and detailed notes
+        run: |
+          grep -F '<title>Pad Grade Mapper v1.3.6 DEV</title>' pad-grade/index.html
+          grep -F 'privacy.js?v=20260901-2' pad-grade/index.html
+          grep -F 'v132-worker-bootstrap-fix.js?v=20260901-3' pad-grade/index.html
+          grep -F 'v132-imagery-quality.js?v=20260901-2' pad-grade/index.html
+          grep -F 'versionCode = 108' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.3.6"' pad-grade-android/app/build.gradle.kts
+          grep -F '# Pad Grade Mapper v1.3.6 — DEV BUILD' pad-grade/RELEASE_NOTES.md
+          grep -F 'No new sequential benchmark pass' pad-grade/RELEASE_NOTES.md
+          grep -F 'Protected — no row painting or partial-frame publication' pad-grade/RELEASE_NOTES.md
+          grep -F 'independent best-positive-resolution catalog proof' pad-grade/RELEASE_NOTES.md
