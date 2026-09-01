@@ -31,7 +31,7 @@ must(src.includes('legacy900msRetryHasNoRaster:true'),'legacy producer retiremen
 must(src.includes('protectedV122PresenterUnchanged:true'),'protected v1.2.2 presenter boundary missing');
 must(src.includes("mark('imagery.v130-source-loaded'"),'imagery source-loaded diagnostic missing');
 must(src.includes("mark('imagery.v130-source-error'"),'imagery source-error diagnostic missing');
-must(src.includes("kind:'HIGH_RES_NAIP_PLUS'"),'independent high-resolution imagery probe missing');
+must(src.includes("probeImage('HIGH_RES_NAIP_PLUS'"),'independent high-resolution imagery probe missing');
 
 const diag=[];
 const order=[];
