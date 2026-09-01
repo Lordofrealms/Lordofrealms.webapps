@@ -5,6 +5,7 @@ const path=require('path');
 const root=__dirname;
 const surface=require(path.join(root,'surface-local-v078.js'));
 const worker=fs.readFileSync(path.join(root,'heatmap-raster-worker-v131.js'),'utf8');
+const bootstrap=fs.readFileSync(path.join(root,'v131-worker-bootstrap.js'),'utf8');
 const runtime=fs.readFileSync(path.join(root,'v131-dev.js'),'utf8');
 const index=fs.readFileSync(path.join(root,'index.html'),'utf8');
 const gradle=fs.readFileSync(path.join(root,'../pad-grade-android/app/build.gradle.kts'),'utf8');
@@ -13,6 +14,9 @@ assert(worker.includes("desiredComputeWorkers(){return Math.max(1,hardwareConcur
 assert(worker.includes("if((+msg.tier||0)===891)startParallel(msg);else buildWhole(msg);"),'only 891 should enter parallel path');
 assert(worker.includes("type:'complete'"),'coordinator must publish one complete final buffer');
 assert(worker.includes("type:'build-band'"),'parallel work must be partitioned into independent bands');
+assert(worker.includes("buildWhole(msg,{fallbackReason:`band-worker-failed:"),'band-worker failure must fall back to the whole-raster calculation');
+assert(bootstrap.includes("TARGET='heatmap-raster-worker-v131.js?v=20260901-1'"),'bootstrap must redirect the legacy worker implementation to v1.3.1');
+assert(bootstrap.includes('legacyLifecycleSeesOriginalUrl:true'),'bootstrap must preserve the legacy URL for lifecycle ownership');
 assert(runtime.includes('atomicFinalBuffer:true'),'runtime must explicitly preserve atomic final presentation');
 assert(runtime.includes('protectedV122PresenterUnchanged:true'),'protected v1.2.2 presenter must remain unchanged');
 assert(runtime.includes('imagery.v131-resource-summary'),'resource timing summary diagnostics missing');
@@ -20,7 +24,15 @@ assert(runtime.includes('imagery.v131-source-activity'),'MapLibre source activit
 assert(runtime.includes('imagery.v131-highres-probe-slow'),'late NAIP probe threshold diagnostic missing');
 assert(runtime.includes('matchesConfiguredNaturalColorRequest:true'),'high-res probe must match configured NaturalColor request');
 assert(index.includes('v131-dev.js?v=20260901-1'),'v1.3.1 runtime must be linked');
+assert(index.includes('v131-worker-bootstrap.js?v=20260901-1'),'v1.3.1 worker bootstrap must be linked');
 assert(index.includes('Pad Grade Mapper v1.3.1 DEV'),'index title must match v1.3.1');
+const bootAt=index.indexOf('v131-worker-bootstrap.js?v=20260901-1');
+const v126At=index.indexOf('v126-dev.js?v=20260831-1');
+const v127At=index.indexOf('v127-dev.js?v=20260831-1');
+const v130At=index.indexOf('v130-dev.js?v=20260901-1');
+const v131At=index.indexOf('v131-dev.js?v=20260901-1');
+assert(bootAt>=0&&bootAt<v126At&&bootAt<v127At,'worker implementation bootstrap must sit inside the existing v1.2.6/v1.2.7 lifecycle wrappers');
+assert(v130At>=0&&v131At>v130At,'v1.3.1 observer must install outside v1.3.0 lazy-cache lifecycle');
 assert(/versionCode\s*=\s*103\b/.test(gradle),'Android build must be 103');
 assert(/versionName\s*=\s*"1\.3\.1"/.test(gradle),'Android version must be 1.3.1');
 
