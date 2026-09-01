@@ -11,8 +11,10 @@
  * For an exact current 891 disk cache, it restores the cache-memory canvas from
  * the persisted PNG, then hands v1.2.7/v1.2.0/v1.2.2 a fresh clone. Later reuse of
  * that restored cache-memory canvas is cloned synchronously, so no second disk
- * decode is needed. The protected permanent v1.2.2 MapLibre source/layer is never
- * removed or recreated.
+ * decode is needed. It also rejects a delayed final-cache write if the encoded PNG
+ * dimensions no longer match the recorded 891 dimensions, preventing retirement
+ * of a presentation canvas from overwriting a good cache with a cleared 1x1 image.
+ * The protected permanent v1.2.2 MapLibre source/layer is never removed or recreated.
  */
 (function installPadGrade129Dev(){
   'use strict';
@@ -23,6 +25,7 @@
   const ACTIVE_KEY='padGradeActiveProjectIdV5';
   const NORMAL_SOURCE_RE=/^pad-grade-interpolated-surface-canvas-source-/;
   const NORMAL_LAYER_RE=/^pad-grade-interpolated-surface-canvas-layer-/;
+  const CACHE_FILE_RE=/^Pad-Grade-Heat-.*\.pgheatcache$/;
   const SOURCE_PREFIX='pad-grade-interpolated-surface-canvas-source-';
   const LAYER_PREFIX='pad-grade-interpolated-surface-canvas-layer-';
   const CANONICAL_LAYER='pad-grade-v120-heat-image-layer';
@@ -71,6 +74,16 @@
       ctx.drawImage(canvas,0,0,width,height);return out;
     }catch(e){return null;}
   }
+  function pngDimensions(dataUrl){
+    try{
+      if(typeof dataUrl!=='string'||!dataUrl.startsWith('data:image/png;base64,'))return null;
+      const encoded=dataUrl.slice('data:image/png;base64,'.length,'data:image/png;base64,'.length+64);
+      const binary=atob(encoded);if(binary.length<24)return null;
+      if(binary.charCodeAt(0)!==137||binary.slice(1,4)!=='PNG')return null;
+      const u32=i=>((binary.charCodeAt(i)<<24)>>>0)+(binary.charCodeAt(i+1)<<16)+(binary.charCodeAt(i+2)<<8)+binary.charCodeAt(i+3);
+      const width=u32(16),height=u32(20);return width>0&&height>0?{width,height}:null;
+    }catch(e){return null;}
+  }
   function decodePng(dataUrl,width,height){
     return new Promise(resolve=>{
       try{
@@ -79,6 +92,33 @@
         image.onerror=()=>resolve(null);image.src=dataUrl;
       }catch(e){resolve(null);}
     });
+  }
+  function installCacheWriteGuard(){
+    const files=window.PadGradeFiles;if(!files||typeof files.write!=='function')return false;
+    if(files.write.__padGradeV129CacheWriteGuard)return true;
+    const base=files.write.bind(files);
+    const wrapped=async function(filename,text){
+      if(CACHE_FILE_RE.test(String(filename||''))){
+        try{
+          const raw=JSON.parse(String(text||''));
+          if(raw?.format===CACHE_FORMAT&&+raw.version===CACHE_VERSION&&+raw.tier===891){
+            const dims=pngDimensions(raw.png),nx=+raw.nx||0,ny=+raw.ny||0;
+            if(!dims||dims.width!==nx||dims.height!==ny){
+              mark('heatmap.v129-cache-write-retired-canvas-blocked',{projectId:raw.projectId||'',nx,ny,pngWidth:dims?.width||0,pngHeight:dims?.height||0,reason:'encoded-png-dimensions-do-not-match-cache-metadata'});
+              return false;
+            }
+          }
+        }catch(e){
+          mark('heatmap.v129-cache-write-invalid-payload-blocked',{filename:String(filename||''),error:String(e?.message||e).slice(0,120)});
+          return false;
+        }
+      }
+      return base(filename,text);
+    };
+    wrapped.__padGradeV129CacheWriteGuard=true;wrapped.__padGradeV129CacheWriteGuardBase=base;
+    files.write=wrapped;
+    mark('heatmap.v129-cache-write-guard-installed',{pngDimensionValidation:true});
+    return true;
   }
   function clearVirtualSlot(map,slot){
     const lid=`${LAYER_PREFIX}${slot}`,sid=`${SOURCE_PREFIX}${slot}`;
@@ -122,6 +162,10 @@
         let raw=null;try{raw=JSON.parse(text);}catch(e){return false;}
         if(raw?.format!==CACHE_FORMAT||+raw.version!==CACHE_VERSION||raw.projectId!==projectId||raw.surfaceKey!==key||+raw.tier!==891||+raw.nx!==meta.width||+raw.ny!==meta.height||typeof raw.png!=='string'){
           mark('heatmap.v129-cache-rehydrate-miss',{projectId,source:sourceId,reason:'persisted-cache-not-current-exact-surface'});return false;
+        }
+        const dims=pngDimensions(raw.png);
+        if(!dims||dims.width!==+raw.nx||dims.height!==+raw.ny){
+          mark('heatmap.v129-cache-rehydrate-miss',{projectId,source:sourceId,reason:'persisted-cache-png-dimension-mismatch',nx:+raw.nx||0,ny:+raw.ny||0,pngWidth:dims?.width||0,pngHeight:dims?.height||0});return false;
         }
         const decoded=await decodePng(raw.png,+raw.nx,+raw.ny);if(!decoded)return false;
         if(projectId!==activeProjectId()||key!==surfaceKey())return false;
@@ -178,12 +222,18 @@
 
   function attach(){
     const map=window.__padGradeMapInstance||null;if(map)patchMap(map);
+    installCacheWriteGuard();
     document.title='Pad Grade Mapper v1.2.9 DEV';
   }
   window.addEventListener('padgrade-map-created',event=>setTimeout(()=>patchMap(event?.detail?.map||window.__padGradeMapInstance),0));
   window.addEventListener('padgrade-active-project-applied',()=>setTimeout(attach,0));
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(attach,0),{once:true});else setTimeout(attach,0);
-  installTimer=setInterval(()=>{attach();if(window.__padGradeMapInstance?.__padGradeV129CacheReturnGuard){clearInterval(installTimer);installTimer=null;}},100);
+  installTimer=setInterval(()=>{
+    attach();
+    const mapReady=window.__padGradeMapInstance?.__padGradeV129CacheReturnGuard===true;
+    const writeReady=window.PadGradeFiles?.write?.__padGradeV129CacheWriteGuard===true;
+    if(mapReady&&writeReady){clearInterval(installTimer);installTimer=null;}
+  },100);
   window.addEventListener('beforeunload',()=>{if(installTimer)clearInterval(installTimer);},{once:true});
-  mark('heatmap.v129-runtime-installed',{version:VERSION,exact891CacheReturnRepair:true,retiredRetryStopsBeforeV128:true,protectedV122PresenterUnchanged:true});
+  mark('heatmap.v129-runtime-installed',{version:VERSION,exact891CacheReturnRepair:true,retiredRetryStopsBeforeV128:true,cacheWriteDimensionGuard:true,protectedV122PresenterUnchanged:true});
 })();
