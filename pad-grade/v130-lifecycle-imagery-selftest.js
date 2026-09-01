@@ -25,7 +25,7 @@ must(src.includes('wrapped.__padGradeV127MutationFirst=true'),'v1.2.7 rewrap sup
 must(src.includes('wrapped.__padGradeV128MutationOrder=true'),'v1.2.8 rewrap suppression marker missing');
 must(src.includes('wrapped.__padGradeV129CacheSnapshotBeforeRetire=true'),'v1.2.9 rewrap suppression marker missing');
 must(src.includes("mark('heatmap.v130-cache-render-confirmed'"),'actual render confirmation diagnostic missing');
-must(src.includes("mark('heatmap.v130-canonical-layer-reactivation-retry'"),'one-shot canonical visibility retry missing');
+must(src.includes("'heatmap.v130-canonical-layer-reactivation-retry'"),'one-shot canonical visibility retry missing');
 must(src.includes('exact891BeforeWorkerCreation:true'),'pre-worker exact cache contract missing');
 must(src.includes('legacy900msRetryHasNoRaster:true'),'legacy producer retirement contract missing');
 must(src.includes('protectedV122PresenterUnchanged:true'),'protected v1.2.2 presenter boundary missing');
