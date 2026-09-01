@@ -23,7 +23,7 @@ const FILL_MAX=[40,80,200];
 
 let activeCoordinator=null;
 
-function lerp(a,b,t){return a.map((v,i)=>Math.round(v+(b[i]-v)*t));}
+function lerp(a,b,t){return a.map((v,i)=>Math.round(v+(b[i]-a[i])*t));}
 function spectrum(near,mid,end,t){t=Math.max(0,Math.min(1,t));return t<=.5?lerp(near,mid,t*2):lerp(mid,end,(t-.5)*2);}
 function surfaceColor(diff,tol,maxCut,maxFill){
   tol=Math.max(0,Number(tol)||0);
@@ -102,7 +102,7 @@ function buildBand(msg){
 }
 function terminateCoordinator(reason){
   const c=activeCoordinator;if(!c)return;
-  activeCoordinator=null;c.cancelled=true;
+  activeCoordinator=null;c.cancelled=true;c.cancelReason=reason;
   for(const w of c.workers)try{w.terminate();}catch(e){}
   c.workers.length=0;
 }
@@ -128,23 +128,23 @@ function startParallel(msg){
       if(data.type==='band-empty'){coordinator.remaining--;finishIfReady();return;}
       if(data.type!=='band-complete')return;
       if(!coordinator.firstBandAt)coordinator.firstBandAt=pgWorkerNow();
-      try{coordinator.rgba.set(new Uint8ClampedArray(data.buffer),(+data.startRow||0)*state.nx*4);}catch(e){fail(e);return;}
+      try{coordinator.rgba.set(new Uint8ClampedArray(data.buffer),(+data.startRow||0)*state.nx*4);}catch(e){fallback(e);return;}
       coordinator.cells+=+data.cells||0;
       coordinator.bandMetrics.push({workerElapsedMs:+data.workerElapsedMs||0,rasterizeElapsedMs:+data.rasterizeElapsedMs||0,colorElapsedMs:+data.colorElapsedMs||0,setupElapsedMs:+data.setupElapsedMs||0});
       coordinator.remaining--;try{w.terminate();}catch(e){};finishIfReady();
     };
-    w.onerror=event=>fail(new Error(event?.message||'band worker failed'));
+    w.onerror=event=>fallback(new Error(event?.message||'band worker failed'));
     try{w.postMessage({type:'build-band',jobId:msg.jobId,tier:msg.tier,nx:state.nx,ny:state.ny,settings:msg.settings,points:msg.points,band});}
-    catch(e){fail(e);return;}
+    catch(e){fallback(e);return;}
   }
   coordinator.createElapsedMs=+(pgWorkerNow()-coordinator.createStarted).toFixed(1);
   if(createError){terminateCoordinator('child-construction-failed');buildWhole(msg,{fallbackReason:'child-construction-failed'});return;}
   finishIfReady();
 
-  function fail(error){
+  function fallback(error){
     if(activeCoordinator!==coordinator)return;
     terminateCoordinator('band-failure');
-    postMessage({type:'error',jobId:msg.jobId,message:`Parallel 891 band failed: ${String(error&&error.message||error)}`});
+    buildWhole(msg,{fallbackReason:`band-worker-failed:${String(error&&error.message||error).slice(0,80)}`});
   }
   function finishIfReady(){
     if(activeCoordinator!==coordinator||coordinator.cancelled||coordinator.remaining>0)return;
