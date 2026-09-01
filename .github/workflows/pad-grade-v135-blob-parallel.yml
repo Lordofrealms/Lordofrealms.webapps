@@ -1,0 +1,71 @@
+name: Pad Grade v1.3.5 Blob Parallel Gate
+
+on:
+  push:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/heatmap-raster-worker-v135.js'
+      - 'pad-grade/heatmap-raster-band-worker-v135.js'
+      - 'pad-grade/v132-worker-bootstrap-fix.js'
+      - 'pad-grade/v135-blob-parallel-selftest.js'
+      - 'pad-grade/privacy.js'
+      - 'pad-grade/v132-imagery-quality.js'
+      - 'pad-grade/RELEASE_NOTES.md'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - '.github/workflows/pad-grade-v135-blob-parallel.yml'
+  pull_request:
+    branches: [pad-grade-dev]
+  workflow_dispatch:
+
+concurrency:
+  group: pad-grade-v135-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-v135:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate v1.3.5 JavaScript
+        run: |
+          node --check pad-grade/heatmap-raster-worker-v135.js
+          node --check pad-grade/heatmap-raster-band-worker-v135.js
+          node --check pad-grade/v132-worker-bootstrap-fix.js
+          node --check pad-grade/v132-imagery-quality.js
+          node --check pad-grade/privacy.js
+          node --check pad-grade/v135-blob-parallel-selftest.js
+
+      - name: Run v1.3.5 Blob parallel regression
+        run: node pad-grade/v135-blob-parallel-selftest.js
+
+      - name: Verify Blob transport and atomic presentation invariants
+        run: |
+          grep -F "heatmap-raster-worker-v135.js?v=20260901-1" pad-grade/v132-worker-bootstrap-fix.js
+          grep -F "heatmap-raster-band-worker-v135.js?v=20260901-1" pad-grade/heatmap-raster-worker-v135.js
+          grep -F 'prepareBundledWorkerBlob' pad-grade/heatmap-raster-worker-v135.js
+          grep -F 'new Worker(coordinator.blobUrl)' pad-grade/heatmap-raster-worker-v135.js
+          grep -F "childWorkerKind:'blob-bundled-v135'" pad-grade/heatmap-raster-worker-v135.js
+          grep -F 'coordinator.remaining>0)return' pad-grade/heatmap-raster-worker-v135.js
+          grep -F 'partialFramesPublished:0' pad-grade/heatmap-raster-worker-v135.js
+          grep -F 'bandFramesPublished:0' pad-grade/heatmap-raster-worker-v135.js
+          ! grep -F 'new Worker(BAND_SOURCE_URL)' pad-grade/heatmap-raster-worker-v135.js
+          ! grep -F 'importScripts(' pad-grade/heatmap-raster-band-worker-v135.js
+          ! grep -F 'new Worker(' pad-grade/heatmap-raster-band-worker-v135.js
+
+      - name: Verify scoped imagery diagnostic permission
+        run: |
+          grep -F "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/identify" pad-grade/privacy.js
+          grep -F 'networkBlockedByDefault:true' pad-grade/privacy.js
+          ! grep -F "'https://imagery.nationalmap.gov/'" pad-grade/privacy.js
+          grep -F "sortField:'resolution_value'" pad-grade/v132-imagery-quality.js
+          grep -F 'const EXPORT_SIZE=512' pad-grade/v132-imagery-quality.js
+          grep -F 'const COMPRESSION_QUALITY=95' pad-grade/v132-imagery-quality.js
+
+      - name: Verify version and release notes
+        run: |
+          grep -F 'versionCode = 107' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.3.5"' pad-grade-android/app/build.gradle.kts
+          grep -F '# Pad Grade Mapper v1.3.5 — DEV BUILD' pad-grade/RELEASE_NOTES.md
+          grep -F '## v1.3.5 —' pad-grade/RELEASE_NOTES.md
+          grep -F 'no row painting, partial-band display, or flicker regression' pad-grade/RELEASE_NOTES.md
