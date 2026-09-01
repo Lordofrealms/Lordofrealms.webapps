@@ -45,7 +45,15 @@ jobs:
           node pad-grade/v126-generation-cancel-selftest.js
           node pad-grade/v127-lifecycle-selftest.js
           node pad-grade/v127-startup-map-gate-selftest.js
-      - name: Version
+      - name: Version remains v1.2.8 or newer
         run: |
-          grep -F 'versionCode = 100' pad-grade-android/app/build.gradle.kts
-          grep -F 'versionName = "1.2.8"' pad-grade-android/app/build.gradle.kts
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          text=Path('pad-grade-android/app/build.gradle.kts').read_text()
+          code=int(re.search(r'versionCode\s*=\s*(\d+)',text).group(1))
+          version=tuple(map(int,re.search(r'versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"',text).groups()))
+          assert code >= 100, f'v1.2.8 carry-forward requires build >=100, found {code}'
+          assert version >= (1,2,8), f'v1.2.8 carry-forward requires version >=1.2.8, found {version}'
+          print(f'v1.2.8 carry-forward preserved by {version} build {code}')
+          PY
