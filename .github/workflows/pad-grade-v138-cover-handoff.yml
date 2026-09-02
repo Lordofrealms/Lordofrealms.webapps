@@ -6,6 +6,7 @@ on:
     paths:
       - 'pad-grade/v138-folder-cover-handoff.js'
       - 'pad-grade/v138-folder-cover-handoff-selftest.js'
+      - 'pad-grade/v136-all-tier-parallel-selftest.js'
       - 'pad-grade/index.html'
       - 'pad-grade/v090-first-run-guard.js'
       - 'pad-grade/v127-dev.js'
