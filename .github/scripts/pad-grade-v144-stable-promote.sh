@@ -14,6 +14,18 @@ rm -rf pad-grade pad-grade-android
 git checkout refs/remotes/origin/pad-grade-dev -- pad-grade pad-grade-android
 cp /tmp/CHANGELOG_STABLE.md pad-grade/CHANGELOG_STABLE.md
 
+# Prove the copied application tree is still the exact field-tested DEV behavior
+# before any stable-only title/version/default changes are applied. Some of these
+# regression tests intentionally assert DEV channel metadata.
+node --check pad-grade/v141-storage-integrity.js
+node --check pad-grade/v142-heat-consistency-selftest.js
+node --check pad-grade/v143-delete-consistency.js
+node --check pad-grade/v143-delete-consistency-selftest.js
+node pad-grade/v142-heat-consistency-selftest.js
+node pad-grade/v136-all-tier-parallel-selftest.js
+node pad-grade/v126-generation-cancel-selftest.js
+node pad-grade/v143-delete-consistency-selftest.js
+
 python3 - <<'PY'
 from pathlib import Path
 import re
@@ -164,15 +176,10 @@ Pad Grade v1.4.4 promotes the field-tested improvements made since the previous 
 - DEV remains separately installable as `com.lordofrealms.padgrade.dev`.
 EOF
 
+# Stable-channel checks: these intentionally avoid DEV-title assertions.
 node --check pad-grade/v096-dev-defaults.js
 node --check pad-grade/v141-storage-integrity.js
-node --check pad-grade/v142-heat-consistency-selftest.js
 node --check pad-grade/v143-delete-consistency.js
-node --check pad-grade/v143-delete-consistency-selftest.js
-node pad-grade/v142-heat-consistency-selftest.js
-node pad-grade/v136-all-tier-parallel-selftest.js
-node pad-grade/v126-generation-cancel-selftest.js
-node pad-grade/v143-delete-consistency-selftest.js
 
 grep -F 'versionCode = 115' pad-grade-android/app/build.gradle.kts
 grep -F 'versionName = "1.4.4"' pad-grade-android/app/build.gradle.kts
