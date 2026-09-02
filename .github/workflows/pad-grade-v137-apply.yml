@@ -30,6 +30,14 @@ jobs:
           if old not in s:
               raise SystemExit('v1.4.2 selftest tier sizing marker missing')
           p.write_text(s.replace(old,new,1),encoding='utf-8')
+
+          p=Path('pad-grade/v136-all-tier-parallel-selftest.js')
+          s=p.read_text(encoding='utf-8')
+          old="assert(/<title>Pad Grade Mapper v1\\.3\\.\\d+ DEV<\\/title>/.test(index));"
+          new="assert(/<title>Pad Grade Mapper v\\d+\\.\\d+\\.\\d+ DEV<\\/title>/.test(index));"
+          if old not in s:
+              raise SystemExit('v1.3.6 stale title assertion marker missing')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
           PY
 
       - name: Validate focused heat consistency gates
