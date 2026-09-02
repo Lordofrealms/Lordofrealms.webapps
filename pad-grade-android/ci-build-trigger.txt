@@ -1,1 +1,1 @@
-build 34 - package Pad Grade v0.8.5 DEV with isolated comparison map, early GPS grid, and foreground grid render-order guards
+build 114 - package Pad Grade v1.4.3 DEV authoritative project deletion consistency fix
