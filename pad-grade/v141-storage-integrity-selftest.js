@@ -14,6 +14,9 @@ const fmt=require('./project-format-v107.js');
   store.set('Pad-Grade-Project-Index.pgindex','{"stale":true}');
   store.set('Pad-Grade-Heat-pg-duplicate.pgheatcache','stale-cache');
   const local=new Map();
+  // Simulate the real failure mode: a prior ambiguous duplicate-ID reconciliation
+  // left the older project's body cached under the shared project ID.
+  local.set('padGradeProjectV5:pg-duplicate',JSON.stringify(p1));
   const window={
     PadGradeProjectFormatV107:fmt,
     PadGradeNative:{hasProjectFolderConfigured:()=>true,isProjectFolderIndexReady:()=>true},
@@ -33,6 +36,8 @@ const fmt=require('./project-format-v107.js');
   vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'v141-storage-integrity.js'),'utf8'),context,{filename:'v141-storage-integrity.js'});
   const result=await window.PadGradeProjectIntegrityV141.beforeIndexController();
   assert.strictEqual(result.ready,true);assert.strictEqual(result.repaired,1);assert.strictEqual(result.failed,0);
+  assert.strictEqual(result.ownersRefreshed,1,'collision winner must be reloaded into local cache');
+  assert.strictEqual(result.ownerRefreshFailed,0);
   const projectFiles=[...store.keys()].filter(name=>name.endsWith('.padgrade'));
   assert.strictEqual(projectFiles.length,2,'repair must preserve both projects');
   const projects=projectFiles.map(name=>fmt.normalizeProject(JSON.parse(store.get(name)),name));
@@ -40,9 +45,12 @@ const fmt=require('./project-format-v107.js');
   assert.strictEqual(new Set(projects.map(p=>p.fileId)).size,2,'file IDs must be unique after repair');
   assert(projects.some(p=>p.id==='pg-duplicate'&&p.settings.name==='Newer'),'newest duplicate must retain original project ID');
   assert(projects.some(p=>p.id!=='pg-duplicate'&&p.settings.name==='Older'),'older duplicate must receive a new project ID');
+  const retainedLocal=JSON.parse(local.get('padGradeProjectV5:pg-duplicate'));
+  assert.strictEqual(retainedLocal.settings.name,'Newer','retained project ID local cache must be overwritten by authoritative collision winner');
   assert(!store.has('Pad-Grade-Project-Index.pgindex'),'stale index must be invalidated after repair');
   assert(!store.has('Pad-Grade-Heat-pg-duplicate.pgheatcache'),'shared-ID heat cache must be invalidated');
   assert(marks.some(x=>x.name==='project.integrity-repaired'));
+  assert(marks.some(x=>x.name==='project.integrity-owner-refreshed'));
   assert(writes.length>=1);
 
   const diag=fs.readFileSync(path.join(__dirname,'v096-diagnostics.js'),'utf8');
@@ -53,5 +61,5 @@ const fmt=require('./project-format-v107.js');
   assert(heat.includes("window.addEventListener('padgrade-before-project-switch',()=>{removeRaster();"));
   assert(heat.includes('displayedCanvas=null;activeCanvasSlot=null'));
   assert(heat.includes('syncTimer=setInterval(()=>{installMapClick();syncSurface();syncLaserMarker();},900)'));
-  console.log('v1.4.1 regression passed: durable duplicate identities repair before index restore, diagnostics retain 50k, and outgoing heat producer state is retired at switch boundary.');
+  console.log('v1.4.1 regression passed: durable duplicate identities repair before index restore, collision winner refreshes local cache, diagnostics retain 50k, and outgoing heat producer state is retired at switch boundary.');
 })().catch(error=>{console.error(error);process.exit(1);});
