@@ -2,6 +2,53 @@
 
 This file summarizes changes promoted to stable Pad Grade releases. Detailed development-by-development history remains in `CHANGELOG.md`.
 
+## v1.4.0 — stable
+
+Promoted from the field-verified v1.3.8 development line. This is the first stable release since **v1.0.2** and rolls up the surviving tested changes from v1.0.4 through v1.3.8. The withdrawn v1.0.3 lower-grid experiment is not included. The stable Android package is build **111**. The stable-channel promotion itself does not change grading/interpolation math, heat-map surface values, project geometry, or the tested imagery/recovery behavior; it changes version/channel metadata and restores the normal stable diagnostic default.
+
+### Added
+- Added the schema-6 durable project format/index architecture with a rebuildable `Pad-Grade-Project-Index.pgindex`, bounded header reads for changed/new files, lazy project-body loading, and a zero-project-read fast path for unchanged indexed projects.
+- Added explicit schema-6 rollback support to schema 5 for controlled recovery while keeping ordinary reconciliation non-destructive.
+- Added a disposable, lossless final 891-tier heat-map cache keyed to the exact surface inputs so unchanged projects can restore the completed heat surface without recalculating all tiers.
+- Added lazy background generation of missing final heat caches for other projects while the app is visible and foreground heat work is idle.
+- Added Android lifecycle/process diagnostics, renderer-loss recovery, process-exit reason capture, native memory snapshots, and callback-stage timing needed to diagnose WebView/background/resource problems without logging survey payload contents.
+- Added an informed Android foreground-location permission flow that explains the need for Precise location, handles approximate-only or denied permission cleanly, and provides an App Settings recovery path when Android stops presenting the normal prompt.
+- Added exact 99 / 297 / 891 heat-resolution inspection controls while preserving Auto as the normal progressive presentation mode.
+- Added regression/self-test coverage around durable indexing, project switching, heat-map ownership/presentation, cache validity, worker-generation cancellation, imagery selection, startup cover release, and the folder-picker handoff.
+
+### Changed
+- GPS/MapLibre survey-point near-miss selection now uses the field-selected fixed **15% of projected point spacing** padding with exact-one-match and dead-space safeguards; the temporary diagnostic slider/crosshair controls used to tune it were removed from normal runtime.
+- Project opening/switching keeps the chooser covering the map until the target is ready, clears outgoing project-owned overlays before reveal, and reuses the MapLibre instance, compatible grid sources/layers, and same-size lower-grid DOM where practical.
+- Durable-folder reconciliation now compares real directory metadata with the rebuildable index first. Unchanged indexed projects avoid full project reads/parses/migrations; changed or newly copied files are inspected and incorporated, and selected bodies are loaded only when needed.
+- Project Comparison now uses the shared indexed project catalog, loads only the two selected project bodies, installs its detailed grid at style readiness, and preserves the progressive heat-map path independently of raster imagery completion.
+- Heat-map presentation was consolidated onto one authoritative style-owned presentation path per map. Completed rasters are prepared offscreen and only complete frames are handed to the presenter; retired/stale layers and generations cannot reclaim visibility.
+- Auto heat generation remains progressive **99 → 297 → 891**, but the computation inside every tier is now parallel. On the tested 8-thread Android device, each tier used seven compute workers and assembled the bands into one complete offscreen final buffer before publication.
+- Heat presentation remains atomic. There is no row painting, band painting, partial raster publication, intentional cross-fade, or exposed live canvas while a frame is being computed.
+- Valid cached final 891 rasters suppress redundant lower-tier work on unchanged reloads, while reading/project mutations cancel stale work before new generations are admitted.
+- Background behavior keeps map/project/heat state resident while suspending active GPS subscriptions and pausing stopped-WebView timer activity. The earlier experiment that removed/restored USGS imagery on minimize was retired; imagery remains attached.
+- Startup/recovery cover release is tied to usable recovered state and the established base-map render gate rather than raster imagery completion, full durable maintenance, or heat-map completion.
+- USGS high-resolution imagery remains on the NAIP Plus dynamic ImageServer path using Natural Color, 512×512 exports for 256 logical pixels, quality 95, cubic resampling, and resolution-first selection.
+- NAIP source selection now excludes non-positive/unknown `resolution_value` records before ordering, preventing invalid catalog rows from outranking real positive-resolution imagery.
+- Stable builds continue to default diagnostic logging **off** unless the user explicitly chose otherwise; all diagnostic tools remain available from Advanced Settings.
+
+### Fixed
+- Fixed multiple heat-map blank/flicker/overlap failure modes encountered while moving from legacy live CanvasSources to the current complete-frame presentation model, including MapLibre 5.16.0 ImageSource request behavior, same-frame request self-abort, stale layer reappearance, cache downgrade races, and project-switch ownership races.
+- Fixed the progressive heat-map path so lower or retired generations cannot overwrite a valid final cached/active surface after a project/read mutation or generation change.
+- Fixed worker/bootstrap behavior on Android WebView by using parent-fetched source bundled into in-memory Blob workers for nested parallel computation rather than the failing external nested-worker bootstrap path.
+- Fixed the remaining all-tier heat performance bottleneck by parallelizing 99, 297, and 891 computation while retaining one atomic final frame per tier.
+- Fixed hard reload/return paths that could inherit a globally paused WebView timer pool by resuming timers whenever a foreground WebView/Activity resumes.
+- Fixed location-denial behavior so a failed GPS Guided attempt returns to Manual rather than leaving the UI visually stuck waiting for unavailable GPS, and selecting GPS Guided again performs the retry.
+- Fixed durable index/reconciliation behavior that previously reread every project file on routine maintenance and could deep-load the entire project set during one comparison interaction.
+- Fixed project-switch/recovery presentation cases where old project geometry or heat content could remain visible while the selected project was being applied.
+- Fixed imagery selection so zero/null/unknown-resolution NAIP catalog records cannot sort ahead of the best valid positive-resolution raster. Field diagnostics at the tested location confirmed the selected 0.6 m raster matched the best available positive-resolution 0.6 m candidate.
+- Fixed the first-run successful durable-folder transition so the picker-specific `Choose project storage to continue` ownership is removed while Android still covers the app. The same existing shared cover is already in `Restoring saved project…` state before Pad Grade becomes visible again; no new cover or arbitrary delay is introduced.
+
+### Stable promotion
+- Promoted the tested v1.3.8 behavior to the normal `com.lordofrealms.padgrade` stable package; the DEV package remains separately installable as `com.lordofrealms.padgrade.dev`.
+- Stable Android version: **v1.4.0 build 111**.
+- Stable diagnostics default to off while respecting an existing explicit user preference.
+- The field-verified v1.3.8 folder-picker handoff, v1.3.7 imagery selection, and v1.3.6 all-tier parallel atomic heat-map behavior are promoted unchanged.
+
 ## v1.0.2 — stable
 
 Promoted from the tested v1.0.2 development line. This is the first stable release since **v0.8.0** and rolls up the field-tested changes from v0.8.1 through v1.0.2. The stable Android package is build 75. No grading/interpolation math was changed as part of the stable-channel promotion itself.

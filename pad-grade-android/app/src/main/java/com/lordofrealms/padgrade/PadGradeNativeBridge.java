@@ -22,6 +22,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -40,17 +41,43 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
     private final Sensor rotationSensor;
     private final Object folderCacheLock = new Object();
     private final Map<String, DocumentFile> projectFileCache = new LinkedHashMap<>();
+    private final Map<String, Long> projectFileSizeCache = new LinkedHashMap<>();
+    private final Map<String, Long> projectFileModifiedCache = new LinkedHashMap<>();
     private final ExecutorService fileExecutor = Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r, "PadGradeFileIO");
         thread.setDaemon(true);
         return thread;
     });
 
+    // v1.2.4 diagnostic-only accounting for the single-threaded file executor.
+    // This does not change ordering or concurrency; it only records what was ahead
+    // of each request and how long the request waited before PadGradeFileIO began it.
+    private final Object fileQueueDiagLock = new Object();
+    private final ArrayList<String> fileQueueDiagLabels = new ArrayList<>();
+
+    private static final class FileQueueTiming {
+        final long queuedNanos;
+        final long queuedEpochMs;
+        final String token;
+        final String[] ahead;
+        double queueWaitMs;
+        long ioStartEpochMs;
+        long ioFinishedEpochMs;
+
+        FileQueueTiming(long queuedNanos, long queuedEpochMs, String token, String[] ahead) {
+            this.queuedNanos = queuedNanos;
+            this.queuedEpochMs = queuedEpochMs;
+            this.token = token;
+            this.ahead = ahead;
+        }
+    }
+
     private DocumentFile cachedProjectFolder;
     private String cachedProjectFolderUri;
     private volatile boolean projectFileCacheLoaded = false;
     private volatile boolean projectFileCacheLoading = false;
     private volatile boolean projectFolderRecoveryPending = false;
+    private volatile long lastProjectFileRefreshRequestMs = 0L;
 
     private boolean headingActive;
     private double lastLatitude = Double.NaN;
@@ -76,7 +103,7 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
     @JavascriptInterface public boolean saveTextFile(String filename, String mimeType, String text) { return activity.requestSaveTextFile(filename, mimeType, text); }
     @JavascriptInterface public void chooseProjectFolder() { activity.requestProjectFolder(); }
     @JavascriptInterface public boolean hasProjectFolder() { return getProjectFolder() != null; }
-    /** Cheap v0.9.6 startup probe: reports a configured folder URI without querying the SAF provider. */
+    /** Cheap startup probe: reports a configured folder URI without querying the SAF provider. */
     @JavascriptInterface public boolean hasProjectFolderConfigured() {
         String raw = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(PROJECT_FOLDER_URI, null);
         return raw != null && !raw.isBlank();
@@ -84,6 +111,21 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
     @JavascriptInterface public boolean isProjectFolderIndexReady() { return projectFileCacheLoaded; }
     @JavascriptInterface public boolean isProjectFolderRecoveryPending() { return projectFolderRecoveryPending; }
     @JavascriptInterface public void completeProjectFolderRecovery() { projectFolderRecoveryPending = false; }
+    @JavascriptInterface public void refreshProjectFileIndexAsync() { refreshProjectFileCacheAsync(true); }
+
+    /** Recheck the chosen folder after returning from another app/device-copy workflow. */
+    public void onHostResume() {
+        long now = System.currentTimeMillis();
+        if (now - lastProjectFileRefreshRequestMs < 750L) return;
+        lastProjectFileRefreshRequestMs = now;
+        refreshProjectFileCacheAsync(true);
+    }
+
+    private static boolean isProjectCandidateName(String name) {
+        if (name == null) return false;
+        String lower = name.toLowerCase();
+        return lower.endsWith(".padgrade") || lower.endsWith(".padgrade.json") || lower.endsWith(".json");
+    }
 
     @JavascriptInterface public String listProjectFiles() {
         JSONArray out = new JSONArray();
@@ -97,11 +139,30 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
                 String name = entry.getKey();
                 DocumentFile file = entry.getValue();
                 // The directory walk already populated this cache on the background index thread.
-                // Do not call DocumentFile.isFile() here: TreeDocumentFile may query the provider again,
-                // turning a cached JS list request into one synchronous SAF query per entry.
-                if (name == null || file == null) continue;
-                String lower = name.toLowerCase();
-                if (lower.endsWith(".padgrade") || lower.endsWith(".padgrade.json") || lower.endsWith(".json")) out.put(name);
+                // Do not call DocumentFile.isFile() here: TreeDocumentFile may query the provider again.
+                if (name == null || file == null || !isProjectCandidateName(name)) continue;
+                out.put(name);
+            }
+        }
+        return out.toString();
+    }
+
+    /** v1.0.7: cheap metadata view served only from the background-built cache. */
+    @JavascriptInterface public String listProjectFileDetails() {
+        JSONArray out = new JSONArray();
+        if (getProjectFolder() == null) return out.toString();
+        if (!projectFileCacheLoaded) { primeProjectFileCacheAsync(); return out.toString(); }
+        synchronized (folderCacheLock) {
+            for (Map.Entry<String, DocumentFile> entry : projectFileCache.entrySet()) {
+                String name = entry.getKey();
+                if (!isProjectCandidateName(name) || entry.getValue() == null) continue;
+                JSONObject item = new JSONObject();
+                try {
+                    item.put("name", name);
+                    item.put("size", Math.max(0L, projectFileSizeCache.getOrDefault(name, 0L)));
+                    item.put("lastModified", Math.max(0L, projectFileModifiedCache.getOrDefault(name, 0L)));
+                    out.put(item);
+                } catch (Exception ignored) {}
             }
         }
         return out.toString();
@@ -117,13 +178,43 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
         } catch (IOException | SecurityException ex) { return null; }
     }
 
+    /** Reads only a bounded prefix; schema-6 _pgHeader is deliberately written first. */
+    @JavascriptInterface public String readProjectFileHead(String filename, int requestedChars) {
+        DocumentFile file = findProjectFile(filename);
+        if (file == null) return null;
+        int limit = Math.max(256, Math.min(16384, requestedChars));
+        try (InputStream in = activity.getContentResolver().openInputStream(file.getUri())) {
+            if (in == null) return null;
+            InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8);
+            char[] buffer = new char[limit];
+            int total = 0;
+            while (total < limit) {
+                int n = reader.read(buffer, total, limit - total);
+                if (n < 0) break;
+                total += n;
+            }
+            return new String(buffer, 0, total);
+        } catch (IOException | SecurityException ex) { return null; }
+    }
+
+    private void refreshMetadataFor(String filename, DocumentFile file, long knownSize) {
+        if (filename == null || file == null) return;
+        long size = knownSize >= 0 ? knownSize : 0L;
+        long modified = System.currentTimeMillis();
+        try { if (knownSize < 0) size = Math.max(0L, file.length()); } catch (RuntimeException ignored) {}
+        try { long v = file.lastModified(); if (v > 0) modified = v; } catch (RuntimeException ignored) {}
+        synchronized (folderCacheLock) {
+            projectFileSizeCache.put(filename, Math.max(0L, size));
+            projectFileModifiedCache.put(filename, Math.max(0L, modified));
+        }
+    }
+
     @JavascriptInterface public boolean writeProjectFile(String filename, String text) {
         DocumentFile folder = getProjectFolder(); if (folder == null) return false;
         if (!projectFileCacheLoaded) { primeProjectFileCacheAsync(); return false; }
-        // During a clean-install folder reconnect, the surviving settings file is
-        // authoritative. Keep it read-only until JavaScript explicitly finishes
-        // recovery; a time-based grace period was unsafe on slow SAF providers.
         if (SETTINGS_FILE.equals(filename) && projectFolderRecoveryPending) return false;
+        final String safeText = text == null ? "" : text;
+        final byte[] bytes = safeText.getBytes(StandardCharsets.UTF_8);
         try {
             DocumentFile file = findProjectFile(filename);
             if (file == null) {
@@ -133,67 +224,153 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
             }
             try (OutputStream out = activity.getContentResolver().openOutputStream(file.getUri(), "wt")) {
                 if (out == null) return false;
-                out.write((text == null ? "" : text).getBytes(StandardCharsets.UTF_8)); out.flush(); return true;
+                out.write(bytes); out.flush();
             }
+            refreshMetadataFor(filename, file, bytes.length);
+            return true;
         } catch (IOException | SecurityException ex) { return false; }
     }
 
     @JavascriptInterface public boolean deleteProjectFile(String filename) {
         DocumentFile file = findProjectFile(filename);
         boolean deleted = file != null && file.delete();
-        if (deleted) synchronized (folderCacheLock) { projectFileCache.remove(filename); }
+        if (deleted) synchronized (folderCacheLock) {
+            projectFileCache.remove(filename);
+            projectFileSizeCache.remove(filename);
+            projectFileModifiedCache.remove(filename);
+        }
         return deleted;
     }
 
+    private FileQueueTiming queueFileTiming(String op, String filename, String requestId) {
+        final long queuedNanos = System.nanoTime();
+        final long queuedEpochMs = System.currentTimeMillis();
+        final String token = String.valueOf(op) + ":" + String.valueOf(filename) + "@" + String.valueOf(requestId);
+        synchronized (fileQueueDiagLock) {
+            String[] ahead = fileQueueDiagLabels.toArray(new String[0]);
+            fileQueueDiagLabels.add(token);
+            return new FileQueueTiming(queuedNanos, queuedEpochMs, token, ahead);
+        }
+    }
+
+    private void startFileTiming(FileQueueTiming timing) {
+        if (timing == null) return;
+        timing.queueWaitMs = elapsedMs(timing.queuedNanos);
+        timing.ioStartEpochMs = System.currentTimeMillis();
+    }
+
+    private void finishFileTiming(FileQueueTiming timing) {
+        if (timing == null) return;
+        timing.ioFinishedEpochMs = System.currentTimeMillis();
+        synchronized (fileQueueDiagLock) { fileQueueDiagLabels.remove(timing.token); }
+    }
+
     @JavascriptInterface public void readProjectFileAsync(String filename, String requestId) {
+        final FileQueueTiming timing = queueFileTiming("read", filename, requestId);
         fileExecutor.execute(() -> {
+            startFileTiming(timing);
             long started = System.nanoTime();
             String text = null;
             String error = null;
             try { text = readProjectFile(filename); }
             catch (RuntimeException ex) { error = ex.getMessage(); }
-            emitFileOperationResult(requestId, text != null, text, elapsedMs(started), error, text == null ? 0 : text.length());
+            double durationMs = elapsedMs(started);
+            finishFileTiming(timing);
+            emitFileOperationResult(requestId, text != null, text, durationMs, error, cachedSize(filename, text == null ? 0 : text.getBytes(StandardCharsets.UTF_8).length), cachedModified(filename), timing);
+        });
+    }
+
+    @JavascriptInterface public void readProjectFileHeadAsync(String filename, int maxChars, String requestId) {
+        final FileQueueTiming timing = queueFileTiming("head", filename, requestId);
+        fileExecutor.execute(() -> {
+            startFileTiming(timing);
+            long started = System.nanoTime();
+            String text = null;
+            String error = null;
+            try { text = readProjectFileHead(filename, maxChars); }
+            catch (RuntimeException ex) { error = ex.getMessage(); }
+            double durationMs = elapsedMs(started);
+            finishFileTiming(timing);
+            emitFileOperationResult(requestId, text != null, text, durationMs, error, cachedSize(filename, 0), cachedModified(filename), timing);
         });
     }
 
     @JavascriptInterface public void writeProjectFileAsync(String filename, String text, String requestId) {
         final String safeText = text == null ? "" : text;
+        final FileQueueTiming timing = queueFileTiming("write", filename, requestId);
         fileExecutor.execute(() -> {
+            startFileTiming(timing);
             long started = System.nanoTime();
             boolean ok = false;
             String error = null;
             try { ok = writeProjectFile(filename, safeText); }
             catch (RuntimeException ex) { error = ex.getMessage(); }
-            emitFileOperationResult(requestId, ok, null, elapsedMs(started), error, safeText.length());
+            double durationMs = elapsedMs(started);
+            finishFileTiming(timing);
+            emitFileOperationResult(requestId, ok, null, durationMs, error, safeText.getBytes(StandardCharsets.UTF_8).length, cachedModified(filename), timing);
         });
     }
 
     @JavascriptInterface public void deleteProjectFileAsync(String filename, String requestId) {
+        final FileQueueTiming timing = queueFileTiming("delete", filename, requestId);
         fileExecutor.execute(() -> {
+            startFileTiming(timing);
             long started = System.nanoTime();
             boolean ok = false;
             String error = null;
             try { ok = deleteProjectFile(filename); }
             catch (RuntimeException ex) { error = ex.getMessage(); }
-            emitFileOperationResult(requestId, ok, null, elapsedMs(started), error, 0);
+            double durationMs = elapsedMs(started);
+            finishFileTiming(timing);
+            emitFileOperationResult(requestId, ok, null, durationMs, error, 0, 0, timing);
         });
     }
 
-    private static double elapsedMs(long startedNanos) {
-        return Math.max(0.0, (System.nanoTime() - startedNanos) / 1_000_000.0);
+    private long cachedSize(String filename, long fallback) {
+        synchronized (folderCacheLock) { return projectFileSizeCache.getOrDefault(filename, Math.max(0L, fallback)); }
     }
+    private long cachedModified(String filename) {
+        synchronized (folderCacheLock) { return projectFileModifiedCache.getOrDefault(filename, 0L); }
+    }
+    private static double elapsedMs(long startedNanos) { return Math.max(0.0, (System.nanoTime() - startedNanos) / 1_000_000.0); }
 
-    private void emitFileOperationResult(String requestId, boolean ok, String text, double durationMs, String error, int size) {
-        JSONObject result = new JSONObject();
+    private void emitFileOperationResult(String requestId, boolean ok, String text, double durationMs, String error, long size, long lastModified, FileQueueTiming timing) {
+        final JSONObject result = new JSONObject();
         try {
             result.put("requestId", requestId == null ? "" : requestId);
             result.put("ok", ok);
             result.put("durationMs", durationMs);
-            result.put("size", Math.max(0, size));
+            result.put("size", Math.max(0L, size));
+            result.put("lastModified", Math.max(0L, lastModified));
+            if (timing != null) {
+                result.put("queueWaitMs", Math.max(0.0, timing.queueWaitMs));
+                result.put("queuedEpochMs", timing.queuedEpochMs);
+                result.put("ioStartEpochMs", timing.ioStartEpochMs);
+                result.put("ioFinishedEpochMs", timing.ioFinishedEpochMs);
+                result.put("queueAheadCount", timing.ahead == null ? 0 : timing.ahead.length);
+                JSONArray ahead = new JSONArray();
+                if (timing.ahead != null) for (String label : timing.ahead) ahead.put(label);
+                result.put("queueAhead", ahead);
+            }
             if (text != null) result.put("text", text);
             if (error != null && !error.isBlank()) result.put("error", error);
         } catch (Exception ignored) {}
-        evaluate("window.__padGradeNativeFileOpCompleted && window.__padGradeNativeFileOpCompleted(" + result.toString() + ");");
+
+        // v1.2.4: measure the second queue hop separately. File I/O is finished at
+        // this point; any delay before this runnable executes belongs to Android's
+        // WebView/UI-thread post queue rather than PadGradeFileIO or SAF itself.
+        final long postQueuedNanos = System.nanoTime();
+        final long postQueuedEpochMs = System.currentTimeMillis();
+        webView.post(() -> {
+            try {
+                result.put("uiPostQueuedEpochMs", postQueuedEpochMs);
+                result.put("uiPostWaitMs", elapsedMs(postQueuedNanos));
+                result.put("evalInvokedEpochMs", System.currentTimeMillis());
+            } catch (Exception ignored) {}
+            if (webView.getHandler() != null) {
+                webView.evaluateJavascript("window.__padGradeNativeFileOpCompleted && window.__padGradeNativeFileOpCompleted(" + result.toString() + ");", null);
+            }
+        });
     }
 
     public void onProjectFolderSelected(Uri uri) {
@@ -203,7 +380,7 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
         synchronized (folderCacheLock) {
             cachedProjectFolderUri = uri.toString();
             cachedProjectFolder = DocumentFile.fromTreeUri(activity, uri);
-            projectFileCache.clear();
+            projectFileCache.clear();projectFileSizeCache.clear();projectFileModifiedCache.clear();
             projectFileCacheLoaded = false;
             projectFileCacheLoading = false;
         }
@@ -224,7 +401,7 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
                 }
                 cachedProjectFolderUri = raw;
                 cachedProjectFolder = folder;
-                projectFileCache.clear();
+                projectFileCache.clear();projectFileSizeCache.clear();projectFileModifiedCache.clear();
                 projectFileCacheLoaded = false;
                 return folder;
             } catch (Exception ex) {
@@ -237,48 +414,64 @@ public final class PadGradeNativeBridge implements PrecisionLocationClient.Liste
     private void clearFolderCacheLocked() {
         cachedProjectFolder = null;
         cachedProjectFolderUri = null;
-        projectFileCache.clear();
+        projectFileCache.clear();projectFileSizeCache.clear();projectFileModifiedCache.clear();
         projectFileCacheLoaded = false;
         projectFileCacheLoading = false;
     }
 
-    private void ensureProjectFileCache() {
-        if (projectFileCacheLoaded) return;
-        DocumentFile folder = getProjectFolder();
-        if (folder == null) return;
-        DocumentFile[] files;
-        try { files = folder.listFiles(); }
-        catch (RuntimeException ex) { files = new DocumentFile[0]; }
+    private void refreshProjectFileCacheAsync(boolean force) {
         synchronized (folderCacheLock) {
-            projectFileCache.clear();
-            for (DocumentFile file : files) {
-                if (file == null) continue;
-                String name = file.getName();
-                if (name != null) projectFileCache.put(name, file);
-            }
-            projectFileCacheLoaded = true;
-            projectFileCacheLoading = false;
-        }
-    }
-
-    private void primeProjectFileCacheAsync() {
-        synchronized (folderCacheLock) {
-            if (projectFileCacheLoaded || projectFileCacheLoading) return;
+            if (projectFileCacheLoading) return;
+            if (!force && projectFileCacheLoaded) return;
             projectFileCacheLoading = true;
         }
         Thread worker = new Thread(() -> {
             long started = System.nanoTime();
-            try { ensureProjectFileCache(); }
-            finally {
-                int count;
+            boolean changed = false;
+            int count = 0;
+            try {
+                DocumentFile folder = getProjectFolder();
+                if (folder == null) return;
+                DocumentFile[] listed;
+                try { listed = folder.listFiles(); }
+                catch (RuntimeException ex) { listed = new DocumentFile[0]; }
+                Map<String, DocumentFile> nextFiles = new LinkedHashMap<>();
+                Map<String, Long> nextSizes = new LinkedHashMap<>(), nextModified = new LinkedHashMap<>();
+                for (DocumentFile file : listed) {
+                    if (file == null) continue;
+                    String name = file.getName(); if (name == null) continue;
+                    long size = 0L, mtime = 0L;
+                    try { size = Math.max(0L, file.length()); } catch (RuntimeException ignored) {}
+                    try { mtime = Math.max(0L, file.lastModified()); } catch (RuntimeException ignored) {}
+                    nextFiles.put(name, file); nextSizes.put(name, size); nextModified.put(name, mtime);
+                }
+                synchronized (folderCacheLock) {
+                    changed = !projectFileCache.keySet().equals(nextFiles.keySet());
+                    if (!changed) {
+                        for (String name : nextFiles.keySet()) {
+                            if (!projectFileSizeCache.getOrDefault(name, -1L).equals(nextSizes.getOrDefault(name, -2L)) ||
+                                !projectFileModifiedCache.getOrDefault(name, -1L).equals(nextModified.getOrDefault(name, -2L))) { changed = true; break; }
+                        }
+                    }
+                    projectFileCache.clear(); projectFileCache.putAll(nextFiles);
+                    projectFileSizeCache.clear(); projectFileSizeCache.putAll(nextSizes);
+                    projectFileModifiedCache.clear(); projectFileModifiedCache.putAll(nextModified);
+                    projectFileCacheLoaded = true; count = projectFileCache.size();
+                }
+            } finally {
                 synchronized (folderCacheLock) { projectFileCacheLoading = false; count = projectFileCache.size(); }
                 double durationMs = elapsedMs(started);
-                evaluate("window.__padGradeProjectFolderIndexed && window.__padGradeProjectFolderIndexed();try{window.dispatchEvent(new CustomEvent('padgrade-project-folder-indexed',{detail:{durationMs:" + durationMs + ",fileCount:" + count + "}}));}catch(e){}");
+                if (force) {
+                    evaluate("try{window.dispatchEvent(new CustomEvent('padgrade-project-folder-refreshed',{detail:{durationMs:" + durationMs + ",fileCount:" + count + ",changed:" + changed + "}}));}catch(e){}");
+                } else {
+                    evaluate("window.__padGradeProjectFolderIndexed && window.__padGradeProjectFolderIndexed();try{window.dispatchEvent(new CustomEvent('padgrade-project-folder-indexed',{detail:{durationMs:" + durationMs + ",fileCount:" + count + "}}));}catch(e){}");
+                }
             }
-        }, "PadGradeFolderIndex");
-        worker.setDaemon(true);
-        worker.start();
+        }, force ? "PadGradeFolderRefresh" : "PadGradeFolderIndex");
+        worker.setDaemon(true); worker.start();
     }
+
+    private void primeProjectFileCacheAsync() { refreshProjectFileCacheAsync(false); }
 
     private DocumentFile findProjectFile(String filename) {
         if (filename == null) return null;

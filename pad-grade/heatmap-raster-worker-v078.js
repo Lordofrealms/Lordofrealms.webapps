@@ -7,6 +7,7 @@
  * is exactly the 2-point IDW² result of its measured endpoints.
  */
 'use strict';
+const pgWorkerNow=()=>typeof performance!=='undefined'&&performance.now?performance.now():Date.now();
 importScripts('surface-local-v078.js?v=20260826-2');
 
 const GRADE=[79,143,58];
@@ -34,15 +35,19 @@ function surfaceColor(diff,tol,maxCut,maxFill){
 }
 
 function build(msg){
+  const workerStarted=pgWorkerNow();
   const points=(msg.points||[]).map(p=>({x:+p.x,y:+p.y,v:+p.v,r:+p.r,c:+p.c,label:p.label})).filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)&&Number.isFinite(p.v));
   if(points.length<3){postMessage({type:'empty',jobId:msg.jobId,count:points.length});return;}
   const s=msg.settings||{},target=+s.target||0,tol=Math.max(0,+s.tol||0);
   let maxCut=0,maxFill=0;
   for(const p of points){const d=p.v-target;if(d<0)maxCut=Math.max(maxCut,-d);else maxFill=Math.max(maxFill,d);}
   const nx=Math.max(2,+msg.nx|0),ny=Math.max(2,+msg.ny|0),width=Math.max(.001,+s.width||1),length=Math.max(.001,+s.length||1);
+  const rasterStarted=pgWorkerNow();
   const surface=PadGradeLocalSurface.rasterize({nx,ny,width,length,points,flipY:true});
+  const rasterEnded=pgWorkerNow();
   if(!surface.cells){postMessage({type:'empty',jobId:msg.jobId,count:points.length});return;}
 
+  const colorStarted=pgWorkerNow();
   const rgba=new Uint8ClampedArray(nx*ny*4);
   for(let o=0;o<surface.values.length;o++){
     if(!surface.counts[o])continue;
@@ -50,7 +55,8 @@ function build(msg){
     const c=surfaceColor(v-target,tol,maxCut,maxFill),p=o*4;
     rgba[p]=c[0];rgba[p+1]=c[1];rgba[p+2]=c[2];rgba[p+3]=255;
   }
-  postMessage({type:'complete',jobId:msg.jobId,tier:+msg.tier,nx,ny,cells:surface.cells,buffer:rgba.buffer},[rgba.buffer]);
+  const colorEnded=pgWorkerNow();
+  postMessage({type:'complete',jobId:msg.jobId,tier:+msg.tier,nx,ny,cells:surface.cells,context:msg.context||'regular',workerElapsedMs:+(colorEnded-workerStarted).toFixed(1),rasterizeElapsedMs:+(rasterEnded-rasterStarted).toFixed(1),colorElapsedMs:+(colorEnded-colorStarted).toFixed(1),setupElapsedMs:+(rasterStarted-workerStarted).toFixed(1),buffer:rgba.buffer},[rgba.buffer]);
 }
 
 self.onmessage=event=>{

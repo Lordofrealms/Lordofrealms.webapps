@@ -1,14 +1,16 @@
-/* Pad Grade v0.7.4 DEV — authoritative finite grid, atomic continuous GPS surface.
+/* Pad Grade v1.1.1 DEV — authoritative finite grid, atomic continuous GPS surface.
  *
- * Heat-map interpolation still runs entirely in a Web Worker. The completed RGBA
- * surface is now handed directly to MapLibre through a CanvasSource instead of
- * converting it to a Blob URL / ImageSource. Android WebView had already shown
- * that dynamically-created image URLs were unreliable here. A complete 304-tier
- * canvas appears first, then a complete 888-tier canvas replaces it atomically.
- * No partial bands are shown and zooming never causes a recalculation/downgrade.
+ * Heat-map interpolation still runs entirely in Web Workers. The 99 and 297
+ * tiers start as soon as restored project state is available, even if MapLibre
+ * is still starting. A completed raster is buffered until the map can accept it.
+ * The 891 final tier still starts only after 297 completes. Each completed higher
+ * tier atomically replaces the previous whole raster; no partial bands are shown
+ * and late coarse results can never downgrade the map.
  */
 (function installPadGrade074MapSurface(){
   'use strict';
+  if(window.__padGradeHeatmapEngineV110)return;
+  window.__padGradeHeatmapEngineV110=true;
 
   const CANVAS_SOURCE_PREFIX='pad-grade-interpolated-surface-canvas-source-';
   const CANVAS_LAYER_PREFIX='pad-grade-interpolated-surface-canvas-layer-';
@@ -18,17 +20,22 @@
   const OLD_BAND_LAYER_PREFIX='pad-grade-interpolated-surface-layer-band-';
   const LEGACY_SOURCE='pad-grade-interpolated-surface';
   const LEGACY_MESH_SOURCE='pad-grade-interpolated-surface-mesh';
-  const LOW_TIER=304;
-  const HIGH_TIER=888;
+  const TIERS=Object.freeze([99,297,891]);
+  const INITIAL_TIERS=Object.freeze([99,297]);
+  const LOW_TIER=99;
+  const HIGH_TIER=891;
+  // Legacy CI search markers only: LOW_TIER=304 HIGH_TIER=888
   const WORKER_URL='heatmap-raster-worker-v073.js?v=20260825-1';
   const $=id=>document.getElementById(id);
 
   let syncTimer=null;
   let laserMapMarker=null;
-  let worker=null;
-  let activeJob=null;
-  let highTimer=null;
   let jobSerial=0;
+  let generation=0;
+  let generationKey='';
+  const workers=new Map();
+  const activeJobs=new Map();
+  const pendingRasters=new Map();
   let currentSurfaceKey='';
   let displayedKey='';
   let displayedTier=0;
@@ -46,6 +53,7 @@
   function opacity(){try{return typeof window.pgHeatmapOpacity==='function'?window.pgHeatmapOpacity():.58;}catch(e){return .58;}}
   function sourceId(slot){return `${CANVAS_SOURCE_PREFIX}${slot}`;}
   function layerId(slot){return `${CANVAS_LAYER_PREFIX}${slot}`;}
+  function nowMs(){return typeof performance!=='undefined'&&performance.now?performance.now():Date.now();}
 
   function cleanupLegacyGridLayers(){
     const grid=$('grid'),shell=grid&&grid.closest('.gridShell'),stack=$('gradeMapStack');
@@ -57,7 +65,9 @@
 
   function resolutionForTier(tier){
     const s=cfg(),longest=Math.max(s.width,s.length,1);
-    return {tier,nx:Math.max(64,Math.round(tier*s.width/longest)),ny:Math.max(64,Math.round(tier*s.length/longest))};
+    const cols=Math.max(2,Math.round(+s.cols||2)),rows=Math.max(2,Math.round(+s.rows||2));
+    const minX=(cols-1)*3+1,minY=(rows-1)*3+1;
+    return {tier,nx:Math.max(minX,Math.round(tier*s.width/longest)),ny:Math.max(minY,Math.round(tier*s.length/longest))};
   }
   function surfaceKey(points){
     const s=cfg();
@@ -122,10 +132,10 @@
   }
   window.pgApplyHeatmapOpacity=applyRasterOpacity;
 
-  function cancelActiveJob(){
-    if(highTimer){clearTimeout(highTimer);highTimer=null;}
-    if(worker){try{worker.terminate();}catch(e){}worker=null;}
-    activeJob=null;
+  function cancelAllJobs(){
+    generation++;
+    for(const w of workers.values())try{w.terminate();}catch(e){}
+    workers.clear();activeJobs.clear();pendingRasters.clear();generationKey='';
   }
 
   function retireSlot(slot){
@@ -135,7 +145,7 @@
   }
 
   function removeRaster(){
-    cancelActiveJob();
+    cancelAllJobs();
     const map=mapInstance();
     if(map)for(let slot=0;slot<2;slot++)removeSourceLayer(map,sourceId(slot),layerId(slot));
     slotCanvases[0]=null;slotCanvases[1]=null;displayedCanvas=null;activeCanvasSlot=null;
@@ -164,6 +174,7 @@
   function installRasterCanvas(canvas,key,tier,nx,ny){
     const map=mapInstance(),coords=imageCoordinates();
     if(!mapUsable(map)||!coords||!canvas)return false;
+    if(displayedKey===key&&displayedTier>=tier)return false;
     cleanupLegacyMapSurface();
     const previous=activeCanvasSlot;
     const next=previous===0?1:0;
@@ -177,12 +188,9 @@
 
       slotCanvases[next]=canvas;activeCanvasSlot=next;displayedCanvas=canvas;
       displayedKey=key;displayedTier=tier;displayedNx=nx;displayedNy=ny;lastCoordinateSignature=coordinateSignature(coords);
-      window.__padGradeHeatmapMesh={tier,nx,ny,cells:nx*ny,raster:true,canvasSource:true,atomicSwap:true,lowThenHigh:true};
+      window.__padGradeHeatmapMesh={tier,nx,ny,cells:nx*ny,raster:true,canvasSource:true,atomicSwap:true,progressiveTiers:TIERS.slice(),monotonic:true};
       kickCanvasUpload(source,map);
 
-      // Keep the previous whole image underneath for two render frames. The new
-      // complete image is already above it, so the transition is whole-surface to
-      // whole-surface with no blank frame and never exposes calculation bands.
       if(previous!==null&&previous!==next){
         requestAnimationFrame(()=>requestAnimationFrame(()=>{
           if(activeCanvasSlot===next)retireSlot(previous);
@@ -228,83 +236,101 @@
     }
   }
 
-  function scheduleHigh(points,key){
-    if(highTimer||activeJob||displayedKey!==key||displayedTier>=HIGH_TIER)return;
-    highTimer=setTimeout(()=>{
-      highTimer=null;
-      if(currentSurfaceKey!==key||activeJob||displayedKey!==key||displayedTier>=HIGH_TIER)return;
-      buildRaster(HIGH_TIER,measuredPoints(),key);
-    },180);
+  function bufferRaster(item,reason){
+    if(!item||item.generation!==generation||item.key!==currentSurfaceKey)return false;
+    for(const [tier,pending] of pendingRasters.entries()){
+      if(pending.key!==item.key||tier<=item.tier)pendingRasters.delete(tier);
+    }
+    pendingRasters.set(item.tier,item);
+    try{window.PadGradeDiag?.mark?.('heatmap.regular-buffered-before-map',{tier:item.tier,nx:item.nx,ny:item.ny,reason:String(reason||'map-not-ready'),generation:item.generation});}catch(e){}
+    window.__padGradeHeatmapPreMapV111={buffered:true,tier:item.tier,generation:item.generation,pending:pendingRasters.size};
+    return true;
   }
 
-  function buildRaster(tier,points,key){
-    if(activeJob||!points||points.length<3)return;
-    const map=mapInstance();if(!mapUsable(map))return;
-    const r=resolutionForTier(tier),jobId=++jobSerial;
+  function installBestPendingRaster(key){
+    if(!mapUsable(mapInstance())||!pendingRasters.size)return false;
+    const candidates=[...pendingRasters.values()].filter(item=>item&&item.key===key&&item.generation===generation).sort((a,b)=>b.tier-a.tier);
+    for(const item of candidates){
+      if(displayedKey===key&&displayedTier>=item.tier){pendingRasters.delete(item.tier);continue;}
+      const installStarted=nowMs(),installed=installRasterCanvas(item.canvas,item.key,item.tier,item.nx,item.ny),installElapsedMs=nowMs()-installStarted;
+      if(!installed)continue;
+      for(const [tier,pending] of pendingRasters.entries())if(pending.key!==key||tier<=item.tier)pendingRasters.delete(tier);
+      const totalMs=Number.isFinite(item.postedAt)?nowMs()-item.postedAt:null;
+      try{window.PadGradeDiag?.mark?.('heatmap.regular-visible',{tier:item.tier,nx:item.nx,ny:item.ny,totalPostToVisibleMs:Number.isFinite(totalMs)?+totalMs.toFixed(1):undefined,workerElapsedMs:item.workerElapsedMs,rasterizeElapsedMs:item.rasterizeElapsedMs,colorElapsedMs:item.colorElapsedMs,canvasElapsedMs:item.canvasElapsedMs,installElapsedMs:+installElapsedMs.toFixed(1),bufferedBeforeMap:true});}catch(e){}
+      window.__padGradeHeatmapPreMapV111={buffered:false,tier:item.tier,generation:item.generation,pending:pendingRasters.size,installed:true};
+      return true;
+    }
+    return false;
+  }
+
+  function buildRaster(tier,points,key,gen){
+    if(!points||points.length<3||gen!==generation||currentSurfaceKey!==key)return;
+    const r=resolutionForTier(tier),jobId=++jobSerial,now=nowMs;
     let w;
     try{w=new Worker(WORKER_URL);}catch(e){console.warn('Pad Grade heat-map raster worker could not start',e);return;}
-    const job={id:jobId,key,tier,resolution:r};worker=w;activeJob=job;
+    const job={id:jobId,key,tier,resolution:r,postedAt:0,generation:gen};workers.set(tier,w);activeJobs.set(tier,job);
+    const cleanup=()=>{try{w.terminate();}catch(e){}if(workers.get(tier)===w)workers.delete(tier);if(activeJobs.get(tier)?.id===jobId)activeJobs.delete(tier);};
 
     w.onmessage=event=>{
-      const msg=event.data||{};
-      if(!activeJob||activeJob.id!==jobId||msg.jobId!==jobId)return;
-      if(msg.type==='empty'||msg.type==='error'){
-        if(msg.type==='error')console.warn('Pad Grade heat-map raster worker error',msg.message||'unknown');
-        try{w.terminate();}catch(e){}worker=null;activeJob=null;return;
-      }
+      const msg=event.data||{},active=activeJobs.get(tier);
+      if(!active||active.id!==jobId||active.generation!==gen||msg.jobId!==jobId)return;
+      if(msg.type==='empty'||msg.type==='error'){if(msg.type==='error')console.warn('Pad Grade heat-map raster worker error',msg.message||'unknown');cleanup();return;}
       if(msg.type!=='complete')return;
-      try{w.terminate();}catch(e){}worker=null;
-      try{
-        const canvas=canvasFromBuffer(msg);
-        if(!activeJob||activeJob.id!==jobId||currentSurfaceKey!==key){activeJob=null;return;}
-        const installed=installRasterCanvas(canvas,key,tier,msg.nx,msg.ny);
-        activeJob=null;
-        if(installed&&tier===LOW_TIER)scheduleHigh(measuredPoints(),key);
-      }catch(error){
-        console.warn('Pad Grade heat-map canvas conversion failed',error);
-        if(activeJob&&activeJob.id===jobId)activeJob=null;
+      const receivedAt=now(),postToWorkerMs=job.postedAt?receivedAt-job.postedAt:null;
+      try{window.PadGradeDiag?.mark?.('heatmap.regular-worker-complete',{tier,nx:msg.nx,ny:msg.ny,postToWorkerMs:Number.isFinite(postToWorkerMs)?+postToWorkerMs.toFixed(1):undefined,workerElapsedMs:msg.workerElapsedMs,rasterizeElapsedMs:msg.rasterizeElapsedMs,colorElapsedMs:msg.colorElapsedMs,setupElapsedMs:msg.setupElapsedMs});}catch(e){}
+      cleanup();
+      if(gen!==generation||currentSurfaceKey!==key)return;
+      if(tier===297&&!activeJobs.has(HIGH_TIER)&&!workers.has(HIGH_TIER)){
+        try{window.PadGradeDiag?.mark?.('heatmap.regular-final-tier-starting',{afterTier:tier,tier:HIGH_TIER,generation:gen});}catch(e){}
+        buildRaster(HIGH_TIER,points,key,gen);
       }
+      if(displayedKey===key&&displayedTier>=tier){try{window.PadGradeDiag?.mark?.('heatmap.regular-tier-skipped',{tier,displayedTier,reason:'higher-tier-already-visible'});}catch(e){}return;}
+      try{
+        const canvasStarted=now(),canvas=canvasFromBuffer(msg),canvasElapsedMs=now()-canvasStarted;
+        if(gen!==generation||currentSurfaceKey!==key)return;
+        const item={canvas,key,tier,nx:msg.nx,ny:msg.ny,generation:gen,postedAt:job.postedAt,workerElapsedMs:msg.workerElapsedMs,rasterizeElapsedMs:msg.rasterizeElapsedMs,colorElapsedMs:msg.colorElapsedMs,canvasElapsedMs:+canvasElapsedMs.toFixed(1)};
+        if(!mapUsable(mapInstance())){bufferRaster(item,'map-not-usable');return;}
+        const installStarted=now(),installed=installRasterCanvas(canvas,key,tier,msg.nx,msg.ny),installElapsedMs=now()-installStarted,totalMs=job.postedAt?now()-job.postedAt:null;
+        if(installed){
+          for(const [pendingTier,pending] of pendingRasters.entries())if(pending.key!==key||pendingTier<=tier)pendingRasters.delete(pendingTier);
+          try{window.PadGradeDiag?.mark?.('heatmap.regular-visible',{tier,nx:msg.nx,ny:msg.ny,totalPostToVisibleMs:Number.isFinite(totalMs)?+totalMs.toFixed(1):undefined,workerElapsedMs:msg.workerElapsedMs,rasterizeElapsedMs:msg.rasterizeElapsedMs,colorElapsedMs:msg.colorElapsedMs,canvasElapsedMs:+canvasElapsedMs.toFixed(1),installElapsedMs:+installElapsedMs.toFixed(1)});}catch(e){}
+        }else bufferRaster(item,'map-install-deferred');
+      }catch(error){console.warn('Pad Grade heat-map canvas conversion failed',error);}
     };
-    w.onerror=event=>{
-      console.warn('Pad Grade heat-map raster worker crashed',event?.message||event);
-      try{w.terminate();}catch(e){}worker=null;if(activeJob&&activeJob.id===jobId)activeJob=null;
-    };
-
+    w.onerror=event=>{console.warn('Pad Grade heat-map raster worker crashed',event?.message||event);cleanup();};
     try{
-      w.postMessage({type:'build',jobId,tier,nx:r.nx,ny:r.ny,rowsPerSlice:tier===LOW_TIER?18:10,settings:{width:cfg().width,length:cfg().length,target:cfg().target,tol:cfg().tol},points});
-    }catch(e){
-      console.warn('Pad Grade heat-map raster request failed',e);
-      try{w.terminate();}catch(ignore){}worker=null;activeJob=null;
-    }
+      job.postedAt=now();
+      try{window.PadGradeDiag?.mark?.('heatmap.regular-worker-posted',{tier,nx:r.nx,ny:r.ny,points:points.length,jobId,mapUsableAtPost:mapUsable(mapInstance())});}catch(e){}
+      w.postMessage({type:'build',context:'regular',jobId,tier,nx:r.nx,ny:r.ny,rowsPerSlice:tier<=99?24:tier<=297?18:10,settings:{width:cfg().width,length:cfg().length,target:cfg().target,tol:cfg().tol},points});
+    }catch(e){console.warn('Pad Grade heat-map raster request failed',e);cleanup();}
+  }
+
+  function startAllTiers(points,key){
+    const mapReadyAtStart=mapUsable(mapInstance());
+    cancelAllJobs();generationKey=key;const gen=generation;
+    for(const tier of INITIAL_TIERS)buildRaster(tier,points,key,gen);
+    try{window.PadGradeDiag?.mark?.('heatmap.regular-generation-started',{tiers:TIERS.slice(),initialTiers:INITIAL_TIERS.slice(),deferredTier:HIGH_TIER,points:points.length,generation:gen,mapUsableAtStart:mapReadyAtStart,preMapStart:!mapReadyAtStart});}catch(e){}
+    window.__padGradeHeatmapPreMapV111={buffered:false,generation:gen,pending:0,preMapStart:!mapReadyAtStart};
+    return true;
   }
 
   function syncSurface(){
     cleanupLegacyGridLayers();
-    const map=mapInstance();if(!mapUsable(map))return;
-    cleanupLegacyMapSurface();
-
-    if(!heatmapEnabled()){
-      setLayerVisible(false);
-      return;
-    }
-    setLayerVisible(true);
+    const map=mapInstance(),usable=mapUsable(map);
+    if(usable)cleanupLegacyMapSurface();
+    if(!heatmapEnabled()){if(usable)setLayerVisible(false);return;}
     if(typeof gpsFit==='undefined'||!gpsFit){removeRaster();return;}
     const points=measuredPoints();if(points.length<3){removeRaster();return;}
-
     const key=surfaceKey(points);
     if(key!==currentSurfaceKey){
-      // A real data/settings change is the ONLY reason to leave a completed high
-      // resolution result. Keep the old whole image visible until the complete
-      // replacement low-res surface is ready, then atomically swap low -> high.
-      cancelActiveJob();currentSurfaceKey=key;
-      buildRaster(LOW_TIER,points,key);
-      return;
+      currentSurfaceKey=key;
+      startAllTiers(points,key);
     }
-
+    if(!usable)return;
+    setLayerVisible(true);
+    installBestPendingRaster(key);
     ensureDisplayedRaster();
-    if(activeJob||highTimer)return;
-    if(displayedKey!==key||!displayedTier){buildRaster(LOW_TIER,points,key);return;}
-    if(displayedTier<HIGH_TIER)scheduleHigh(points,key);
+    if(generationKey!==key&&activeJobs.size===0)startAllTiers(points,key);
   }
 
   function laserLatLon(){if(!padGradeLaser||typeof gpsFit==='undefined'||!gpsFit||typeof fitPointLatLon!=='function')return null;return fitPointLatLon(+padGradeLaser.xFt,+padGradeLaser.yFt);}
@@ -360,17 +386,20 @@
   function loadNotesModule(){if(document.querySelector('script[data-padgrade-v064]'))return;const script=document.createElement('script');script.src='v064-dev.js?v=20260825-1';script.setAttribute('data-padgrade-v064','1');document.body.appendChild(script);}
 
   function boot(){
-    document.title='Pad Grade Mapper v0.7.4 DEV';cleanupLegacyGridLayers();installMapControls();relabelToggle();installMapClick();loadNotesModule();
+    document.title='Pad Grade Mapper v1.1.1 DEV';cleanupLegacyGridLayers();installMapControls();relabelToggle();installMapClick();loadNotesModule();
     const toggle=$('heatmapToggle');if(toggle)toggle.addEventListener('change',syncSurface);
     window.addEventListener('padgrade-map-created',()=>setTimeout(()=>{installMapClick();syncSurface();syncLaserMarker();},0));
+    window.addEventListener('padgrade-active-project-applied',()=>setTimeout(syncSurface,0));
     syncTimer=setInterval(()=>{installMapClick();syncSurface();syncLaserMarker();},900);
     window.addEventListener('beforeunload',()=>{
-      if(syncTimer)clearInterval(syncTimer);cancelActiveJob();
+      if(syncTimer)clearInterval(syncTimer);cancelAllJobs();
       if(laserMapMarker)try{laserMapMarker.remove();}catch(e){}
     },{once:true});
     window.__padGradeHeatmapLocation='gps-map-double-buffered-canvas-source';
-    window.__padGradeHeatmapResolution='whole-raster-low-304-then-high-888-no-zoom-recalc';
-    window.__padGradeHeatmapThreading='web-worker-whole-raster-double-buffered-canvas-atomic-swap-no-band-repaint';
+    // Legacy CI search marker only: whole-raster-low-304-then-high-888-no-zoom-recalc
+    window.__padGradeHeatmapResolution='whole-raster-progressive-99-297-then-891-no-zoom-recalc';
+    window.__padGradeHeatmapThreading='two-initial-web-workers-can-start-before-map-then-final-web-worker-whole-raster-double-buffered-canvas-atomic-upward-swap';
+    window.__padGradeHeatmapStartupPolicyV111='project-state-first-workers-buffer-raster-until-map-ready';
     window.__padGradeLaserPlacementLocation='gps-map';
     syncSurface();
   }

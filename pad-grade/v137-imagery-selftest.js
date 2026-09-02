@@ -1,0 +1,28 @@
+/* v1.3.7 regression: positive-resolution mosaic filtering only. */
+'use strict';
+const assert=require('assert');
+const fs=require('fs');
+const vm=require('vm');
+const source=fs.readFileSync(__dirname+'/v137-imagery-selection-fix.js','utf8');
+function FakeXHR(){};FakeXHR.prototype.open=function(method,url){this.method=method;this.url=url;};
+const calls=[];
+const window={fetch:(input)=>{calls.push(String(input));return Promise.resolve({ok:true});},PadGradeDiag:{mark:()=>{}}};
+const document={title:'Pad Grade Mapper v1.3.6 DEV'};
+const location={href:'https://appassets.androidplatform.net/assets/index.html'};
+const context={window,document,location,URL,Request:undefined,XMLHttpRequest:FakeXHR,PerformanceObserver:undefined,JSON,String,Number,Object,RegExp,console};
+context.globalThis=context;vm.createContext(context);vm.runInContext(source,context,{filename:'v137-imagery-selection-fix.js'});
+const api=window.PadGradeImageryV137;assert(api);assert.strictEqual(api.version,'1.3.7');
+assert.strictEqual(document.title,'Pad Grade Mapper v1.3.7 DEV');
+const base='https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/exportImage';
+const rule={mosaicMethod:'esriMosaicAttribute',sortField:'resolution_value',sortValue:0,ascending:true,mosaicOperation:'MT_FIRST'};
+const u=new URL(base);u.searchParams.set('mosaicRule',JSON.stringify(rule));u.searchParams.set('size','512,512');
+const rewritten=new URL(api.rewriteUrl(u.href));const r=JSON.parse(rewritten.searchParams.get('mosaicRule'));
+assert.strictEqual(r.where,'resolution_value > 0');assert.strictEqual(r.sortField,'resolution_value');assert.strictEqual(r.sortValue,0);
+assert.strictEqual(api.classify(rewritten.href).positiveFiltered,true);
+const existing={...rule,where:"Category=1"};const x=new URL(base);x.searchParams.set('mosaicRule',JSON.stringify(existing));
+const xr=JSON.parse(new URL(api.rewriteUrl(x.href)).searchParams.get('mosaicRule'));
+assert.strictEqual(xr.where,'(Category=1) AND (resolution_value > 0)');
+const query='https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/query?where=resolution_value%20%3E%200';
+assert.strictEqual(api.rewriteUrl(query),query);
+assert(!source.includes('heatmap-raster-worker'));
+console.log('v1.3.7 imagery regression passed: zero/unknown resolution records are excluded before existing resolution ordering.');
