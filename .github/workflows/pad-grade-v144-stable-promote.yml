@@ -1,3 +1,4 @@
+# Promotion script revision 2: DEV regressions run before stable metadata.
 name: Pad Grade v1.4.4 Stable Promotion
 
 on:
