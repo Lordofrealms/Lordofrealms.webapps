@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.3.7 — development build
+
+### Imagery — best positive-resolution NAIP source
+- Excludes `resolution_value <= 0` / unknown-resolution NAIP records before the existing resolution-nearest-zero ordering, preventing invalid catalog rows from outranking real positive-resolution imagery.
+- Retains USGS NAIP Plus, Natural Color, 512-for-256 exports, cubic interpolation and quality 95.
+- Adds live proof that the positive-resolution filter reached an actual imagery request.
+
+### Recovery UI — successful folder-picker handoff
+- Adds no new cover. The successful Android folder-picker result now re-arms the existing restoring cover and waits for that JS handoff before folder indexing begins.
+- Cancellation, TOS, recovery logic, startup and map-ready release are unchanged.
+
+### Heatmap
+- No heatmap code changes; v1.3.6 all-tier parallel/atomic behavior is carried forward unchanged.
+
+### Release pipeline
+- Dev tags now point to fresh no-op commits with the current `main` tree/parent, preserving the release-permission workaround while restoring normal newest-first release ordering.
+
+### Version
+- Android DEV package: **1.3.7 / build 109**.
+
 ## v1.2.1 — development build (93)
 
 ### Fixed — self-aborting MapLibre ImageSource load

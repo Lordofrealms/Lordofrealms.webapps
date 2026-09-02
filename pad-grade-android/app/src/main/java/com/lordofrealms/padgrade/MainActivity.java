@@ -315,7 +315,18 @@ public final class MainActivity extends Activity {
                 int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
                 try { getContentResolver().takePersistableUriPermission(uri, flags); }
                 catch (SecurityException ignored) {}
-                nativeBridge.onProjectFolderSelected(uri);
+                final PadGradeNativeBridge bridgeAtResult = nativeBridge;
+                if (webView == null) {
+                    bridgeAtResult.onProjectFolderSelected(uri);
+                } else {
+                    webView.evaluateJavascript(
+                            "(function(){try{if(window.__padGradeBeginRecoveryVisualHold)window.__padGradeBeginRecoveryVisualHold();try{window.PadGradeDiag&&window.PadGradeDiag.mark&&window.PadGradeDiag.mark('recovery.v137-folder-picker-success-cover-handoff',{existingRecoveryCover:true,noNewCover:true,source:'android-folder-result'});}catch(e){}return !!document.documentElement.classList.contains('padGradeRecoveryHold');}catch(e){return false;}})();",
+                            value -> {
+                                if (!isFinishing() && !isDestroyed() && nativeBridge == bridgeAtResult) {
+                                    bridgeAtResult.onProjectFolderSelected(uri);
+                                }
+                            });
+                }
             } else {
                 notifyProjectFolderSelectionCancelled();
             }

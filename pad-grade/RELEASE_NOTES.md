@@ -1,154 +1,76 @@
-# Pad Grade Mapper v1.3.6 — DEV BUILD
+# Pad Grade Mapper v1.3.7 — DEV BUILD
 
-## v1.3.6 — parallelize all heat tiers + repair USGS resolution proof
+## v1.3.7 — fix best-positive USGS imagery + seamless folder-picker cover handoff
 
-v1.3.6 extends the Android-proven Blob-worker heat path from only the final 891 tier to **all three progressive tiers: 99, 297, and 891**. It also strengthens the USGS imagery diagnostics so the next field log can determine whether the resolution-first mosaic rule is truly selecting the finest positive-resolution source available at the viewed location.
+v1.3.7 keeps the v1.3.6 parallel heatmap implementation unchanged and focuses on the two field findings from the latest diagnostic log: the NAIP mosaic rule was choosing a zero/unknown-resolution record instead of the available 0.6 m positive-resolution source, and the successful durable-folder picker return could expose the prior cover briefly before the existing restoring cover visibly took ownership.
 
-This build does **not** change heat interpolation formulas, heat colors, raster dimensions, project/cache formats, GPS calculations, imagery providers, or the protected whole-frame presenter.
+## Heatmap — unchanged from v1.3.6
 
-## Heatmap — 99 / 297 / 891 now all use the proven Blob-band path
+The proven all-tier Blob-worker path remains unchanged:
 
-v1.3.5 proved that Android WebView can execute the nested Blob worker design successfully. Two fresh 891 generations used **7 compute workers / 7 completed bands**, with no serial fallback and no evidence of partial-row presentation.
+- 99, 297 and 891 all remain parallel.
+- On the current 8-thread phone the healthy path remains 7 compute workers / 7 completed bands.
+- Child workers still have no canvas or MapLibre presentation authority.
+- Only complete full-tier buffers are published, preserving the no-row-painting/no-partial-frame invariant.
+- No new sequential benchmark or heatmap tuning is included in this build.
 
-v1.3.6 applies that same path to the smaller progressive tiers as well:
+## Imagery — exclude zero/unknown resolution records before sorting
 
-- tier 99 → parallel Blob-band coordinator
-- tier 297 → parallel Blob-band coordinator
-- tier 891 → parallel Blob-band coordinator
+The v1.3.6 field proof showed `selected-differs-from-best-positive`: the independent catalog query found a real 0.6 m positive-resolution candidate while the existing `resolution_value`-nearest-zero mosaic rule selected a record with no trustworthy positive resolution.
 
-The worker policy remains `max(1, hardwareConcurrency - 1)`. On the current 8-thread test phone, the expected healthy result is therefore **7 compute workers** for each tier.
+v1.3.7 keeps the same USGS NAIP Plus source and quality settings, but adds a server-side mosaic subset:
 
-### No new sequential benchmark pass
+`resolution_value > 0`
 
-The field build intentionally does **not** run a second sequential reference calculation. That would add CPU load, delay the progressive sequence, and make the timing comparison harder to interpret.
+The existing `esriMosaicAttribute` ordering by `resolution_value` nearest zero then runs only across valid positive-resolution candidates. This means a zero/null/unknown record can no longer beat a genuine 0.6 m, 0.3 m, or other positive-resolution source.
 
-Instead, v1.3.6 records the normal per-tier parallel timings and compares them against the sequential results already captured in the immediately preceding v1.3.5 field log.
+Unchanged imagery behavior:
 
-Useful v1.3.5 sequential baselines from that log were:
+- USGS NAIP Plus only; no Esri imagery provider is added.
+- Natural Color rendering remains unchanged.
+- 512 × 512 export for a 256 logical tile remains unchanged.
+- cubic convolution remains unchanged.
+- compression quality 95 remains unchanged.
+- cached USGS fallback and layer order remain unchanged.
 
-- **99 tier:** worker time ranged roughly **0.66–1.07 s** in the sampled fresh runs; one complete visible result was about **1.13 s**, another about **2.01 s** depending on queue/startup overhead.
-- **297 tier:** worker time ranged roughly **3.78–4.80 s**; complete post-to-visible time ranged roughly **5.78–6.29 s**.
-- **891 tier:** already parallel in v1.3.5, with successful 7-worker field runs around **12.5 s** and **17.3 s** post-to-visible.
+The existing v1.3.6 identify + best-positive diagnostics are intentionally retained. Because v1.3.7 rewrites the same mosaic rule at the request boundary, those diagnostics now test the corrected policy too. The next log should ideally report `selectedMatchesBestPositive: true` / `selectionVerdict: selected-is-best-positive` when the service metadata is consistent.
 
-The next field log should therefore let us judge whether parallelism helps 99 and 297, hurts them through worker/setup contention, or needs a smaller worker count by tier.
+A new `imagery.v137-positive-resolution-policy-observed` event proves that an actual live request contained the positive-resolution subset.
 
-## Protected — no row painting or partial-frame publication
+## Folder picker → restoring cover handoff
 
-The no-flicker boundary remains a hard invariant for every tier.
+No new cover was added.
 
-- Child workers contain no MapLibre code and no canvas/presentation code.
-- Child workers return private band buffers only to the coordinator.
-- The coordinator copies completed bands into one offscreen full-size RGBA allocation.
-- No band is ever published directly to the map.
-- The coordinator cannot publish success while any band remains incomplete.
-- If a child fails, partial band work is discarded before fallback.
-- The existing v1.2.2 whole-frame presenter remains unchanged.
-- The visible progression remains complete-frame **99 → 297 → 891**.
+The existing flow remains:
 
-The v1.3.6 regression reconstructs **99, 297, and 891** row rasters from seven bands and requires each result to match the production monolithic interpolation cell-for-cell for mask/count data and within floating-point tolerance for values.
+TOS → durable-folder choice/cover → Android folder picker → existing `Restoring saved project…` cover → load/recovery → existing map-ready release.
 
-## Imagery — fix false `0 m` diagnostic values
+The only transition changed is the successful Android folder-picker return. Before native folder indexing/recovery begins, Android now asks the already-loaded page to re-arm the existing recovery visual hold and waits for that JavaScript handoff to execute. Only then does it call `onProjectFolderSelected()`.
 
-The v1.3.5 field log proved that real MapLibre NAIP Plus requests are carrying the intended policy:
+This removes the timing race between the system picker returning and the existing restoring cover taking ownership, without changing cancellation behavior, project recovery semantics, TOS behavior, map startup, or the map-ready cover release.
 
-- requested export: **512 × 512** for a 256 logical tile
-- resolution-first mosaic rule present
-- `RSP_CubicConvolution` resampling present
-- Natural Color present
-- compression quality 95 present
-- zero unexpected high-resolution request variants in the observed sample
+Diagnostic event: `recovery.v137-folder-picker-success-cover-handoff` with `existingRecoveryCover:true` and `noNewCover:true`.
 
-It also proved that the resolution-first rule selected a **different raster** from the normal USGS service default.
+## Release ordering
 
-However, the source-resolution diagnostic reported suspicious `0` values. v1.3.6 fixes the parsing bug that caused that ambiguity: the old numeric formatter could coerce JavaScript `null` to `0`. Missing/unknown resolution values now remain unknown instead of being reported as zero.
+The dev-release permission workaround is retained, but the tag is no longer anchored directly to an older `main` commit.
 
-## Imagery — independent best-positive-resolution catalog proof
+For each new dev version, the anchor workflow now creates a fresh synthetic commit whose tree is byte-for-byte identical to the current default-branch tree and whose parent is the current default-branch commit. The tag points to that fresh no-op commit. `main` itself is not moved or modified.
 
-The diagnostic now performs three same-location USGS checks:
-
-1. `identify` using Pad Grade's current resolution-first mosaic rule
-2. `identify` using the normal USGS service default
-3. an independent ImageServer `query` restricted to `resolution_value > 0`, ordered by `resolution_value ASC`
-
-The third request is diagnostic-only and asks USGS for the smallest **positive** resolution candidates intersecting the viewed map point.
-
-The resulting log now records:
-
-- selected raster `objectId`
-- service-default raster `objectId`
-- best-positive catalog raster `objectId`
-- `resolution_value` and units when actually present
-- normalized resolution in meters when trustworthy
-- `MinPS` / `MaxPS` as additional service metadata
-- whether the resolution fields were present at all
-- candidate positive resolutions
-- `selectedMatchesBestPositive`
-- `selectionVerdict` = `selected-is-best-positive`, `selected-differs-from-best-positive`, or `unknown`
-- selected-vs-default resolution gain when both are comparable
-- selected-vs-best-positive ratio when both are comparable
-
-This is diagnostic-only. **The imagery selection behavior itself is unchanged in v1.3.6.** If the new proof shows that `resolution_value` nearest zero can rank an unknown/zero-resolution catalog record ahead of a genuine finer positive-resolution raster, the following build can correct the selection rule with evidence rather than guessing.
-
-## Privacy boundary
-
-Pad Grade remains default-deny for outbound network access.
-
-v1.3.6 adds one narrowly scoped same-service GET allowance for:
-
-`https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/query`
-
-This is in addition to the already permitted exact NAIP Plus `exportImage` and `identify` endpoints. There is still no host-wide `imagery.nationalmap.gov` exemption, no general ArcGIS exemption, no analytics, and no additional imagery provider.
-
-## Diagnostics to verify in the next field log
-
-### Heat
-
-After editing a measured point so a fresh generation occurs, the log should show 99, 297, and 891 results with:
-
-- `enabled: true`
-- `hardwareConcurrency: 8` on the current test phone
-- `computeWorkers: 7`
-- `bandsCompleted: 7`
-- `childWorkerKind: blob-bundled-v136`
-- `parallelTierPolicy: 99-297-891`
-- non-null Blob/band timing fields
-- `sequentialBenchmarkRun: false`
-- no `fallbackReason`
-
-The existing legacy observer event name may still contain `parallel-891` even when its embedded `tier` is 99 or 297; use the `tier` field as authoritative.
-
-### Imagery
-
-The live request proof should continue to show the real 512/resolution-first/cubic/quality-95 request policy.
-
-The new useful event is `imagery.v136-source-selection-proof`. The most important fields are:
-
-- `resolutionFirst.objectId`
-- `resolutionFirst.resolutionMeters`
-- `serviceDefault.objectId`
-- `serviceDefault.resolutionMeters`
-- `bestPositiveCatalog.objectId`
-- `bestPositiveCatalog.resolutionMeters`
-- `selectedMatchesBestPositive`
-- `selectionVerdict`
-- `bestPositiveCandidateResolutionsMeters`
-- `diagnosticNullToZeroBugFixed: true`
+This preserves the Releases-API workaround while giving GitHub a current tagged-commit timestamp, so new dev releases should appear in normal newest-first order instead of being sorted near an older `main` commit.
 
 ## Version
 
-- Android DEV version: **1.3.6**
-- build: **108**
-- DEV application ID remains `com.lordofrealms.padgrade.dev`, separate from stable.
+- Android DEV version: **1.3.7**
+- build: **109**
+- application ID remains `com.lordofrealms.padgrade.dev`.
 
 ## DEV field test
 
-1. Install/update the v1.3.6 DEV APK.
-2. Open the same project used for the v1.3.5 timing log.
-3. Pan/zoom the aerial imagery at close zoom and allow the high-resolution source to settle.
-4. Move/zoom at least once so the paired identify + best-positive catalog proof runs.
-5. Edit a measured point to force a fresh heat generation rather than a cached return.
-6. Let the complete **99 → 297 → 891** sequence finish.
-7. Watch for any row painting, band seams, blanking, or tier-swap flicker; none is expected or permitted by the v1.3.6 path.
-8. Export the diagnostic log.
-
-That log should let us compare 99/297 parallel performance directly against the sequential timings already captured, confirm that 891 remains healthy, and finally determine whether the current USGS resolution-first rule is selecting the true finest positive-resolution imagery source.
+1. Install/update v1.3.7 DEV.
+2. On a clean/reinstall recovery test, accept TOS and choose the durable folder. Confirm the folder picker transitions directly to the existing `Restoring saved project…` cover with no stale-cover pause or exposed app frame.
+3. Let recovery finish normally and confirm the cover still releases only through the existing startup/map-ready logic.
+4. Pan/zoom close aerial imagery until NAIP settles. The log should contain `imagery.v137-positive-resolution-policy-observed`.
+5. Allow the paired imagery proof to run. Check `selectedMatchesBestPositive` and `selectionVerdict`.
+6. Optionally edit a measured point and confirm heat remains the known-good 99 → 297 → 891 parallel progression with no flicker or row painting.
+7. Export the diagnostic log.
