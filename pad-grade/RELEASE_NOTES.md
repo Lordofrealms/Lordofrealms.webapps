@@ -1,40 +1,40 @@
 # Pad Grade Mapper v1.4.0 — STABLE
 
-## v1.4.0 — promote the field-verified v1.3.8 line to stable
+## v1.4.0 — what changed since v1.0.2
 
-Pad Grade v1.4.0 promotes the tested v1.3.8 development line to the normal stable Android package. This is the first stable release since v1.0.2 and includes the surviving, field-tested work through v1.3.8. The withdrawn v1.0.3 lower-grid experiment is not included.
+Pad Grade v1.4.0 rolls up the field-tested improvements made since the previous stable release, **v1.0.2**. The focus of this release is faster heat maps, quicker project handling, better aerial imagery, easier GPS-map interaction, and improved Android reliability.
 
-### Heat map
-- Keeps the proven progressive **99 → 297 → 891** Auto sequence.
-- Computation inside all three tiers is parallel; on the tested 8-thread device each tier used seven compute workers.
-- Bands are assembled offscreen into one complete final buffer. There is no row painting, band painting, partial raster publication, or intentional cross-fade.
-- Valid final 891 caches are reused for unchanged projects, while stale generations are cancelled before project/read mutations can publish old work.
-- The current complete-frame MapLibre presentation path and Project Comparison behavior are promoted unchanged from the tested DEV line.
+The grading and interpolation math is unchanged from the previous stable release.
 
-### Durable projects and recovery
-- Promotes the schema-6 indexed durable-project architecture, bounded header reads, lazy body loading, and zero-project-read fast path for unchanged indexed projects.
-- Project switching/recovery keeps outgoing project-owned overlays covered until the incoming project is ready and reuses compatible map/grid resources where practical.
-- The successful first-run folder-picker handoff is promoted exactly as field-tested: the picker-specific `Choose project storage to continue` ownership is removed while Android still covers the app, so the first exposed Pad Grade frame already uses the existing `Restoring saved project…` cover.
-- No new cover, native curtain, arbitrary delay, TOS redesign, or recovery/load redesign is introduced by the stable promotion.
+### Faster, smoother heat maps
+- Heat maps now generate substantially faster, including the final high-detail view.
+- Auto mode still builds progressively so a usable heat map appears before the highest-detail version is finished.
+- Heat-map updates are now presented as complete frames, eliminating the partial painting, overlap, and flicker problems seen during development.
+- When an unchanged project already has a completed high-detail heat map available, Pad Grade can reuse it instead of recalculating it from scratch.
+- Switching projects or changing readings now cancels obsolete heat-map work so an older result cannot appear over the current project.
 
-### GPS and Android lifecycle
-- Keeps transparent Precision Location → native GPS failover, authoritative source-state display, and the informed Precise/While Using permission flow.
-- GPS subscriptions suspend while the app is minimized and resume on return without requesting background location.
-- Retains WebView timer resume protection, renderer-loss recovery, process-exit diagnostics, and privacy-safe lifecycle/memory timing diagnostics.
+### Faster project loading and cleaner project switching
+- Large project folders are handled more efficiently. Pad Grade keeps a lightweight project index and avoids reopening every full project file during routine loading and maintenance.
+- Opening and switching projects is cleaner: the outgoing project's grid and heat map stay covered until the incoming project is ready, preventing old and new project data from briefly appearing together.
+- Project Comparison now uses the same faster project catalog and loads only the two projects being compared.
+- First-run storage-folder setup and recovery have been polished so the app transitions directly into normal project restoration without flashing the old folder-selection message again.
 
-### Imagery
-- Keeps the current USGS NAIP Plus high-resolution path: Natural Color, 512×512 requests for 256 logical pixels, quality 95, cubic resampling, and resolution-first selection.
-- Non-positive/unknown `resolution_value` records are excluded before ordering. The latest field diagnostics at the tested location selected the same 0.6 m raster as the best positive-resolution 0.6 m catalog candidate.
+### Better aerial imagery
+- The USGS NAIP aerial-imagery path has been improved to request higher-quality imagery and prefer the best valid source resolution available at the project location.
+- Invalid or unknown-resolution imagery records no longer outrank a better real image source.
 
-### Map interaction and comparison
-- Promotes the field-selected fixed 15% GPS-map near-miss hitbox with exact-one-match/dead-space safeguards.
-- Keeps the indexed Project Comparison workflow, detailed comparison grid/labels, CUT/GRADE/FILL presentation, and independent progressive comparison heat map.
+### Better GPS and map interaction
+- Survey points on the GPS map are easier to tap accurately. The app now allows a small near-miss around a point while still protecting against accidental selection when taps are ambiguous or fall in empty space.
+- The Android location-permission flow is clearer about the need for Precise location and handles denied or approximate-only permission more cleanly.
+- If Precision Location cannot provide a usable fix, Pad Grade can fall back to Android's native GPS provider for the active session.
+- GPS updates pause while the app is in the background and resume when you return; Pad Grade does not require background-location permission.
 
-### Stable channel
-- Application ID: `com.lordofrealms.padgrade`.
-- Android version: **1.4.0**.
-- Build: **111**.
-- Diagnostic logging defaults **off** for stable unless the user explicitly chose otherwise.
-- The separately installable DEV package remains `com.lordofrealms.padgrade.dev`.
+### Android reliability and recovery
+- Improved behavior when returning to Pad Grade after it has been minimized or interrupted, including fixes for paused WebView timers and renderer recovery.
+- Additional safeguards prevent stale project or heat-map work from reappearing after project changes or app lifecycle events.
+- Diagnostic tools remain available in Advanced Settings for troubleshooting, but diagnostic logging defaults to off in the stable build.
 
-The v1.4.0 promotion intentionally changes no grading/interpolation math and makes no new heat-map, imagery, recovery, or folder-picker behavior change beyond switching the already-tested line to stable metadata/defaults.
+### Stable release
+- Stable Android version: **v1.4.0 build 111**.
+- Stable package: `com.lordofrealms.padgrade`.
+- The separately installable DEV build remains available as `com.lordofrealms.padgrade.dev`.
