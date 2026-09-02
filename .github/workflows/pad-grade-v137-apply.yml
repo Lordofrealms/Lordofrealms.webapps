@@ -54,7 +54,11 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add pad-grade pad-grade-android .github/workflows/pad-grade-android.yml
+          # The apply helper also prepares the persistent Android gate, but a
+          # GitHub Actions token cannot modify workflow YAML. Commit application
+          # source first; the workflow gate is updated separately via GitHub.
+          git checkout -- .github/workflows/pad-grade-android.yml
+          git add pad-grade pad-grade-android
           if git diff --cached --quiet; then
             echo 'No v1.4.2 changes to commit.'
             exit 0
