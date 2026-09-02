@@ -46,8 +46,9 @@ jobs:
       - name: Verify positive-resolution imagery selection
         run: |
           grep -F "const POSITIVE_WHERE='resolution_value > 0'" pad-grade/v137-imagery-selection-fix.js
-          grep -F "mosaicMethod==='esriMosaicAttribute'" pad-grade/v137-imagery-selection-fix.js
-          grep -F "sortField==='resolution_value'" pad-grade/v137-imagery-selection-fix.js
+          grep -F "const mosaicMethod=String(rule?.mosaicMethod||'')" pad-grade/v137-imagery-selection-fix.js
+          grep -F "const sortField=String(rule?.sortField||'')" pad-grade/v137-imagery-selection-fix.js
+          grep -F "if(mosaicMethod!=='esriMosaicAttribute'||sortField!=='resolution_value'||Number(rule?.sortValue)!==0)" pad-grade/v137-imagery-selection-fix.js
           grep -F "imagery.v137-positive-resolution-policy-observed" pad-grade/v137-imagery-selection-fix.js
           grep -F 'v137-imagery-selection-fix.js?v=20260901-1' pad-grade/index.html
 
