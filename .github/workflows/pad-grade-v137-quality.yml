@@ -1,0 +1,78 @@
+name: Pad Grade v1.3.7 Imagery + Folder Handoff Gate
+
+on:
+  push:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/v137-imagery-selection-fix.js'
+      - 'pad-grade/v137-imagery-selftest.js'
+      - 'pad-grade/index.html'
+      - 'pad-grade/RELEASE_NOTES.md'
+      - 'pad-grade/CHANGELOG.md'
+      - 'pad-grade-android/CHANGELOG.md'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - 'pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/MainActivity.java'
+      - '.github/workflows/pad-grade-dev-release-tag-anchor.yml'
+      - '.github/workflows/pad-grade-v137-quality.yml'
+  pull_request:
+    branches: [pad-grade-dev]
+  workflow_dispatch:
+
+concurrency:
+  group: pad-grade-v137-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-v137:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate imagery fix
+        run: |
+          node --check pad-grade/v137-imagery-selection-fix.js
+          node --check pad-grade/v137-imagery-selftest.js
+          node pad-grade/v137-imagery-selftest.js
+
+      - name: Verify heatmap path is carried forward unchanged
+        run: |
+          grep -F "heatmap-raster-worker-v136.js?v=20260901-1" pad-grade/v132-worker-bootstrap-fix.js
+          grep -F 'parallelTiers:[99,297,891]' pad-grade/v132-worker-bootstrap-fix.js
+          grep -F 'const PARALLEL_TIERS=new Set([99,297,891])' pad-grade/heatmap-raster-worker-v136.js
+          grep -F "childWorkerKind:'blob-bundled-v136'" pad-grade/heatmap-raster-worker-v136.js
+          grep -F 'partialFramesPublished:0' pad-grade/heatmap-raster-worker-v136.js
+          grep -F 'bandFramesPublished:0' pad-grade/heatmap-raster-worker-v136.js
+
+      - name: Verify positive-resolution imagery selection
+        run: |
+          grep -F "const POSITIVE_WHERE='resolution_value > 0'" pad-grade/v137-imagery-selection-fix.js
+          grep -F "mosaicMethod==='esriMosaicAttribute'" pad-grade/v137-imagery-selection-fix.js
+          grep -F "sortField==='resolution_value'" pad-grade/v137-imagery-selection-fix.js
+          grep -F "imagery.v137-positive-resolution-policy-observed" pad-grade/v137-imagery-selection-fix.js
+          grep -F 'v137-imagery-selection-fix.js?v=20260901-1' pad-grade/index.html
+
+      - name: Verify existing-cover folder-picker handoff only
+        run: |
+          grep -F '__padGradeBeginRecoveryVisualHold' pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/MainActivity.java
+          grep -F 'recovery.v137-folder-picker-success-cover-handoff' pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/MainActivity.java
+          grep -F 'noNewCover:true' pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/MainActivity.java
+          grep -F 'bridgeAtResult.onProjectFolderSelected(uri)' pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/MainActivity.java
+          grep -F "content:'Restoring saved project…'" pad-grade/index.html
+
+      - name: Verify release ordering workaround
+        run: |
+          grep -F 'git/commits' .github/workflows/pad-grade-dev-release-tag-anchor.yml
+          grep -F 'DEFAULT_TREE' .github/workflows/pad-grade-dev-release-tag-anchor.yml
+          grep -F 'parents[]=$DEFAULT_SHA' .github/workflows/pad-grade-dev-release-tag-anchor.yml
+          grep -F 'TAG_TREE' .github/workflows/pad-grade-dev-release-tag-anchor.yml
+          grep -F 'test "$TAG_SHA" != "$DEFAULT_SHA_NOW"' .github/workflows/pad-grade-dev-release-tag-anchor.yml
+
+      - name: Verify version and notes
+        run: |
+          grep -F '<title>Pad Grade Mapper v1.3.7 DEV</title>' pad-grade/index.html
+          grep -F 'versionCode = 109' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.3.7"' pad-grade-android/app/build.gradle.kts
+          grep -F '# Pad Grade Mapper v1.3.7 — DEV BUILD' pad-grade/RELEASE_NOTES.md
+          grep -F 'Heatmap — unchanged from v1.3.6' pad-grade/RELEASE_NOTES.md
+          grep -F 'Folder picker → restoring cover handoff' pad-grade/RELEASE_NOTES.md
+          grep -F 'Release ordering' pad-grade/RELEASE_NOTES.md
