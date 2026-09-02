@@ -22,6 +22,7 @@
     if(!native||typeof native.isProjectFolderRecoveryPending!=='function')return false;
     let pendingRecovery=false;try{pendingRecovery=!!native.isProjectFolderRecoveryPending();}catch(e){return false;}
     if(!pendingRecovery)return false;
+    if(window.__padGradeIntegrityRepairActive===true)return false;
     let curtain=false;try{curtain=document.documentElement.classList.contains('padGradeRecoveryHold');}catch(e){}
     return curtain||window.__padGradeFirstRunPending===true;
   }
@@ -135,11 +136,25 @@
     script.onerror=()=>console.error('Pad Grade v1.0.7 indexed reconciliation controller failed to load');
     (document.head||document.documentElement).appendChild(script);
   }
+  function loadIntegrityThenIndex(){
+    const proceed=()=>{
+      try{
+        const pending=window.PadGradeProjectIntegrityV141?.beforeIndexController?.();
+        if(pending&&typeof pending.then==='function'){pending.then(loadIndexController,error=>{console.error('Pad Grade v1.4.1 integrity barrier failed',error);loadIndexController();});return;}
+      }catch(error){console.error('Pad Grade v1.4.1 integrity barrier failed',error);}
+      loadIndexController();
+    };
+    if(window.PadGradeProjectIntegrityV141){proceed();return;}
+    const existing=document.querySelector('script[data-padgrade-v141-storage-integrity]');
+    if(existing){existing.addEventListener('load',proceed,{once:true});return;}
+    const script=document.createElement('script');script.src='v141-storage-integrity.js?v=20260902-1';script.async=false;script.dataset.padgradeV141StorageIntegrity='1';script.onload=proceed;script.onerror=()=>{console.error('Pad Grade v1.4.1 storage integrity module failed to load');loadIndexController();};
+    (document.head||document.documentElement).appendChild(script);
+  }
   function loadFormatThenIndex(){
-    if(window.PadGradeProjectFormatV107){loadIndexController();return;}
+    if(window.PadGradeProjectFormatV107){loadIntegrityThenIndex();return;}
     const existing=document.querySelector('script[data-padgrade-project-format-v107]');
-    if(existing){existing.addEventListener('load',loadIndexController,{once:true});return;}
-    const script=document.createElement('script');script.src='project-format-v107.js?v=20260830-1';script.async=false;script.dataset.padgradeProjectFormatV107='1';script.onload=loadIndexController;script.onerror=()=>console.error('Pad Grade schema-6 formatter failed to load');
+    if(existing){existing.addEventListener('load',loadIntegrityThenIndex,{once:true});return;}
+    const script=document.createElement('script');script.src='project-format-v107.js?v=20260830-1';script.async=false;script.dataset.padgradeProjectFormatV107='1';script.onload=loadIntegrityThenIndex;script.onerror=()=>console.error('Pad Grade schema-6 formatter failed to load');
     (document.head||document.documentElement).appendChild(script);
   }
   loadFormatThenIndex();

@@ -1,3 +1,27 @@
+## 1.4.3 DEV (build 114)
+
+- Fixed durable project deletion so File-ID-prefixed project files, local/index state, and heat caches are removed consistently.
+- Prevents deleted projects from reappearing as non-openable ghost rows after folder reconciliation.
+- Updates active-project recovery state before deleting the current project and preserves shared backup containers.
+- No heatmap, imagery, GPS, or grading-math changes.
+
+## v1.4.2 DEV / build 113 — unify local heat interpolation and invalidate ambiguous caches
+
+- Fixed a mixed-engine heat path: foreground 99/297/891 jobs already used `surface-local-v078`, while v1.1.3 background-cache and DEV-inspector jobs used a captured native Worker pointed at the historical global-IDW² v073 worker.
+- Redirected those background/inspector jobs to `heatmap-raster-worker-v078.js`, which uses the same locality-first triangle/rectangle evaluator and edge-locking rules as the v1.3.6 foreground coordinator.
+- Advanced the durable heat-cache schema to v2 and added the engine identity `local-surface-v078-edge-locked`; v1/unknown-engine cache images are rejected and regenerated rather than silently mixing interpolation models.
+- Added v1.4.2 regression coverage for local-triangle isolation from distant measurements, exact on-grade edge locking, cache-engine/schema invariants, and whole-raster versus seven-band equivalence at the 99/297/891 tiers.
+- Preserved progressive 99 → 297 → 891 scheduling, parallel compute, atomic full-frame presentation, no-row/no-band painting, map reveal timing, imagery, GPS geometry, and project recovery behavior.
+
+## v1.4.1 DEV / build 112 — durable identity repair, 50k diagnostics, stale heat producer retirement
+
+- Added a pre-index persistent-directory integrity barrier that checks duplicate project IDs and six-character file IDs before durable restoration.
+- Repairs collisions conservatively with newest-owner retention, write-first/delete-second replacement, rollback on cleanup failure, heat-cache invalidation for repaired shared project IDs, and project-index invalidation for clean rebuild.
+- Preserved the normal recovery mutation lock; only the explicit integrity transaction can bypass it.
+- Increased IndexedDB diagnostic retention to 50,000 entries with batch prune-back to 48,000; memory fallback remains bounded at 5,000.
+- Fixed recurring stale heat restoration attempts by clearing the v1.1.1 producer completed-canvas/generation state on `padgrade-before-project-switch`; existing v1.2.6/v1.2.7 physical worker cancellation remains intact.
+- Heat interpolation, 99/297/891 progressive computation, parallel band math, atomic complete-frame presentation, imagery, grading math, and map reveal timing are unchanged.
+
 # Changelog
 
 ## v1.3.8 — development build

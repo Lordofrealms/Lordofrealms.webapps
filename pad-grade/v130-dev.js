@@ -26,7 +26,8 @@
   const CANONICAL_SOURCE='pad-grade-v120-heat-image-source';
   const CANONICAL_LAYER='pad-grade-v120-heat-image-layer';
   const CACHE_FORMAT='PadGradeHeatCache';
-  const CACHE_VERSION=1;
+  const CACHE_VERSION=2;
+  const CACHE_ENGINE='local-surface-v078-edge-locked';
   const SNAPSHOT_LIMIT=2;
   const BASE_SOURCE='usgs-cached-imagery';
   const HIGH_SOURCE='usgs-naip-plus';
@@ -143,7 +144,7 @@
     let text=null;try{text=await files.read(cacheFilename(projectId));}catch(e){return null;}
     if(!text)return null;
     let raw=null;try{raw=JSON.parse(text);}catch(e){return null;}
-    if(raw?.format!==CACHE_FORMAT||+raw.version!==CACHE_VERSION||raw.projectId!==projectId||raw.surfaceKey!==key||+raw.tier!==891||typeof raw.png!=='string')return null;
+    if(raw?.format!==CACHE_FORMAT||+raw.version!==CACHE_VERSION||raw.engine!==CACHE_ENGINE||raw.projectId!==projectId||raw.surfaceKey!==key||+raw.tier!==891||typeof raw.png!=='string')return null;
     const nx=+raw.nx||0,ny=+raw.ny||0;if(Math.max(nx,ny)!==891||nx<2||ny<2)return null;
     const canvas=await decodePng(raw.png,nx,ny);if(!canvas)return null;
     mark('heatmap.v130-cache-hit',{projectId,tier:891,source:'durable-exact-cache'});

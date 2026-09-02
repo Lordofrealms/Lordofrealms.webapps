@@ -389,6 +389,7 @@
     document.title='Pad Grade Mapper v1.1.1 DEV';cleanupLegacyGridLayers();installMapControls();relabelToggle();installMapClick();loadNotesModule();
     const toggle=$('heatmapToggle');if(toggle)toggle.addEventListener('change',syncSurface);
     window.addEventListener('padgrade-map-created',()=>setTimeout(()=>{installMapClick();syncSurface();syncLaserMarker();},0));
+    window.addEventListener('padgrade-before-project-switch',()=>{removeRaster();try{window.PadGradeDiag?.mark?.('heatmap.v141-outgoing-producer-retired',{displayedCanvasCleared:true,workerStateCleared:true,maintenanceLoopPreserved:true});}catch(e){}});
     window.addEventListener('padgrade-active-project-applied',()=>setTimeout(syncSurface,0));
     syncTimer=setInterval(()=>{installMapClick();syncSurface();syncLaserMarker();},900);
     window.addEventListener('beforeunload',()=>{

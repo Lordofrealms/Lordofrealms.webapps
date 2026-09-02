@@ -2,6 +2,35 @@
 
 This file summarizes changes promoted to stable Pad Grade releases. Detailed development-by-development history remains in `CHANGELOG.md`.
 
+## v1.4.4 — stable
+
+Pad Grade v1.4.4 promotes the field-tested improvements made since the previous stable release, **v1.4.0**. This release focuses on project-file reliability and making sure every heat map uses the same intended surface calculation.
+
+### More reliable projects and storage
+- Pad Grade now checks project identities when restoring a persistent project folder. If copied or older files contain duplicate internal project IDs or duplicate six-character File IDs, the app repairs the conflict before normal project restoration continues.
+- Project deletion is now coordinated across the saved project file, project list/index, local project state, and derived heat-map cache. A deleted project should no longer return as a non-openable “ghost” entry in Project Manager.
+- Deleting copied projects correctly uses their human-readable six-character filename prefix instead of falling back to an obsolete filename.
+- If a project file is already missing but an old list entry remains, deleting that entry is treated as successful cleanup rather than getting stuck on the missing file.
+
+### Consistent heat maps
+- Foreground heat maps, background-generated heat maps, and saved heat-map caches now all use the same nearby triangle/rectangle interpolation rules. This removes a case where some heat maps could use an older global interpolation method and look different from a freshly regenerated map of the same project.
+- Older heat-map caches that do not identify the current local-surface calculation are rejected and rebuilt automatically once when needed. Project measurements and project files are not changed by this cache refresh.
+- Project switching now retires the outgoing project’s completed heat state as well as cancelling obsolete worker activity, preventing old heat results from repeatedly trying to return after the switch.
+- The existing progressive **99 → 297 → 891** heat-map sequence, parallel computation, and complete-frame/no-flicker presentation remain in place.
+
+### Better troubleshooting history
+- Optional diagnostic logging can now retain up to **50,000 entries** instead of the much smaller previous history, making longer field sessions easier to diagnose.
+- Stable builds still default diagnostic logging **off** unless the user has explicitly enabled it.
+
+### Unchanged
+- No change was made to survey readings, target/grade calculations, earthwork-volume calculations, GPS geometry, aerial-imagery selection, or the map-reveal timing as part of these v1.4.1–v1.4.4 fixes.
+- The field-tested folder-picker/recovery transition and existing atomic heat-map presentation remain unchanged.
+
+### Stable promotion
+- Stable Android version: **v1.4.4 build 115**.
+- Stable package: `com.lordofrealms.padgrade`.
+- The separately installable DEV package remains `com.lordofrealms.padgrade.dev`.
+
 ## v1.4.0 — stable
 
 Promoted from the field-verified v1.3.8 development line. This is the first stable release since **v1.0.2** and rolls up the surviving tested changes from v1.0.4 through v1.3.8. The withdrawn v1.0.3 lower-grid experiment is not included. The stable Android package is build **111**. The stable-channel promotion itself does not change grading/interpolation math, heat-map surface values, project geometry, or the tested imagery/recovery behavior; it changes version/channel metadata and restores the normal stable diagnostic default.

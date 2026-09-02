@@ -163,4 +163,5 @@ const styleText=fs.readFileSync(path.join(root,'style.css'),'utf8');
 assert.ok(styleText.includes('padding-bottom:1.18rem'),'project rows must reserve File-ID height before hydration');
 assert.ok(styleText.includes('.pgFileIdInline{\n  position:absolute'),'File-ID text must live inside the pre-reserved slot');
 
+require('child_process').execFileSync(process.execPath,[path.join(root,'v141-storage-integrity-selftest.js')],{stdio:'inherit'});
 console.log('Pad Grade dev self-test PASS');
