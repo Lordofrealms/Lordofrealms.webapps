@@ -1,0 +1,33 @@
+name: Pad Grade Heat Consistency
+
+on:
+  push:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/**'
+      - '.github/workflows/pad-grade-v142-heat-consistency.yml'
+  pull_request:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/**'
+      - '.github/workflows/pad-grade-v142-heat-consistency.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: pad-grade-heat-consistency-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate local heat surface consistency
+        run: |
+          node --check pad-grade/v113-dev.js
+          node --check pad-grade/v130-dev.js
+          node --check pad-grade/v142-heat-consistency-selftest.js
+          node pad-grade/v142-heat-consistency-selftest.js
+          node pad-grade/v136-all-tier-parallel-selftest.js
+          node pad-grade/v126-generation-cancel-selftest.js
+          git diff --check
