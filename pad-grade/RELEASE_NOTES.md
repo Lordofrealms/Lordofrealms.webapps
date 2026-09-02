@@ -1,38 +1,35 @@
-# Pad Grade Mapper v1.4.1 — DEV BUILD
+# Pad Grade Mapper v1.4.2 — DEV BUILD
 
-## v1.4.1 — project identity repair and cleaner project switching
+## v1.4.2 — consistent local heatmap interpolation
 
-v1.4.1 is a focused reliability build following the v1.4.0 stable promotion. Heatmap interpolation, progressive 99 / 297 / 891 computation, atomic complete-frame presentation, grading math, and imagery quality are unchanged.
+v1.4.2 fixes an inconsistency discovered while comparing regenerated heatmaps across projects. The normal foreground heatmap had already moved to the locality-first triangle/rectangle surface model, but two older auxiliary paths could still generate the final 891 heatmap with the historical global IDW² worker.
 
-### Fixed — duplicate project identities in the persistent folder
+### Fixed — one heatmap surface model everywhere
 
-On persistent-directory restoration, Pad Grade now checks project IDs and six-character file IDs before the indexed project controller is allowed to restore a project.
+- Foreground 99 / 297 / 891 heat generation continues to use the existing v1.3.6 parallel local-surface coordinator.
+- Background final-heat caching now uses the same `surface-local-v078` triangle/rectangle interpolation model instead of the old global-IDW² worker.
+- The DEV resolution inspector now uses that same local-surface worker as well.
+- Local element edge locking is preserved, including the rule that an edge between two measured on-grade endpoints evaluates on grade along that edge.
 
-- Duplicate project IDs are repaired automatically.
-- Duplicate file IDs are repaired automatically.
-- The newest colliding project keeps the existing identity; older colliding files receive new unique identities.
-- Repairs are write-first/delete-second so an original file is not removed until its repaired replacement is safely written.
-- If cleanup of the old file fails, the replacement is rolled back rather than silently creating an ambiguous second copy.
-- A repaired duplicate project invalidates the shared old-ID heat cache, and the rebuildable project index is invalidated so it is reconstructed from the repaired authoritative files.
-- Normal recovery writes remain locked; only the explicit integrity-repair transaction can write during this pre-restore check.
+### Fixed — ambiguous old heat caches
 
-### Fixed — stale heat work after a project switch
+Earlier `.pgheatcache` files did not identify which interpolation engine generated them, so an old global-IDW² 891 image could be accepted as if it were a current local-surface result.
 
-The old heat workers were already being terminated, but the older heat producer still retained its last completed canvas. Its 900 ms maintenance pass could therefore keep trying to restore that dead canvas after a switch.
+- Heat-cache schema advances to **v2**.
+- New caches carry the engine ID `local-surface-v078-edge-locked`.
+- Older v1 caches, or caches without the expected engine ID, are rejected and regenerated automatically.
+- Project data and readings are not changed; only the derived heat image is regenerated.
 
-v1.4.1 clears that producer state at the existing project-switch boundary. The old workers, pending rasters, completed canvas reference, slot ownership, and old surface key are retired before the new project is applied. The maintenance loop itself remains available for the new project.
+### Preserved
 
-This does not wait for the new heatmap before returning to the map and does not change the no-flicker complete-frame presenter.
-
-### Diagnostics
-
-- Persistent diagnostic retention increases from 2,400 to **50,000 entries**.
-- IndexedDB remains append-based.
-- Once the log exceeds 50,000 entries it prunes back to 48,000 in a batch, avoiding continuous one-entry pruning at the cap.
-- The emergency in-memory fallback remains smaller so a storage failure cannot consume excessive RAM.
+- Progressive tiers remain **99 → 297 → 891**.
+- Every tier retains the existing parallel band computation on capable devices.
+- Bands remain compute-only and offscreen; only a complete assembled frame is presented.
+- No row painting, band painting, partial-frame publication, cross-fade, or heatmap-gated map reveal was introduced.
+- Imagery, project recovery, GPS geometry, and grading/volume calculations are unchanged.
 
 ### Version
 
-- Android DEV version: **1.4.1**
-- build: **112**
+- Android DEV version: **1.4.2**
+- build: **113**
 - application ID: `com.lordofrealms.padgrade.dev`

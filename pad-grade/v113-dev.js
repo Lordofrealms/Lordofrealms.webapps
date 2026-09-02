@@ -1,7 +1,7 @@
 /* Pad Grade v1.1.3 DEV — true heat swaps, reusable project surfaces, persistent final heat cache,
  * discrete resolution inspection, and Android lifecycle diagnostics.
  *
- * The authoritative IDW² worker math and 99/297/891 resolutions are unchanged.
+ * Background/inspector heat work now uses the same local surface definition as foreground heat.
  */
 (function installPadGrade113Dev(){
   'use strict';
@@ -19,8 +19,9 @@
   const INSPECT_LAYER_PREFIX='pad-grade-v113-inspect-layer-';
   const INSPECT_SOURCE_PREFIX='pad-grade-v113-inspect-source-';
   const CACHE_FORMAT='PadGradeHeatCache';
-  const CACHE_VERSION=1;
-  const WORKER_URL='heatmap-raster-worker-v073.js?v=20260825-1';
+  const CACHE_VERSION=2;
+  const CACHE_ENGINE='local-surface-v078-edge-locked';
+  const WORKER_URL='heatmap-raster-worker-v078.js?v=20260826-2';
   const lifecycleImportedKey='padGradeLifecycleImportedSeqV113';
 
   const NativeWorker=window.Worker;
@@ -169,7 +170,7 @@
       try{
         const files=window.PadGradeFiles;if(!files?.read)return null;
         const text=await files.read(cacheFilename(projectId));if(!text)return null;
-        const raw=JSON.parse(text);if(raw?.format!==CACHE_FORMAT||+raw.version!==CACHE_VERSION||raw.projectId!==projectId||raw.surfaceKey!==key||+raw.tier!==891||!(+raw.nx>0)||!(+raw.ny>0)||typeof raw.png!=='string')return null;
+        const raw=JSON.parse(text);if(raw?.format!==CACHE_FORMAT||+raw.version!==CACHE_VERSION||raw.engine!==CACHE_ENGINE||raw.projectId!==projectId||raw.surfaceKey!==key||+raw.tier!==891||!(+raw.nx>0)||!(+raw.ny>0)||typeof raw.png!=='string')return null;
         const canvas=await dataUrlToCanvas(raw.png,+raw.nx,+raw.ny);if(!canvas)return null;
         const item={projectId,key,tier:891,nx:+raw.nx,ny:+raw.ny,canvas,createdAt:raw.createdAt||null,cached:true};cacheMemory.set(memoryKey,item);mark('heatmap.cache-hit',{projectId,tier:891,nx:item.nx,ny:item.ny});return item;
       }catch(e){mark('heatmap.cache-read-failed',{projectId,error:String(e?.message||e).slice(0,120)});return null;}
@@ -225,7 +226,7 @@
         if(document.visibilityState==='hidden'){cacheWriteKeys.delete(memoryKey);setTimeout(()=>scheduleCacheWrite(projectId,key,canvas,nx,ny,source),1500);return;}
         const files=window.PadGradeFiles;if(!files?.write){cacheWriteKeys.delete(memoryKey);return;}
         const started=now(),png=await canvasPngDataUrl(canvas);if(!png){mark('heatmap.cache-encode-failed',{projectId,source});return;}
-        const payload=JSON.stringify({format:CACHE_FORMAT,version:CACHE_VERSION,projectId,surfaceKey:key,tier:891,nx,ny,createdAt:new Date().toISOString(),png});
+        const payload=JSON.stringify({format:CACHE_FORMAT,version:CACHE_VERSION,engine:CACHE_ENGINE,projectId,surfaceKey:key,tier:891,nx,ny,createdAt:new Date().toISOString(),png});
         const ok=await files.write(cacheFilename(projectId),payload);if(ok){cacheMemory.set(memoryKey,{projectId,key,tier:891,nx,ny,canvas,createdAt:new Date().toISOString(),cached:true});mark('heatmap.cache-written',{projectId,tier:891,nx,ny,bytes:payload.length,source,elapsedMs:+(now()-started).toFixed(1)});}else mark('heatmap.cache-write-skipped',{projectId,source});
       }catch(e){mark('heatmap.cache-write-failed',{projectId,error:String(e?.message||e).slice(0,120),source});}
       finally{cacheWriteKeys.delete(memoryKey);scheduleBackgroundCaching(1800);}

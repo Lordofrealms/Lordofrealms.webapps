@@ -1,3 +1,11 @@
+## v1.4.2 DEV / build 113 — unify local heat interpolation and invalidate ambiguous caches
+
+- Fixed a mixed-engine heat path: foreground 99/297/891 jobs already used `surface-local-v078`, while v1.1.3 background-cache and DEV-inspector jobs used a captured native Worker pointed at the historical global-IDW² v073 worker.
+- Redirected those background/inspector jobs to `heatmap-raster-worker-v078.js`, which uses the same locality-first triangle/rectangle evaluator and edge-locking rules as the v1.3.6 foreground coordinator.
+- Advanced the durable heat-cache schema to v2 and added the engine identity `local-surface-v078-edge-locked`; v1/unknown-engine cache images are rejected and regenerated rather than silently mixing interpolation models.
+- Added v1.4.2 regression coverage for local-triangle isolation from distant measurements, exact on-grade edge locking, cache-engine/schema invariants, and whole-raster versus seven-band equivalence at the 99/297/891 tiers.
+- Preserved progressive 99 → 297 → 891 scheduling, parallel compute, atomic full-frame presentation, no-row/no-band painting, map reveal timing, imagery, GPS geometry, and project recovery behavior.
+
 ## v1.4.1 DEV / build 112 — durable identity repair, 50k diagnostics, stale heat producer retirement
 
 - Added a pre-index persistent-directory integrity barrier that checks duplicate project IDs and six-character file IDs before durable restoration.
