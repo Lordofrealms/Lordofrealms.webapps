@@ -1,16 +1,16 @@
-name: Apply Pad Grade v1.4.2 Heat Consistency
+name: Apply Pad Grade v1.3.7 Update
 
 on:
   push:
     branches: [pad-grade-dev]
     paths:
-      - 'pad-grade/tools/apply-v142.trigger'
+      - 'pad-grade/tools/apply-v137.py'
 
 permissions:
   contents: write
 
 jobs:
-  apply-v142:
+  apply-v137:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,50 +18,23 @@ jobs:
           ref: pad-grade-dev
           fetch-depth: 0
 
-      - name: Apply v1.4.2 source update
+      - name: Apply v1.3.7 source update
+        run: python3 pad-grade/tools/apply-v137.py
+
+      - name: Validate generated JavaScript
         run: |
-          python3 pad-grade/tools/apply-v142.py
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('pad-grade/v142-heat-consistency-selftest.js')
-          s=p.read_text(encoding='utf-8')
-          old="  const nx=Math.max(25,Math.round(tier*width/length)),ny=tier;"
-          new="  const nx=18,ny=tier;"
-          if old not in s:
-              raise SystemExit('v1.4.2 selftest tier sizing marker missing')
-          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          node --check pad-grade/v137-imagery-selection-fix.js
+          node --check pad-grade/v137-imagery-selftest.js
+          node pad-grade/v137-imagery-selftest.js
 
-          p=Path('pad-grade/v136-all-tier-parallel-selftest.js')
-          s=p.read_text(encoding='utf-8')
-          old="assert(/<title>Pad Grade Mapper v1\\.3\\.\\d+ DEV<\\/title>/.test(index));"
-          new="assert(/<title>Pad Grade Mapper v\\d+\\.\\d+\\.\\d+ DEV<\\/title>/.test(index));"
-          if old not in s:
-              raise SystemExit('v1.3.6 stale title assertion marker missing')
-          p.write_text(s.replace(old,new,1),encoding='utf-8')
-          PY
-
-      - name: Validate focused heat consistency gates
-        run: |
-          node --check pad-grade/v113-dev.js
-          node --check pad-grade/v130-dev.js
-          node --check pad-grade/v142-heat-consistency-selftest.js
-          node pad-grade/v142-heat-consistency-selftest.js
-          node pad-grade/v136-all-tier-parallel-selftest.js
-          node pad-grade/v126-generation-cancel-selftest.js
-          git diff --check
-
-      - name: Commit generated v1.4.2 files
+      - name: Commit generated v1.3.7 files
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          # The apply helper also prepares the persistent Android gate, but a
-          # GitHub Actions token cannot modify workflow YAML. Commit application
-          # source first; the workflow gate is updated separately via GitHub.
-          git checkout -- .github/workflows/pad-grade-android.yml
           git add pad-grade pad-grade-android
           if git diff --cached --quiet; then
-            echo 'No v1.4.2 changes to commit.'
+            echo 'No v1.3.7 changes to commit.'
             exit 0
           fi
-          git commit -m 'Pad Grade v1.4.2: unify heat interpolation paths'
+          git commit -m 'Pad Grade v1.3.7 imagery and folder handoff'
           git push origin HEAD:pad-grade-dev
