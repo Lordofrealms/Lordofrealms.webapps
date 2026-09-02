@@ -5,6 +5,7 @@ on:
     branches: [pad-grade-dev]
     paths:
       - 'pad-grade/tools/apply-v138.py'
+      - '.github/workflows/pad-grade-v138-apply.yml'
 
 permissions:
   contents: write
