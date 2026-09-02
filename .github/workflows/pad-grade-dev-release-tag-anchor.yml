@@ -31,7 +31,7 @@ jobs:
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
           echo "RELEASE_TAG=pad-grade-dev-v$VERSION" >> "$GITHUB_ENV"
 
-      - name: Pre-create release tag on default branch
+      - name: Pre-create release tag on fresh main-equivalent anchor commit
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -42,25 +42,41 @@ jobs:
 
           DEFAULT_BRANCH=$(gh api "repos/$GITHUB_REPOSITORY" --jq '.default_branch')
           DEFAULT_SHA=$(gh api "repos/$GITHUB_REPOSITORY/commits/$DEFAULT_BRANCH" --jq '.sha')
+          DEFAULT_TREE=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$DEFAULT_SHA" --jq '.tree.sha')
 
-          # GitHub's Releases API now requires Workflows:write when it must
-          # create a tag at a commit whose .github/workflows tree differs from
-          # the default branch. The built-in GITHUB_TOKEN cannot receive that
-          # permission. Creating this lightweight release-distribution tag on
-          # the default-branch commit avoids that guard. The Android workflow
-          # still builds the APK from pad-grade-dev and records the real source
-          # SHA in its Actions run; target_commitish is ignored once this tag
-          # already exists.
+          # GitHub's Releases API may require Workflows:write when it must create
+          # a tag at a commit whose .github/workflows tree differs from the
+          # default branch. The built-in GITHUB_TOKEN cannot receive that
+          # permission. Create a synthetic commit with the exact default-branch
+          # tree and parent instead. It changes no files and does not move main,
+          # but it has a fresh commit timestamp so GitHub's Releases page sorts
+          # new dev releases normally instead of using an old main commit date.
+          ANCHOR_SHA=$(gh api --method POST "repos/$GITHUB_REPOSITORY/git/commits" \
+            -f message="Pad Grade DEV release anchor: $RELEASE_TAG" \
+            -f tree="$DEFAULT_TREE" \
+            -f "parents[]=$DEFAULT_SHA" \
+            --jq '.sha')
+
           gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
             -f ref="refs/tags/$RELEASE_TAG" \
-            -f sha="$DEFAULT_SHA"
+            -f sha="$ANCHOR_SHA"
 
-      - name: Verify anchored tag
+          echo "ANCHOR_SHA=$ANCHOR_SHA" >> "$GITHUB_ENV"
+          echo "DEFAULT_SHA=$DEFAULT_SHA" >> "$GITHUB_ENV"
+          echo "DEFAULT_TREE=$DEFAULT_TREE" >> "$GITHUB_ENV"
+
+      - name: Verify anchored tag is fresh and main-equivalent
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG_SHA=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')
           DEFAULT_BRANCH=$(gh api "repos/$GITHUB_REPOSITORY" --jq '.default_branch')
-          DEFAULT_SHA=$(gh api "repos/$GITHUB_REPOSITORY/commits/$DEFAULT_BRANCH" --jq '.sha')
-          test "$TAG_SHA" = "$DEFAULT_SHA"
-          echo "$RELEASE_TAG anchored to $DEFAULT_BRANCH at $DEFAULT_SHA"
+          DEFAULT_SHA_NOW=$(gh api "repos/$GITHUB_REPOSITORY/commits/$DEFAULT_BRANCH" --jq '.sha')
+          DEFAULT_TREE_NOW=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$DEFAULT_SHA_NOW" --jq '.tree.sha')
+          TAG_TREE=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$TAG_SHA" --jq '.tree.sha')
+          TAG_PARENT=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$TAG_SHA" --jq '.parents[0].sha')
+
+          test "$TAG_TREE" = "$DEFAULT_TREE_NOW"
+          test "$TAG_PARENT" = "$DEFAULT_SHA_NOW"
+          test "$TAG_SHA" != "$DEFAULT_SHA_NOW"
+          echo "$RELEASE_TAG anchored to fresh no-op commit $TAG_SHA over $DEFAULT_BRANCH $DEFAULT_SHA_NOW"
