@@ -21,7 +21,9 @@
   const DB_NAME='PadGradeDiagnosticsV125';
   const DB_VERSION=1;
   const STORE='entries';
-  const MAX_ENTRIES=2400;
+  const MAX_ENTRIES=50000;
+  const PRUNE_TO=48000;
+  const MEMORY_MAX=5000;
   const PREBUFFER_MAX=500;
   const FLUSH_MS=750;
   const UI_REFRESH_MS=750;
@@ -64,7 +66,7 @@
     }
     return Object.keys(out).length?out:undefined;
   }
-  function capArray(arr,max=MAX_ENTRIES){if(arr.length>max)arr.splice(0,arr.length-max);return arr;}
+  function capArray(arr,max=MEMORY_MAX){if(arr.length>max)arr.splice(0,arr.length-max);return arr;}
 
   function openDb(){
     if(dbPromise)return dbPromise;
@@ -93,7 +95,7 @@
       const tx=db.transaction(STORE,'readwrite'),store=tx.objectStore(STORE);
       for(const entry of batch)store.add(entry);
       await txDone(tx);persistedCount+=batch.length;
-      if(persistedCount>MAX_ENTRIES)await pruneOldest(db,persistedCount-MAX_ENTRIES);
+      if(persistedCount>MAX_ENTRIES)await pruneOldest(db,persistedCount-PRUNE_TO);
     }catch(e){
       storageMode='memory';memoryEntries.push(...batch);capArray(memoryEntries);persistedCount=memoryEntries.length;
     }

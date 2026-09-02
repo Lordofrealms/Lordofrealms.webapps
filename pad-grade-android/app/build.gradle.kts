@@ -51,9 +51,9 @@ android {
         targetSdk = 36
         // Versioning rule: every changed test/release APK gets a new versionCode.
         // User-visible behavior changes also advance versionName before the build is published.
-        // v1.3.8 field-build trigger: picker-cover ownership handoff only.
-        versionCode = 110
-        versionName = "1.3.8"
+        // v1.4.1 DEV: durable identity repair, extended diagnostics, stale heat retirement.
+        versionCode = 112
+        versionName = "1.4.1"
     }
 
     buildTypes {

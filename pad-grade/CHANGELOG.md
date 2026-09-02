@@ -1,3 +1,12 @@
+## v1.4.1 DEV / build 112 — durable identity repair, 50k diagnostics, stale heat producer retirement
+
+- Added a pre-index persistent-directory integrity barrier that checks duplicate project IDs and six-character file IDs before durable restoration.
+- Repairs collisions conservatively with newest-owner retention, write-first/delete-second replacement, rollback on cleanup failure, heat-cache invalidation for repaired shared project IDs, and project-index invalidation for clean rebuild.
+- Preserved the normal recovery mutation lock; only the explicit integrity transaction can bypass it.
+- Increased IndexedDB diagnostic retention to 50,000 entries with batch prune-back to 48,000; memory fallback remains bounded at 5,000.
+- Fixed recurring stale heat restoration attempts by clearing the v1.1.1 producer completed-canvas/generation state on `padgrade-before-project-switch`; existing v1.2.6/v1.2.7 physical worker cancellation remains intact.
+- Heat interpolation, 99/297/891 progressive computation, parallel band math, atomic complete-frame presentation, imagery, grading math, and map reveal timing are unchanged.
+
 # Changelog
 
 ## v1.3.8 — development build

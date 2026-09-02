@@ -1,52 +1,38 @@
-# Pad Grade Mapper v1.3.8 — DEV BUILD
+# Pad Grade Mapper v1.4.1 — DEV BUILD
 
-## v1.3.8 — remove the stale picker-cover frame before restoration
+## v1.4.1 — project identity repair and cleaner project switching
 
-v1.3.8 is intentionally narrow. Heatmap processing remains exactly as v1.3.6/v1.3.7, and imagery remains exactly as v1.3.7. This build fixes only the visual ownership transition after a successful durable-folder selection.
+v1.4.1 is a focused reliability build following the v1.4.0 stable promotion. Heatmap interpolation, progressive 99 / 297 / 891 computation, atomic complete-frame presentation, grading math, and imagery quality are unchanged.
 
-## Fixed — folder-picker cover → restoring cover
+### Fixed — duplicate project identities in the persistent folder
 
-The v1.3.7 field log showed that Android's successful folder result was already reaching Pad Grade while the app was still hidden behind the system picker. The remaining flash was therefore not an Android-picker dismissal delay and not an uncovered frame.
+On persistent-directory restoration, Pad Grade now checks project IDs and six-character file IDs before the indexed project controller is allowed to restore a project.
 
-The actual cause was the first-run CSS ownership class `padGradeFirstRunSetupV127`. That class intentionally changes the shared recovery pseudo-element from `Restoring saved project…` to `Choose project storage to continue` while the durable-folder picker is active. v1.3.7 re-armed the shared recovery hold after a successful folder result but left that picker-specific class active, so the old folder cover could remain visible until the recovery reload.
+- Duplicate project IDs are repaired automatically.
+- Duplicate file IDs are repaired automatically.
+- The newest colliding project keeps the existing identity; older colliding files receive new unique identities.
+- Repairs are write-first/delete-second so an original file is not removed until its repaired replacement is safely written.
+- If cleanup of the old file fails, the replacement is rolled back rather than silently creating an ambiguous second copy.
+- A repaired duplicate project invalidates the shared old-ID heat cache, and the rebuildable project index is invalidated so it is reconstructed from the repaired authoritative files.
+- Normal recovery writes remain locked; only the explicit integrity-repair transaction can write during this pre-restore check.
 
-v1.3.8 keeps the same cover element/pseudo-element and changes only its ownership:
+### Fixed — stale heat work after a project switch
 
-- durable-folder picker launch marks the existing picker-cover state as active;
-- when the existing native success callback re-arms the recovery hold while Android still covers the app, v1.3.8 removes only `padGradeFirstRunSetupV127`;
-- the shared `padGradeRecoveryHold` remains active, so the first Pad Grade frame exposed after the system picker closes already says `Restoring saved project…`;
-- a small ownership guard prevents the legacy first-run keepalive from re-adding the picker wording during that recovery window;
-- canceling the picker or rejecting the selected folder returns ownership to the existing folder-choice cover.
+The old heat workers were already being terminated, but the older heat producer still retained its last completed canvas. Its 900 ms maintenance pass could therefore keep trying to restore that dead canvas after a switch.
 
-No new cover, overlay, native curtain or arbitrary delay is added. TOS, folder indexing, durable recovery, reload timing, project restoration, map startup and map-ready cover release are unchanged.
+v1.4.1 clears that producer state at the existing project-switch boundary. The old workers, pending rasters, completed canvas reference, slot ownership, and old surface key are retired before the new project is applied. The maintenance loop itself remains available for the new project.
 
-Diagnostic proof: `recovery.v138-picker-cover-promoted-to-restoring` should occur before Pad Grade becomes visible after a successful picker result and report `noNewCover:true`, `samePseudoElement:true`, and `pickerOverrideRemoved:true`.
+This does not wait for the new heatmap before returning to the map and does not change the no-flicker complete-frame presenter.
 
-## Heatmap — unchanged
+### Diagnostics
 
-- 99 / 297 / 891 remain on the proven parallel Blob-worker path.
-- Atomic full-frame presentation and the no-row-painting/no-flicker boundary are unchanged.
-- No heatmap files or algorithms are modified by v1.3.8.
+- Persistent diagnostic retention increases from 2,400 to **50,000 entries**.
+- IndexedDB remains append-based.
+- Once the log exceeds 50,000 entries it prunes back to 48,000 in a batch, avoiding continuous one-entry pruning at the cap.
+- The emergency in-memory fallback remains smaller so a storage failure cannot consume excessive RAM.
 
-## Imagery — unchanged
+### Version
 
-v1.3.7 remains the active imagery policy. The latest field log proved the live map selected the best positive-resolution USGS NAIP Plus candidate available at the tested location: 0.6 m selected and 0.6 m best-positive, with `selectedMatchesBestPositive:true`. v1.3.8 makes no imagery-source, quality, request, diagnostic or layer-order changes.
-
-## Release pipeline
-
-The fresh synthetic main-equivalent tag anchor from v1.3.7 is retained so DEV releases remain reliable and sort newest-first.
-
-## Version
-
-- Android DEV version: **1.3.8**
-- build: **110**
-- application ID remains `com.lordofrealms.padgrade.dev`.
-
-## DEV field test
-
-1. Install/update v1.3.8 DEV.
-2. On a clean/reinstall recovery test, accept TOS and choose the durable folder.
-3. Complete the Android folder picker.
-4. When the picker disappears, the very first Pad Grade frame should already be the existing `Restoring saved project…` cover. The `Choose project storage to continue` cover should not flash again.
-5. Let recovery/map startup complete normally.
-6. Export a diagnostic log and confirm `recovery.v138-picker-cover-promoted-to-restoring` precedes the post-picker visible state.
+- Android DEV version: **1.4.1**
+- build: **112**
+- application ID: `com.lordofrealms.padgrade.dev`
