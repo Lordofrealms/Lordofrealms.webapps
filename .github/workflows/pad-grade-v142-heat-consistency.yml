@@ -30,4 +30,14 @@ jobs:
           node pad-grade/v142-heat-consistency-selftest.js
           node pad-grade/v136-all-tier-parallel-selftest.js
           node pad-grade/v126-generation-cancel-selftest.js
-          git diff --check
+      - name: Validate project deletion consistency
+        run: |
+          node --check pad-grade/v143-delete-consistency.js
+          node --check pad-grade/v143-delete-consistency-selftest.js
+          node --check pad-grade/v096-dev-defaults.js
+          node pad-grade/v143-delete-consistency-selftest.js
+          grep -F '__padGradeDeleteCaptureV143' pad-grade/v096-dev-defaults.js
+          grep -F 'v143-delete-consistency.js?v=20260902-1' pad-grade/index.html
+          grep -F "exact-durable-first-local-index-cache-then-double-reconcile" pad-grade/v143-delete-consistency.js
+      - name: Check whitespace
+        run: git diff --check
