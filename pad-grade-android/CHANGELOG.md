@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.3.8 — development build
+
+### Recovery UI — retire picker wording before post-picker reveal
+- Fixes the remaining stale folder-cover flash after a successful Android durable-folder selection.
+- Root cause: v1.3.7 re-armed the shared `padGradeRecoveryHold`, but the first-run `padGradeFirstRunSetupV127` class still overrode that same pseudo-element to `Choose project storage to continue` until reload.
+- v1.3.8 removes/suppresses only that picker-specific class during the successful hidden handoff, while keeping the existing recovery cover continuously active as `Restoring saved project…`.
+- Picker cancellation or rejected-folder recovery returns ownership to the existing folder-choice cover.
+- Adds no cover, overlay, native curtain or arbitrary transition delay; TOS, indexing, recovery, reload and map-ready release remain unchanged.
+
+### Heatmap
+- No changes. v1.3.6/v1.3.7 all-tier parallel compute and atomic full-frame presentation are carried forward unchanged.
+
+### Imagery
+- No changes. v1.3.7 best-positive USGS NAIP Plus selection remains active; the latest field proof selected the available 0.6 m best-positive raster.
+
+### Release pipeline
+- Retains the v1.3.7 fresh synthetic main-equivalent tag anchor and newest-first Releases ordering.
+
+### Version
+- Android DEV package: **1.3.8 / build 110**.
+
 ## v1.3.7 — development build
 
 ### Imagery — best positive-resolution NAIP source
