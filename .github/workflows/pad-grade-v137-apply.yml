@@ -1,16 +1,16 @@
-name: Apply Pad Grade v1.3.7 Update
+name: Apply Pad Grade v1.4.2 Heat Consistency
 
 on:
   push:
     branches: [pad-grade-dev]
     paths:
-      - 'pad-grade/tools/apply-v137.py'
+      - 'pad-grade/tools/apply-v142.trigger'
 
 permissions:
   contents: write
 
 jobs:
-  apply-v137:
+  apply-v142:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,23 +18,38 @@ jobs:
           ref: pad-grade-dev
           fetch-depth: 0
 
-      - name: Apply v1.3.7 source update
-        run: python3 pad-grade/tools/apply-v137.py
-
-      - name: Validate generated JavaScript
+      - name: Apply v1.4.2 source update
         run: |
-          node --check pad-grade/v137-imagery-selection-fix.js
-          node --check pad-grade/v137-imagery-selftest.js
-          node pad-grade/v137-imagery-selftest.js
+          python3 pad-grade/tools/apply-v142.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('pad-grade/v142-heat-consistency-selftest.js')
+          s=p.read_text(encoding='utf-8')
+          old="  const nx=Math.max(25,Math.round(tier*width/length)),ny=tier;"
+          new="  const nx=18,ny=tier;"
+          if old not in s:
+              raise SystemExit('v1.4.2 selftest tier sizing marker missing')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          PY
 
-      - name: Commit generated v1.3.7 files
+      - name: Validate focused heat consistency gates
+        run: |
+          node --check pad-grade/v113-dev.js
+          node --check pad-grade/v130-dev.js
+          node --check pad-grade/v142-heat-consistency-selftest.js
+          node pad-grade/v142-heat-consistency-selftest.js
+          node pad-grade/v136-all-tier-parallel-selftest.js
+          node pad-grade/v126-generation-cancel-selftest.js
+          git diff --check
+
+      - name: Commit generated v1.4.2 files
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add pad-grade pad-grade-android
+          git add pad-grade pad-grade-android .github/workflows/pad-grade-android.yml
           if git diff --cached --quiet; then
-            echo 'No v1.3.7 changes to commit.'
+            echo 'No v1.4.2 changes to commit.'
             exit 0
           fi
-          git commit -m 'Pad Grade v1.3.7 imagery and folder handoff'
+          git commit -m 'Pad Grade v1.4.2: unify heat interpolation paths'
           git push origin HEAD:pad-grade-dev
