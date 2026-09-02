@@ -24,15 +24,12 @@ jobs:
           from pathlib import Path
 
           def replace_once(path, old, new):
-              p=Path(path); text=p.read_text(encoding='utf-8')
-              if old not in text:
-                  raise SystemExit(f'Expected patch anchor missing in {path}: {old[:120]!r}')
+              p=Path(path)
+              text=p.read_text(encoding='utf-8')
               if text.count(old)!=1:
-                  raise SystemExit(f'Patch anchor not unique in {path}: {text.count(old)} matches')
+                  raise SystemExit(f'{path}: expected exactly one patch anchor, got {text.count(old)} for {old[:80]!r}')
               p.write_text(text.replace(old,new,1),encoding='utf-8')
 
-          # 1) Diagnostic retention: IndexedDB stays append-style, but retain a much
-          # longer field history and prune in batches instead of one row at a time.
           replace_once('pad-grade/v096-diagnostics.js',
               "  const MAX_ENTRIES=2400;\n  const PREBUFFER_MAX=500;",
               "  const MAX_ENTRIES=50000;\n  const PRUNE_TO=48000;\n  const MEMORY_MAX=5000;\n  const PREBUFFER_MAX=500;")
@@ -43,289 +40,83 @@ jobs:
               "      if(persistedCount>MAX_ENTRIES)await pruneOldest(db,persistedCount-MAX_ENTRIES);",
               "      if(persistedCount>MAX_ENTRIES)await pruneOldest(db,persistedCount-PRUNE_TO);")
 
-          # 2) Permit only the explicit integrity repair transaction to write while
-          # the normal recovery mutation lock remains active.
           replace_once('pad-grade/v096-native-async.js',
               "    if(!pendingRecovery)return false;\n    let curtain=false;",
               "    if(!pendingRecovery)return false;\n    if(window.__padGradeIntegrityRepairActive===true)return false;\n    let curtain=false;")
 
-          # Load the integrity barrier after the schema formatter but before the
-          # indexed controller. This makes restoration wait for the checker/repairer
-          # without adding an arbitrary timer.
-          old_loader="""  function loadFormatThenIndex(){
-    if(window.PadGradeProjectFormatV107){loadIndexController();return;}
-    const existing=document.querySelector('script[data-padgrade-project-format-v107]');
-    if(existing){existing.addEventListener('load',loadIndexController,{once:true});return;}
-    const script=document.createElement('script');script.src='project-format-v107.js?v=20260830-1';script.async=false;script.dataset.padgradeProjectFormatV107='1';script.onload=loadIndexController;script.onerror=()=>console.error('Pad Grade schema-6 formatter failed to load');
-    (document.head||document.documentElement).appendChild(script);
-  }
-  loadFormatThenIndex();"""
-          new_loader="""  function loadIntegrityThenIndex(){
-    const proceed=()=>{
-      try{
-        const pending=window.PadGradeProjectIntegrityV141?.beforeIndexController?.();
-        if(pending&&typeof pending.then==='function'){
-          pending.then(loadIndexController,error=>{console.error('Pad Grade v1.4.1 integrity barrier failed',error);loadIndexController();});
-          return;
-        }
-      }catch(error){console.error('Pad Grade v1.4.1 integrity barrier failed',error);}
-      loadIndexController();
-    };
-    if(window.PadGradeProjectIntegrityV141){proceed();return;}
-    const existing=document.querySelector('script[data-padgrade-v141-storage-integrity]');
-    if(existing){existing.addEventListener('load',proceed,{once:true});return;}
-    const script=document.createElement('script');script.src='v141-storage-integrity.js?v=20260902-1';script.async=false;script.dataset.padgradeV141StorageIntegrity='1';script.onload=proceed;script.onerror=()=>{console.error('Pad Grade v1.4.1 storage integrity module failed to load');loadIndexController();};
-    (document.head||document.documentElement).appendChild(script);
-  }
-  function loadFormatThenIndex(){
-    if(window.PadGradeProjectFormatV107){loadIntegrityThenIndex();return;}
-    const existing=document.querySelector('script[data-padgrade-project-format-v107]');
-    if(existing){existing.addEventListener('load',loadIntegrityThenIndex,{once:true});return;}
-    const script=document.createElement('script');script.src='project-format-v107.js?v=20260830-1';script.async=false;script.dataset.padgradeProjectFormatV107='1';script.onload=loadIntegrityThenIndex;script.onerror=()=>console.error('Pad Grade schema-6 formatter failed to load');
-    (document.head||document.documentElement).appendChild(script);
-  }
-  loadFormatThenIndex();"""
+          old_loader=(
+              "  function loadFormatThenIndex(){\n"
+              "    if(window.PadGradeProjectFormatV107){loadIndexController();return;}\n"
+              "    const existing=document.querySelector('script[data-padgrade-project-format-v107]');\n"
+              "    if(existing){existing.addEventListener('load',loadIndexController,{once:true});return;}\n"
+              "    const script=document.createElement('script');script.src='project-format-v107.js?v=20260830-1';script.async=false;script.dataset.padgradeProjectFormatV107='1';script.onload=loadIndexController;script.onerror=()=>console.error('Pad Grade schema-6 formatter failed to load');\n"
+              "    (document.head||document.documentElement).appendChild(script);\n"
+              "  }\n"
+              "  loadFormatThenIndex();")
+          new_loader=(
+              "  function loadIntegrityThenIndex(){\n"
+              "    const proceed=()=>{\n"
+              "      try{\n"
+              "        const pending=window.PadGradeProjectIntegrityV141?.beforeIndexController?.();\n"
+              "        if(pending&&typeof pending.then==='function'){pending.then(loadIndexController,error=>{console.error('Pad Grade v1.4.1 integrity barrier failed',error);loadIndexController();});return;}\n"
+              "      }catch(error){console.error('Pad Grade v1.4.1 integrity barrier failed',error);}\n"
+              "      loadIndexController();\n"
+              "    };\n"
+              "    if(window.PadGradeProjectIntegrityV141){proceed();return;}\n"
+              "    const existing=document.querySelector('script[data-padgrade-v141-storage-integrity]');\n"
+              "    if(existing){existing.addEventListener('load',proceed,{once:true});return;}\n"
+              "    const script=document.createElement('script');script.src='v141-storage-integrity.js?v=20260902-1';script.async=false;script.dataset.padgradeV141StorageIntegrity='1';script.onload=proceed;script.onerror=()=>{console.error('Pad Grade v1.4.1 storage integrity module failed to load');loadIndexController();};\n"
+              "    (document.head||document.documentElement).appendChild(script);\n"
+              "  }\n"
+              "  function loadFormatThenIndex(){\n"
+              "    if(window.PadGradeProjectFormatV107){loadIntegrityThenIndex();return;}\n"
+              "    const existing=document.querySelector('script[data-padgrade-project-format-v107]');\n"
+              "    if(existing){existing.addEventListener('load',loadIntegrityThenIndex,{once:true});return;}\n"
+              "    const script=document.createElement('script');script.src='project-format-v107.js?v=20260830-1';script.async=false;script.dataset.padgradeProjectFormatV107='1';script.onload=loadIntegrityThenIndex;script.onerror=()=>console.error('Pad Grade schema-6 formatter failed to load');\n"
+              "    (document.head||document.documentElement).appendChild(script);\n"
+              "  }\n"
+              "  loadFormatThenIndex();")
           replace_once('pad-grade/v096-native-async.js',old_loader,new_loader)
 
-          # 3) Kill the stale producer state itself on a successful project switch.
-          # The existing worker cancellation remains authoritative; this clears the
-          # completed-canvas reference that the 900 ms maintenance loop otherwise
-          # keeps attempting to restore.
           replace_once('pad-grade/v063-dev.js',
               "    window.addEventListener('padgrade-active-project-applied',()=>setTimeout(syncSurface,0));\n    syncTimer=setInterval(()=>{installMapClick();syncSurface();syncLaserMarker();},900);",
               "    window.addEventListener('padgrade-before-project-switch',()=>{removeRaster();try{window.PadGradeDiag?.mark?.('heatmap.v141-outgoing-producer-retired',{displayedCanvasCleared:true,workerStateCleared:true,maintenanceLoopPreserved:true});}catch(e){}});\n    window.addEventListener('padgrade-active-project-applied',()=>setTimeout(syncSurface,0));\n    syncTimer=setInterval(()=>{installMapClick();syncSurface();syncLaserMarker();},900);")
 
-          # Version metadata.
           replace_once('pad-grade/index.html','<title>Pad Grade Mapper v1.3.8 DEV</title>','<title>Pad Grade Mapper v1.4.1 DEV</title>')
           replace_once('pad-grade-android/app/build.gradle.kts',
               "        // v1.3.8 field-build trigger: picker-cover ownership handoff only.\n        versionCode = 110\n        versionName = \"1.3.8\"",
               "        // v1.4.1 DEV: durable identity repair, extended diagnostics, stale heat retirement.\n        versionCode = 112\n        versionName = \"1.4.1\"")
 
-          storage = r'''/* Pad Grade v1.4.1 DEV — persistent project/file identity integrity barrier.
- *
- * Runs before the v1.0.7 indexed controller is allowed to restore the durable
- * directory. Unchanged schema-6 projects need only their bounded headers. Full
- * project bodies are read only for headerless legacy files or actual collisions.
- *
- * Repair is conservative: newest duplicate keeps the existing identity; every
- * other colliding project is written to a new canonical filename first, then the
- * old file is deleted. If deletion fails, the new write is rolled back. The
- * rebuildable .pgindex is invalidated after a successful repair so the existing
- * index controller reconstructs it from authoritative project files.
- */
-(function installPadGrade141StorageIntegrity(){
-  'use strict';
-  if(window.PadGradeProjectIntegrityV141)return;
-  const VERSION='1.4.1';
-  const INDEX_FILE='Pad-Grade-Project-Index.pgindex';
-  const files=window.PadGradeFiles||null,native=window.PadGradeNative||null,fmt=window.PadGradeProjectFormatV107||null;
-  let runPromise=null,barrierPromise=null;
-  const mark=(name,details)=>{try{window.PadGradeDiag?.mark?.(name,details);}catch(e){}};
-  const parse=(text,fallback=null)=>{try{return text?JSON.parse(text):fallback;}catch(e){return fallback;}};
-  const isCandidate=name=>{const n=String(name||'').toLowerCase();return n.endsWith('.padgrade')||n.endsWith('.padgrade.json')||n.endsWith('.json');};
-  const isBackup=raw=>!!(raw&&typeof raw==='object'&&(raw.backupType==='all-projects'||Array.isArray(raw.projects)));
-  const cacheFilename=id=>`Pad-Grade-Heat-${String(id||'unknown').replace(/[^A-Za-z0-9._-]/g,'_')}.pgheatcache`;
-  const modifiedMs=x=>{const a=Date.parse(x?.modifiedAt||x?.createdAt||'');return Number.isFinite(a)?a:Math.max(0,Number(x?.lastModified)||0);};
-  function durableCapable(){return !!native&&(typeof native.hasProjectFolderConfigured==='function'||typeof native.hasProjectFolder==='function');}
-  function hasFolder(){try{if(typeof native?.hasProjectFolderConfigured==='function')return !!native.hasProjectFolderConfigured();return !!native?.hasProjectFolder?.();}catch(e){return false;}}
-  function indexReady(){try{return typeof native?.isProjectFolderIndexReady==='function'?!!native.isProjectFolderIndexReady():true;}catch(e){return false;}}
-  function details(){try{return (files?.details?.()||[]).filter(x=>x&&typeof x.name==='string'&&isCandidate(x.name));}catch(e){return [];}}
-  async function withRepairWrite(fn){const prior=window.__padGradeIntegrityRepairActive;window.__padGradeIntegrityRepairActive=true;try{return await fn();}finally{if(prior===undefined)delete window.__padGradeIntegrityRepairActive;else window.__padGradeIntegrityRepairActive=prior;}}
-  function randomProjectId(used){for(let i=0;i<2000;i++){const id=`pg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;if(!used.has(id)){used.add(id);return id;}}throw new Error('Unable to allocate unique project ID');}
-  function randomFileId(used){const L='ABCDEFGHJKLMNPQRSTUVWXYZ',D='23456789';for(let a=0;a<2000;a++){let s='';for(let i=0;i<4;i++)s+=L[Math.floor(Math.random()*L.length)];for(let i=0;i<2;i++)s+=D[Math.floor(Math.random()*D.length)];if(!used.has(s)){used.add(s);return s;}}throw new Error('Unable to allocate unique file ID');}
-  async function inspect(detail){
-    const head=await files.readHead(detail.name,4096),h=fmt.parseHeaderText(head);
-    if(h)return {kind:'project',filename:detail.name,lastModified:+detail.lastModified||0,projectId:String(h.id||''),fileId:fmt.validFileId(h.fileId)||fmt.fileIdFromFilename(detail.name)||null,modifiedAt:h.modifiedAt||null,raw:null};
-    const text=await files.read(detail.name),raw=parse(text,null);if(!raw)return {kind:'invalid',filename:detail.name};
-    if(isBackup(raw))return {kind:'backup',filename:detail.name};
-    const p=fmt.normalizeProject(raw,detail.name);if(!p)return {kind:'invalid',filename:detail.name};
-    return {kind:'project',filename:detail.name,lastModified:+detail.lastModified||0,projectId:String(p.id||''),fileId:fmt.validFileId(p.fileId)||fmt.fileIdFromFilename(detail.name)||null,modifiedAt:p.modifiedAt||null,raw,text};
-  }
-  function ownerOf(list){return list.slice().sort((a,b)=>modifiedMs(b)-modifiedMs(a)||String(b.filename).localeCompare(String(a.filename)))[0];}
-  function markCollisions(records,key,reason,toRepair){
-    const groups=new Map();for(const r of records){const value=r[key];if(!value)continue;if(!groups.has(value))groups.set(value,[]);groups.get(value).push(r);}
-    for(const [value,list] of groups)if(list.length>1){const owner=ownerOf(list);for(const r of list)if(r!==owner){if(!toRepair.has(r.filename))toRepair.set(r.filename,new Set());toRepair.get(r.filename).add(reason);}mark('project.integrity-collision',{kind:reason,value,files:list.length,owner:owner.filename});}
-  }
-  async function bodyFor(record){if(record.raw)return fmt.normalizeProject(record.raw,record.filename);const text=await files.read(record.filename),raw=parse(text,null);if(!raw||isBackup(raw))return null;return fmt.normalizeProject(raw,record.filename);}
-  async function repair(records){
-    const projects=records.filter(r=>r.kind==='project'&&r.projectId),toRepair=new Map();
-    markCollisions(projects,'projectId','duplicate-project-id',toRepair);
-    markCollisions(projects,'fileId','duplicate-file-id',toRepair);
-    if(!toRepair.size)return {repaired:0,failed:0,collisions:0};
-    const usedProjectIds=new Set(projects.map(r=>r.projectId).filter(Boolean));
-    const usedFileIds=new Set(projects.map(r=>r.fileId).filter(Boolean));
-    const usedNames=new Set(records.map(r=>r.filename));
-    let repaired=0,failed=0;
-    for(const [filename,reasons] of toRepair){
-      const record=projects.find(r=>r.filename===filename);if(!record){failed++;continue;}
-      const p=await bodyFor(record);if(!p){failed++;mark('project.integrity-repair-failed',{filename,reason:'project-body-unreadable'});continue;}
-      const oldProjectId=String(p.id||record.projectId||''),oldFileId=fmt.validFileId(p.fileId)||record.fileId||null;
-      if(reasons.has('duplicate-project-id'))p.id=randomProjectId(usedProjectIds);
-      if(reasons.has('duplicate-file-id'))p.fileId=randomFileId(usedFileIds);else if(oldFileId)p.fileId=oldFileId;
-      if(!fmt.validFileId(p.fileId))p.fileId=randomFileId(usedFileIds);
-      const stamp={at:new Date().toISOString(),priorProjectId:oldProjectId,priorFileId:oldFileId,reasons:[...reasons]};
-      p.migration={...(p.migration&&typeof p.migration==='object'?p.migration:{}),integrityRepairV141:stamp};
-      let target=`${p.fileId}-${p.id}.padgrade`;
-      while(target!==filename&&usedNames.has(target)){p.fileId=randomFileId(usedFileIds);target=`${p.fileId}-${p.id}.padgrade`;}
-      const text=fmt.serializeV6(p,target);
-      let ok=false,deletedOld=true;
-      try{
-        ok=await withRepairWrite(()=>files.write(target,text));
-        if(ok&&target!==filename){deletedOld=await withRepairWrite(()=>files.delete(filename));if(!deletedOld){await withRepairWrite(()=>files.delete(target));ok=false;}}
-      }catch(e){ok=false;}
-      if(!ok){failed++;mark('project.integrity-repair-failed',{filename,target,reason:deletedOld?'write-failed':'old-file-delete-failed-rolled-back'});continue;}
-      usedNames.delete(filename);usedNames.add(target);record.filename=target;record.projectId=p.id;record.fileId=p.fileId;
-      try{localStorage.setItem(`padGradeProjectV5:${p.id}`,JSON.stringify(p));}catch(e){}
-      if(reasons.has('duplicate-project-id'))try{await withRepairWrite(()=>files.delete(cacheFilename(oldProjectId)));}catch(e){}
-      repaired++;mark('project.integrity-repaired',{filename,target,projectIdChanged:p.id!==oldProjectId,fileIdChanged:p.fileId!==oldFileId,reasons:[...reasons],heatCacheInvalidated:reasons.has('duplicate-project-id')});
-    }
-    if(repaired>0){try{await withRepairWrite(()=>files.delete(INDEX_FILE));}catch(e){}mark('project.integrity-index-invalidated',{repaired});}
-    return {repaired,failed,collisions:toRepair.size};
-  }
-  async function run(reason='persistent-directory-restoration'){
-    if(runPromise)return runPromise;
-    runPromise=(async()=>{
-      if(!files||!fmt||!durableCapable()||!hasFolder()||!indexReady())return {ready:false,reason:'folder-not-ready'};
-      const meta=details(),records=[];let backups=0,invalid=0;
-      mark('project.integrity-scan-start',{reason,files:meta.length,headerFirst:true});
-      for(const detail of meta){const r=await inspect(detail);records.push(r);if(r.kind==='backup')backups++;if(r.kind==='invalid')invalid++;await new Promise(resolve=>setTimeout(resolve,0));}
-      const result=await repair(records);const out={ready:true,reason,files:meta.length,projects:records.filter(r=>r.kind==='project').length,backupsSkipped:backups,invalidFiles:invalid,...result};
-      window.__padGradeProjectIntegrityV141Last=out;mark('project.integrity-scan-complete',out);return out;
-    })().finally(()=>{runPromise=null;});return runPromise;
-  }
-  function beforeIndexController(){
-    if(barrierPromise)return barrierPromise;
-    if(!durableCapable())return Promise.resolve({ready:true,reason:'no-durable-native-capability'});
-    if(hasFolder()&&indexReady())return run('persistent-directory-restoration');
-    barrierPromise=new Promise(resolve=>{
-      const events=['padgrade-project-folder-selected','padgrade-project-folder-indexed','padgrade-durable-sync-ready','padgrade-project-folder-refreshed'];
-      let settled=false;
-      const cleanup=()=>{for(const name of events)window.removeEventListener?.(name,attempt);window.removeEventListener?.('load',attempt);};
-      const attempt=()=>{if(settled||!hasFolder()||!indexReady())return;settled=true;cleanup();run('persistent-directory-restoration-after-folder-ready').then(resolve,error=>{mark('project.integrity-barrier-error',{error:String(error?.message||error).slice(0,160)});resolve({ready:false,error:String(error?.message||error)});});};
-      for(const name of events)window.addEventListener?.(name,attempt);window.addEventListener?.('load',attempt,{once:true});
-      mark('project.integrity-barrier-waiting',{eventDriven:true,arbitraryDelay:false});attempt();
-    }).finally(()=>{barrierPromise=null;});
-    return barrierPromise;
-  }
-  window.PadGradeProjectIntegrityV141={version:VERSION,run,beforeIndexController};
-  mark('project.integrity-controller-installed',{version:VERSION,beforeIndexedRecovery:true,checks:['project-id','file-id'],writeThenDelete:true,indexRebuildByInvalidation:true});
-})();
-'''
-          Path('pad-grade/v141-storage-integrity.js').write_text(storage,encoding='utf-8')
-
-          selftest = r'''\'use strict\';
-const assert=require('assert');
-const fs=require('fs');
-const path=require('path');
-const vm=require('vm');
-const fmt=require('./project-format-v107.js');
-
-(async()=>{
-  const store=new Map(),marks=[],listeners=new Map(),writes=[];
-  const p1=fmt.normalizeProject({id:'pg-duplicate',fileId:'ABCD22',createdAt:'2026-01-01T00:00:00Z',modifiedAt:'2026-01-01T00:00:00Z',settings:{width:64,length:76,cols:3,rows:3,target:64,tol:.5,name:'Older'},readings:{'0,0':64,'0,1':65,'1,0':63}},'ABCD22-pg-duplicate.padgrade');
-  const p2=fmt.normalizeProject({id:'pg-duplicate',fileId:'ABCD22',createdAt:'2026-02-01T00:00:00Z',modifiedAt:'2026-02-01T00:00:00Z',settings:{width:64,length:76,cols:3,rows:3,target:64,tol:.5,name:'Newer'},readings:{'0,0':64,'0,1':66,'1,0':62}},'ABCD22-copy.padgrade');
-  store.set('ABCD22-pg-duplicate.padgrade',fmt.serializeV6(p1,'ABCD22-pg-duplicate.padgrade'));
-  store.set('ABCD22-copy.padgrade',fmt.serializeV6(p2,'ABCD22-copy.padgrade'));
-  store.set('Pad-Grade-Project-Index.pgindex','{"stale":true}');
-  store.set('Pad-Grade-Heat-pg-duplicate.pgheatcache','stale-cache');
-  const local=new Map();
-  const window={
-    PadGradeProjectFormatV107:fmt,
-    PadGradeNative:{hasProjectFolderConfigured:()=>true,isProjectFolderIndexReady:()=>true},
-    PadGradeDiag:{mark:(name,details)=>marks.push({name,details})},
-    PadGradeFiles:{
-      details:()=>[...store].filter(([name])=>/\\.(padgrade|json)$/i.test(name)).map(([name,text])=>({name,size:text.length,lastModified:name.includes('copy')?200:100})),
-      read:async name=>store.get(name)??null,
-      readHead:async(name,n)=>String(store.get(name)??'').slice(0,n),
-      write:async(name,text)=>{assert.strictEqual(window.__padGradeIntegrityRepairActive,true,'repair write must explicitly bypass recovery lock');writes.push(name);store.set(name,text);return true;},
-      delete:async name=>{assert.strictEqual(window.__padGradeIntegrityRepairActive,true,'repair delete must explicitly bypass recovery lock');return store.delete(name);}
-    },
-    addEventListener:(name,fn)=>{if(!listeners.has(name))listeners.set(name,[]);listeners.get(name).push(fn);},
-    removeEventListener(){},
-    localStorage:{getItem:key=>local.get(key)??null,setItem:(key,val)=>local.set(key,String(val))}
-  };
-  const context={window,localStorage:window.localStorage,console,Date,Math,JSON,Number,String,Array,Set,Map,Promise,setTimeout,clearTimeout};context.globalThis=context;
-  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'v141-storage-integrity.js'),'utf8'),context,{filename:'v141-storage-integrity.js'});
-  const result=await window.PadGradeProjectIntegrityV141.beforeIndexController();
-  assert.strictEqual(result.ready,true);assert.strictEqual(result.repaired,1);assert.strictEqual(result.failed,0);
-  const projectFiles=[...store.keys()].filter(name=>name.endsWith('.padgrade'));
-  assert.strictEqual(projectFiles.length,2,'repair must preserve both projects');
-  const projects=projectFiles.map(name=>fmt.normalizeProject(JSON.parse(store.get(name)),name));
-  assert.strictEqual(new Set(projects.map(p=>p.id)).size,2,'project IDs must be unique after repair');
-  assert.strictEqual(new Set(projects.map(p=>p.fileId)).size,2,'file IDs must be unique after repair');
-  assert(projects.some(p=>p.id==='pg-duplicate'&&p.settings.name==='Newer'),'newest duplicate must retain original project ID');
-  assert(projects.some(p=>p.id!=='pg-duplicate'&&p.settings.name==='Older'),'older duplicate must receive a new project ID');
-  assert(!store.has('Pad-Grade-Project-Index.pgindex'),'stale index must be invalidated after repair');
-  assert(!store.has('Pad-Grade-Heat-pg-duplicate.pgheatcache'),'shared-ID heat cache must be invalidated');
-  assert(marks.some(x=>x.name==='project.integrity-repaired'));
-  assert(writes.length>=1);
-
-  const diag=fs.readFileSync(path.join(__dirname,'v096-diagnostics.js'),'utf8');
-  assert(diag.includes('const MAX_ENTRIES=50000;'));assert(diag.includes('const PRUNE_TO=48000;'));assert(diag.includes('persistedCount-PRUNE_TO'));
-  const native=fs.readFileSync(path.join(__dirname,'v096-native-async.js'),'utf8');
-  assert(native.includes('__padGradeIntegrityRepairActive===true'));assert(native.includes('v141-storage-integrity.js?v=20260902-1'));assert(native.includes('beforeIndexController'));
-  const heat=fs.readFileSync(path.join(__dirname,'v063-dev.js'),'utf8');
-  assert(heat.includes("window.addEventListener('padgrade-before-project-switch',()=>{removeRaster();"));
-  assert(heat.includes('displayedCanvas=null;activeCanvasSlot=null'));
-  assert(heat.includes('syncTimer=setInterval(()=>{installMapClick();syncSurface();syncLaserMarker();},900)'));
-  console.log('v1.4.1 regression passed: durable duplicate identities repair before index restore, diagnostics retain 50k, and outgoing heat producer state is retired at switch boundary.');
-})().catch(error=>{console.error(error);process.exit(1);});
-'''
-          # Fix the opening strict-mode quote kept awkward only to make the outer
-          # workflow heredoc unambiguous.
-          selftest=selftest.replace("\\'use strict\\';","'use strict';",1)
-          Path('pad-grade/v141-storage-integrity-selftest.js').write_text(selftest,encoding='utf-8')
-
-          # Existing CI already runs dev-selftest.js, so chain the focused v1.4.1
-          # regression without touching the release workflow itself.
           replace_once('pad-grade/dev-selftest.js',
               "console.log('Pad Grade dev self-test PASS');",
               "require('child_process').execFileSync(process.execPath,[path.join(root,'v141-storage-integrity-selftest.js')],{stdio:'inherit'});\nconsole.log('Pad Grade dev self-test PASS');")
 
-          notes = '''# Pad Grade Mapper v1.4.1 — DEV BUILD
+          notes_lines=[
+              '# Pad Grade Mapper v1.4.1 — DEV BUILD','',
+              '## v1.4.1 — project identity repair and cleaner project switching','',
+              'v1.4.1 is a focused reliability build following the v1.4.0 stable promotion. Heatmap interpolation, progressive 99 / 297 / 891 computation, atomic complete-frame presentation, grading math, and imagery quality are unchanged.','',
+              '### Fixed — duplicate project identities in the persistent folder','',
+              'On persistent-directory restoration, Pad Grade now checks project IDs and six-character file IDs before the indexed project controller is allowed to restore a project.','',
+              '- Duplicate project IDs are repaired automatically.','- Duplicate file IDs are repaired automatically.','- The newest colliding project keeps the existing identity; older colliding files receive new unique identities.','- Repairs are write-first/delete-second so an original file is not removed until its repaired replacement is safely written.','- If cleanup of the old file fails, the replacement is rolled back rather than silently creating an ambiguous second copy.','- A repaired duplicate project invalidates the shared old-ID heat cache, and the rebuildable project index is invalidated so it is reconstructed from the repaired authoritative files.','- Normal recovery writes remain locked; only the explicit integrity-repair transaction can write during this pre-restore check.','',
+              '### Fixed — stale heat work after a project switch','',
+              'The old heat workers were already being terminated, but the older heat producer still retained its last completed canvas. Its 900 ms maintenance pass could therefore keep trying to restore that dead canvas after a switch.','',
+              'v1.4.1 clears that producer state at the existing project-switch boundary. The old workers, pending rasters, completed canvas reference, slot ownership, and old surface key are retired before the new project is applied. The maintenance loop itself remains available for the new project.','',
+              'This does not wait for the new heatmap before returning to the map and does not change the no-flicker complete-frame presenter.','',
+              '### Diagnostics','',
+              '- Persistent diagnostic retention increases from 2,400 to **50,000 entries**.','- IndexedDB remains append-based.','- Once the log exceeds 50,000 entries it prunes back to 48,000 in a batch, avoiding continuous one-entry pruning at the cap.','- The emergency in-memory fallback remains smaller so a storage failure cannot consume excessive RAM.','',
+              '### Version','', '- Android DEV version: **1.4.1**','- build: **112**','- application ID: `com.lordofrealms.padgrade.dev`','']
+          Path('pad-grade/RELEASE_NOTES.md').write_text('\n'.join(notes_lines),encoding='utf-8')
 
-## v1.4.1 — project identity repair and cleaner project switching
-
-v1.4.1 is a focused reliability build following the v1.4.0 stable promotion. Heatmap interpolation, progressive 99 / 297 / 891 computation, atomic complete-frame presentation, grading math, and imagery quality are unchanged.
-
-### Fixed — duplicate project identities in the persistent folder
-
-On persistent-directory restoration, Pad Grade now checks project IDs and six-character file IDs before the indexed project controller is allowed to restore a project.
-
-- Duplicate project IDs are repaired automatically.
-- Duplicate file IDs are repaired automatically.
-- The newest colliding project keeps the existing identity; older colliding files receive new unique identities.
-- Repairs are write-first/delete-second so an original file is not removed until its repaired replacement is safely written.
-- If cleanup of the old file fails, the replacement is rolled back rather than silently creating an ambiguous second copy.
-- A repaired duplicate project invalidates the shared old-ID heat cache, and the rebuildable project index is invalidated so it is reconstructed from the repaired authoritative files.
-- Normal recovery writes remain locked; only the explicit integrity-repair transaction can write during this pre-restore check.
-
-### Fixed — stale heat work after a project switch
-
-The old heat workers were already being terminated, but the older heat producer still retained its last completed canvas. Its 900 ms maintenance pass could therefore keep trying to restore that dead canvas after a switch.
-
-v1.4.1 clears that producer state at the existing project-switch boundary. The old workers, pending rasters, completed canvas reference, slot ownership, and old surface key are retired before the new project is applied. The maintenance loop itself remains available for the new project.
-
-This does not wait for the new heatmap before returning to the map and does not change the no-flicker complete-frame presenter.
-
-### Diagnostics
-
-- Persistent diagnostic retention increases from 2,400 to **50,000 entries**.
-- IndexedDB remains append-based.
-- Once the log exceeds 50,000 entries it prunes back to 48,000 in a batch, avoiding continuous one-entry pruning at the cap.
-- The emergency in-memory fallback remains smaller so a storage failure cannot consume excessive RAM.
-
-### Version
-
-- Android DEV version: **1.4.1**
-- build: **112**
-- application ID: `com.lordofrealms.padgrade.dev`
-'''
-          Path('pad-grade/RELEASE_NOTES.md').write_text(notes,encoding='utf-8')
-
-          changelog_entry='''## v1.4.1 DEV / build 112 — durable identity repair, 50k diagnostics, stale heat producer retirement\n\n- Added a pre-index persistent-directory integrity barrier that checks duplicate project IDs and six-character file IDs before durable restoration.\n- Repairs collisions conservatively with newest-owner retention, write-first/delete-second replacement, rollback on cleanup failure, heat-cache invalidation for repaired shared project IDs, and project-index invalidation for clean rebuild.\n- Preserved the normal recovery mutation lock; only the explicit integrity transaction can bypass it.\n- Increased IndexedDB diagnostic retention to 50,000 entries with batch prune-back to 48,000; memory fallback remains bounded at 5,000.\n- Fixed recurring stale heat restoration attempts by clearing the v1.1.1 producer's completed-canvas/generation state on `padgrade-before-project-switch`; existing v1.2.6/v1.2.7 physical worker cancellation remains intact.\n- Heat interpolation, 99/297/891 progressive computation, parallel band math, atomic complete-frame presentation, imagery, grading math, and map reveal timing are unchanged.\n\n'''
-          for path in ('pad-grade/CHANGELOG.md','pad-grade-android/CHANGELOG.md'):
-              p=Path(path); text=p.read_text(encoding='utf-8'); p.write_text(changelog_entry+text,encoding='utf-8')
+          entry='\n'.join([
+              '## v1.4.1 DEV / build 112 — durable identity repair, 50k diagnostics, stale heat producer retirement','',
+              '- Added a pre-index persistent-directory integrity barrier that checks duplicate project IDs and six-character file IDs before durable restoration.',
+              '- Repairs collisions conservatively with newest-owner retention, write-first/delete-second replacement, rollback on cleanup failure, heat-cache invalidation for repaired shared project IDs, and project-index invalidation for clean rebuild.',
+              '- Preserved the normal recovery mutation lock; only the explicit integrity transaction can bypass it.',
+              '- Increased IndexedDB diagnostic retention to 50,000 entries with batch prune-back to 48,000; memory fallback remains bounded at 5,000.',
+              '- Fixed recurring stale heat restoration attempts by clearing the v1.1.1 producer completed-canvas/generation state on `padgrade-before-project-switch`; existing v1.2.6/v1.2.7 physical worker cancellation remains intact.',
+              '- Heat interpolation, 99/297/891 progressive computation, parallel band math, atomic complete-frame presentation, imagery, grading math, and map reveal timing are unchanged.','',''])
+          for name in ('pad-grade/CHANGELOG.md','pad-grade-android/CHANGELOG.md'):
+              p=Path(name);p.write_text(entry+p.read_text(encoding='utf-8'),encoding='utf-8')
           PY
 
       - name: Validate v1.4.1 regression
