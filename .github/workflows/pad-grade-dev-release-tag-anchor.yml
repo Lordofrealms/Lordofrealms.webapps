@@ -29,6 +29,7 @@ jobs:
           VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' pad-grade-android/app/build.gradle.kts | head -1)
           test -n "$VERSION"
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+          echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=pad-grade-dev-v$VERSION" >> "$GITHUB_ENV"
 
       - name: Pre-create release tag on fresh main-equivalent anchor commit
@@ -80,3 +81,23 @@ jobs:
           test "$TAG_PARENT" = "$DEFAULT_SHA_NOW"
           test "$TAG_SHA" != "$DEFAULT_SHA_NOW"
           echo "$RELEASE_TAG anchored to fresh no-op commit $TAG_SHA over $DEFAULT_BRANCH $DEFAULT_SHA_NOW"
+
+      - name: Pre-create dev prerelease shell from existing tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists."
+            exit 0
+          fi
+
+          # The tag already exists on a main-equivalent synthetic commit. Do NOT
+          # pass --target here: doing so makes GitHub re-evaluate the dev commit's
+          # workflow tree and can reject the built-in Actions token with HTTP 403.
+          # The Android build later edits these notes and uploads the verified APK.
+          gh release create "$RELEASE_TAG" \
+            --title "Pad Grade v$APP_VERSION — DEV BUILD" \
+            --notes "Pad Grade v$APP_VERSION DEV packaging is in progress. The Android workflow will replace these notes and attach the verified APK." \
+            --prerelease
+
+          gh release view "$RELEASE_TAG" --json tagName,isPrerelease --jq '.'
