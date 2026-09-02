@@ -96,7 +96,9 @@ const queryEndpoint='https://imagery.nationalmap.gov/arcgis/rest/services/USGSNA
 assert(privacy.includes(`'${queryEndpoint}'`));
 assert(privacy.includes('networkBlockedByDefault:true'));
 assert(!privacy.includes("'https://imagery.nationalmap.gov/'"));
-assert(index.includes('<title>Pad Grade Mapper v1.3.6 DEV</title>'));
+// The v1.3.6 behavior is carried forward by later DEV builds, so do not pin the
+// page title to v1.3.6 here; only require the expected Pad Grade DEV title shape.
+assert(/<title>Pad Grade Mapper v1\.3\.\d+ DEV<\/title>/.test(index));
 assert(index.includes('privacy.js?v=20260901-2'));
 assert(index.includes('v132-worker-bootstrap-fix.js?v=20260901-3'));
 assert(index.includes('v132-imagery-quality.js?v=20260901-2'));
