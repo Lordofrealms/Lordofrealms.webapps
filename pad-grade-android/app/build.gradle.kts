@@ -51,9 +51,9 @@ android {
         targetSdk = 36
         // Versioning rule: every changed test/release APK gets a new versionCode.
         // User-visible behavior changes also advance versionName before the build is published.
-        // v1.4.2 DEV: unify heat interpolation paths and invalidate ambiguous legacy heat caches.
-        versionCode = 113
-        versionName = "1.4.2"
+        // v1.4.3 DEV: make project deletion authoritative across durable/local/index state.
+        versionCode = 114
+        versionName = "1.4.3"
     }
 
     buildTypes {

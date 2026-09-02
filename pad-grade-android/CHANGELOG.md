@@ -1,3 +1,10 @@
+## 1.4.3 DEV (build 114)
+
+- Fixed durable project deletion so File-ID-prefixed project files, local/index state, and heat caches are removed consistently.
+- Prevents deleted projects from reappearing as non-openable ghost rows after folder reconciliation.
+- Updates active-project recovery state before deleting the current project and preserves shared backup containers.
+- No heatmap, imagery, GPS, or grading-math changes.
+
 ## v1.4.2 DEV / build 113 — unify local heat interpolation and invalidate ambiguous caches
 
 - Fixed a mixed-engine heat path: foreground 99/297/891 jobs already used `surface-local-v078`, while v1.1.3 background-cache and DEV-inspector jobs used a captured native Worker pointed at the historical global-IDW² v073 worker.

@@ -1,3 +1,15 @@
+## v1.4.3 DEV / build 114 — authoritative project deletion and ghost-row cleanup
+
+- Fixed project-manager deletion ordering so the exact durable filename is resolved before local project state is removed; human-readable File-ID prefixes are no longer lost during deletion.
+- Added a v1.4.3 deletion owner that intercepts project delete actions before the lazy-load/catalog layer, allowing already-missing-body ghost rows to be deleted instead of being trapped in a failed lazy-load loop.
+- Deletes the durable project payload first, then removes the local project body/index/File-ID map, derived heat cache, indexed catalog row, and durable `Pad-Grade-Project-Index.pgindex` entry.
+- Treats an already-missing durable project file as success so the field-observed ghost state can self-repair.
+- Runs a join reconcile followed by a guaranteed fresh reconcile after deletion, preventing a stale in-flight catalog refresh from resurrecting the deleted project.
+- Active-project deletion updates durable `lastProjectId` to the selected replacement before the project payload is removed; a failed durable delete restores the original settings text.
+- Shared all-project backup files are rewritten to remove only the selected project instead of deleting the shared backup container.
+- Added v1.4.3 regression coverage for exact prefixed filenames, stale-reconcile resurrection, already-missing durable files, active-project recovery settings, heat-cache cleanup, and shared-backup preservation.
+- Heatmap, imagery, GPS, grading math, project-switch reveal timing, and recovery-cover behavior are unchanged.
+
 ## v1.4.2 DEV / build 113 — unify local heat interpolation and invalidate ambiguous caches
 
 - Fixed a mixed-engine heat path: foreground 99/297/891 jobs already used `surface-local-v078`, while v1.1.3 background-cache and DEV-inspector jobs used a captured native Worker pointed at the historical global-IDW² v073 worker.

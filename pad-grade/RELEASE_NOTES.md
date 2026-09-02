@@ -1,35 +1,34 @@
-# Pad Grade Mapper v1.4.2 — DEV BUILD
+# Pad Grade Mapper v1.4.3 — DEV BUILD
 
-## v1.4.2 — consistent local heatmap interpolation
+## v1.4.3 — durable project deletion consistency
 
-v1.4.2 fixes an inconsistency discovered while comparing regenerated heatmaps across projects. The normal foreground heatmap had already moved to the locality-first triangle/rectangle surface model, but two older auxiliary paths could still generate the final 891 heatmap with the historical global IDW² worker.
+v1.4.3 fixes a project-manager bug where a deleted project could reappear as a non-openable ghost row after the durable file had already been removed.
 
-### Fixed — one heatmap surface model everywhere
+### Fixed — project deletion is now one coordinated operation
 
-- Foreground 99 / 297 / 891 heat generation continues to use the existing v1.3.6 parallel local-surface coordinator.
-- Background final-heat caching now uses the same `surface-local-v078` triangle/rectangle interpolation model instead of the old global-IDW² worker.
-- The DEV resolution inspector now uses that same local-surface worker as well.
-- Local element edge locking is preserved, including the rule that an edge between two measured on-grade endpoints evaluates on grade along that edge.
+- Resolves the exact durable project filename before removing local project state, including the six-character File ID prefix.
+- Deletes the project’s derived `.pgheatcache` along with the project.
+- Removes the project from local storage, the local project list, the in-memory indexed catalog, and `Pad-Grade-Project-Index.pgindex`.
+- Treats an already-missing durable project file as successfully deleted so existing ghost entries can be cleaned up normally.
+- Performs two post-delete reconciliations so an already-running stale catalog refresh cannot resurrect the deleted project.
+- If the deleted project is the active project, updates durable `lastProjectId` to the replacement project before reload.
+- Shared all-project backup files are rewritten to remove only the deleted project rather than deleting the entire backup.
 
-### Fixed — ambiguous old heat caches
+### Regression coverage
 
-Earlier `.pgheatcache` files did not identify which interpolation engine generated them, so an old global-IDW² 891 image could be accepted as if it were a current local-surface result.
-
-- Heat-cache schema advances to **v2**.
-- New caches carry the engine ID `local-surface-v078-edge-locked`.
-- Older v1 caches, or caches without the expected engine ID, are rejected and regenerated automatically.
-- Project data and readings are not changed; only the derived heat image is regenerated.
+- Verifies deletion uses the exact prefixed durable filename rather than the obsolete unprefixed fallback.
+- Reproduces a stale first reconciliation and proves the project still remains deleted afterward.
+- Reproduces the field-log ghost case where the durable file is already gone but the catalog row remains.
+- Verifies active-project deletion preserves settings and points recovery at the replacement project.
+- Verifies shared backup deletion removes only the selected project.
 
 ### Preserved
 
-- Progressive tiers remain **99 → 297 → 891**.
-- Every tier retains the existing parallel band computation on capable devices.
-- Bands remain compute-only and offscreen; only a complete assembled frame is presented.
-- No row painting, band painting, partial-frame publication, cross-fade, or heatmap-gated map reveal was introduced.
-- Imagery, project recovery, GPS geometry, and grading/volume calculations are unchanged.
+- Heatmap interpolation, cache schema v2, 99 → 297 → 891 progressive tiers, parallel compute, and atomic presentation are unchanged from v1.4.2.
+- Imagery, GPS geometry, grading/volume calculations, project switching, and recovery-cover behavior are unchanged.
 
 ### Version
 
-- Android DEV version: **1.4.2**
-- build: **113**
+- Android DEV version: **1.4.3**
+- build: **114**
 - application ID: `com.lordofrealms.padgrade.dev`
