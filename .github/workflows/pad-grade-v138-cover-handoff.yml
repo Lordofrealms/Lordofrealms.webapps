@@ -1,0 +1,50 @@
+name: Pad Grade v1.3.8 Folder Cover Handoff Gate
+
+on:
+  push:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/v138-folder-cover-handoff.js'
+      - 'pad-grade/v138-folder-cover-handoff-selftest.js'
+      - 'pad-grade/index.html'
+      - 'pad-grade/v090-first-run-guard.js'
+      - 'pad-grade/v127-dev.js'
+      - 'pad-grade/recovery-visual-v073.js'
+      - 'pad-grade/RELEASE_NOTES.md'
+      - 'pad-grade-android/app/build.gradle.kts'
+      - 'pad-grade-android/ci-build-trigger.txt'
+      - '.github/workflows/pad-grade-v138-cover-handoff.yml'
+  workflow_dispatch:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate v1.3.8 folder-cover ownership handoff
+        run: |
+          node --check pad-grade/v138-folder-cover-handoff.js
+          node --check pad-grade/v138-folder-cover-handoff-selftest.js
+          node pad-grade/v138-folder-cover-handoff-selftest.js
+
+          grep -F '<title>Pad Grade Mapper v1.3.8 DEV</title>' pad-grade/index.html
+          grep -F 'src="v127-dev.js?v=20260831-1"' pad-grade/index.html
+          grep -F 'src="v138-folder-cover-handoff.js?v=20260901-1"' pad-grade/index.html
+          grep -F "PICKER_CLASS='padGradeFirstRunSetupV127'" pad-grade/v138-folder-cover-handoff.js
+          grep -F "promoteToRestoring('successful-folder-result-hidden-handoff')" pad-grade/v138-folder-cover-handoff.js
+          grep -F 'samePseudoElement:true' pad-grade/v138-folder-cover-handoff.js
+          grep -F 'noNewCover:true' pad-grade/v138-folder-cover-handoff.js
+          grep -F "ROOT.classList.remove(PICKER_CLASS)" pad-grade/v138-folder-cover-handoff.js
+          ! grep -F "createElement('div')" pad-grade/v138-folder-cover-handoff.js
+
+          grep -F 'versionCode = 110' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.3.8"' pad-grade-android/app/build.gradle.kts
+          grep -F '## v1.3.8 —' pad-grade/RELEASE_NOTES.md
+
+      - name: Prove heatmap and imagery are carried forward unchanged
+        run: |
+          node pad-grade/v136-all-tier-parallel-selftest.js
+          node pad-grade/v137-imagery-selftest.js
+          grep -F 'resolution_value > 0' pad-grade/v137-imagery-selection-fix.js
+          grep -F 'parallelTiers:[99,297,891]' pad-grade/v131-dev.js || true
