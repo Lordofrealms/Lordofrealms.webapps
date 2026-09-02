@@ -1,0 +1,44 @@
+name: Apply Pad Grade v1.3.8 Update
+
+on:
+  push:
+    branches: [pad-grade-dev]
+    paths:
+      - 'pad-grade/tools/apply-v138.py'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-v138:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pad-grade-dev
+          fetch-depth: 0
+
+      - name: Apply v1.3.8 source update
+        run: python3 pad-grade/tools/apply-v138.py
+
+      - name: Validate generated folder-cover handoff
+        run: |
+          node --check pad-grade/v138-folder-cover-handoff.js
+          node --check pad-grade/v138-folder-cover-handoff-selftest.js
+          node pad-grade/v138-folder-cover-handoff-selftest.js
+          grep -F '<title>Pad Grade Mapper v1.3.8 DEV</title>' pad-grade/index.html
+          grep -F 'src="v138-folder-cover-handoff.js?v=20260901-1"' pad-grade/index.html
+          grep -F 'versionCode = 110' pad-grade-android/app/build.gradle.kts
+          grep -F 'versionName = "1.3.8"' pad-grade-android/app/build.gradle.kts
+
+      - name: Commit generated v1.3.8 files
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pad-grade pad-grade-android
+          if git diff --cached --quiet; then
+            echo 'No v1.3.8 changes to commit.'
+            exit 0
+          fi
+          git commit -m 'Pad Grade v1.3.8 picker cover handoff'
+          git push origin HEAD:pad-grade-dev
