@@ -1,4 +1,4 @@
-/* v1.4.2 regression: every heat producer uses the local surface engine and
+/* v1.4.2+ regression: every heat producer uses the local surface engine and
  * legacy global-IDW caches cannot be admitted as current heat.
  */
 'use strict';
@@ -32,9 +32,20 @@ assert(v078.includes("importScripts('surface-local-v078.js?v=20260826-2')"));
 assert(v078.includes('PadGradeLocalSurface.rasterize'));
 assert(v136.includes("const SURFACE_URL=new URL('surface-local-v078.js?v=20260826-2'"));
 assert(v136.includes('PadGradeLocalSurface.rasterize'));
-assert(index.includes('<title>Pad Grade Mapper v1.4.2 DEV</title>'));
-assert(gradle.includes('versionCode = 113'));
-assert(gradle.includes('versionName = "1.4.2"'));
+
+// This gate protects the v1.4.2 heat architecture across later DEV releases;
+// ordinary version bumps must not make the heat regression itself fail.
+const titleMatch=index.match(/<title>Pad Grade Mapper v(\d+)\.(\d+)\.(\d+) DEV<\/title>/);
+assert(titleMatch,'DEV page title/version missing');
+const titleVersion=titleMatch.slice(1).map(Number);
+const versionAtLeast=(v,a,b,c)=>v[0]>a||(v[0]===a&&(v[1]>b||(v[1]===b&&v[2]>=c)));
+assert(versionAtLeast(titleVersion,1,4,2),`heat consistency gate requires DEV v1.4.2+, found ${titleVersion.join('.')}`);
+const codeMatch=gradle.match(/versionCode\s*=\s*(\d+)/),nameMatch=gradle.match(/versionName\s*=\s*"(\d+)\.(\d+)\.(\d+)"/);
+assert(codeMatch&&nameMatch,'Android version metadata missing');
+const gradleVersion=nameMatch.slice(1).map(Number);
+assert(versionAtLeast(gradleVersion,1,4,2),`Android version must be v1.4.2+, found ${gradleVersion.join('.')}`);
+assert(Number(codeMatch[1])>=113,`Android build must be 113+, found ${codeMatch[1]}`);
+assert.deepStrictEqual(gradleVersion,titleVersion,'web and Android semantic versions must match');
 
 // A local triangle made entirely of on-grade measurements must not be pulled
 // off grade by distant measurements outside its support.
@@ -100,4 +111,4 @@ for(const tier of [99,297,891]){
   proveBandEquivalence(nx,ny,width,length,points,7);
 }
 
-console.log('v1.4.2 regression passed: foreground/background/inspector share local-surface-v078; cache schema v2 rejects ambiguous legacy heat; local/edge/band invariants hold.');
+console.log(`v1.4.2+ heat regression passed on v${titleVersion.join('.')}: foreground/background/inspector share local-surface-v078; cache schema v2 rejects ambiguous legacy heat; local/edge/band invariants hold.`);
