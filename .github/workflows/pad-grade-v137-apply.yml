@@ -1,16 +1,16 @@
-name: Apply Pad Grade v1.3.7 Update
+name: Apply Pad Grade v1.4.3 Delete Consistency
 
 on:
   push:
     branches: [pad-grade-dev]
     paths:
-      - 'pad-grade/tools/apply-v137.py'
+      - 'pad-grade/tools/apply-v143.py'
 
 permissions:
   contents: write
 
 jobs:
-  apply-v137:
+  apply-v143:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,23 +18,24 @@ jobs:
           ref: pad-grade-dev
           fetch-depth: 0
 
-      - name: Apply v1.3.7 source update
-        run: python3 pad-grade/tools/apply-v137.py
+      - name: Apply v1.4.3 source update
+        run: python3 pad-grade/tools/apply-v143.py
 
-      - name: Validate generated JavaScript
+      - name: Validate v1.4.3 deletion consistency
         run: |
-          node --check pad-grade/v137-imagery-selection-fix.js
-          node --check pad-grade/v137-imagery-selftest.js
-          node pad-grade/v137-imagery-selftest.js
+          node --check pad-grade/v143-delete-consistency.js
+          node --check pad-grade/v143-delete-consistency-selftest.js
+          node pad-grade/v143-delete-consistency-selftest.js
+          node --check pad-grade/v096-dev-defaults.js
 
-      - name: Commit generated v1.3.7 files
+      - name: Commit generated v1.4.3 files
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add pad-grade pad-grade-android
           if git diff --cached --quiet; then
-            echo 'No v1.3.7 changes to commit.'
+            echo 'No v1.4.3 changes to commit.'
             exit 0
           fi
-          git commit -m 'Pad Grade v1.3.7 imagery and folder handoff'
+          git commit -m 'Pad Grade v1.4.3: make project deletion durable and indexed'
           git push origin HEAD:pad-grade-dev
