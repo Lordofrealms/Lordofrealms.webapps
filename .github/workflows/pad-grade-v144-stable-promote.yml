@@ -1,3 +1,4 @@
+# Registered one-shot promotion trigger.
 name: Pad Grade v1.4.4 Stable Promotion
 
 on:
@@ -20,7 +21,8 @@ jobs:
       - name: Verify promotion inputs
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "6f912ea1aff42d326faeb9cbc9636117f86f02f3"
+          git merge-base --is-ancestor 6f912ea1aff42d326faeb9cbc9636117f86f02f3 HEAD
+          git diff --quiet 6f912ea1aff42d326faeb9cbc9636117f86f02f3 HEAD -- pad-grade pad-grade-android
           git fetch origin pad-grade-dev:refs/remotes/origin/pad-grade-dev
           test "$(git rev-parse refs/remotes/origin/pad-grade-dev)" = "c5009139e7f8edfaf8eda752151ca33a25859221"
 
@@ -130,7 +132,6 @@ Pad Grade v1.4.4 promotes the field-tested improvements made since the previous 
             }else{
               try{window.PadGradeDiag?.refreshEnabledFromPrefs?.('v1.4.4-explicit-preference');}catch(e){}
             }
-            // v1.4.3: register delete ownership before the v1.0.7 lazy-load capture listener.
             if(!window.__padGradeDeleteCaptureV143){
               window.__padGradeDeleteCaptureV143=true;
               document.addEventListener('click',event=>{
