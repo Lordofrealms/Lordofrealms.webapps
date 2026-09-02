@@ -4,7 +4,7 @@ This file summarizes changes promoted to stable Pad Grade releases. Detailed dev
 
 ## v1.4.4 — stable
 
-Pad Grade v1.4.4 promotes the field-tested improvements made since the previous stable release, **v1.4.0**. This release focuses on project-file reliability and making sure every heat map uses the same intended surface calculation.
+Pad Grade v1.4.4 promotes the field-tested improvements made since the previous stable release, **v1.4.0**. If you are updating from v1.4.0, the main differences you should notice are more reliable project-file handling and heat maps that consistently use the intended local surface calculation.
 
 ### More reliable projects and storage
 - Pad Grade now checks project identities when restoring a persistent project folder. If copied or older files contain duplicate internal project IDs or duplicate six-character File IDs, the app repairs the conflict before normal project restoration continues.
@@ -118,11 +118,3 @@ Promoted from the tested v1.0.2 development line. This is the first stable relea
 - Fixed the Enter Reading dialog so Android's software keyboard does not make its controls/actions unreachable.
 - Fixed lower-grid/page clearance so survey content cannot extend underneath the fixed bottom controls.
 - Fixed project-list File-ID hydration so late-arriving ID text does not resize project rows or move action buttons.
-- Fixed native durable-folder callbacks and project-listing paths that could synchronously re-query the document provider and stall the WebView while folder indexing was incomplete.
-- Fixed the Precision Location failure state where Pad Grade could remain stuck waiting for Precision after the provider had reported STOPPED instead of handing existing GPS subscriptions to native GPS.
-- Fixed the follow-on source-status bug where native fallback was working and providing positions but the map header could still display **Precision Location** or **STOPPED**. The shared provider is now authoritative, late Precision callbacks are ignored after failover, and the badge updates immediately to **Native GPS** and remains there for that GPS session.
-
-### Stable promotion
-- Promoted the tested v1.0.2 behavior to the normal `com.lordofrealms.padgrade` stable package; the DEV package remains separately installable.
-- Stable Android version: **v1.0.2 build 75**.
-- Diagnostic logging defaults to off for stable while retaining the same optional diagnostic tools for future troubleshooting.
