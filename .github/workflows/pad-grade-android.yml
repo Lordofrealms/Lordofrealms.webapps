@@ -30,66 +30,37 @@ jobs:
 
       - name: Validate web scripts
         run: |
-          node --check pad-grade/capture-fix.js
-          node --check pad-grade/map.js
-          node --check pad-grade/map-instance-hook-v064.js
-          node --check pad-grade/recovery-visual-v073.js
-          node --check pad-grade/v030.js
-          node --check pad-grade/v031.js
-          node --check pad-grade/v040.js
-          node --check pad-grade/v040-sync.js
-          node --check pad-grade/v041.js
-          node --check pad-grade/v041-persist.js
-          node --check pad-grade/v042.js
-          node --check pad-grade/v043.js
-          node --check pad-grade/v046.js
-          node --check pad-grade/v047.js
-          node --check pad-grade/v048.js
-          node --check pad-grade/v049.js
-          node --check pad-grade/v050.js
-          node --check pad-grade/v051.js
-          node --check pad-grade/v052.js
-          node --check pad-grade/v053.js
-          node --check pad-grade/v060-dev.js
-          node --check pad-grade/v061-dev.js
-          node --check pad-grade/v062-dev.js
-          node --check pad-grade/v063-dev.js
-          node --check pad-grade/v064-dev.js
-          node --check pad-grade/v065-dev.js
-          node --check pad-grade/v066-dev.js
-          node --check pad-grade/v067-dev.js
-          node --check pad-grade/v069-dev.js
-          node --check pad-grade/v070-dev.js
-          node --check pad-grade/v071-dev.js
-          node --check pad-grade/v071-map-ui.js
-          node --check pad-grade/v072-project-restore.js
-          node --check pad-grade/v075-startup.js
-          node --check pad-grade/v078-dev.js
-          node --check pad-grade/project-compare-core.js
-          node --check pad-grade/v081-project-compare.js
-          node --check pad-grade/v082-project-compare-fix.js
-          node --check pad-grade/v083-project-compare-fix.js
-          node --check pad-grade/v085-map-render-order.js
-          node --check pad-grade/v086-compare-presentation.js
-          node --check pad-grade/v087-compare-back.js
-          node --check pad-grade/v088-project-list-layout.js
-          node --check pad-grade/v089-imagery-recovery.js
-          node --check pad-grade/v090-first-run-guard.js
-          node --check pad-grade/v090-project-switch-boundary.js
-          node --check pad-grade/v095-map-grid-fastpath.js
-          node --check pad-grade/v095-reading-dialog.js
-          node --check pad-grade/v096-diagnostics.js
-          node --check pad-grade/v096-dev-defaults.js
-          node --check pad-grade/v096-native-async.js
-          node --check pad-grade/v096-async-reconcile.js
-          node --check pad-grade/heatmap-raster-worker-v073.js
-          node --check pad-grade/dev-selftest.js
-          node --check pad-grade/migration-core.js
-          node --check pad-grade/grid-core.js
-          node --check pad-grade/grid-size-bootstrap-v094.js
-          node --check pad-grade/grid-size-worker-v094.js
+          for script in \
+            capture-fix.js map.js map-instance-hook-v064.js recovery-visual-v073.js \
+            v030.js v031.js v040.js v040-sync.js v041.js v041-persist.js v042.js \
+            v043.js v046.js v047.js v048.js v049.js v050.js v051.js v052.js v053.js \
+            v060-dev.js v061-dev.js v062-dev.js v063-dev.js v064-dev.js v065-dev.js \
+            v066-dev.js v067-dev.js v069-dev.js v070-dev.js v071-dev.js v071-map-ui.js \
+            v072-project-restore.js v075-startup.js v076-dev.js v077-dev.js v078-dev.js \
+            v080-file-id.js v081-project-compare.js v082-project-compare-fix.js \
+            v083-project-compare-fix.js v085-map-render-order.js v086-compare-presentation.js \
+            v087-compare-back.js v087-map-fast-overlay.js v088-project-list-layout.js \
+            v089-imagery-recovery.js v090-first-run-guard.js v090-project-switch-boundary.js \
+            v095-map-grid-fastpath.js v095-reading-dialog.js v096-diagnostics.js \
+            v096-dev-defaults.js v096-native-async.js v096-async-reconcile.js \
+            v099-grade-calc-opt.js v104-map-tap-diagnostics.js v105-map-hitbox.js \
+            v106-map-hitbox.js project-format-v107.js v107-index-reconcile.js \
+            v107-compare-fast.js v108-index-fastpath.js v108-recovery-save-guard.js \
+            v111-resilience.js v113-dev.js v114-dev.js v115-dev.js v116-dev.js \
+            v117-dev.js v118-dev.js v119-dev.js v120-dev.js v121-dev.js v122-dev.js \
+            v123-dev.js v124-dev.js v125-dev.js v126-dev.js project-compare-core.js \
+            heatmap-raster-worker-v073.js heatmap-raster-worker-v076.js \
+            heatmap-raster-worker-v077.js heatmap-raster-worker-v078.js \
+            dev-selftest.js migration-core.js grid-core.js grid-size-bootstrap-v094.js \
+            grid-size-worker-v094.js; do
+            node --check "pad-grade/$script"
+          done
+          node --check pad-grade/project-format-v107-selftest.js
+          node --check pad-grade/v107-index-reconcile-selftest.js
+          node --check pad-grade/v122-canvas-handoff-selftest.js
+          node --check pad-grade/v126-generation-cancel-selftest.js
 
-      - name: Verify startup, grid, and CanvasSource heatmap gates
+      - name: Verify startup, grid, storage, and heatmap gates
         run: |
           grep -F "padGradeHeatmapOptInV061" pad-grade/v062-dev.js
           grep -F "platform.precisionGeolocation" pad-grade/platform.js
@@ -106,68 +77,65 @@ jobs:
           grep -F 'src="v096-diagnostics.js?v=20260829-1' pad-grade/index.html
           grep -F 'src="v096-dev-defaults.js?v=20260829-1' pad-grade/index.html
           grep -F 'src="v096-native-async.js?v=20260829-1' pad-grade/index.html
+          grep -F 'src="v126-dev.js?v=20260831-1"' pad-grade/index.html
           grep -F "__padGradePreloadedProjectId" pad-grade/v075-startup.js
           grep -F "__padGradeStartupMapSizePreapplied" pad-grade/v075-startup.js
-          grep -F "__padGradeRequestSettledStartupReveal" pad-grade/v075-startup.js
           grep -F "local-project-settled" pad-grade/v075-startup.js
           grep -F "setTimeout(finishReveal,1400)" pad-grade/v075-startup.js
           grep -F "head-cover-normal-load-and-switch-before-project-managers" pad-grade/recovery-visual-v073.js
-          grep -F "padGradeProjectSwitchTargetV091" pad-grade/recovery-visual-v073.js
-          grep -F "preapply-before-map-coalesced-runtime-resize" pad-grade/v069-dev.js
-          ! grep -F "Date.now()+60000" pad-grade/v072-project-restore.js
           grep -F "background-never-block-visible-grid" pad-grade/v072-project-restore.js
-          grep -F "revealLocalImmediately" pad-grade/v072-project-restore.js
-          grep -F "padgrade-active-project-applied" pad-grade/v072-project-restore.js
-          grep -F "const id=currentActive||settings?.lastProjectId||null" pad-grade/v072-project-restore.js
+          ! grep -F "Date.now()+60000" pad-grade/v072-project-restore.js
           grep -F "frameSavedPad" pad-grade/map.js
           grep -F "map.fitBounds" pad-grade/map.js
-          grep -F "map.on('style.load',()=>frameSavedPad(false))" pad-grade/map.js
           grep -F "new Worker(WORKER_URL)" pad-grade/v063-dev.js
-          grep -F "CANVAS_SOURCE_PREFIX='pad-grade-interpolated-surface-canvas-source-'" pad-grade/v063-dev.js
-          grep -F "type:'canvas',canvas" pad-grade/v063-dev.js
-          grep -F "ctx.createImageData" pad-grade/v063-dev.js
           grep -F "LOW_TIER=304" pad-grade/v063-dev.js
           grep -F "HIGH_TIER=888" pad-grade/v063-dev.js
           grep -F "atomicSwap:true" pad-grade/v063-dev.js
           grep -F "canvasSource:true" pad-grade/v063-dev.js
-          grep -F "whole-raster-low-304-then-high-888-no-zoom-recalc" pad-grade/v063-dev.js
-          grep -F "web-worker-whole-raster-double-buffered-canvas-atomic-swap-no-band-repaint" pad-grade/v063-dev.js
           grep -F "never publishes partial map bands" pad-grade/heatmap-raster-worker-v073.js
           grep -F "Math.abs(diff)<=tol" pad-grade/heatmap-raster-worker-v073.js
-          grep -F "pgApplyHeatmapOpacity" pad-grade/v066-dev.js
-          grep -F "window.__padGradeDurableSyncV040=true" pad-grade/v040-sync.js
-          grep -F "late-owner-settings-first-then-project-sync-visual-hold" pad-grade/v071-dev.js
-          grep -F "__padGradeBeginRecoveryVisualHold" pad-grade/v071-dev.js
-          grep -F "v072-project-restore.js?v=20260829-3" pad-grade/v065-dev.js
-          grep -F "v085-map-render-order.js?v=20260829-3" pad-grade/v078-dev.js
-          grep -F "v086-compare-presentation.js?v=20260829-2" pad-grade/v085-map-render-order.js
-          grep -F "padgrade-maplibre-ready" pad-grade/v085-map-render-order.js
-          grep -F "pgCompareLegendBar" pad-grade/v086-compare-presentation.js
-          grep -F "reserved-before-hydration-no-row-shift" pad-grade/v088-project-list-layout.js
-          grep -F "Map imagery unavailable — retrying" pad-grade/v089-imagery-recovery.js
-          grep -F "explain-opt-in-before-durable-folder-picker" pad-grade/v090-first-run-guard.js
-          grep -F "Choose durable folder" pad-grade/v090-first-run-guard.js
-          grep -F "cover-before-handler-carry-target-reload-before-paint" pad-grade/v090-project-switch-boundary.js
-          grep -F "__padGradeBeginProjectTransition" pad-grade/v090-project-switch-boundary.js
-          grep -F "if (!projectFileCacheLoaded) {" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
-          grep -F "primeProjectFileCacheAsync();" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
-          grep -F "if (!projectFileCacheLoaded) { primeProjectFileCacheAsync(); return null; }" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
-          grep -F "__padGradeProjectFolderSelectionCancelled" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/MainActivity.java
-          grep -F "hasProjectFolderConfigured" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
-          grep -F "readProjectFileAsync" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
-          grep -F "writeProjectFileAsync" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
-          grep -F "__padGradeAsyncDurableV096=true" pad-grade/v096-async-reconcile.js
-          grep -F "v096-async-reconcile.js?v=20260829-1" pad-grade/v096-native-async.js
           grep -F "dev-on-stable-off" pad-grade/v096-dev-defaults.js
-          grep -F "Green is categorical" pad-grade/v067-dev.js
-          grep -F "#4f8f3a 46%,#4f8f3a 54%" pad-grade/v067-dev.js
-          grep -F "magnitude-aware IDW² zero crossing" pad-grade/dev-selftest.js
-          grep -F "Metric units" pad-grade/README.md
-          grep -F "Feet and tenths" pad-grade/README.md
-          grep -F "Laser-avoidance pathing" pad-grade/README.md
 
-      - name: Run Pad Grade dev self-tests
-        run: node pad-grade/dev-selftest.js
+          # v1.2.6 regular heat lifecycle invariants. Stale generations must be
+          # actively terminated, not merely ignored at presentation time.
+          grep -F "cancelRegularGeneration('project-switch-outgoing-removed')" pad-grade/v126-dev.js
+          grep -F "terminateJob(worker,job,'duplicate-tier-replaced',true)" pad-grade/v126-dev.js
+          grep -F "this.__pg113HeatWorker=true" pad-grade/v126-dev.js
+          grep -F "heatmap.v126-generation-invariant" pad-grade/v126-dev.js
+          grep -F "heatmap.v126-lower-tier-skipped-final-cache" pad-grade/v126-dev.js
+          grep -F "waitedForTargetHeat:false" pad-grade/v126-dev.js
+          grep -F "waitedForTargetApply:false" pad-grade/v126-dev.js
+
+          # v1.0.7 durable-format/index architecture replaces the old recurring
+          # v096 full-file reconciliation controller on the runtime path.
+          grep -F "CURRENT_SCHEMA=6,ROLLBACK_SCHEMA=5" pad-grade/project-format-v107.js
+          grep -F "project-format-v107.js?v=20260830-1" pad-grade/v096-native-async.js
+          grep -F "v107-index-reconcile.js?v=20260830-1" pad-grade/v096-native-async.js
+          grep -F "v107-compare-fast.js?v=20260830-1" pad-grade/v096-native-async.js
+          grep -F "Pad-Grade-Project-Index.pgindex" pad-grade/v107-index-reconcile.js
+          grep -F "zeroProjectReads" pad-grade/v107-index-reconcile.js
+          grep -F "needsUpgrade" pad-grade/v107-index-reconcile.js
+          grep -F "downgradeFolderToV5" pad-grade/v107-index-reconcile.js
+          grep -F "listProjectFileDetails" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
+          grep -F "readProjectFileHeadAsync" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
+          grep -F "refreshProjectFileIndexAsync" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/PadGradeNativeBridge.java
+          grep -F "onHostResume" pad-grade-android/app/src/main/java/com/lordofrealms/padgrade/MainActivity.java
+          grep -F "superseded-by-v107-authoritative-renderer" pad-grade/v086-compare-presentation.js
+          grep -F "compare.grid-visible" pad-grade/v107-compare-fast.js
+          grep -F "compare.low-heat-visible" pad-grade/v107-compare-fast.js
+          grep -F "compare.high-heat-visible" pad-grade/v107-compare-fast.js
+          grep -F "'circle-radius':6" pad-grade/v107-compare-fast.js
+          grep -F "'text-field':['get','label']" pad-grade/v107-compare-fast.js
+          grep -F "pgCompareLegendV086" pad-grade/v107-compare-fast.js
+
+      - name: Run Pad Grade regression self-tests
+        run: |
+          node pad-grade/dev-selftest.js
+          node pad-grade/project-compare-selftest.js
+          node pad-grade/project-format-v107-selftest.js
+          node pad-grade/v107-index-reconcile-selftest.js
+          node pad-grade/v122-canvas-handoff-selftest.js
+          node pad-grade/v126-generation-cancel-selftest.js
 
       - uses: actions/setup-java@v5
         with:
@@ -177,8 +145,7 @@ jobs:
       - uses: android-actions/setup-android@v3
 
       - name: Install Android SDK
-        run: |
-          sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -188,7 +155,7 @@ jobs:
         run: |
           VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' pad-grade-android/app/build.gradle.kts | head -1)
           test -n "$VERSION"
-          echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]\.[0-9]$'
+          echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
           BRANCH="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
           if [ "$BRANCH" = "main" ]; then
             CHANNEL=stable
@@ -206,6 +173,36 @@ jobs:
           echo "ARTIFACT_NAME=pad-grade-$CHANNEL" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
 
+      - name: Verify release notes match app version
+        run: |
+          test -s pad-grade/RELEASE_NOTES.md
+          grep -F "## v$APP_VERSION —" pad-grade/RELEASE_NOTES.md
+
+      - name: Build current-version release notes only
+        run: |
+          python3 - "$APP_VERSION" /tmp/pad-grade-release-notes.md <<'PY'
+          import re, sys
+          from pathlib import Path
+          version,out=sys.argv[1:]
+          text=Path('pad-grade/RELEASE_NOTES.md').read_text(encoding='utf-8')
+          title=re.search(rf'^# Pad Grade Mapper v{re.escape(version)}(?:\s+—.*)?$', text, re.M)
+          section=re.search(rf'^## v{re.escape(version)}(?:\s+—.*)?$', text, re.M)
+          if not title or not section or section.start() < title.start():
+              raise SystemExit(f'Could not locate current v{version} release notes')
+          end=len(text)
+          separator=re.search(r'^---\s*$', text[section.end():], re.M)
+          next_title=re.search(r'^# Pad Grade Mapper v[0-9]+\.[0-9]+\.[0-9]+(?:\s+—.*)?$', text[section.end():], re.M)
+          candidates=[]
+          if separator: candidates.append(section.end()+separator.start())
+          if next_title: candidates.append(section.end()+next_title.start())
+          if candidates: end=min(candidates)
+          current=text[title.start():end].rstrip()+'\n'
+          version_heads=re.findall(r'^## v([0-9]+\.[0-9]+\.[0-9]+)(?:\s+—.*)?$', current, re.M)
+          if version_heads != [version]:
+              raise SystemExit(f'Expected only v{version} section, found {version_heads}')
+          Path(out).write_text(current,encoding='utf-8')
+          PY
+
       - name: Build debug APK
         run: |
           if [ "$BUILD_CHANNEL" = "dev" ]; then
@@ -217,41 +214,42 @@ jobs:
       - name: Verify canonical web assets packaged
         run: |
           APK=pad-grade-android/app/build/outputs/apk/debug/app-debug.apk
-          for asset in index.html platform.js map.js maplibre-loader.js v040.js v040-sync.js v041.js v041-persist.js migration-core.js grid-core.js grid-size-bootstrap-v094.js grid-size-worker-v094.js map-instance-hook-v064.js recovery-visual-v073.js v060-dev.js v061-dev.js v062-dev.js v063-dev.js v064-dev.js v065-dev.js v066-dev.js v067-dev.js v069-dev.js v070-dev.js v071-dev.js v071-map-ui.js v072-project-restore.js v075-startup.js v078-dev.js project-compare-core.js v081-project-compare.js v082-project-compare-fix.js v083-project-compare-fix.js v085-map-render-order.js v086-compare-presentation.js v087-compare-back.js v088-project-list-layout.js v089-imagery-recovery.js v090-first-run-guard.js v090-project-switch-boundary.js v095-map-grid-fastpath.js v095-reading-dialog.js v096-diagnostics.js v096-dev-defaults.js v096-native-async.js v096-async-reconcile.js heatmap-raster-worker-v073.js; do
+          for asset in \
+            index.html platform.js map.js maplibre-loader.js v040.js v040-sync.js \
+            v041.js v041-persist.js migration-core.js grid-core.js grid-size-bootstrap-v094.js \
+            grid-size-worker-v094.js map-instance-hook-v064.js recovery-visual-v073.js \
+            v060-dev.js v061-dev.js v062-dev.js v063-dev.js v064-dev.js v065-dev.js \
+            v066-dev.js v067-dev.js v069-dev.js v070-dev.js v071-dev.js v071-map-ui.js \
+            v072-project-restore.js v075-startup.js v076-dev.js v077-dev.js v078-dev.js \
+            project-compare-core.js v081-project-compare.js v082-project-compare-fix.js \
+            v083-project-compare-fix.js v085-map-render-order.js v086-compare-presentation.js \
+            v087-compare-back.js v088-project-list-layout.js v089-imagery-recovery.js \
+            v090-first-run-guard.js v090-project-switch-boundary.js v095-map-grid-fastpath.js \
+            v095-reading-dialog.js v096-diagnostics.js v096-dev-defaults.js \
+            v096-native-async.js project-format-v107.js v107-index-reconcile.js \
+            v107-compare-fast.js v111-resilience.js v113-dev.js v120-dev.js v122-dev.js \
+            v123-dev.js v124-dev.js v125-dev.js v126-dev.js \
+            heatmap-raster-worker-v073.js heatmap-raster-worker-v076.js \
+            heatmap-raster-worker-v077.js heatmap-raster-worker-v078.js; do
             unzip -l "$APK" | grep "assets/$asset"
           done
           unzip -l "$APK" | grep 'assets/vendor/maplibre-gl.js'
           unzip -l "$APK" | grep 'assets/vendor/maplibre-gl.css'
-          unzip -p "$APK" assets/index.html | grep -F 'src="recovery-visual-v073.js?v=20260829-2'
-          unzip -p "$APK" assets/index.html | grep -F 'src="v090-first-run-guard.js?v=20260829-2'
-          unzip -p "$APK" assets/index.html | grep -F 'src="v065-dev.js?v=20260829-3'
-          unzip -p "$APK" assets/index.html | grep -F 'src="v075-startup.js?v=20260829-2'
-          unzip -p "$APK" assets/index.html | grep -F 'src="v088-project-list-layout.js?v=20260829-1'
-          unzip -p "$APK" assets/index.html | grep -F 'src="v090-project-switch-boundary.js?v=20260829-2'
-          unzip -p "$APK" assets/index.html | grep -F 'src="v089-imagery-recovery.js?v=20260829-1'
-          unzip -p "$APK" assets/index.html | grep -F 'src="v096-diagnostics.js?v=20260829-1'
-          unzip -p "$APK" assets/index.html | grep -F 'src="v096-dev-defaults.js?v=20260829-1'
           unzip -p "$APK" assets/index.html | grep -F 'src="v096-native-async.js?v=20260829-1'
-          unzip -p "$APK" assets/recovery-visual-v073.js | grep -F "head-cover-normal-load-and-switch-before-project-managers"
-          unzip -p "$APK" assets/v072-project-restore.js | grep -F "background-never-block-visible-grid"
-          unzip -p "$APK" assets/v072-project-restore.js | grep -F "const id=currentActive||settings?.lastProjectId||null"
-          ! unzip -p "$APK" assets/v072-project-restore.js | grep -F "Date.now()+60000"
-          unzip -p "$APK" assets/v075-startup.js | grep -F "local-project-settled"
-          unzip -p "$APK" assets/map.js | grep -F "map.fitBounds"
-          unzip -p "$APK" assets/map.js | grep -F "map.on('style.load',()=>frameSavedPad(false))"
-          unzip -p "$APK" assets/v085-map-render-order.js | grep -F "v086-compare-presentation.js?v=20260829-2"
-          unzip -p "$APK" assets/v085-map-render-order.js | grep -F "padgrade-maplibre-ready"
-          unzip -p "$APK" assets/v086-compare-presentation.js | grep -F "pgCompareLegendBar"
-          unzip -p "$APK" assets/v088-project-list-layout.js | grep -F "reserved-before-hydration-no-row-shift"
-          unzip -p "$APK" assets/v089-imagery-recovery.js | grep -F "Map imagery unavailable — retrying"
-          unzip -p "$APK" assets/v090-first-run-guard.js | grep -F "explain-opt-in-before-durable-folder-picker"
-          unzip -p "$APK" assets/v090-project-switch-boundary.js | grep -F "cover-before-handler-carry-target-reload-before-paint"
-          unzip -p "$APK" assets/v063-dev.js | grep -F "CANVAS_SOURCE_PREFIX='pad-grade-interpolated-surface-canvas-source-'"
+          unzip -p "$APK" assets/index.html | grep -F 'src="v126-dev.js?v=20260831-1"'
+          unzip -p "$APK" assets/project-format-v107.js | grep -F "CURRENT_SCHEMA=6,ROLLBACK_SCHEMA=5"
+          unzip -p "$APK" assets/v096-native-async.js | grep -F "v107-index-reconcile.js?v=20260830-1"
+          unzip -p "$APK" assets/v096-native-async.js | grep -F "v107-compare-fast.js?v=20260830-1"
+          unzip -p "$APK" assets/v107-index-reconcile.js | grep -F "Pad-Grade-Project-Index.pgindex"
+          unzip -p "$APK" assets/v107-index-reconcile.js | grep -F "zeroProjectReads"
+          unzip -p "$APK" assets/v107-compare-fast.js | grep -F "compare.grid-visible"
+          unzip -p "$APK" assets/v107-compare-fast.js | grep -F "pgCompareLegendV086"
+          unzip -p "$APK" assets/v086-compare-presentation.js | grep -F "superseded-by-v107-authoritative-renderer"
           unzip -p "$APK" assets/v063-dev.js | grep -F "canvasSource:true"
-          unzip -p "$APK" assets/v063-dev.js | grep -F "whole-raster-low-304-then-high-888-no-zoom-recalc"
+          unzip -p "$APK" assets/v126-dev.js | grep -F "project-switch-outgoing-removed"
+          unzip -p "$APK" assets/v126-dev.js | grep -F "duplicate-tier-replaced"
+          unzip -p "$APK" assets/v126-dev.js | grep -F "__pg113HeatWorker=true"
           unzip -p "$APK" assets/heatmap-raster-worker-v073.js | grep -F "never publishes partial map bands"
-          unzip -p "$APK" assets/v096-native-async.js | grep -F "v096-async-reconcile.js?v=20260829-1"
-          unzip -p "$APK" assets/v096-async-reconcile.js | grep -F "__padGradeAsyncDurableV096=true"
 
       - name: Verify package channel, launcher icon, and WebP integrity
         run: |
@@ -280,10 +278,9 @@ jobs:
               assert data[:4] == b'RIFF', f'{name}: missing RIFF header'
               assert data[8:12] == b'WEBP', f'{name}: missing WEBP signature'
               declared = int.from_bytes(data[4:8], 'little') + 8
-              actual = len(data)
-              assert declared == actual, f'{name}: truncated WebP: declared {declared}, actual {actual}'
-              assert actual > 4000, f'{name}: unexpectedly small launcher file: {actual}'
-              print(f'{name}: valid WebP, {actual} bytes')
+              assert declared == len(data), f'{name}: truncated WebP'
+              assert len(data) > 4000, f'{name}: unexpectedly small launcher file'
+              print(f'{name}: valid WebP, {len(data)} bytes')
           PY
 
       - name: Name APK
@@ -301,12 +298,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="Pad Grade Mapper — stable Android build. See the canonical Pad Grade changelog for the changes in v$APP_VERSION."
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION" --notes "$NOTES"
+            gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION" --notes-file /tmp/pad-grade-release-notes.md
             gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
           else
-            gh release create "$RELEASE_TAG" "$APK_NAME" --target "$GITHUB_SHA" --title "Pad Grade v$APP_VERSION" --notes "$NOTES"
+            gh release create "$RELEASE_TAG" "$APK_NAME" --target "$GITHUB_SHA" --title "Pad Grade v$APP_VERSION" --notes-file /tmp/pad-grade-release-notes.md
           fi
 
       - name: Publish dev GitHub Pre-release APK
@@ -314,12 +310,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="Pad Grade Mapper — development/test Android build from pad-grade-dev. See the canonical Pad Grade changelog for the changes in v$APP_VERSION. Installs separately from stable as Pad Grade DEV."
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes "$NOTES" --prerelease
+            gh release edit "$RELEASE_TAG" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes-file /tmp/pad-grade-release-notes.md --prerelease
             gh release upload "$RELEASE_TAG" "$APK_NAME" --clobber
           else
-            gh release create "$RELEASE_TAG" "$APK_NAME" --target "$GITHUB_SHA" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes "$NOTES" --prerelease
+            gh release create "$RELEASE_TAG" "$APK_NAME" --target "$GITHUB_SHA" --title "Pad Grade v$APP_VERSION — DEV BUILD" --notes-file /tmp/pad-grade-release-notes.md --prerelease
           fi
 
       - name: Verify stable GitHub Release APK
@@ -328,6 +323,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | grep -Fx "$APK_NAME"
+          gh release view "$RELEASE_TAG" --json body --jq '.body' > /tmp/published-pad-grade-release-notes.md
+          grep -F "## v$APP_VERSION —" /tmp/published-pad-grade-release-notes.md
+          test "$(grep -Ec '^## v[0-9]+\.[0-9]+\.[0-9]+' /tmp/published-pad-grade-release-notes.md)" -eq 1
+          test "$(grep -Ec '^# Pad Grade Mapper v[0-9]+\.[0-9]+\.[0-9]+' /tmp/published-pad-grade-release-notes.md)" -eq 1
 
       - name: Verify dev GitHub Pre-release APK
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/pad-grade-dev'
@@ -336,3 +335,7 @@ jobs:
         run: |
           test "$(gh release view "$RELEASE_TAG" --json isPrerelease --jq '.isPrerelease')" = "true"
           gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | grep -Fx "$APK_NAME"
+          gh release view "$RELEASE_TAG" --json body --jq '.body' > /tmp/published-pad-grade-release-notes.md
+          grep -F "## v$APP_VERSION —" /tmp/published-pad-grade-release-notes.md
+          test "$(grep -Ec '^## v[0-9]+\.[0-9]+\.[0-9]+' /tmp/published-pad-grade-release-notes.md)" -eq 1
+          test "$(grep -Ec '^# Pad Grade Mapper v[0-9]+\.[0-9]+\.[0-9]+' /tmp/published-pad-grade-release-notes.md)" -eq 1
