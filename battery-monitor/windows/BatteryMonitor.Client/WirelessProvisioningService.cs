@@ -28,15 +28,16 @@ internal sealed class WirelessProvisioningService
 
     public async Task ProvisionAsync(
         string deviceId,
-        string setupCode,
+        string devicePassword,
         string homeSsid,
         string homePassword,
         Action<string>? progress = null,
         CancellationToken cancellationToken = default)
     {
         deviceId = NormalizeDeviceId(deviceId);
-        var canonicalCode = ProvisioningCode.Normalize(setupCode);
-        if (canonicalCode.Length != 16) throw new ArgumentException("Enter a valid 16-character setup code.", nameof(setupCode));
+        if (!DevicePasswordRules.TryValidate(devicePassword, out var passwordError))
+            throw new ArgumentException(passwordError, nameof(devicePassword));
+        var effectivePassword = DevicePasswordRules.InitialCodeCompatibility(devicePassword);
         if (string.IsNullOrWhiteSpace(homeSsid) || Encoding.UTF8.GetByteCount(homeSsid) > 32)
             throw new ArgumentException("Home Wi-Fi SSID is required and must fit the Wi-Fi SSID limit.", nameof(homeSsid));
         if (Encoding.UTF8.GetByteCount(homePassword ?? string.Empty) > 63)
@@ -45,7 +46,7 @@ internal sealed class WirelessProvisioningService
             throw new InvalidOperationException("The installed Battery Monitor package is missing the secure provisioning helper.");
 
         var setupSsid = "BatteryMonitor-" + deviceId[3..];
-        var setupKey = ProvisioningCode.DeriveSoftApPassword(deviceId, canonicalCode);
+        var setupKey = DevicePasswordRules.DeriveSoftApPassword(deviceId, devicePassword);
         string? temporaryProfileName = null;
 
         try
@@ -61,7 +62,7 @@ internal sealed class WirelessProvisioningService
                 {
                     Protocol = Protocol,
                     Username = "batmon",
-                    SetupCode = canonicalCode,
+                    SetupCode = effectivePassword,
                     HomeSsid = homeSsid,
                     HomePassword = homePassword ?? string.Empty,
                     ServiceName = "192.168.4.1:80"
@@ -92,8 +93,8 @@ internal sealed class WirelessProvisioningService
             CreateNoWindow = true
         };
 
-        // Deliberately no secret command-line arguments. The setup code and
-        // home Wi-Fi credentials travel only through redirected stdin.
+        // Deliberately no secret command-line arguments. The Device Password
+        // and home Wi-Fi credentials travel only through redirected stdin.
         using var process = new Process { StartInfo = psi };
         if (!process.Start()) throw new InvalidOperationException("Could not start the secure provisioning helper.");
 
@@ -239,6 +240,8 @@ internal sealed class WirelessProvisioningService
     {
         public string Protocol { get; set; } = "BATMONPROV1";
         public string Username { get; set; } = "batmon";
+        // Property name retained for helper wire compatibility; value is the
+        // normal Device Password, not a separate credential.
         public string SetupCode { get; set; } = "";
         public string HomeSsid { get; set; } = "";
         public string HomePassword { get; set; } = "";
