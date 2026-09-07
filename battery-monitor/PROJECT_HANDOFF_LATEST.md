@@ -112,6 +112,20 @@ User approved signed firmware releases and eventual Secure Boot.
 - desired order: CI/release signing -> Windows rejects unsigned/invalid firmware -> later production ESP32 Secure Boot v2.
 - do **not** burn Secure Boot fuses on development boards yet.
 
+### EXPLICIT PRODUCTION REMINDER — CIRCLE BACK TO SECURE BOOT
+
+Before any production/release candidate is considered security-complete, **stop and revisit ESP32 Secure Boot v2**.
+
+At that checkpoint:
+
+1. confirm the exact ESP32-WROOM-32 chip revisions support the intended Secure Boot v2 mode;
+2. confirm normal signed firmware update/recovery is already proven on physical hardware;
+3. make at least two independent encrypted backups of the signing private key, with at least one backup outside ChatGPT Library;
+4. document the recovery consequences of losing the private key after eFuse trust is burned;
+5. only then decide whether to burn Secure Boot eFuses on production units.
+
+Do not let host-side signature verification be mistaken for final device-side enforcement. **Secure Boot remains a mandatory production-hardening decision to revisit.**
+
 ## Remaining security items after P0-2/P0-3
 
 - Physical NVS/flash extraction and hostile physical reflashing: evaluate NVS encryption, Flash Encryption, Secure Boot, ROM-download restrictions for production mode.
