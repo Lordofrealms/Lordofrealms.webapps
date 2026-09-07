@@ -283,7 +283,9 @@ public class MainActivity extends Activity {
         }
         String ssid = homeSsidEdit.getText().toString().trim();
         String password = homePasswordEdit.getText().toString();
-        if (ssid.isEmpty() || ssid.length() > 32 || password.length() > 63) {
+        if (ssid.isEmpty()
+                || ssid.getBytes(StandardCharsets.UTF_8).length > 32
+                || password.getBytes(StandardCharsets.UTF_8).length > 63) {
             toast("Check the home Wi-Fi SSID and password.");
             return;
         }
