@@ -48,7 +48,6 @@ internal sealed class FirmwareUpdateForm : Form
         AddRow(root, 1, "USB serial port", ports);
 
         root.Controls.Add(_bundleStatus, 1, 2);
-
         var update = MakeButton("Update Firmware", async (_, _) => await UpdateAsync());
         root.Controls.Add(update, 1, 3);
 
@@ -106,7 +105,7 @@ internal sealed class FirmwareUpdateForm : Form
                 try
                 {
                     var status = await _provisioner.ReadStatusAsync(candidate, AppendLog, token);
-                    BeginInvoke(new Action(() => _port.SelectedItem = candidate));
+                    _port.SelectedItem = candidate;
                     AppendLog($"Battery Monitor {status.DeviceId} detected on {candidate} ({status.Voltage:0.00} V).");
                     return;
                 }
@@ -127,35 +126,21 @@ internal sealed class FirmwareUpdateForm : Form
         {
             AppendLog("Verifying Battery Monitor identity before update...");
             var status = await _provisioner.ReadStatusAsync(port, AppendLog, token);
-            var confirmed = false;
-            BeginInvoke(new Action(() =>
-            {
-                confirmed = MessageBox.Show(this,
+            if (MessageBox.Show(this,
                     $"Update Battery Monitor {status.DeviceId} ({status.DeviceName}) while preserving its settings?",
-                    "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
-            }));
-
-            // Wait for the UI confirmation delegate to execute without blocking
-            // the UI thread itself.
-            while (!IsDisposed && !confirmed)
+                    "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
             {
-                // If the user selected No, we need a separate signal. Use Invoke
-                // synchronously instead to avoid ambiguity.
-                break;
+                AppendLog("Firmware update cancelled by user.");
+                return;
             }
-
-            var answer = (DialogResult)Invoke(new Func<DialogResult>(() => MessageBox.Show(this,
-                $"Proceed with the settings-preserving firmware update for {status.DeviceId}?",
-                "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Question)));
-            if (answer != DialogResult.Yes) return;
 
             AppendLog($"Verified {status.DeviceId}; entering bootloader and writing application partition only...");
             var result = await _flasher.UpdateFirmwareAsync(port, AppendLog, token);
             if (!result.Success) throw new InvalidOperationException("Firmware update failed. See the log for details.");
             AppendLog("Firmware update completed successfully; NVS/settings partitions were not written.");
-            BeginInvoke(new Action(() => MessageBox.Show(this,
+            MessageBox.Show(this,
                 "Firmware update completed. The monitor was reset and should return using its existing configuration.",
-                "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information)));
+                "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
         });
     }
 
