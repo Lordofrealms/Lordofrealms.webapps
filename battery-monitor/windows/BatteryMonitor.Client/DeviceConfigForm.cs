@@ -1,5 +1,4 @@
 using System.Drawing;
-using System.Globalization;
 
 namespace BatteryMonitor.Client;
 
@@ -13,6 +12,7 @@ public sealed class DeviceConfigForm : Form
     private readonly NumericUpDown _critical = new();
     private readonly NumericUpDown _sample = new();
     private readonly NumericUpDown _poll = new();
+    private readonly NumericUpDown _offlineTimeout = new();
     private readonly NumericUpDown _calFactor = new();
     private readonly NumericUpDown _calOffset = new();
 
@@ -22,8 +22,8 @@ public sealed class DeviceConfigForm : Form
     {
         _device = device;
         Text = $"Configure {device.DisplayName}";
-        Width = 470;
-        Height = 620;
+        Width = 480;
+        Height = 665;
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -32,16 +32,16 @@ public sealed class DeviceConfigForm : Form
         _batteryType.DropDownStyle = ComboBoxStyle.DropDownList;
         _batteryType.Items.Add(new Choice("12 V Lead Acid", "lead_acid"));
         _batteryType.Items.Add(new Choice("4S LiFePO4", "lifepo4_4s"));
-        _batteryType.SelectedIndexChanged += (_, _) => { };
 
         ConfigureNumeric(_low, 6, 20, 2, 0.01m);
         ConfigureNumeric(_critical, 6, 20, 2, 0.01m);
         ConfigureNumeric(_sample, 1, 3600, 0, 1);
         ConfigureNumeric(_poll, 2, 3600, 0, 1);
+        ConfigureNumeric(_offlineTimeout, 5, 86400, 0, 5);
         ConfigureNumeric(_calFactor, 0.5m, 1.5m, 6, 0.0001m);
         ConfigureNumeric(_calOffset, -5, 5, 4, 0.001m);
 
-        var table = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14), ColumnCount = 2, RowCount = 12, AutoSize = true };
+        var table = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14), ColumnCount = 2, RowCount = 13, AutoSize = true };
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60));
         Controls.Add(table);
@@ -53,20 +53,21 @@ public sealed class DeviceConfigForm : Form
         AddRow(table, 4, "Critical (V)", _critical);
         AddRow(table, 5, "Unit sample interval (s)", _sample);
         AddRow(table, 6, "PC poll interval (s)", _poll);
-        AddRow(table, 7, "Calibration factor", _calFactor);
-        AddRow(table, 8, "Calibration offset (V)", _calOffset);
+        AddRow(table, 7, "Offline timeout (s)", _offlineTimeout);
+        AddRow(table, 8, "Calibration factor", _calFactor);
+        AddRow(table, 9, "Calibration offset (V)", _calOffset);
 
         var preset = new Button { Text = "Apply Chemistry Defaults", AutoSize = true };
         preset.Click += (_, _) => ApplyPreset();
-        table.Controls.Add(preset, 1, 9);
+        table.Controls.Add(preset, 1, 10);
 
         var info = new Label
         {
             AutoSize = true,
-            MaximumSize = new Size(400, 0),
-            Text = "Local alias only changes this PC. 'Name stored on unit' is pushed to the ESP32 and is also shown on its web page. LiFePO4 voltage is not a precise state-of-charge gauge; the preset values are alarm defaults and can be tuned."
+            MaximumSize = new Size(410, 0),
+            Text = "Offline timeout is elapsed time, not a retry count. The timer starts when contact first fails and resets immediately after a successful response. Local alias only changes this PC; the unit name is pushed to the ESP32."
         };
-        table.Controls.Add(info, 0, 10);
+        table.Controls.Add(info, 0, 11);
         table.SetColumnSpan(info, 2);
 
         var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill };
@@ -78,7 +79,7 @@ public sealed class DeviceConfigForm : Form
         buttons.Controls.Add(cancel);
         buttons.Controls.Add(saveBoth);
         buttons.Controls.Add(saveLocal);
-        table.Controls.Add(buttons, 0, 11);
+        table.Controls.Add(buttons, 0, 12);
         table.SetColumnSpan(buttons, 2);
 
         AcceptButton = saveBoth;
@@ -112,6 +113,7 @@ public sealed class DeviceConfigForm : Form
         _critical.Value = Clamp((decimal)_device.CriticalVoltage, _critical);
         _sample.Value = Clamp(_device.SampleIntervalSec, _sample);
         _poll.Value = Clamp(_device.PollIntervalSec, _poll);
+        _offlineTimeout.Value = Clamp(_device.OfflineTimeoutSec <= 0 ? 300 : _device.OfflineTimeoutSec, _offlineTimeout);
         _calFactor.Value = Clamp((decimal)_device.CalibrationFactor, _calFactor);
         _calOffset.Value = Clamp((decimal)_device.CalibrationOffset, _calOffset);
     }
@@ -138,6 +140,11 @@ public sealed class DeviceConfigForm : Form
             MessageBox.Show(this, "Low warning must be higher than the critical threshold.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
+        if (_offlineTimeout.Value < _poll.Value)
+        {
+            MessageBox.Show(this, "Offline timeout must be at least as long as the PC poll interval.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
 
         _device.LocalName = _localName.Text.Trim();
         _device.DeviceName = _deviceName.Text.Trim();
@@ -146,6 +153,7 @@ public sealed class DeviceConfigForm : Form
         _device.CriticalVoltage = (double)_critical.Value;
         _device.SampleIntervalSec = (int)_sample.Value;
         _device.PollIntervalSec = (int)_poll.Value;
+        _device.OfflineTimeoutSec = (int)_offlineTimeout.Value;
         _device.CalibrationFactor = (double)_calFactor.Value;
         _device.CalibrationOffset = (double)_calOffset.Value;
         ApplyToUnit = applyToUnit;
