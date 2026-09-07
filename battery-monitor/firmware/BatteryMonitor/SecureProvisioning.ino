@@ -86,12 +86,12 @@ String deriveProvisioningApPassword(const String& setupCode) {
   uint8_t digest[32];
   if (!sha256String(String("BATMON-SOFTAP-V1|") + deviceId + "|" + normalized, digest)) return "";
 
-  static const char HEX[] = "0123456789ABCDEF";
+  static const char HEX_DIGITS[] = "0123456789ABCDEF";
   String password;
   password.reserve(32);
   for (size_t i = 0; i < 16; i++) {
-    password += HEX[(digest[i] >> 4) & 0x0F];
-    password += HEX[digest[i] & 0x0F];
+    password += HEX_DIGITS[(digest[i] >> 4) & 0x0F];
+    password += HEX_DIGITS[digest[i] & 0x0F];
   }
   return password;
 }
