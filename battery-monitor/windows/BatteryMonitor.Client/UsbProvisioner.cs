@@ -46,8 +46,15 @@ internal sealed class UsbProvisioner
                 log,
                 cancellationToken);
 
-            if (!string.IsNullOrWhiteSpace(settings.WifiSsid))
+            // Wi-Fi credentials are never readable back from the ESP32. Only
+            // touch Wi-Fi when the user explicitly requested a credentials
+            // update, otherwise a blank password could accidentally replace a
+            // working secured network with an empty password.
+            if (settings.UpdateWifi)
             {
+                if (string.IsNullOrWhiteSpace(settings.WifiSsid))
+                    throw new InvalidOperationException("Wi-Fi SSID is required when Update Wi-Fi is enabled.");
+
                 ExpectOk(
                     port,
                     $"BATMON1 SET WIFI {Encode(settings.WifiSsid)} {Encode(settings.WifiPassword)}",
@@ -95,9 +102,6 @@ internal sealed class UsbProvisioner
 
     private static void WaitForFirmwareAfterOpen(SerialPort port, Action<string>? log, CancellationToken cancellationToken)
     {
-        // Opening many ESP32 dev-board USB-UART bridges can toggle the auto-reset
-        // lines. Give the application firmware time to boot, then discard noisy
-        // ROM/boot/debug output before starting the machine protocol.
         log?.Invoke($"Opened {port.PortName}; waiting for ESP32 firmware...");
         SleepWithCancellation(TimeSpan.FromMilliseconds(1800), cancellationToken);
         try { port.DiscardInBuffer(); } catch { }
@@ -163,7 +167,6 @@ internal sealed class UsbProvisioner
             }
             catch (TimeoutException)
             {
-                // Keep checking until the command-level deadline expires.
             }
         }
 
@@ -197,7 +200,7 @@ internal sealed class UsbProvisioner
     private static double ParseDouble(string value) =>
         double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var result) ? result : 0;
 
-    private static string Encode(string value) => Uri.EscapeDataString(value ?? string.Empty).Replace("%20", "%20", StringComparison.Ordinal);
+    private static string Encode(string value) => Uri.EscapeDataString(value ?? string.Empty);
     private static string Decode(string value) => Uri.UnescapeDataString(value ?? string.Empty);
 
     private static string Redact(string command)
@@ -236,6 +239,7 @@ internal sealed class UsbMonitorStatus
 internal sealed class UsbProvisioningSettings
 {
     public string DeviceName { get; set; } = "Battery Monitor";
+    public bool UpdateWifi { get; set; }
     public string WifiSsid { get; set; } = "";
     public string WifiPassword { get; set; } = "";
     public string BatteryType { get; set; } = "lead_acid";
