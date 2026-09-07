@@ -12,7 +12,8 @@ public sealed class DeviceConfigForm : Form
     private readonly NumericUpDown _critical = new();
     private readonly NumericUpDown _sample = new();
     private readonly NumericUpDown _poll = new();
-    private readonly NumericUpDown _offlineTimeout = new();
+    private readonly NumericUpDown _offlineTimeoutValue = new();
+    private readonly ComboBox _offlineTimeoutUnit = new();
     private readonly NumericUpDown _calFactor = new();
     private readonly NumericUpDown _calOffset = new();
 
@@ -22,7 +23,7 @@ public sealed class DeviceConfigForm : Form
     {
         _device = device;
         Text = $"Configure {device.DisplayName}";
-        Width = 480;
+        Width = 500;
         Height = 665;
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -37,9 +38,14 @@ public sealed class DeviceConfigForm : Form
         ConfigureNumeric(_critical, 6, 20, 2, 0.01m);
         ConfigureNumeric(_sample, 1, 3600, 0, 1);
         ConfigureNumeric(_poll, 2, 3600, 0, 1);
-        ConfigureNumeric(_offlineTimeout, 5, 86400, 0, 5);
+        ConfigureNumeric(_offlineTimeoutValue, 1, 86400, 0, 1);
         ConfigureNumeric(_calFactor, 0.5m, 1.5m, 6, 0.0001m);
         ConfigureNumeric(_calOffset, -5, 5, 4, 0.001m);
+
+        _offlineTimeoutUnit.DropDownStyle = ComboBoxStyle.DropDownList;
+        _offlineTimeoutUnit.Items.Add(new TimeUnitChoice("seconds", 1));
+        _offlineTimeoutUnit.Items.Add(new TimeUnitChoice("minutes", 60));
+        _offlineTimeoutUnit.Items.Add(new TimeUnitChoice("hours", 3600));
 
         var table = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14), ColumnCount = 2, RowCount = 13, AutoSize = true };
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
@@ -53,7 +59,15 @@ public sealed class DeviceConfigForm : Form
         AddRow(table, 4, "Critical (V)", _critical);
         AddRow(table, 5, "Unit sample interval (s)", _sample);
         AddRow(table, 6, "PC poll interval (s)", _poll);
-        AddRow(table, 7, "Offline timeout (s)", _offlineTimeout);
+
+        var timeoutPanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, AutoSize = true, Margin = new Padding(0) };
+        timeoutPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55));
+        timeoutPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));
+        timeoutPanel.Controls.Add(_offlineTimeoutValue, 0, 0);
+        _offlineTimeoutUnit.Dock = DockStyle.Fill;
+        timeoutPanel.Controls.Add(_offlineTimeoutUnit, 1, 0);
+        AddRow(table, 7, "Offline timeout", timeoutPanel);
+
         AddRow(table, 8, "Calibration factor", _calFactor);
         AddRow(table, 9, "Calibration offset (V)", _calOffset);
 
@@ -64,8 +78,8 @@ public sealed class DeviceConfigForm : Form
         var info = new Label
         {
             AutoSize = true,
-            MaximumSize = new Size(410, 0),
-            Text = "Offline timeout is elapsed time, not a retry count. The timer starts when contact first fails and resets immediately after a successful response. Local alias only changes this PC; the unit name is pushed to the ESP32."
+            MaximumSize = new Size(430, 0),
+            Text = "Offline timeout is elapsed time, not a retry count. The timer starts from the last successful contact when a poll fails and resets immediately after a successful response. Local alias only changes this PC; the unit name is pushed to the ESP32."
         };
         table.Controls.Add(info, 0, 11);
         table.SetColumnSpan(info, 2);
@@ -113,9 +127,36 @@ public sealed class DeviceConfigForm : Form
         _critical.Value = Clamp((decimal)_device.CriticalVoltage, _critical);
         _sample.Value = Clamp(_device.SampleIntervalSec, _sample);
         _poll.Value = Clamp(_device.PollIntervalSec, _poll);
-        _offlineTimeout.Value = Clamp(_device.OfflineTimeoutSec <= 0 ? 300 : _device.OfflineTimeoutSec, _offlineTimeout);
+        LoadOfflineTimeout(_device.OfflineTimeoutSec <= 0 ? 300 : _device.OfflineTimeoutSec);
         _calFactor.Value = Clamp((decimal)_device.CalibrationFactor, _calFactor);
         _calOffset.Value = Clamp((decimal)_device.CalibrationOffset, _calOffset);
+    }
+
+    private void LoadOfflineTimeout(int seconds)
+    {
+        if (seconds % 3600 == 0)
+        {
+            _offlineTimeoutUnit.SelectedIndex = 2;
+            _offlineTimeoutValue.Value = Clamp(seconds / 3600, _offlineTimeoutValue);
+        }
+        else if (seconds % 60 == 0)
+        {
+            _offlineTimeoutUnit.SelectedIndex = 1;
+            _offlineTimeoutValue.Value = Clamp(seconds / 60, _offlineTimeoutValue);
+        }
+        else
+        {
+            _offlineTimeoutUnit.SelectedIndex = 0;
+            _offlineTimeoutValue.Value = Clamp(seconds, _offlineTimeoutValue);
+        }
+    }
+
+    private int OfflineTimeoutSecondsFromControls()
+    {
+        var unit = _offlineTimeoutUnit.SelectedItem as TimeUnitChoice ?? new TimeUnitChoice("seconds", 1);
+        var seconds = (long)_offlineTimeoutValue.Value * unit.SecondsMultiplier;
+        if (seconds < 5 || seconds > 86400) return -1;
+        return (int)seconds;
     }
 
     private static decimal Clamp(decimal value, NumericUpDown n) => Math.Max(n.Minimum, Math.Min(n.Maximum, value));
@@ -140,7 +181,14 @@ public sealed class DeviceConfigForm : Form
             MessageBox.Show(this, "Low warning must be higher than the critical threshold.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
-        if (_offlineTimeout.Value < _poll.Value)
+
+        var timeoutSec = OfflineTimeoutSecondsFromControls();
+        if (timeoutSec < 0)
+        {
+            MessageBox.Show(this, "Offline timeout must be between 5 seconds and 24 hours.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        if (timeoutSec < _poll.Value)
         {
             MessageBox.Show(this, "Offline timeout must be at least as long as the PC poll interval.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
@@ -153,7 +201,7 @@ public sealed class DeviceConfigForm : Form
         _device.CriticalVoltage = (double)_critical.Value;
         _device.SampleIntervalSec = (int)_sample.Value;
         _device.PollIntervalSec = (int)_poll.Value;
-        _device.OfflineTimeoutSec = (int)_offlineTimeout.Value;
+        _device.OfflineTimeoutSec = timeoutSec;
         _device.CalibrationFactor = (double)_calFactor.Value;
         _device.CalibrationOffset = (double)_calOffset.Value;
         ApplyToUnit = applyToUnit;
@@ -162,6 +210,11 @@ public sealed class DeviceConfigForm : Form
     }
 
     private sealed record Choice(string Text, string Value)
+    {
+        public override string ToString() => Text;
+    }
+
+    private sealed record TimeUnitChoice(string Text, int SecondsMultiplier)
     {
         public override string ToString() => Text;
     }
