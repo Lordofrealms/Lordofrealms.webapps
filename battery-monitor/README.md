@@ -1,18 +1,15 @@
 # Battery Monitor
 
-Local-first ESP32 battery monitoring toolchain for 12 V batteries.
+Local-first ESP32 battery monitoring toolchain for 12 V lead-acid and 4S LiFePO4 batteries.
 
-## V0.1 architecture
+## Hardware
 
-- **ESP32-WROOM-32** is always powered from USB and remains on the local Wi-Fi network.
-- **GPIO34 / P34** measures battery voltage through a **100 kΩ / 22 kΩ** divider.
-- The ESP32 hosts a small status/configuration page and JSON API.
-- A **Windows .NET 8 WinForms tray client** automatically discovers and monitors multiple units.
-- The Windows client can also **detect, flash, and configure an ESP32 directly over USB**.
-- A **native Android Java setup APK** remains available as an alternate Wi-Fi provisioning method when a Windows PC is not convenient.
-- No cloud account, user signup, remote server, Firebase, or always-on home server is required for V0.1.
-
-## Wiring
+- ESP32-WROOM-32 development board, continuously USB powered.
+- Battery measurement on **P34 / GPIO34**.
+- Divider: **100 kΩ** from battery+ to P34 and **22 kΩ** from P34 to ground.
+- Common battery negative / ESP32 ground required.
+- No ADC capacitor in the initial build; firmware performs trimmed multi-sample filtering first.
+- Production/permanent vehicle use still needs a qualified automotive transient/load-dump front end.
 
 ```text
 Battery + ---- 100 kΩ ----+---- P34 / GPIO34
@@ -20,148 +17,149 @@ Battery + ---- 100 kΩ ----+---- P34 / GPIO34
                           22 kΩ
                            |
 Battery - -----------------+---- ESP32 GND
-
-ESP32 power: USB-C / USB power to the development board
 ```
 
-The divider multiplier is `(100k + 22k) / 22k = 5.5454545`.
+Divider multiplier: `(100k + 22k) / 22k = 5.5454545`.
 
-### Why there is no ADC capacitor in V0.1
+## Monitoring
 
-The initial hardware intentionally omits the 0.1 µF ADC capacitor. The firmware performs four throw-away ADC reads followed by 20 calibrated millivolt reads, sorts them, and averages the middle 12. This is intended to determine whether software filtering is sufficient with the 100 kΩ / 22 kΩ divider before adding hardware. If real vehicle testing shows excessive jitter or source-impedance error, a 0.1 µF capacitor from P34 to GND can be added later without changing the firmware/API.
+- ESP32 sample interval: 10 seconds default, configurable 1–3600 seconds.
+- Browser status refresh: 10 seconds.
+- ADC calibration factor + offset are persistent/configurable.
+- Lead-acid defaults: low 12.20 V, critical 11.90 V.
+- 4S LiFePO4 defaults: low 12.80 V, critical 12.00 V.
+- These are alarm presets, not exact state-of-charge estimates.
 
-The ESP32 ADC is not a precision voltmeter. Final installation should be calibrated against a trusted multimeter using the configurable calibration factor/offset.
+## Secure setup
 
-### Automotive protection
+The original open-AP/plaintext provisioning prototype is retired.
 
-This is a prototype measurement input, not yet a qualified automotive front end. A production/permanent vehicle design should add appropriate transient/load-dump protection before relying on it long term.
+Each initialized monitor has a unique **16-character / 80-bit setup code**. The code can be typed manually on Windows or Android; QR is only a convenience representation.
 
-## Default battery alarm presets
+Wireless setup uses two independent layers:
 
-These are alarm thresholds, not precise state-of-charge gauges, and are fully configurable on the ESP32 web page and from the Windows client.
+1. temporary `BatteryMonitor-XXXXXX` WPA2 SoftAP with a per-device key derived from Device ID + setup code;
+2. Espressif Unified Provisioning **Security 2** using SRP6a authentication and AES-GCM protected provisioning traffic.
 
-| Battery type | Low | Critical |
-|---|---:|---:|
-| 12 V lead-acid | 12.20 V | 11.90 V |
-| 4S LiFePO4 | 12.80 V | 12.00 V |
+The home Wi-Fi password is sent only inside the authenticated Security-2 session.
 
-LiFePO4 has a relatively flat discharge curve, so voltage alone is especially poor as an SOC gauge. Tune the thresholds to the actual pack/BMS and desired reserve.
+The ESP32 stores the SRP salt/verifier, a setup-code check hash used for trusted USB verification, and the derived SoftAP key. It does not expose a plaintext setup-code readback command.
 
-## ESP32 behavior
+If a board has not yet had a per-device setup credential initialized, it does **not** substitute an open provisioning AP; initialize it through trusted USB first.
 
-### Normal
-
-1. Samples battery voltage every 10 seconds by default.
-2. Hosts `http://<device-ip>/`.
-3. Advertises mDNS services and listens for Battery Monitor UDP discovery on port 4210.
-4. Responds to Windows client polling through `/api/status`.
-5. Listens on USB/UART0 at 115200 baud for the `BATMON1` provisioning protocol.
-
-### Initial Wi-Fi setup / failed Wi-Fi
-
-The setup SSID is `BatteryMonitor-XXXXXX`, where the suffix comes from the ESP32's unique MAC/eFuse identity.
-
-- With no saved Wi-Fi, the setup AP starts immediately.
-- With saved Wi-Fi, the ESP32 tries it for 30 seconds.
-- If it cannot connect, it enables the setup AP.
-- While in fallback setup mode, it retries the saved Wi-Fi every 10 minutes.
-- Once Wi-Fi connects, the setup AP shuts down.
-- Holding the common **BOOT / GPIO0** button for 5 seconds clears only the saved Wi-Fi credentials and restarts setup mode. The firmware waits for GPIO0 to be released before rebooting so the board does not intentionally reboot into its serial bootloader.
-
-The ESP32 setup AP is intentionally open for this first prototype. A product version should add proof-of-possession/setup authentication.
-
-## Local web page
-
-The page shows:
-
-- current voltage and state;
-- device ID and name;
-- Wi-Fi status/RSSI;
-- lead-acid/LiFePO4 preset selection;
-- low and critical thresholds;
-- unit sample interval;
-- calibration factor and offset;
-- Wi-Fi reset/setup control.
-
-The browser status view refreshes every 10 seconds. The ESP32 sample interval is configurable from 1–3600 seconds.
+See `SECURITY_P0_1_SECURE_PROVISIONING_RESOLUTION_2026-09-07.md`.
 
 ## Windows client
 
 Project: `windows/BatteryMonitor.Client`
 
-The .NET 8 WinForms client:
+.NET 8 WinForms tray application with:
 
-- automatically broadcasts `BATMON_DISCOVER_V1` and finds all monitors on the LAN;
-- remembers units by stable device ID, not IP address;
-- updates addresses when DHCP changes them;
-- supports a **local alias** plus a separate **name stored on the ESP32**;
-- polls each device independently (10 seconds default, configurable per device);
-- uses a **time-based offline timeout**, not a retry count;
-- defaults the offline timeout to **300 seconds**, configurable from 5 seconds to 24 hours per device;
-- starts the timeout from the last successful response (or first failed contact if the app has not yet seen that unit this session);
-- immediately displays `UNREACHABLE elapsed/timeout` after contact is lost, but does not beep until the configured timeout expires;
-- resets the timeout immediately after a successful response and gives a recovery notification if the unit had gone offline;
-- displays voltage, state, battery type, last seen, RSSI, IP, and ID;
-- beeps and shows a Windows tray balloon on low/critical transitions;
-- repeats an active low/critical alert every 30 minutes;
-- provides Configure and Open Web Page actions;
-- has a configurable **Start with Windows** option; startup launches use `--startup` and immediately minimize into the system tray;
-- provides a **USB Setup / Flash** wizard for first flash, recovery, or direct USB configuration.
+- automatic multi-unit LAN discovery;
+- local aliases plus independent names stored on devices;
+- configurable poll interval and per-device elapsed offline timeout;
+- default offline timeout 5 minutes, editable in seconds/minutes/hours;
+- immediate `UNREACHABLE elapsed/timeout` state when contact is lost;
+- offline beep/tray notification only after the configured elapsed timeout;
+- low/critical battery audio + tray alerts;
+- configurable Start with Windows; startup launches directly into tray;
+- Open Web Page and configuration actions.
 
-The offline timeout is a **PC-side setting**. It is not stored on the ESP32 because it controls how the Windows client interprets loss of contact.
+### USB Setup
 
-Local settings are stored under `%LOCALAPPDATA%/BatteryMonitor/devices.json`.
+USB configuration is a normal/default setup path and does not require Wi-Fi.
 
-### Windows-only first-use workflow
+It can manage:
 
-With the packaged Windows build, Android is not required for initial setup:
+- device name;
+- Wi-Fi credentials when explicitly selected;
+- battery chemistry and thresholds;
+- sample interval;
+- ADC calibration;
+- provisioning setup identity/code through the Advanced provisioning-admin screen.
 
-1. Connect the ESP32-WROOM-32 development board by USB.
-2. Open the Battery Monitor Windows client.
-3. Open **USB Setup / Flash**.
-4. Click **Detect ESP32** or select the COM port manually.
-5. Enter the device name, home Wi-Fi SSID/password, battery chemistry, thresholds, sample interval, and optional calibration.
-6. Click **Flash + Configure**.
-7. The client uses the bundled official Espressif esptool to flash the exact merged firmware built by CI.
-8. After the ESP32 boots, the same USB connection sends configuration through the `BATMON1` serial protocol.
-9. The ESP32 reboots, joins the configured Wi-Fi, and the normal Windows client discovers it automatically on the LAN.
+Because the ESP32 does not return its stored Wi-Fi password, normal USB maintenance preserves existing Wi-Fi unless **Update Wi-Fi credentials** is explicitly selected.
 
-For an existing Battery Monitor, **Read Current** and **Configure USB** work without reflashing. This is useful when Wi-Fi credentials change or the unit is not reachable on the network.
+### Wireless Setup on Windows
 
-The merged first-flash image is written at `0x0` and intentionally clears prior flash/NVS settings. `Configure USB` does not reflash.
+The Windows app can use the same printed setup code without USB:
 
-## Android setup app
+1. derive the protected temporary-AP key;
+2. join `BatteryMonitor-XXXXXX` through a unique temporary Windows WLAN profile;
+3. run a bundled, pinned Espressif Security-2 provisioner helper;
+4. pass setup code + home credentials to that helper through redirected stdin, not process arguments;
+5. delete the temporary WLAN profile in cleanup whether provisioning succeeds or fails.
+
+### Firmware Update
+
+**Update Firmware** is a normal top-level function. It verifies that the selected USB device is already running Battery Monitor firmware, then writes only the application partition so Wi-Fi/settings/provisioning identity remain intact.
+
+### Factory Flash / Recovery
+
+A destructive merged-image flash remains in **Advanced** in the regular app for the current prototype. It writes the merged image at `0x0` and wipes prior NVS/configuration/provisioning identity.
+
+The Advanced password is only a UI/casual-use gate; it is not considered a hard security boundary.
+
+## Android secure setup
 
 Project: `android`
 
-The Android app uses the same native Java + Gradle style used by the existing Pad Grade Android project in this repository.
+Native Java Android app, API 31+.
 
 Setup flow:
 
-1. Tap **Find / Connect Monitor**. Android presents nearby `BatteryMonitor-*` setup APs through its system Wi-Fi selection flow.
-2. Select/connect to a monitor.
-3. Ask the ESP32 itself to scan nearby home Wi-Fi networks.
-4. Select/type the home SSID and enter its password.
-5. Give the unit a name, select battery chemistry/thresholds, and choose sample interval.
-6. Submit configuration.
-7. The ESP32 joins the home network. If it fails, its setup AP remains/returns and it retries every 10 minutes.
+1. scan the Battery Monitor QR or manually enter Device ID + setup code;
+2. derive/connect to the monitor's WPA2 temporary setup AP;
+3. establish Espressif Security 2;
+4. scan home Wi-Fi through the monitor;
+5. select/type home SSID and password;
+6. provision those credentials inside the protected session.
 
-The phone does not retain or send the Wi-Fi password anywhere except directly to the ESP32 over the temporary local setup network.
+The app does not persist the setup code or home Wi-Fi password and clears those input fields after successful provisioning.
 
-## API / discovery
+For now Android secure setup changes Wi-Fi only. Name/battery/threshold/calibration management remains USB-side while LAN management authentication is addressed separately.
+
+## USB serial protocol
+
+UART0/USB serial uses 115200 baud and a line-oriented `BATMON1` protocol. Ordinary debug output can coexist; host software only treats `BATMON1 ` lines as machine responses.
 
 See `PROTOCOL.md`.
 
+## LAN security status
+
+Secure provisioning is resolved at source/build level, but two separate release-blocking LAN issues remain:
+
+- **P0-2:** state-changing LAN HTTP management endpoints are not authenticated yet;
+- **P0-3:** LAN discovery/status identity is not cryptographically authenticated yet.
+
+Do not treat current LAN configuration or hostile-LAN battery identity as secured until those are closed.
+
+## Firmware signing
+
+An RSA-3072 signing authority has been staged:
+
+- public key: `signing/battery_monitor_secureboot_rsa3072_public.pem`;
+- public-key SHA-256 fingerprint (DER SPKI): `69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e`;
+- encrypted private-key backup is stored separately in ChatGPT Library.
+
+CI signing and updater signature enforcement are **not active yet**. Planned sequence is signed release image -> Windows signature verification -> later ESP32 Secure Boot v2 on production hardware. Do not enable/burn Secure Boot fuses on development boards yet.
+
 ## Builds
 
-GitHub Actions workflow: `.github/workflows/battery-monitor-ci.yml`
+GitHub Actions: `.github/workflows/battery-monitor-ci.yml`
 
-It builds:
+Current secure-provisioning acceptance checkpoint:
 
-- ESP32 sketch against Espressif Arduino core **3.3.11**;
-- Windows x64 self-contained publish with the exact CI-built merged firmware plus **Espressif esptool 5.3.1**, whose official Windows archive is SHA-256 pinned in CI;
-- Android debug APK using the same Android toolchain family as Pad Grade (compile/target SDK 36, AGP 9.3.0, Gradle 9.5.0).
+- source: `e4fa7fd5af46224e0c96fca1fe8090ba29dcee44`;
+- run: `34167794017` — **SUCCESS**;
+- ESP32, Android, and Windows all green;
+- Windows build includes pinned Espressif Security-2 helper, exact same-run firmware artifacts, and SHA-256-verified Espressif esptool v5.3.1.
 
 ## Development state
 
-See `PROJECT_STATE_LATEST.md` and `PROJECT_HANDOFF_LATEST.md`.
+Read:
+
+1. `SECURITY_P0_1_SECURE_PROVISIONING_RESOLUTION_2026-09-07.md`
+2. `SECURITY_REVIEW_2026-09-07.md`
+3. `PROJECT_STATE_LATEST.md`
+4. `PROJECT_HANDOFF_LATEST.md`
