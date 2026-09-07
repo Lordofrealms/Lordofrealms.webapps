@@ -195,7 +195,9 @@ internal sealed class UsbProvisioner
             DeviceId = parts[0], DeviceName = Decode(parts[1]), BatteryType = parts[2],
             LowVoltage = ParseDouble(parts[3]), CriticalVoltage = ParseDouble(parts[4]),
             SampleIntervalSec = int.TryParse(parts[5], NumberStyles.Integer, CultureInfo.InvariantCulture, out var sample) ? sample : 10,
-            WifiSsid = Decode(parts[6]), Voltage = ParseDouble(parts[7])
+            WifiSsid = Decode(parts[6]), Voltage = ParseDouble(parts[7]),
+            CalibrationFactor = parts.Length >= 9 ? ParseDouble(parts[8]) : 1.0,
+            CalibrationOffset = parts.Length >= 10 ? ParseDouble(parts[9]) : 0.0
         };
     }
 
@@ -257,6 +259,8 @@ internal sealed class UsbMonitorStatus
     public int SampleIntervalSec { get; set; }
     public string WifiSsid { get; set; } = "";
     public double Voltage { get; set; }
+    public double CalibrationFactor { get; set; } = 1.0;
+    public double CalibrationOffset { get; set; }
 }
 
 internal sealed class UsbProvisioningIdentity
