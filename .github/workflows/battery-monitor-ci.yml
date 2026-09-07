@@ -7,6 +7,7 @@ on:
       - 'battery-monitor/firmware/**'
       - 'battery-monitor/windows/**'
       - 'battery-monitor/android/**'
+      - 'battery-monitor/signing/**'
       - '.github/workflows/battery-monitor-ci.yml'
   pull_request:
     branches: [main]
@@ -14,6 +15,7 @@ on:
       - 'battery-monitor/firmware/**'
       - 'battery-monitor/windows/**'
       - 'battery-monitor/android/**'
+      - 'battery-monitor/signing/**'
       - '.github/workflows/battery-monitor-ci.yml'
   workflow_dispatch:
 
@@ -104,6 +106,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $vendorCommit = '3ba4a43776a737054b43ead300ea0377787cad4a'
+          $idfCommit = 'fcae32885b0296b32044cb99ecbdc50d98dddb83'
+
           $vendor = Join-Path $env:RUNNER_TEMP 'idf-extra-components'
           New-Item -ItemType Directory -Force -Path $vendor | Out-Null
           git -C $vendor init
@@ -113,6 +117,15 @@ jobs:
           $actualCommit = (git -C $vendor rev-parse HEAD).Trim()
           if ($actualCommit -ne $vendorCommit) { throw "Espressif provisioner source commit mismatch: $actualCommit" }
 
+          $idf = Join-Path $env:RUNNER_TEMP 'esp-idf'
+          New-Item -ItemType Directory -Force -Path $idf | Out-Null
+          git -C $idf init
+          git -C $idf remote add origin https://github.com/espressif/esp-idf.git
+          git -C $idf fetch --depth=1 origin $idfCommit
+          git -C $idf checkout --detach FETCH_HEAD
+          $actualIdfCommit = (git -C $idf rev-parse HEAD).Trim()
+          if ($actualIdfCommit -ne $idfCommit) { throw "ESP-IDF source commit mismatch: $actualIdfCommit" }
+
           python -m pip install --disable-pip-version-check `
             pyinstaller==6.16.0 `
             cryptography==46.0.3 `
@@ -120,30 +133,39 @@ jobs:
             bleak==1.1.1
 
           $provDir = Join-Path $vendor 'network_provisioning/tool/esp_prov'
+          $networkProto = Join-Path $vendor 'network_provisioning/python'
+          $idfProto = Join-Path $idf 'components/protocomm/python'
+          if (-not (Test-Path "$idfProto/sec2_pb2.py")) { throw 'Pinned ESP-IDF protocomm Python modules are missing' }
+          if (-not (Test-Path "$networkProto/network_config_pb2.py")) { throw 'Pinned network provisioning Python modules are missing' }
+
           python -m PyInstaller `
             --noconfirm `
             --clean `
             --onefile `
             --name BatteryMonitorEspProv `
             --paths $provDir `
+            --add-data "$idfProto;idf/components/protocomm/python" `
+            --add-data "$networkProto;python" `
             battery-monitor/windows/esp_provision_helper.py
 
           $helperDir = 'battery-monitor/windows/staging/esp-provisioner'
           New-Item -ItemType Directory -Force -Path $helperDir | Out-Null
           Copy-Item dist/BatteryMonitorEspProv.exe "$helperDir/BatteryMonitorEspProv.exe"
-          # esp_prov sources are SPDX Apache-2.0. This repository has no single
-          # root LICENSE, so package a canonical Apache-2.0 text from the same
-          # exact pinned Espressif commit plus the source/commit notice.
           Copy-Item "$vendor/json_parser/LICENSE" "$helperDir/APACHE-2.0.txt"
           @"
-          Espressif idf-extra-components provisioning source
-          repository: https://github.com/espressif/idf-extra-components
-          commit: $vendorCommit
+          Espressif Security-2 provisioning helper sources
+          idf-extra-components repository: https://github.com/espressif/idf-extra-components
+          idf-extra-components commit: $vendorCommit
           component: network_provisioning/tool/esp_prov
-          source license: Apache-2.0 (SPDX headers in provisioner source files)
+          ESP-IDF repository: https://github.com/espressif/esp-idf
+          ESP-IDF commit: $idfCommit (v5.5.1)
+          protocomm support: components/protocomm/python
+          source license: Apache-2.0
           "@ | Set-Content "$helperDir/PINNED-SOURCE.txt"
 
-          # Smoke-test the standalone executable without supplying any secret.
+          # Smoke-test the actual standalone executable. A deliberately invalid
+          # protocol should reach our wrapper and return a structured failure,
+          # proving the bundled Espressif protobuf/runtime imports succeeded.
           $helperOutput = '{"protocol":"INVALID"}' | & "$helperDir/BatteryMonitorEspProv.exe"
           $helperExit = $LASTEXITCODE
           if ($helperExit -ne 1) { throw "Provisioning helper smoke test returned unexpected exit code $helperExit" }
