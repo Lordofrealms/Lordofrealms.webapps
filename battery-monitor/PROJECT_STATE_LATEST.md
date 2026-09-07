@@ -113,6 +113,20 @@ Physical interoperability testing is still required before calling P0-1 field-va
 - Planned sequence: signed release artifact -> Windows verification -> later ESP32 Secure Boot v2 for production hardware.
 - Do not burn Secure Boot fuses on development devices yet.
 
+### Mandatory production Secure Boot checkpoint
+
+Before a production/release candidate is considered security-complete, **circle back to ESP32 Secure Boot v2**. This is an explicit production gate, not an optional cleanup item.
+
+At that checkpoint:
+
+1. verify actual ESP32-WROOM-32 chip revision compatibility;
+2. prove signed firmware update/recovery on physical development hardware first;
+3. maintain at least two independent encrypted private-key backups, including one outside ChatGPT Library;
+4. document that loss of the signing private key after burning the Secure Boot trust eFuse can prevent future trusted firmware updates;
+5. decide and document whether/when Secure Boot eFuses are burned on production units.
+
+Host-side firmware signature checking is useful but is not a substitute for device-side Secure Boot enforcement.
+
 ## Remaining security priorities
 
 1. **P0-2:** authenticate/authorize state-changing LAN management endpoints; until then treat LAN configuration as untrusted.
