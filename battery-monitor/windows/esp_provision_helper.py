@@ -42,17 +42,24 @@ async def quiet(awaitable):
         return await awaitable
 
 
+def validate_device_password(value: str) -> None:
+    encoded = value.encode("utf-8")
+    if len(encoded) < 1 or len(encoded) > 128:
+        raise ValueError("Device Password must contain 1 to 128 UTF-8 bytes.")
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value):
+        raise ValueError("Device Password cannot contain control characters.")
+
+
 async def provision(request: dict) -> None:
     username = str(request.get("username", "batmon"))
-    setup_code = str(request.get("setupCode", ""))
+    device_password = str(request.get("setupCode", ""))  # legacy JSON field name
     home_ssid = str(request.get("homeSsid", ""))
     home_password = str(request.get("homePassword", ""))
     service_name = str(request.get("serviceName", "192.168.4.1:80"))
 
     if not username or len(username) > 32:
         raise ValueError("Invalid Security-2 username.")
-    if len(setup_code) != 16:
-        raise ValueError("Setup code must be the 16-character canonical code.")
+    validate_device_password(device_password)
     if not home_ssid or len(home_ssid.encode("utf-8")) > 32:
         raise ValueError("Home Wi-Fi SSID is required and must fit the Wi-Fi SSID limit.")
     if len(home_password.encode("utf-8")) > 63:
@@ -65,13 +72,13 @@ async def provision(request: dict) -> None:
 
     try:
         patch = await quiet(esp_prov.get_sec_patch_ver(transport, False))
-        security = esp_prov.get_security(2, patch, username, setup_code, "", False)
+        security = esp_prov.get_security(2, patch, username, device_password, "", False)
         if security is None:
             raise RuntimeError("Could not initialize Espressif Security 2.")
 
-        emit("stage", message="Authenticating setup code with Security 2...")
+        emit("stage", message="Authenticating Device Password with Security 2...")
         if not await quiet(esp_prov.establish_session(transport, security)):
-            raise RuntimeError("Security-2 authentication failed. Check the device ID and setup code.")
+            raise RuntimeError("Security-2 authentication failed. Check the Device ID and Device Password.")
 
         emit("stage", message="Sending home Wi-Fi credentials through the encrypted session...")
         if not await quiet(esp_prov.send_wifi_config(transport, security, home_ssid, home_password)):
