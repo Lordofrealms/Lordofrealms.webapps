@@ -17,6 +17,7 @@ public sealed class MonitorEntry
     public double CalibrationOffset { get; set; } = 0.0;
     public int SampleIntervalSec { get; set; } = 10;
     public int PollIntervalSec { get; set; } = 10;
+    public int OfflineTimeoutSec { get; set; } = 300;
 
     [JsonIgnore] public double? Voltage { get; set; }
     [JsonIgnore] public string State { get; set; } = "unknown";
@@ -24,7 +25,8 @@ public sealed class MonitorEntry
     [JsonIgnore] public DateTime? LastSeenUtc { get; set; }
     [JsonIgnore] public DateTime LastPollUtc { get; set; } = DateTime.MinValue;
     [JsonIgnore] public bool PollInProgress { get; set; }
-    [JsonIgnore] public int ConsecutiveFailures { get; set; }
+    [JsonIgnore] public DateTime? FailureStartedUtc { get; set; }
+    [JsonIgnore] public bool OfflineAlerted { get; set; }
     [JsonIgnore] public string LastAlertState { get; set; } = "";
     [JsonIgnore] public DateTime LastAlertUtc { get; set; } = DateTime.MinValue;
 
