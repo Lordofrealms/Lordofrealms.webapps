@@ -14,17 +14,18 @@ Battery Monitor Toolchain run:
 
 Read, at the live ref, in this order:
 
-1. `battery-monitor/SECURITY_P0_1_SECURE_PROVISIONING_RESOLUTION_2026-09-07.md`
-2. `battery-monitor/SECURITY_REVIEW_2026-09-07.md`
-3. `battery-monitor/PROJECT_STATE_LATEST.md`
-4. `battery-monitor/README.md`
-5. `battery-monitor/PROTOCOL.md`
-6. `battery-monitor/firmware/BatteryMonitor/BatteryMonitor.ino`
-7. `battery-monitor/firmware/BatteryMonitor/SecureProvisioning.ino`
-8. `battery-monitor/firmware/BatteryMonitor/SerialProvisioning.ino`
-9. `battery-monitor/windows/BatteryMonitor.Client/`
-10. `battery-monitor/android/`
-11. `.github/workflows/battery-monitor-ci.yml`
+1. `battery-monitor/SECURITY_P0_2_LAN_AUTH_DESIGN_2026-09-07.md`
+2. `battery-monitor/SECURITY_P0_1_SECURE_PROVISIONING_RESOLUTION_2026-09-07.md`
+3. `battery-monitor/SECURITY_REVIEW_2026-09-07.md`
+4. `battery-monitor/PROJECT_STATE_LATEST.md`
+5. `battery-monitor/README.md`
+6. `battery-monitor/PROTOCOL.md`
+7. `battery-monitor/firmware/BatteryMonitor/BatteryMonitor.ino`
+8. `battery-monitor/firmware/BatteryMonitor/SecureProvisioning.ino`
+9. `battery-monitor/firmware/BatteryMonitor/SerialProvisioning.ino`
+10. `battery-monitor/windows/BatteryMonitor.Client/`
+11. `battery-monitor/android/`
+12. `.github/workflows/battery-monitor-ci.yml`
 
 ## Current architecture
 
@@ -55,15 +56,48 @@ Current authority:
 
 P0-1 still needs real-hardware interoperability testing before being called field-validated.
 
-## NEXT SECURITY ITEM — P0-2
+## P0-2 LAN AUTHENTICATION — USER-APPROVED DESIGN
 
-The next vulnerability to decide/fix is **unauthenticated LAN management**.
+Controlling design note:
 
-Current state-changing LAN endpoints include configuration/Wi-Fi/reset operations without authorization. A hostile LAN client could alter ADC calibration or thresholds, rename/reconfigure the unit, or remove it from Wi-Fi. This can directly falsify/suppress the intended battery-warning function.
+`battery-monitor/SECURITY_P0_2_LAN_AUTH_DESIGN_2026-09-07.md`
 
-Do not conflate P0-2 with P0-3. Handle one at a time with the user.
+Do not redesign P0-2 from scratch unless the user changes this authority.
 
-P0-3 remains separate: Windows discovery/status identity is unauthenticated/spoofable and must eventually be cryptographically paired/authenticated before battery readings are treated as hostile-LAN trustworthy.
+Approved normal-user security model:
+
+- every device has **one user-facing Device Password** for all non-factory administration;
+- the initial random 16-character / 80-bit secure-provisioning setup code is the initial Device Password;
+- user may keep that code or replace it with a new Device Password;
+- Windows and Android may securely remember the Device Password;
+- Windows storage must use Windows-protected credential storage, not plaintext `devices.json`/logs/args;
+- Android storage must be encrypted with key material protected by Android Keystore;
+- both clients must support **Forget Saved Password** without changing the ESP32 password;
+- browser configuration, if retained, requires authenticated short-lived sessions rather than sending the Device Password as a normal HTTP parameter;
+- normal state-changing LAN management requires challenge/response authentication using a domain-separated LAN-management key derived from the Device Password;
+- fresh nonce/replay protection and browser CSRF protection are required;
+- user-facing one-password simplicity must still use separate domain-separated cryptographic keys underneath for provisioning, setup AP, LAN management, and USB verification;
+- Device Password rotation must atomically regenerate all derived credential material and invalidate the old password only after the new set is safely committed;
+- the original printed code is not a permanent backdoor after password change.
+
+Wi-Fi change/recovery authority:
+
+- if the device is reachable, Windows/Android authenticates with the Device Password and **Change Wi-Fi** tells the ESP to enter the existing secure Security-2 provisioning mode;
+- new home Wi-Fi credentials continue to travel through Espressif Security 2, not a second plaintext LAN API;
+- if the old LAN is unavailable, a physical provisioning-mode button action re-enables the existing WPA2-protected `BatteryMonitor-XXXXXX` setup AP **without clearing the Device Password**;
+- Windows/Android then use the same saved/entered Device Password to Security-2 provision replacement Wi-Fi;
+- exact button duration/gesture for non-destructive provisioning recovery is still an implementation detail;
+- destructive factory/reset gestures remain separate.
+
+Factory functions remain under separate factory/admin authority, not the normal Device Password. This includes factory/recovery flashing, full identity/NVS destruction, manufacturing initialization, and future production Secure Boot/fuse administration.
+
+P0-2 is **design-approved but not implemented/closed yet**. Do not call it resolved until device, Windows, Android, browser/CSRF behavior, password rotation, and hardware tests are complete.
+
+## P0-3 remains separate
+
+Windows discovery/status identity is unauthenticated/spoofable and must eventually be cryptographically paired/authenticated before battery readings are treated as hostile-LAN trustworthy.
+
+Do not conflate P0-2 management authorization with P0-3 status/identity authenticity. The Device Password may later be used as the root for a separately domain-separated P0-3 status-authentication key, but that decision belongs to the P0-3 design discussion.
 
 ## Windows behavior authority
 
@@ -130,16 +164,17 @@ Do not let host-side signature verification be mistaken for final device-side en
 
 - Physical NVS/flash extraction and hostile physical reflashing: evaluate NVS encryption, Flash Encryption, Secure Boot, ROM-download restrictions for production mode.
 - Arduino-ESP32 3.3.11 WebServer has a post-release slow-header DoS issue; move to a fixed core or incorporate the fix before product deployment.
-- Browser CSRF/state-changing request hardening after LAN authentication is designed.
+- Browser CSRF/state-changing request hardening is part of P0-2 implementation.
 - Release signing/verification, Android release signing, Windows code signing, and CI supply-chain hardening.
 
 ## Physical validation queue
 
-1. Initialize a real ESP32 over USB with a setup code.
+1. Initialize a real ESP32 over USB with a Device Password/setup code.
 2. Verify USB setup-code MATCH/NO_MATCH + cooldown.
 3. Verify Android QR and manual-code Security-2 provisioning.
-4. Verify Windows wireless Security-2 provisioning with the same code.
-5. Test wrong setup code, wrong home password, re-provisioning, and Windows temporary-profile cleanup.
-6. Verify monitoring/discovery/tray/offline/startup behavior.
-7. Calibrate ADC against a trusted multimeter at multiple voltages.
-8. Vehicle-test ADC jitter/Wi-Fi range and then decide on optional 0.1 µF ADC capacitor / automotive transient front end.
+4. Verify Windows wireless Security-2 provisioning with the same Device Password.
+5. Test wrong password, wrong home password, re-provisioning, and Windows temporary-profile cleanup.
+6. After P0-2 implementation, verify remembered-password behavior, password rotation, authenticated LAN management, replay/session expiry, and non-destructive physical Wi-Fi recovery.
+7. Verify monitoring/discovery/tray/offline/startup behavior.
+8. Calibrate ADC against a trusted multimeter at multiple voltages.
+9. Vehicle-test ADC jitter/Wi-Fi range and then decide on optional 0.1 µF ADC capacitor / automotive transient front end.
