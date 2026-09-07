@@ -18,6 +18,14 @@ internal static class ClientEnhancements
             };
             toolbar.Controls.Add(usbSetup);
 
+            var wirelessSetup = new Button { Text = "Wireless Setup", AutoSize = true };
+            wirelessSetup.Click += (_, _) =>
+            {
+                using var dialog = new WirelessSetupForm();
+                dialog.ShowDialog(form);
+            };
+            toolbar.Controls.Add(wirelessSetup);
+
             var firmwareUpdate = new Button { Text = "Update Firmware", AutoSize = true };
             firmwareUpdate.Click += (_, _) =>
             {
