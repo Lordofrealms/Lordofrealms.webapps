@@ -2,22 +2,19 @@ package com.lordofrealms.batterymonitorsetup;
 
 import android.Manifest;
 import android.app.Activity;
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.NetworkRequest;
-import android.net.wifi.ScanResult;
-import android.net.wifi.WifiManager;
 import android.net.wifi.WifiNetworkSpecifier;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PatternMatcher;
 import android.provider.Settings;
 import android.text.InputType;
 import android.view.View;
@@ -42,14 +39,11 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -58,12 +52,10 @@ public class MainActivity extends Activity {
     private static final String MONITOR_PREFIX = "BatteryMonitor-";
     private static final String DEVICE_BASE_URL = "http://192.168.4.1";
 
-    private WifiManager wifiManager;
     private ConnectivityManager connectivityManager;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
-    private Spinner monitorSpinner;
     private EditText manualMonitorSsid;
     private Spinner homeWifiSpinner;
     private EditText homeSsid;
@@ -77,30 +69,17 @@ public class MainActivity extends Activity {
     private Button connectButton;
     private Button configureButton;
 
-    private final List<String> monitorSsids = new ArrayList<>();
     private final List<String> homeSsids = new ArrayList<>();
-    private ArrayAdapter<String> monitorAdapter;
     private ArrayAdapter<String> homeAdapter;
 
     private Network monitorNetwork;
     private ConnectivityManager.NetworkCallback monitorNetworkCallback;
-    private boolean scanReceiverRegistered;
-
-    private final BroadcastReceiver wifiScanReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            updateMonitorScanResults();
-        }
-    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         connectivityManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
         buildUi();
-        registerScanReceiver();
-        ensureWifiPermissionThenScan();
     }
 
     private void buildUi() {
@@ -118,34 +97,27 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView intro = new TextView(this);
-        intro.setText("1. Power the ESP32.  2. Select its BatteryMonitor-XXXXXX setup network.  3. Connect.  4. Select your home Wi-Fi, enter the password, and configure the unit.");
+        intro.setText("Power the ESP32, then tap Find / Connect Monitor. Android will show nearby BatteryMonitor-XXXXXX setup networks. After connecting, choose your home Wi-Fi and configure the unit.");
         intro.setTextSize(16);
         intro.setPadding(0, 0, 0, dp(16));
         root.addView(intro);
 
-        addLabel(root, "Battery monitor setup network");
-        monitorSpinner = new Spinner(this);
-        monitorAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, monitorSsids);
-        monitorSpinner.setAdapter(monitorAdapter);
-        root.addView(monitorSpinner, fullWidth());
+        manualMonitorSsid = addEdit(root, "Specific monitor SSID (optional)", false);
 
-        manualMonitorSsid = addEdit(root, "Manual monitor SSID (optional, e.g. BatteryMonitor-A1B2C3)", false);
-
-        LinearLayout monitorButtons = horizontalRow();
-        Button scanButton = new Button(this);
-        scanButton.setText("Scan Monitors");
-        scanButton.setOnClickListener(v -> ensureWifiPermissionThenScan());
         connectButton = new Button(this);
-        connectButton.setText("Connect to Monitor");
-        connectButton.setOnClickListener(v -> connectToSelectedMonitor());
-        monitorButtons.addView(scanButton, weighted());
-        monitorButtons.addView(connectButton, weighted());
-        root.addView(monitorButtons, fullWidth());
+        connectButton.setText("Find / Connect Monitor");
+        connectButton.setOnClickListener(v -> ensureWifiPermissionThenConnect());
+        root.addView(connectButton, fullWidth());
 
         Button wifiSettings = new Button(this);
         wifiSettings.setText("Open Android Wi-Fi Settings (fallback)");
         wifiSettings.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_WIFI_SETTINGS)));
         root.addView(wifiSettings, fullWidth());
+
+        TextView monitorHelp = new TextView(this);
+        monitorHelp.setText("Leave the specific SSID blank to let Android present all nearby BatteryMonitor-* setup networks. If a unit is not advertising setup Wi-Fi, hold its BOOT button for 5 seconds to clear saved Wi-Fi.");
+        monitorHelp.setPadding(0, dp(6), 0, 0);
+        root.addView(monitorHelp);
 
         addDivider(root);
         addLabel(root, "Home Wi-Fi network");
@@ -192,7 +164,7 @@ public class MainActivity extends Activity {
         root.addView(configureButton, fullWidth());
 
         statusText = new TextView(this);
-        statusText.setText("Scanning for BatteryMonitor setup networks...");
+        statusText.setText("Tap Find / Connect Monitor to begin.");
         statusText.setTextSize(15);
         statusText.setPadding(0, dp(16), 0, dp(30));
         root.addView(statusText);
@@ -211,9 +183,9 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void ensureWifiPermissionThenScan() {
+    private void ensureWifiPermissionThenConnect() {
         if (hasWifiPermission()) {
-            startMonitorScan();
+            requestMonitorNetwork();
             return;
         }
         if (Build.VERSION.SDK_INT >= 33) {
@@ -234,77 +206,48 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == WIFI_PERMISSION_REQUEST && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            startMonitorScan();
+            requestMonitorNetwork();
         } else if (requestCode == WIFI_PERMISSION_REQUEST) {
-            setStatus("Wi-Fi discovery permission was denied. You can still type the BatteryMonitor-XXXXXX SSID manually or use Android Wi-Fi Settings.");
+            setStatus("Nearby Wi-Fi permission was denied. It is required so Android can connect this app to the monitor's temporary setup Wi-Fi.");
         }
     }
 
-    private void registerScanReceiver() {
-        IntentFilter filter = new IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION);
-        if (Build.VERSION.SDK_INT >= 33) {
-            registerReceiver(wifiScanReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(wifiScanReceiver, filter);
-        }
-        scanReceiverRegistered = true;
-    }
-
-    private void startMonitorScan() {
-        try {
-            setStatus("Scanning for BatteryMonitor setup networks...");
-            boolean started = wifiManager.startScan();
-            if (!started) {
-                updateMonitorScanResults();
-                setStatus("Android throttled the active Wi-Fi scan; showing cached results. Use manual SSID or Wi-Fi Settings if needed.");
-            }
-        } catch (SecurityException ex) {
-            setStatus("Android blocked Wi-Fi scanning: " + ex.getMessage());
-        }
-    }
-
-    private void updateMonitorScanResults() {
-        if (!hasWifiPermission()) return;
-        try {
-            List<ScanResult> results = wifiManager.getScanResults();
-            Set<String> unique = new HashSet<>();
-            for (ScanResult result : results) {
-                String ssid = result.SSID;
-                if (ssid != null && ssid.startsWith(MONITOR_PREFIX)) unique.add(ssid);
-            }
-            List<String> sorted = new ArrayList<>(unique);
-            Collections.sort(sorted);
-            monitorSsids.clear();
-            monitorSsids.addAll(sorted);
-            monitorAdapter.notifyDataSetChanged();
-            setStatus(sorted.isEmpty()
-                    ? "No setup networks found. If the unit has working Wi-Fi it will not expose the setup AP. Hold BOOT for 5 seconds to clear Wi-Fi, or wait for automatic fallback after a failed connection."
-                    : "Found " + sorted.size() + " Battery Monitor setup network(s). Select one and tap Connect.");
-        } catch (SecurityException ex) {
-            setStatus("Could not read Wi-Fi scan results: " + ex.getMessage());
-        }
-    }
-
-    private void connectToSelectedMonitor() {
-        String ssid = manualMonitorSsid.getText().toString().trim();
-        if (ssid.isEmpty() && monitorSpinner.getSelectedItem() != null) ssid = monitorSpinner.getSelectedItem().toString();
-        if (ssid.isEmpty() || !ssid.startsWith(MONITOR_PREFIX)) {
-            toast("Select or enter a BatteryMonitor-XXXXXX network.");
+    private void requestMonitorNetwork() {
+        String requestedSsid = manualMonitorSsid.getText().toString().trim();
+        if (!requestedSsid.isEmpty() && !requestedSsid.startsWith(MONITOR_PREFIX)) {
+            toast("A specific monitor SSID must start with " + MONITOR_PREFIX);
             return;
         }
 
         releaseMonitorNetwork();
-        setStatus("Requesting connection to " + ssid + ". Android may ask you to approve the temporary Wi-Fi connection.");
         connectButton.setEnabled(false);
+        configureButton.setEnabled(false);
+        setStatus(requestedSsid.isEmpty()
+                ? "Asking Android to show nearby BatteryMonitor-* setup networks..."
+                : "Requesting " + requestedSsid + "...");
 
-        WifiNetworkSpecifier specifier = new WifiNetworkSpecifier.Builder().setSsid(ssid).build();
+        WifiNetworkSpecifier.Builder specifierBuilder = new WifiNetworkSpecifier.Builder();
+        if (requestedSsid.isEmpty()) {
+            specifierBuilder.setSsidPattern(new PatternMatcher(MONITOR_PREFIX, PatternMatcher.PATTERN_PREFIX));
+        } else {
+            specifierBuilder.setSsid(requestedSsid);
+        }
+
+        WifiNetworkSpecifier specifier;
+        try {
+            specifier = specifierBuilder.build();
+        } catch (IllegalArgumentException | IllegalStateException ex) {
+            connectButton.setEnabled(true);
+            setStatus("Could not create the Wi-Fi request: " + ex.getMessage());
+            return;
+        }
+
         NetworkRequest request = new NetworkRequest.Builder()
                 .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
                 .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 .setNetworkSpecifier(specifier)
                 .build();
 
-        final String targetSsid = ssid;
         monitorNetworkCallback = new ConnectivityManager.NetworkCallback() {
             @Override
             public void onAvailable(Network network) {
@@ -312,7 +255,7 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     connectButton.setEnabled(true);
                     configureButton.setEnabled(true);
-                    setStatus("Connected to " + targetSsid + ". Reading device settings...");
+                    setStatus("Connected to the Battery Monitor setup network. Reading device settings...");
                 });
                 loadDeviceAndHomeNetworks();
             }
@@ -322,7 +265,7 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     connectButton.setEnabled(true);
                     configureButton.setEnabled(false);
-                    setStatus("Android could not connect to " + targetSsid + ". Make sure the monitor is in setup mode and try again.");
+                    setStatus("Android did not connect to a Battery Monitor. Make sure a unit is in setup mode and try again.");
                 });
             }
 
@@ -336,6 +279,7 @@ public class MainActivity extends Activity {
                 });
             }
         };
+
         try {
             connectivityManager.requestNetwork(request, monitorNetworkCallback);
         } catch (SecurityException ex) {
@@ -362,7 +306,7 @@ public class MainActivity extends Activity {
                     setStatus("Connected to " + status.optString("deviceId", "monitor") + ". Select your home Wi-Fi and tap Configure Device.");
                 });
             } catch (Exception ex) {
-                runOnUiThread(() -> setStatus("Connected to the setup Wi-Fi, but could not reach the ESP32 at 192.168.4.1: " + ex.getMessage()));
+                runOnUiThread(() -> setStatus("Connected to setup Wi-Fi, but could not reach the ESP32 at 192.168.4.1: " + ex.getMessage()));
             }
         });
     }
@@ -372,7 +316,7 @@ public class MainActivity extends Activity {
             toast("Connect to a Battery Monitor setup network first.");
             return;
         }
-        setStatus("Asking the ESP32 to scan nearby Wi-Fi networks...");
+        setStatus("Asking the ESP32 to scan nearby home Wi-Fi networks...");
         io.execute(() -> {
             try {
                 JSONObject scan = new JSONObject(httpGet(DEVICE_BASE_URL + "/api/wifi/scan"));
@@ -462,6 +406,7 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     setStatus("Configuration saved. The ESP32 is now trying " + ssid + ". If it cannot connect, its BatteryMonitor setup AP will remain/return and it will retry the saved Wi-Fi every 10 minutes. Hold BOOT for 5 seconds at any time to clear Wi-Fi and force setup mode.");
                     toast("Battery Monitor configured");
+                    wifiPassword.setText("");
                     mainHandler.postDelayed(this::releaseMonitorNetwork, 1500);
                 });
             } catch (Exception ex) {
@@ -567,18 +512,8 @@ public class MainActivity extends Activity {
         root.addView(divider, params);
     }
 
-    private LinearLayout horizontalRow() {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        return row;
-    }
-
     private LinearLayout.LayoutParams fullWidth() {
         return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-    }
-
-    private LinearLayout.LayoutParams weighted() {
-        return new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
     }
 
     private int dp(int value) {
@@ -588,9 +523,6 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         releaseMonitorNetwork();
-        if (scanReceiverRegistered) {
-            try { unregisterReceiver(wifiScanReceiver); } catch (Exception ignored) { }
-        }
         io.shutdownNow();
         super.onDestroy();
     }
@@ -599,6 +531,7 @@ public class MainActivity extends Activity {
         final String ssid;
         final int rssi;
         final boolean secure;
+
         WifiChoice(String ssid, int rssi, boolean secure) {
             this.ssid = ssid;
             this.rssi = rssi;
