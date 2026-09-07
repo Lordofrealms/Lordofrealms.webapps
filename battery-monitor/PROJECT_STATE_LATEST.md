@@ -39,17 +39,21 @@ Version: V0.1.0 prototype
 - Stable device-ID tracking with DHCP IP refresh.
 - Local alias and independent on-unit name.
 - Configurable unit sample interval and PC poll interval.
+- Configurable elapsed-time offline timeout per device; default 300 seconds.
+- A failed contact immediately displays `UNREACHABLE` with elapsed/timeout time.
+- `OFFLINE` alert occurs only after the configured time expires; retry count does not control offline state.
 - Low/critical audible + tray alerts.
-- Offline after three consecutive failed polls.
 
 ### Android
 
 - Native Java Android app consistent with the repository's Pad Grade Android style.
 - minSdk 31, target/compile 36.
-- Connects to temporary ESP32 setup AP using `WifiNetworkSpecifier`.
+- Connects to temporary ESP32 setup AP using `WifiNetworkSpecifier` and an SSID-prefix system picker.
 - ESP32 performs the home-network scan.
 - Provisions SSID/password and initial device/battery configuration.
 
 ## CI
 
 The battery monitor CI workflow builds firmware, Windows client, and Android APK and publishes build artifacts on the development branch.
+
+The pre-timeout-change baseline at `1ca8ee4920ffdd66d235e43275a5c8154cb80933` passed all three jobs. The elapsed-time timeout changes are being revalidated on the current live head.
