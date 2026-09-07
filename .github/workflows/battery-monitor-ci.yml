@@ -1,0 +1,119 @@
+name: Battery Monitor Toolchain
+
+on:
+  push:
+    branches: [battery-monitor-dev, main]
+    paths:
+      - 'battery-monitor/**'
+      - '.github/workflows/battery-monitor-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'battery-monitor/**'
+      - '.github/workflows/battery-monitor-ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: battery-monitor-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  firmware:
+    name: ESP32 Arduino firmware
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Arduino CLI 1.5.0
+        run: |
+          curl -fsSL https://downloads.arduino.cc/arduino-cli/arduino-cli_1.5.0_Linux_64bit.tar.gz -o /tmp/arduino-cli.tgz
+          tar -xzf /tmp/arduino-cli.tgz -C /tmp
+          sudo install /tmp/arduino-cli /usr/local/bin/arduino-cli
+          arduino-cli version
+
+      - name: Install Espressif Arduino core 3.3.11
+        run: |
+          arduino-cli config init --overwrite
+          arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core install esp32:esp32@3.3.11 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+
+      - name: Compile ESP32-WROOM-32 sketch
+        run: |
+          mkdir -p /tmp/battery-monitor-firmware
+          arduino-cli compile \
+            --fqbn esp32:esp32:esp32 \
+            --warnings all \
+            --output-dir /tmp/battery-monitor-firmware \
+            battery-monitor/firmware/BatteryMonitor
+
+      - name: Upload firmware binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: battery-monitor-esp32-v0.1.0
+          path: /tmp/battery-monitor-firmware
+
+  windows:
+    name: Windows .NET 8 client
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build
+        shell: pwsh
+        run: |
+          dotnet restore battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj
+          dotnet build battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release --no-restore
+
+      - name: Publish self-contained win-x64
+        shell: pwsh
+        run: |
+          dotnet publish battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:DebugType=None `
+            -o battery-monitor/windows/publish
+
+      - name: Upload Windows client
+        uses: actions/upload-artifact@v7
+        with:
+          name: Battery-Monitor-Windows-v0.1.0
+          path: battery-monitor/windows/publish
+
+  android:
+    name: Android provisioning APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK 36
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Build debug APK
+        run: gradle -p battery-monitor/android :app:assembleDebug --stacktrace
+
+      - name: Stage APK
+        run: cp battery-monitor/android/app/build/outputs/apk/debug/app-debug.apk /tmp/Battery-Monitor-Setup-v0.1.0.apk
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: Battery-Monitor-Setup-Android-v0.1.0
+          path: /tmp/Battery-Monitor-Setup-v0.1.0.apk
