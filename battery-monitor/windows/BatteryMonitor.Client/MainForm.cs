@@ -20,6 +20,12 @@ public sealed class MainForm : Form
     public MainForm()
     {
         _devices = _settings.Load();
+        foreach (var device in _devices)
+        {
+            if (device.OfflineTimeoutSec <= 0) device.OfflineTimeoutSec = 300;
+            if (device.PollIntervalSec < 2) device.PollIntervalSec = 10;
+        }
+
         Text = "Battery Monitor";
         Width = 1060;
         Height = 560;
@@ -101,9 +107,10 @@ public sealed class MainForm : Form
 
         foreach (var device in _devices.ToArray())
         {
-            if (device.PollInProgress) continue;
-            if ((now - device.LastPollUtc).TotalSeconds < Math.Max(2, device.PollIntervalSec)) continue;
-            _ = PollDeviceAsync(device);
+            if (!device.PollInProgress && (now - device.LastPollUtc).TotalSeconds >= Math.Max(2, device.PollIntervalSec))
+                _ = PollDeviceAsync(device);
+
+            EvaluateOfflineState(device, now);
         }
         RenderGrid();
     }
@@ -133,7 +140,8 @@ public sealed class MainForm : Form
                 Hostname = found.Hostname,
                 Address = found.Ip,
                 Port = found.Port,
-                PollIntervalSec = 10
+                PollIntervalSec = 10,
+                OfflineTimeoutSec = 300
             };
             _devices.Add(device);
             _settings.Save(_devices);
@@ -175,8 +183,9 @@ public sealed class MainForm : Form
 
     private void ApplyStatus(MonitorEntry device, DeviceStatus status)
     {
-        var wasOffline = device.ConsecutiveFailures >= 3;
-        device.ConsecutiveFailures = 0;
+        var wasOffline = device.OfflineAlerted || IsOffline(device, DateTime.UtcNow);
+        device.FailureStartedUtc = null;
+        device.OfflineAlerted = false;
         device.Voltage = status.Voltage;
         device.State = status.State;
         device.Rssi = status.Rssi;
@@ -215,13 +224,30 @@ public sealed class MainForm : Form
 
     private void ApplyFailure(MonitorEntry device)
     {
-        device.ConsecutiveFailures++;
-        if (device.ConsecutiveFailures == 3)
-        {
-            SystemSounds.Asterisk.Play();
-            ShowBalloon("Battery Monitor Offline", $"{device.DisplayName} has failed three consecutive checks.", ToolTipIcon.Warning);
-        }
+        if (!device.FailureStartedUtc.HasValue)
+            device.FailureStartedUtc = device.LastSeenUtc ?? DateTime.UtcNow;
+
+        EvaluateOfflineState(device, DateTime.UtcNow);
         RenderGrid();
+    }
+
+    private void EvaluateOfflineState(MonitorEntry device, DateTime now)
+    {
+        if (!IsOffline(device, now) || device.OfflineAlerted) return;
+
+        device.OfflineAlerted = true;
+        SystemSounds.Asterisk.Play();
+        ShowBalloon(
+            "Battery Monitor Offline",
+            $"{device.DisplayName} has been unreachable for {FormatDuration(device.OfflineTimeoutSec)}.",
+            ToolTipIcon.Warning);
+    }
+
+    private static bool IsOffline(MonitorEntry device, DateTime now)
+    {
+        if (!device.FailureStartedUtc.HasValue) return false;
+        var timeoutSec = Math.Max(5, device.OfflineTimeoutSec);
+        return (now - device.FailureStartedUtc.Value).TotalSeconds >= timeoutSec;
     }
 
     private void HandleVoltageAlert(MonitorEntry device)
@@ -248,6 +274,7 @@ public sealed class MainForm : Form
         using var dialog = new DeviceConfigForm(device);
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         _settings.Save(_devices);
+        EvaluateOfflineState(device, DateTime.UtcNow);
         if (dialog.ApplyToUnit)
         {
             try
@@ -291,17 +318,25 @@ public sealed class MainForm : Form
     private void RenderGrid()
     {
         if (IsDisposed) return;
+        var now = DateTime.UtcNow;
         var selectedId = SelectedDevice()?.DeviceId;
         _grid.Rows.Clear();
         foreach (var device in _devices.OrderBy(d => d.DisplayName, StringComparer.OrdinalIgnoreCase))
         {
-            var offline = device.ConsecutiveFailures >= 3;
+            var offline = IsOffline(device, now);
+            var unreachable = device.FailureStartedUtc.HasValue && !offline;
             var lastSeen = device.LastSeenUtc.HasValue ? ToAge(device.LastSeenUtc.Value) : "Never";
+            var stateText = offline
+                ? "OFFLINE"
+                : unreachable
+                    ? $"UNREACHABLE {FormatDuration((int)Math.Max(0, (now - device.FailureStartedUtc!.Value).TotalSeconds))}/{FormatDuration(device.OfflineTimeoutSec)}"
+                    : device.State.ToUpperInvariant();
+
             var rowIndex = _grid.Rows.Add(
                 device.DisplayName,
                 device.DeviceName,
                 device.Voltage.HasValue ? $"{device.Voltage:0.00} V" : "--",
-                offline ? "OFFLINE" : device.State.ToUpperInvariant(),
+                stateText,
                 BatteryPresets.FriendlyName(device.BatteryType),
                 device.Address,
                 lastSeen,
@@ -312,10 +347,11 @@ public sealed class MainForm : Form
             if (device.DeviceId == selectedId) row.Selected = true;
         }
 
-        var good = _devices.Count(d => d.ConsecutiveFailures < 3 && d.State == "good");
-        var alert = _devices.Count(d => d.State is "low" or "critical");
-        var offlineCount = _devices.Count(d => d.ConsecutiveFailures >= 3);
-        _summary.Text = $"{_devices.Count} monitor(s) | {good} good | {alert} battery alert(s) | {offlineCount} offline";
+        var good = _devices.Count(d => !d.FailureStartedUtc.HasValue && d.State == "good");
+        var alert = _devices.Count(d => !d.FailureStartedUtc.HasValue && d.State is "low" or "critical");
+        var offlineCount = _devices.Count(d => IsOffline(d, now));
+        var unreachableCount = _devices.Count(d => d.FailureStartedUtc.HasValue && !IsOffline(d, now));
+        _summary.Text = $"{_devices.Count} monitor(s) | {good} good | {alert} battery alert(s) | {unreachableCount} unreachable | {offlineCount} offline";
         _tray.Text = _devices.Count == 0 ? "Battery Monitor" : $"Battery Monitor - {_devices.Count} device(s)";
     }
 
@@ -326,6 +362,16 @@ public sealed class MainForm : Form
         if (age.TotalMinutes < 60) return $"{(int)age.TotalMinutes}m ago";
         if (age.TotalHours < 24) return $"{(int)age.TotalHours}h ago";
         return utc.ToLocalTime().ToString("g");
+    }
+
+    private static string FormatDuration(int seconds)
+    {
+        seconds = Math.Max(0, seconds);
+        if (seconds < 60) return $"{seconds}s";
+        if (seconds < 3600) return seconds % 60 == 0 ? $"{seconds / 60}m" : $"{seconds / 60}m {seconds % 60}s";
+        var hours = seconds / 3600;
+        var minutes = (seconds % 3600) / 60;
+        return minutes == 0 ? $"{hours}h" : $"{hours}h {minutes}m";
     }
 
     private void ShowBalloon(string title, string text, ToolTipIcon icon)
