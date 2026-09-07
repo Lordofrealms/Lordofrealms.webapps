@@ -43,7 +43,7 @@ static String percentDecode(const String& value) {
 }
 
 static String percentEncode(const String& value) {
-  static const char HEX[] = "0123456789ABCDEF";
+  static const char HEX_CHARS[] = "0123456789ABCDEF";
   String out;
   out.reserve(value.length() * 2);
   for (size_t i = 0; i < value.length(); i++) {
@@ -53,8 +53,8 @@ static String percentEncode(const String& value) {
       out += (char)c;
     } else {
       out += '%';
-      out += HEX[(c >> 4) & 0x0F];
-      out += HEX[c & 0x0F];
+      out += HEX_CHARS[(c >> 4) & 0x0F];
+      out += HEX_CHARS[c & 0x0F];
     }
   }
   return out;
