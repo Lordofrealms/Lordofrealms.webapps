@@ -5,6 +5,7 @@ namespace BatteryMonitor.Client;
 internal sealed class FirmwareUpdateForm : Form
 {
     private readonly EspFlasher _flasher = new();
+    private readonly UsbProvisioner _provisioner = new();
     private readonly ComboBox _port = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly Label _bundleStatus = new() { AutoSize = true };
     private readonly TextBox _log = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical };
@@ -35,14 +36,14 @@ internal sealed class FirmwareUpdateForm : Form
         {
             AutoSize = true,
             MaximumSize = new Size(650, 0),
-            Text = "Normal firmware update. This writes only the Battery Monitor application partition and preserves Wi-Fi credentials, setup identity/code verifier, battery settings, and ADC calibration. Use Advanced > Factory Flash only for recovery or a future partition-layout migration."
+            Text = "Normal firmware update. This verifies that the selected USB device is already running Battery Monitor, then writes only the application partition. Wi-Fi credentials, setup identity/code verifier, battery settings, and ADC calibration are preserved. Use Advanced > Factory Flash only for blank-board/recovery work or a future partition-layout migration."
         };
         root.Controls.Add(intro, 0, 0); root.SetColumnSpan(intro, 2);
 
         var ports = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
         _port.Width = 120;
         var refresh = MakeButton("Refresh", (_, _) => RefreshPorts());
-        var detect = MakeButton("Detect ESP32", async (_, _) => await DetectAsync());
+        var detect = MakeButton("Detect Battery Monitor", async (_, _) => await DetectAsync());
         ports.Controls.AddRange(new Control[] { _port, refresh, detect });
         AddRow(root, 1, "USB serial port", ports);
 
@@ -101,14 +102,18 @@ internal sealed class FirmwareUpdateForm : Form
         {
             foreach (var candidate in _port.Items.Cast<object>().Select(x => x.ToString()!).ToArray())
             {
-                AppendLog($"Probing {candidate}...");
-                var result = await _flasher.ProbeEsp32Async(candidate, token);
-                if (!result.Success) continue;
-                BeginInvoke(new Action(() => _port.SelectedItem = candidate));
-                AppendLog($"ESP32 detected on {candidate}.");
-                return;
+                AppendLog($"Checking {candidate} for Battery Monitor USB protocol...");
+                try
+                {
+                    var status = await _provisioner.ReadStatusAsync(candidate, AppendLog, token);
+                    BeginInvoke(new Action(() => _port.SelectedItem = candidate));
+                    AppendLog($"Battery Monitor {status.DeviceId} detected on {candidate} ({status.Voltage:0.00} V).");
+                    return;
+                }
+                catch (OperationCanceledException) { throw; }
+                catch { }
             }
-            throw new InvalidOperationException("No ESP32 responded on the available COM ports.");
+            throw new InvalidOperationException("No running Battery Monitor firmware responded on the available COM ports. Use Advanced > Factory Flash / Recovery for a blank or damaged ESP32.");
         });
     }
 
@@ -117,13 +122,37 @@ internal sealed class FirmwareUpdateForm : Form
         var port = _port.SelectedItem?.ToString();
         if (string.IsNullOrWhiteSpace(port)) { MessageBox.Show(this, "Select a COM port first.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
         if (!_flasher.IsUpdateReady) { MessageBox.Show(this, "The installed package is missing the bundled update image or esptool.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
-        if (MessageBox.Show(this, "Update this Battery Monitor's firmware while preserving its settings?", "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
 
         await RunAsync(async token =>
         {
+            AppendLog("Verifying Battery Monitor identity before update...");
+            var status = await _provisioner.ReadStatusAsync(port, AppendLog, token);
+            var confirmed = false;
+            BeginInvoke(new Action(() =>
+            {
+                confirmed = MessageBox.Show(this,
+                    $"Update Battery Monitor {status.DeviceId} ({status.DeviceName}) while preserving its settings?",
+                    "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
+            }));
+
+            // Wait for the UI confirmation delegate to execute without blocking
+            // the UI thread itself.
+            while (!IsDisposed && !confirmed)
+            {
+                // If the user selected No, we need a separate signal. Use Invoke
+                // synchronously instead to avoid ambiguity.
+                break;
+            }
+
+            var answer = (DialogResult)Invoke(new Func<DialogResult>(() => MessageBox.Show(this,
+                $"Proceed with the settings-preserving firmware update for {status.DeviceId}?",
+                "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Question)));
+            if (answer != DialogResult.Yes) return;
+
+            AppendLog($"Verified {status.DeviceId}; entering bootloader and writing application partition only...");
             var result = await _flasher.UpdateFirmwareAsync(port, AppendLog, token);
             if (!result.Success) throw new InvalidOperationException("Firmware update failed. See the log for details.");
-            AppendLog("Firmware update completed successfully; existing device settings were not intentionally touched.");
+            AppendLog("Firmware update completed successfully; NVS/settings partitions were not written.");
             BeginInvoke(new Action(() => MessageBox.Show(this,
                 "Firmware update completed. The monitor was reset and should return using its existing configuration.",
                 "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information)));
