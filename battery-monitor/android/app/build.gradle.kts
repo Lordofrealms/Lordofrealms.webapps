@@ -29,6 +29,6 @@ android {
 
 dependencies {
     implementation("com.github.espressif:esp-idf-provisioning-android:lib-2.4.4")
-    implementation("com.budiyev.android:code-scanner:2.1.0")
+    implementation("com.github.yuriy-budiyev:code-scanner:2.3.0")
     implementation("org.greenrobot:eventbus:3.3.1")
 }
