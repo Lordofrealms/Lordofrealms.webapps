@@ -4,16 +4,21 @@
 // Every machine-readable response begins with BATMON1 so host software can
 // ignore normal Serial debug output.
 //
+// PROVCRED is retained as the wire-protocol name for compatibility; it now
+// represents the user's normal Device Password. Custom passwords are allowed
+// (including weak ones by user choice); only protocol-safe length/control-char
+// validation is enforced by setDevicePasswordFlexible().
+//
 // BATMON1 PING
 // BATMON1 STATUS
 // BATMON1 PROVSTATUS
-// BATMON1 VERIFYPROVCRED <encoded-setup-code>
+// BATMON1 VERIFYPROVCRED <encoded-device-password>
 // BATMON1 SET NAME <encoded-name>
 // BATMON1 SET BATTERY <lead_acid|lifepo4_4s> <lowV> <criticalV>
 // BATMON1 SET SAMPLE <seconds>
 // BATMON1 SET CAL <factor> <offsetV>
 // BATMON1 SET WIFI <encoded-ssid> <encoded-password>
-// BATMON1 SET PROVCRED <encoded-username> <encoded-setup-code>
+// BATMON1 SET PROVCRED <encoded-username> <encoded-device-password>
 // BATMON1 CLEARWIFI
 // BATMON1 CLEARPROVCRED
 // BATMON1 REBOOT
@@ -128,9 +133,9 @@ static void processSerialProvisioningCommand(String line) {
   if (command == "VERIFYPROVCRED") {
     unsigned long remainingMs = provisioningVerifyCooldownRemainingMs();
     if (remainingMs > 0) { serialErr("PROVCRED_VERIFY_COOLDOWN " + String((remainingMs + 999UL) / 1000UL)); return; }
-    if (!hasProvisioningIdentity() && !loadProvisioningIdentity()) { serialErr("PROVCRED_UNSET"); return; }
+    if (!hasProvisioningIdentity() && !loadDeviceCredentialIdentity()) { serialErr("PROVCRED_UNSET"); return; }
     String candidate = percentDecode(remaining);
-    if (verifyProvisioningSetupCode(candidate)) {
+    if (verifyDevicePasswordFlexible(candidate)) {
       provisioningVerifyFailures = 0;
       provisioningVerifyBlockedUntilMs = 0;
       serialOk("PROVCRED MATCH");
@@ -191,9 +196,9 @@ static void processSerialProvisioningCommand(String line) {
 
   if (setting == "PROVCRED") {
     String username = percentDecode(nextToken(remaining));
-    String setupCode = percentDecode(nextToken(remaining));
+    String devicePassword = percentDecode(remaining);
     String error;
-    if (!setProvisioningIdentity(username, setupCode, error)) { serialErr(error); return; }
+    if (!setDevicePasswordFlexible(username, devicePassword, error)) { serialErr(error); return; }
     provisioningVerifyFailures = 0; provisioningVerifyBlockedUntilMs = 0;
     serialOk("PROVCRED " + percentEncode(username) + " " + apSsid); return;
   }
@@ -209,7 +214,7 @@ void serviceSerialProvisioning() {
       if (serialProvisioningLine.length() > 0) { processSerialProvisioningCommand(serialProvisioningLine); serialProvisioningLine = ""; }
       continue;
     }
-    if (serialProvisioningLine.length() >= 512) { serialProvisioningLine = ""; serialErr("LINE_TOO_LONG"); continue; }
+    if (serialProvisioningLine.length() >= 768) { serialProvisioningLine = ""; serialErr("LINE_TOO_LONG"); continue; }
     serialProvisioningLine += c;
   }
 }
