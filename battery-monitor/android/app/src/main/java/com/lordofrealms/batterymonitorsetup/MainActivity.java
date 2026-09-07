@@ -11,6 +11,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -51,9 +52,11 @@ public class MainActivity extends Activity {
 
     private ESPProvisionManager provisionManager;
     private ESPDevice espDevice;
+    private DevicePasswordStore passwordStore;
 
     private EditText deviceIdEdit;
-    private EditText setupCodeEdit;
+    private EditText devicePasswordEdit;
+    private CheckBox rememberDevicePassword;
     private Spinner homeWifiSpinner;
     private EditText homeSsidEdit;
     private EditText homePasswordEdit;
@@ -72,6 +75,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         provisionManager = ESPProvisionManager.getInstance(this);
+        passwordStore = new DevicePasswordStore(this);
         buildUi();
     }
 
@@ -108,19 +112,33 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView intro = new TextView(this);
-        intro.setText("Scan the Battery Monitor QR code or enter the Device ID and printed Setup Code. The app connects to the monitor's WPA2 setup network and uses Espressif Security 2 (SRP6a + AES-GCM) before your home Wi-Fi password is sent.");
+        intro.setText("The same Device Password protects LAN management and Wi-Fi setup. Scan the initial QR code or enter the Device ID and Device Password. Wi-Fi credentials are sent through Espressif Security 2 (SRP6a + AES-GCM).");
         intro.setTextSize(16);
         intro.setPadding(0, 0, 0, dp(14));
         root.addView(intro);
 
+        Button manageButton = new Button(this);
+        manageButton.setText("Manage Device on LAN");
+        manageButton.setOnClickListener(v -> openLanManagement());
+        root.addView(manageButton, fullWidth());
+
         Button qrButton = new Button(this);
-        qrButton.setText("Scan Setup QR");
+        qrButton.setText("Scan Initial Setup QR");
         qrButton.setOnClickListener(v -> requestQrScan());
         root.addView(qrButton, fullWidth());
 
         deviceIdEdit = addEdit(root, "Device ID (example BM-A1B2C3)", false);
-        setupCodeEdit = addEdit(root, "Setup Code (example K7M4-P9RQ-X2HD-W6CF)", false);
-        setupCodeEdit.setAllCaps(true);
+        devicePasswordEdit = addEdit(root, "Device Password", true);
+        rememberDevicePassword = new CheckBox(this);
+        rememberDevicePassword.setText("Remember Device Password on this Android device");
+        root.addView(rememberDevicePassword, fullWidth());
+
+        Button forget = new Button(this);
+        forget.setText("Forget Saved Device Password");
+        forget.setOnClickListener(v -> forgetSavedPassword());
+        root.addView(forget, fullWidth());
+
+        deviceIdEdit.setOnFocusChangeListener((v, hasFocus) -> { if (!hasFocus) loadSavedPasswordIfAvailable(); });
 
         connectButton = new Button(this);
         connectButton.setText("Connect Securely");
@@ -153,17 +171,50 @@ public class MainActivity extends Activity {
         root.addView(provisionButton, fullWidth());
 
         TextView note = new TextView(this);
-        note.setText("This secure Android path configures Wi-Fi only. Device name, battery chemistry, thresholds, sample timing, and ADC calibration remain available through trusted USB while LAN configuration authentication is being hardened.");
+        note.setText("To change settings or the Device Password while the monitor is online, use Manage Device on LAN. A 5-second BOOT hold on the monitor also starts secure Wi-Fi setup without erasing the Device Password.");
         note.setPadding(0, dp(12), 0, 0);
         root.addView(note);
 
         statusText = new TextView(this);
-        statusText.setText("Ready. Scan the QR or enter the Device ID and Setup Code.");
+        statusText.setText("Ready. Scan the QR, manage an online unit, or enter the Device ID and Device Password.");
         statusText.setTextSize(15);
         statusText.setPadding(0, dp(16), 0, dp(30));
         root.addView(statusText);
 
         setContentView(scroll);
+    }
+
+    private void openLanManagement() {
+        LanManagementDialog dialog = new LanManagementDialog(this, (deviceId, password, remember) -> {
+            deviceIdEdit.setText(deviceId);
+            devicePasswordEdit.setText(password);
+            rememberDevicePassword.setChecked(remember);
+            setStatus("The monitor is entering secure setup. Connecting to its temporary setup network...");
+            connectButton.postDelayed(this::requestSecureConnect, 700);
+        });
+        dialog.show();
+    }
+
+    private void loadSavedPasswordIfAvailable() {
+        String id = normalizeDeviceId(deviceIdEdit.getText().toString());
+        if (id.isEmpty() || !devicePasswordEdit.getText().toString().isEmpty()) return;
+        String saved = passwordStore.load(id);
+        if (saved != null) {
+            devicePasswordEdit.setText(saved);
+            rememberDevicePassword.setChecked(true);
+        }
+    }
+
+    private void forgetSavedPassword() {
+        String id = normalizeDeviceId(deviceIdEdit.getText().toString());
+        if (id.isEmpty()) {
+            toast("Enter the Device ID first.");
+            return;
+        }
+        passwordStore.forget(id);
+        devicePasswordEdit.setText("");
+        rememberDevicePassword.setChecked(false);
+        setStatus("Saved Device Password removed from this Android device.");
     }
 
     private void requestSecureConnect() {
@@ -177,19 +228,21 @@ public class MainActivity extends Activity {
 
     private void connectSecurely() {
         String deviceId = normalizeDeviceId(deviceIdEdit.getText().toString());
-        String setupCode = normalizeSetupCode(setupCodeEdit.getText().toString());
+        String enteredPassword = devicePasswordEdit.getText().toString();
         if (deviceId.isEmpty()) {
             toast("Enter a valid Device ID such as BM-A1B2C3.");
             return;
         }
-        if (setupCode.isEmpty()) {
-            toast("Enter the 16-character setup code printed with the device.");
+        String passwordError = DeviceSecurity.validatePassword(enteredPassword);
+        if (passwordError != null) {
+            toast(passwordError);
             return;
         }
+        String effectivePassword = DeviceSecurity.initialCodeCompatibility(enteredPassword);
 
         String setupSsid = setupSsidForDevice(deviceId);
         String setupPassword;
-        try { setupPassword = deriveSoftApPassword(deviceId, setupCode); }
+        try { setupPassword = DeviceSecurity.deriveSoftApPassword(deviceId, enteredPassword); }
         catch (Exception ex) { setStatus("Could not derive setup-network credentials: " + ex.getMessage()); return; }
 
         try { if (espDevice != null) espDevice.disconnectDevice(); } catch (Exception ignored) { }
@@ -197,7 +250,7 @@ public class MainActivity extends Activity {
                 ESPConstants.TransportType.TRANSPORT_SOFTAP,
                 ESPConstants.SecurityType.SECURITY_2);
         espDevice.setDeviceName(setupSsid);
-        espDevice.setProofOfPossession(setupCode);
+        espDevice.setProofOfPossession(effectivePassword);
         espDevice.setUserName(provisioningUsername);
 
         connectButton.setEnabled(false);
@@ -228,7 +281,7 @@ public class MainActivity extends Activity {
             connectButton.setEnabled(true);
             scanWifiButton.setEnabled(false);
             provisionButton.setEnabled(false);
-            setStatus("Could not connect to the secure Battery Monitor setup network. Check the Device ID/setup code and confirm the monitor is in setup mode.");
+            setStatus("Could not connect to the secure Battery Monitor setup network. Check the Device ID/Device Password and confirm the monitor is in setup mode.");
         }
     }
 
@@ -270,7 +323,7 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     scanWifiButton.setEnabled(true);
                     provisionButton.setEnabled(false);
-                    setStatus("Secure session/Wi-Fi scan failed. A wrong setup code is one possible cause. " + safeMessage(e));
+                    setStatus("Secure session/Wi-Fi scan failed. A wrong Device Password is one possible cause. " + safeMessage(e));
                 });
             }
         });
@@ -306,12 +359,22 @@ public class MainActivity extends Activity {
             }
             @Override public void deviceProvisioningSuccess() {
                 runOnUiThread(() -> {
+                    String id = normalizeDeviceId(deviceIdEdit.getText().toString());
+                    String devicePassword = devicePasswordEdit.getText().toString();
+                    try {
+                        if (!id.isEmpty()) {
+                            if (rememberDevicePassword.isChecked()) passwordStore.save(id, devicePassword);
+                            else passwordStore.forget(id);
+                        }
+                    } catch (Exception ex) {
+                        setStatus("Wi-Fi provisioning succeeded, but Android could not save the Device Password: " + safeMessage(ex));
+                    }
                     homePasswordEdit.setText("");
-                    setupCodeEdit.setText("");
+                    if (!rememberDevicePassword.isChecked()) devicePasswordEdit.setText("");
                     scanWifiButton.setEnabled(false);
                     provisionButton.setEnabled(false);
                     connectButton.setEnabled(true);
-                    setStatus("Secure provisioning succeeded. The monitor is joining " + ssid + ". Its setup code remains valid for future secure reprovisioning, but the app does not store it.");
+                    setStatus("Secure provisioning succeeded. The monitor is joining " + ssid + ". The same Device Password remains valid for future management and secure reprovisioning.");
                     toast("Battery Monitor Wi-Fi configured securely");
                 });
             }
@@ -369,21 +432,22 @@ public class MainActivity extends Activity {
         if (json.optInt("security", 2) != 2) throw new IllegalArgumentException("Security 2 is required");
 
         String deviceId = normalizeDeviceId(json.optString("id"));
-        String setupCode = normalizeSetupCode(json.optString("pop"));
+        String initialCode = normalizeSetupCode(json.optString("pop"));
         String username = json.optString("username", DEFAULT_USERNAME).trim();
-        if (deviceId.isEmpty() || setupCode.isEmpty() || username.isEmpty()) throw new IllegalArgumentException("missing device identity/setup code");
+        if (deviceId.isEmpty() || initialCode.isEmpty() || username.isEmpty()) throw new IllegalArgumentException("missing device identity/initial Device Password");
 
         String expectedSsid = setupSsidForDevice(deviceId);
         String qrSsid = json.optString("name", expectedSsid);
         if (!expectedSsid.equals(qrSsid)) throw new IllegalArgumentException("QR device name does not match Device ID");
-        String expectedPassword = deriveSoftApPassword(deviceId, setupCode);
+        String expectedPassword = DeviceSecurity.deriveSoftApPassword(deviceId, initialCode);
         String qrPassword = json.optString("password", "");
         if (!qrPassword.isEmpty() && !MessageDigest.isEqual(expectedPassword.getBytes(StandardCharsets.US_ASCII), qrPassword.getBytes(StandardCharsets.US_ASCII)))
             throw new IllegalArgumentException("QR setup-network credential mismatch");
 
         provisioningUsername = username;
         deviceIdEdit.setText(deviceId);
-        setupCodeEdit.setText(formatSetupCode(setupCode));
+        devicePasswordEdit.setText(formatSetupCode(initialCode));
+        rememberDevicePassword.setChecked(false);
         setStatus("QR accepted for " + deviceId + ". Tap Connect Securely.");
     }
 
@@ -418,7 +482,7 @@ public class MainActivity extends Activity {
                 showQrScanner();
             } else if (!granted) {
                 pendingQrScan = false;
-                setStatus("Camera permission was denied. You can enter the Device ID and Setup Code manually instead.");
+                setStatus("Camera permission was denied. You can enter the Device ID and Device Password manually instead.");
             }
         }
     }
@@ -434,6 +498,8 @@ public class MainActivity extends Activity {
         return "BatteryMonitor-" + deviceId.substring(3);
     }
 
+    // QR labels are version-1 manufacturing labels and intentionally remain
+    // the canonical 16-character high-entropy initial Device Password format.
     private static String normalizeSetupCode(String input) {
         if (input == null) return "";
         StringBuilder out = new StringBuilder(16);
@@ -451,16 +517,6 @@ public class MainActivity extends Activity {
     private static String formatSetupCode(String code) {
         if (code.length() != 16) return code;
         return code.substring(0, 4) + "-" + code.substring(4, 8) + "-" + code.substring(8, 12) + "-" + code.substring(12, 16);
-    }
-
-    private static String deriveSoftApPassword(String deviceId, String setupCode) throws Exception {
-        String canonical = normalizeSetupCode(setupCode);
-        if (canonical.isEmpty()) throw new IllegalArgumentException("invalid setup code");
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        byte[] hash = digest.digest(("BATMON-SOFTAP-V1|" + deviceId + "|" + canonical).getBytes(StandardCharsets.UTF_8));
-        StringBuilder out = new StringBuilder(32);
-        for (int i = 0; i < 16; i++) out.append(String.format(Locale.US, "%02X", hash[i] & 0xFF));
-        return out.toString();
     }
 
     private static String safeMessage(Exception e) {
