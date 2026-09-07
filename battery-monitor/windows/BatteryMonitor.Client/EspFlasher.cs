@@ -13,13 +13,25 @@ internal sealed class EspFlasher
             ? Directory.EnumerateFiles(Path.Combine(_baseDirectory, "tools", "esptool"), "esptool.exe", SearchOption.AllDirectories).FirstOrDefault()
             : null);
 
-    public string? FirmwarePath => FindFirstExisting(
+    public string? FactoryFirmwarePath => FindFirstExisting(
         Path.Combine(_baseDirectory, "firmware", "BatteryMonitor.ino.merged.bin"),
         Directory.Exists(Path.Combine(_baseDirectory, "firmware"))
             ? Directory.EnumerateFiles(Path.Combine(_baseDirectory, "firmware"), "*.merged.bin", SearchOption.AllDirectories).FirstOrDefault()
             : null);
 
-    public bool IsReady => EsptoolPath is not null && FirmwarePath is not null;
+    public string? UpdateFirmwarePath => FindFirstExisting(
+        Path.Combine(_baseDirectory, "firmware", "BatteryMonitor.ino.bin"),
+        Directory.Exists(Path.Combine(_baseDirectory, "firmware"))
+            ? Directory.EnumerateFiles(Path.Combine(_baseDirectory, "firmware"), "*.ino.bin", SearchOption.AllDirectories).FirstOrDefault(path => !path.EndsWith(".merged.bin", StringComparison.OrdinalIgnoreCase))
+            : null);
+
+    // Backward-compatible alias used by older UI code while the updater/factory
+    // split is being completed.
+    public string? FirmwarePath => FactoryFirmwarePath;
+
+    public bool IsFactoryReady => EsptoolPath is not null && FactoryFirmwarePath is not null;
+    public bool IsUpdateReady => EsptoolPath is not null && UpdateFirmwarePath is not null;
+    public bool IsReady => IsFactoryReady;
 
     public IReadOnlyList<string> GetSerialPorts()
     {
@@ -38,38 +50,28 @@ internal sealed class EspFlasher
         }
         catch { }
 
-        return ports
-            .OrderBy(p => ParsePortNumber(p))
-            .ThenBy(p => p, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        return ports.OrderBy(ParsePortNumber).ThenBy(p => p, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
     public async Task<(bool Success, string Output)> ProbeEsp32Async(string port, CancellationToken cancellationToken = default)
     {
-        if (EsptoolPath is null)
-            return (false, "Bundled esptool.exe was not found.");
-
-        return await RunEsptoolAsync(
-            new[] { "--chip", "esp32", "--port", port, "chip-id" },
-            null,
-            TimeSpan.FromSeconds(10),
-            cancellationToken);
+        if (EsptoolPath is null) return (false, "Bundled esptool.exe was not found.");
+        return await RunEsptoolAsync(new[] { "--chip", "esp32", "--port", port, "chip-id" }, null, TimeSpan.FromSeconds(10), cancellationToken);
     }
 
-    public async Task<(bool Success, string Output)> FlashAsync(
+    public async Task<(bool Success, string Output)> UpdateFirmwareAsync(
         string port,
         Action<string>? output,
         CancellationToken cancellationToken = default)
     {
-        if (EsptoolPath is null)
-            return (false, "Bundled esptool.exe was not found.");
-        if (FirmwarePath is null)
-            return (false, "Bundled Battery Monitor merged firmware image was not found.");
+        if (EsptoolPath is null) return (false, "Bundled esptool.exe was not found.");
+        if (UpdateFirmwarePath is null) return (false, "Bundled Battery Monitor application firmware image was not found.");
 
-        // The Arduino merged image is intentionally a complete factory image.
-        // Writing it at 0x0 also clears prior NVS/Wi-Fi configuration. That is
-        // desirable for the USB first-flash workflow. Future in-place updates
-        // should use OTA or a settings-preserving image strategy instead.
+        // Normal USB firmware update: update only the application partition at
+        // the classic ESP32 Arduino default app offset. NVS, provisioning
+        // identity, Wi-Fi credentials, calibration, and other settings remain
+        // untouched. CI builds every release with the same pinned board/FQBN;
+        // any future partition-layout migration must use factory/recovery flash.
         return await RunEsptoolAsync(
             new[]
             {
@@ -79,12 +81,40 @@ internal sealed class EspFlasher
                 "--before", "default-reset",
                 "--after", "hard-reset",
                 "write-flash",
-                "0x0", FirmwarePath
+                "0x10000", UpdateFirmwarePath
             },
             output,
             TimeSpan.FromMinutes(3),
             cancellationToken);
     }
+
+    public async Task<(bool Success, string Output)> FactoryFlashAsync(
+        string port,
+        Action<string>? output,
+        CancellationToken cancellationToken = default)
+    {
+        if (EsptoolPath is null) return (false, "Bundled esptool.exe was not found.");
+        if (FactoryFirmwarePath is null) return (false, "Bundled Battery Monitor merged factory firmware image was not found.");
+
+        return await RunEsptoolAsync(
+            new[]
+            {
+                "--chip", "esp32",
+                "--port", port,
+                "--baud", "460800",
+                "--before", "default-reset",
+                "--after", "hard-reset",
+                "write-flash",
+                "0x0", FactoryFirmwarePath
+            },
+            output,
+            TimeSpan.FromMinutes(3),
+            cancellationToken);
+    }
+
+    // Older callers are intentionally mapped to factory flash until removed.
+    public Task<(bool Success, string Output)> FlashAsync(string port, Action<string>? output, CancellationToken cancellationToken = default) =>
+        FactoryFlashAsync(port, output, cancellationToken);
 
     private async Task<(bool Success, string Output)> RunEsptoolAsync(
         IReadOnlyList<string> arguments,
@@ -124,10 +154,7 @@ internal sealed class EspFlasher
 
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(timeout);
-            try
-            {
-                await process.WaitForExitAsync(timeoutCts.Token);
-            }
+            try { await process.WaitForExitAsync(timeoutCts.Token); }
             catch (OperationCanceledException)
             {
                 try { if (!process.HasExited) process.Kill(true); } catch { }
@@ -136,7 +163,6 @@ internal sealed class EspFlasher
                 return (false, string.Join(Environment.NewLine, lines));
             }
 
-            // Let asynchronous stdout/stderr event handlers drain after exit.
             process.WaitForExit();
             return (process.ExitCode == 0, string.Join(Environment.NewLine, lines));
         }
@@ -151,5 +177,5 @@ internal sealed class EspFlasher
         candidates.FirstOrDefault(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path));
 
     private static int ParsePortNumber(string port) =>
-        int.TryParse(port.AsSpan(3), out var n) ? n : int.MaxValue;
+        port.StartsWith("COM", StringComparison.OrdinalIgnoreCase) && int.TryParse(port.AsSpan(3), out var n) ? n : int.MaxValue;
 }
