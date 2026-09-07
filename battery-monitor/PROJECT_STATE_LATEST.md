@@ -55,6 +55,40 @@ Provisioning design:
 
 Physical interoperability testing is still required before calling P0-1 field-validated.
 
+## P0-2 LAN authentication — approved design, implementation pending
+
+Controlling design authority:
+
+`SECURITY_P0_2_LAN_AUTH_DESIGN_2026-09-07.md`
+
+User-approved normal-management model:
+
+- one user-facing **Device Password** per monitor for all non-factory administration;
+- initial random secure-provisioning setup code becomes the initial Device Password;
+- user may keep it or replace it with a new Device Password;
+- same user password authorizes secure provisioning/re-provisioning, LAN management, normal configuration, calibration/threshold changes, and normal Wi-Fi changes;
+- implementation derives separate domain-separated cryptographic keys/values for Security-2 provisioning, setup-SoftAP WPA2, LAN management, and USB password verification;
+- normal LAN state-changing operations require challenge/response authentication rather than transmitting the Device Password as a normal HTTP parameter;
+- intended LAN design uses fresh nonces/replay resistance and short-lived authenticated management sessions;
+- browser state-changing requests require CSRF hardening and must not use GET;
+- Windows may remember the Device Password using Windows-protected credential storage, never plaintext `devices.json`, logs, or command-line args;
+- Android may remember it using encrypted application storage backed by Android Keystore;
+- both apps provide **Forget Saved Password**, affecting only local storage;
+- Device Password rotation must atomically regenerate all derived credentials and invalidate the old password only after the replacement credential set is safely committed;
+- original printed factory/setup code is not a permanent backdoor after the user changes the Device Password.
+
+Wi-Fi change/recovery design:
+
+- if the unit is reachable, authenticated **Change Wi-Fi** tells it to enter the existing Security-2 provisioning flow; the new home password is not sent through a second plaintext LAN API;
+- if the old LAN is unavailable, a physical provisioning-mode action re-enables the existing WPA2-protected `BatteryMonitor-XXXXXX` setup AP while preserving the Device Password;
+- Windows/Android then use the same saved/entered Device Password to Security-2 provision replacement Wi-Fi;
+- exact non-destructive button timing/gesture is still an implementation detail;
+- destructive factory/reset behavior remains separate.
+
+Factory/recovery functions use separate factory/admin authority, not the normal Device Password.
+
+P0-2 is **not yet closed**. Implementation and hardware tests must cover authenticated device-side management, Windows/Android secure credential storage, browser session/CSRF behavior if web configuration remains enabled, password rotation, Wi-Fi recovery, replay attempts, expired sessions, wrong password behavior, and removal/locking of old unauthenticated state-changing endpoints.
+
 ## Windows client
 
 - .NET 8 WinForms tray app.
@@ -74,8 +108,8 @@ Physical interoperability testing is still required before calling P0-1 field-va
 - **USB Setup** is a normal/default configuration path.
 - USB can read/configure name, Wi-Fi, chemistry, thresholds, sample interval, and ADC calibration without reflashing.
 - Existing Wi-Fi password is not readable over USB, so normal configuration preserves Wi-Fi unless the user explicitly selects Update Wi-Fi credentials.
-- **Wireless Setup** accepts the same printed setup code and performs Security-2 provisioning over the protected temporary SoftAP.
-- Root setup code and home Wi-Fi password are passed to the pinned helper through redirected stdin, never command-line arguments.
+- **Wireless Setup** accepts the same printed setup code/Device Password and performs Security-2 provisioning over the protected temporary SoftAP.
+- Root setup code/Device Password and home Wi-Fi password are passed to the pinned helper through redirected stdin, never command-line arguments.
 - Temporary Windows WLAN profiles are unique per attempt and removed in a `finally` path.
 
 ### Firmware functions
@@ -94,11 +128,12 @@ Physical interoperability testing is still required before calling P0-1 field-va
 ## Android setup app
 
 - Native Java, minSdk 31, compile/target SDK 36.
-- QR scan or manual Device ID + setup code.
+- QR scan or manual Device ID + setup code/Device Password.
 - Espressif Security 2 provisioning over WPA2 SoftAP.
 - Home Wi-Fi scan occurs through the ESP32 after secure-session establishment.
-- Android currently configures Wi-Fi only; battery/name/threshold/calibration management remains USB-side until LAN management authentication (P0-2) is resolved.
-- App does not persist setup code or home Wi-Fi password and clears those input fields after success.
+- Android currently configures Wi-Fi only; authenticated normal management is part of pending P0-2 implementation.
+- App does not persist setup code or home Wi-Fi password in the current provisioning flow and clears those input fields after success.
+- Future remembered Device Password storage must use Android Keystore-backed encrypted storage per P0-2 authority.
 
 ## Firmware signing authority — staged, not yet enforced
 
@@ -129,21 +164,22 @@ Host-side firmware signature checking is useful but is not a substitute for devi
 
 ## Remaining security priorities
 
-1. **P0-2:** authenticate/authorize state-changing LAN management endpoints; until then treat LAN configuration as untrusted.
+1. **Implement P0-2** according to `SECURITY_P0_2_LAN_AUTH_DESIGN_2026-09-07.md`.
 2. **P0-3:** authenticate Windows discovery/status identity so a hostile LAN host cannot impersonate a monitor or falsify battery state.
 3. Physical security: NVS/Flash Encryption, Secure Boot, ROM-download policy for production mode.
 4. Move from Arduino-ESP32 3.3.11 or incorporate the upstream WebServer slow-header hardening.
-5. CSRF/browser hardening after LAN authentication design is chosen.
-6. Finish firmware release signing/verification plumbing.
+5. Finish firmware release signing/verification plumbing.
+6. Android release signing, Windows code signing, and CI supply-chain hardening.
 
 ## Next physical validation
 
-1. Initialize a real ESP32 over USB with a setup code and device configuration.
-2. Verify USB setup-code MATCH / NO_MATCH behavior and cooldown.
-3. Verify Android QR provisioning and manual-code provisioning.
-4. Verify Windows wireless provisioning with the same code.
-5. Verify wrong-code and wrong-home-password behavior and recovery/re-provisioning.
+1. Initialize a real ESP32 over USB with a Device Password/setup code and device configuration.
+2. Verify USB password MATCH / NO_MATCH behavior and cooldown.
+3. Verify Android QR provisioning and manual-password provisioning.
+4. Verify Windows wireless provisioning with the same Device Password.
+5. Verify wrong-password and wrong-home-password behavior and recovery/re-provisioning.
 6. Confirm Windows temporary WLAN profile cleanup after success and failure.
-7. Verify LAN auto-discovery, normal monitoring, tray alerts, elapsed offline timeout, and Start with Windows.
-8. Compare ADC reading against a trusted multimeter at several input voltages and set calibration.
-9. Vehicle-test ADC jitter/Wi-Fi range before deciding whether to add the optional 0.1 µF P34-to-GND capacitor or further analog front-end protection.
+7. After P0-2 implementation, test remembered-password behavior, password rotation, authenticated LAN management, replay/session expiry, browser CSRF behavior, and physical non-destructive Wi-Fi recovery.
+8. Verify LAN auto-discovery, normal monitoring, tray alerts, elapsed offline timeout, and Start with Windows.
+9. Compare ADC reading against a trusted multimeter at several input voltages and set calibration.
+10. Vehicle-test ADC jitter/Wi-Fi range before deciding whether to add the optional 0.1 µF P34-to-GND capacitor or further analog front-end protection.
