@@ -237,3 +237,10 @@ void serviceSerialProvisioning() {
     serialProvisioningLine += c;
   }
 }
+
+// Arduino-ESP32 calls serialEventRun() after every loop() iteration. On the
+// classic ESP32, Serial is UART0, so this keeps USB provisioning responsive
+// without changing the already-established main loop.
+void serialEvent() {
+  serviceSerialProvisioning();
+}
