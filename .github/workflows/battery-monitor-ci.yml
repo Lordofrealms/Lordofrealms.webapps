@@ -59,12 +59,35 @@ jobs:
   windows:
     name: Windows .NET 8 client
     runs-on: windows-latest
+    needs: firmware
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '8.0.x'
+
+      - name: Download exact firmware built by firmware job
+        uses: actions/download-artifact@v8
+        with:
+          name: battery-monitor-esp32-v0.1.0
+          path: battery-monitor/windows/staging/firmware
+
+      - name: Download and verify Espressif esptool 5.3.1
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'esptool-v5.3.1-windows-amd64.zip'
+          Invoke-WebRequest `
+            -Uri 'https://github.com/espressif/esptool/releases/download/v5.3.1/esptool-v5.3.1-windows-amd64.zip' `
+            -OutFile $zip
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = '2b4a73c45db27426685896f64ce3e557f63a64f43cc100cb65c0cc3486af96d3'
+          if ($actual -ne $expected) { throw "esptool SHA256 mismatch: $actual" }
+          New-Item -ItemType Directory -Force -Path battery-monitor/windows/staging/esptool | Out-Null
+          Expand-Archive -Path $zip -DestinationPath battery-monitor/windows/staging/esptool -Force
+          $exe = Get-ChildItem battery-monitor/windows/staging/esptool -Filter esptool.exe -Recurse | Select-Object -First 1
+          if (-not $exe) { throw 'esptool.exe not found after extraction' }
+          & $exe.FullName version
 
       - name: Build
         shell: pwsh
@@ -83,6 +106,19 @@ jobs:
             -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:DebugType=None `
             -o battery-monitor/windows/publish
+
+      - name: Bundle factory firmware and esptool
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/firmware | Out-Null
+          New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/tools/esptool | Out-Null
+          $merged = Get-ChildItem battery-monitor/windows/staging/firmware -Filter '*.merged.bin' -Recurse | Select-Object -First 1
+          if (-not $merged) { throw 'Merged Battery Monitor firmware was not downloaded from firmware job' }
+          Copy-Item $merged.FullName battery-monitor/windows/publish/firmware/BatteryMonitor.ino.merged.bin
+          Copy-Item battery-monitor/windows/staging/esptool/* battery-monitor/windows/publish/tools/esptool -Recurse -Force
+          $tool = Get-ChildItem battery-monitor/windows/publish/tools/esptool -Filter esptool.exe -Recurse | Select-Object -First 1
+          if (-not $tool) { throw 'Bundled esptool.exe missing' }
+          Get-FileHash battery-monitor/windows/publish/firmware/BatteryMonitor.ino.merged.bin -Algorithm SHA256
 
       - name: Upload Windows client
         uses: actions/upload-artifact@v7
