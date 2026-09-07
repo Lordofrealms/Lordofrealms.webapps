@@ -4,12 +4,16 @@ on:
   push:
     branches: [battery-monitor-dev, main]
     paths:
-      - 'battery-monitor/**'
+      - 'battery-monitor/firmware/**'
+      - 'battery-monitor/windows/**'
+      - 'battery-monitor/android/**'
       - '.github/workflows/battery-monitor-ci.yml'
   pull_request:
     branches: [main]
     paths:
-      - 'battery-monitor/**'
+      - 'battery-monitor/firmware/**'
+      - 'battery-monitor/windows/**'
+      - 'battery-monitor/android/**'
       - '.github/workflows/battery-monitor-ci.yml'
   workflow_dispatch:
 
