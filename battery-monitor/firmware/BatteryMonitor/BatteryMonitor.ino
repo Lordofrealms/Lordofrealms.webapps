@@ -8,15 +8,18 @@
 // Target: ESP32-WROOM-32 / classic ESP32 dev boards
 // ADC input: GPIO34 (board label P34)
 // Divider: battery+ -> 100k -> GPIO34 -> 22k -> GND
-// No ADC capacitor is required for V1. The firmware uses repeated calibrated
-// millivolt readings plus trimming/averaging to reduce noise. If bench/vehicle
-// testing shows excessive jitter, a 0.1 uF capacitor from GPIO34 to GND can be
-// added later without changing the firmware.
+
+// SecureProvisioning.ino supplies these hooks. Declaring them explicitly keeps
+// this primary sketch independent of Arduino tab concatenation details.
+bool loadProvisioningIdentity();
+bool startSecureProvisioning();
+void requestStopSecureProvisioning();
+void serviceSecureProvisioning();
 
 static const char* FW_VERSION = "0.1.0";
 static const int API_VERSION = 1;
 static const uint8_t BATTERY_ADC_PIN = 34;
-static const uint8_t RESET_WIFI_PIN = 0; // BOOT button on common dev boards
+static const uint8_t RESET_WIFI_PIN = 0;
 static const uint16_t HTTP_PORT = 80;
 static const uint16_t DISCOVERY_PORT = 4210;
 static const char* DISCOVERY_REQUEST = "BATMON_DISCOVER_V1";
@@ -53,8 +56,10 @@ unsigned long lastSampleMs = 0;
 unsigned long wifiDisconnectedSinceMs = 0;
 unsigned long nextReconnectAttemptMs = 0;
 unsigned long bootButtonPressedSinceMs = 0;
-bool fallbackApActive = false;
+bool fallbackApActive = false; // true only while secure provisioning is active
 bool mdnsActive = false;
+bool httpServerActive = false;
+bool discoveryActive = false;
 
 String jsonEscape(const String& s) {
   String out;
@@ -67,9 +72,7 @@ String jsonEscape(const String& s) {
       case '\n': out += "\\n"; break;
       case '\r': out += "\\r"; break;
       case '\t': out += "\\t"; break;
-      default:
-        if ((uint8_t)c >= 0x20) out += c;
-        break;
+      default: if ((uint8_t)c >= 0x20) out += c; break;
     }
   }
   return out;
@@ -93,12 +96,9 @@ String statusTextForVoltage(float voltage) {
 
 void chemistryDefaults(const String& type, float& lowOut, float& criticalOut) {
   if (type == "lifepo4_4s") {
-    // Alarm-oriented defaults, not an SOC gauge. LiFePO4 voltage is flat over
-    // much of its discharge curve, so users should tune these for their pack/BMS.
     lowOut = 12.80f;
     criticalOut = 12.00f;
   } else {
-    // 12 V lead-acid resting-voltage oriented defaults.
     lowOut = 12.20f;
     criticalOut = 11.90f;
   }
@@ -162,8 +162,8 @@ void clearWifiSettings() {
 }
 
 void sampleBattery() {
-  // Throw away a few reads to let the ADC sampling network settle through the
-  // relatively high impedance 100k/22k divider.
+  // GPIO34 is fed through a relatively high-impedance divider. Use a few
+  // throw-away samples, then a trimmed mean to reduce ADC/noise sensitivity.
   for (int i = 0; i < 4; i++) {
     analogReadMilliVolts(BATTERY_ADC_PIN);
     delay(2);
@@ -178,7 +178,6 @@ void sampleBattery() {
     delay(2);
   }
 
-  // Small insertion sort, then trimmed mean of middle 12 readings.
   for (int i = 1; i < N; i++) {
     uint32_t key = mv[i];
     int j = i - 1;
@@ -193,9 +192,7 @@ void sampleBattery() {
   for (int i = 4; i < 16; i++) sum += mv[i];
   adcMilliVolts = sum / 12;
   adcRaw = (uint16_t)(rawSum / N);
-
-  float adcVolts = ((float)adcMilliVolts) / 1000.0f;
-  batteryVoltage = (adcVolts * DIVIDER_MULTIPLIER * calibrationFactor) + calibrationOffset;
+  batteryVoltage = (((float)adcMilliVolts / 1000.0f) * DIVIDER_MULTIPLIER * calibrationFactor) + calibrationOffset;
   lastSampleMs = millis();
 }
 
@@ -261,41 +258,32 @@ label{display:block;margin-top:10px;font-weight:600}input,select,button{font-siz
 <div class="grid"><div><label>Sample interval (seconds)</label><input id="sample" type="number" min="1" max="3600"></div><div><label>Calibration factor</label><input id="calf" type="number" step="0.0001"></div></div>
 <label>Calibration offset (V)</label><input id="calo" type="number" step="0.001">
 <p><button onclick="saveConfig()">Save settings</button><button onclick="applyPreset()">Apply chemistry defaults</button></p></div>
-<div class="card"><h2>Wi-Fi</h2><div id="wifiInfo" class="small"></div><p><button onclick="resetWifi()">Reset Wi-Fi / Setup mode</button></p><div class="small">If Wi-Fi cannot connect, the monitor automatically exposes <b>)HTML";
-  page += htmlEscape(apSsid);
-  page += R"HTML(</b> and retries the saved network every 10 minutes. Holding the BOOT button for 5 seconds also clears Wi-Fi.</div></div>
+<div class="card"><h2>Wi-Fi</h2><div id="wifiInfo" class="small"></div><p><button onclick="resetWifi()">Reset Wi-Fi / Secure Setup</button></p><div class="small">When normal Wi-Fi is unavailable, the monitor exposes its per-device WPA2 protected setup network and requires the printed Security-2 setup code. Holding BOOT for 5 seconds clears only the home Wi-Fi credentials.</div></div>
 <script>
-let refreshMs=10000;
-const el=id=>document.getElementById(id);
+let refreshMs=10000;const el=id=>document.getElementById(id);
 async function getJson(url,opts){let r=await fetch(url,opts);if(!r.ok)throw new Error(await r.text());return await r.json()}
-async function refresh(){try{let s=await getJson('/api/status');el('nameTitle').textContent=s.name;let v=el('voltage');v.textContent=s.voltage.toFixed(2)+' V';v.className='voltage '+s.state;el('state').textContent=s.state.toUpperCase();el('details').textContent='ID '+s.deviceId+' | '+s.hostname+'.local | RSSI '+s.rssi+' dBm | FW '+s.firmwareVersion;el('wifiInfo').textContent=s.wifiConnected?'Connected at '+s.ip:'Not connected; setup AP '+(s.setupApActive?'ACTIVE':'inactive');}catch(e){el('state').textContent='Unable to refresh: '+e.message}}
+async function refresh(){try{let s=await getJson('/api/status');el('nameTitle').textContent=s.name;let v=el('voltage');v.textContent=s.voltage.toFixed(2)+' V';v.className='voltage '+s.state;el('state').textContent=s.state.toUpperCase();el('details').textContent='ID '+s.deviceId+' | '+s.hostname+'.local | RSSI '+s.rssi+' dBm | FW '+s.firmwareVersion;el('wifiInfo').textContent=s.wifiConnected?'Connected at '+s.ip:'Not connected';}catch(e){el('state').textContent='Unable to refresh: '+e.message}}
 async function loadConfig(){let c=await getJson('/api/config');el('name').value=c.name;el('batteryType').value=c.batteryType;el('low').value=c.lowVoltage;el('crit').value=c.criticalVoltage;el('sample').value=c.sampleIntervalSec;el('calf').value=c.calibrationFactor;el('calo').value=c.calibrationOffset}
 function applyPreset(){if(el('batteryType').value==='lifepo4_4s'){el('low').value='12.80';el('crit').value='12.00'}else{el('low').value='12.20';el('crit').value='11.90'}}
 async function saveConfig(){let b=new URLSearchParams({name:el('name').value,batteryType:el('batteryType').value,lowVoltage:el('low').value,criticalVoltage:el('crit').value,sampleIntervalSec:el('sample').value,calibrationFactor:el('calf').value,calibrationOffset:el('calo').value});await getJson('/api/config',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:b});alert('Saved');await loadConfig();await refresh()}
-async function resetWifi(){if(!confirm('Clear saved Wi-Fi and enter setup mode?'))return;await fetch('/api/reset-wifi',{method:'POST'});alert('Wi-Fi cleared. The monitor will restart in setup mode.')}
+async function resetWifi(){if(!confirm('Clear saved home Wi-Fi and reboot into secure setup mode?'))return;await fetch('/api/reset-wifi',{method:'POST'});alert('Wi-Fi cleared. The monitor will restart in secure setup mode.')}
 loadConfig().then(refresh);setInterval(refresh,refreshMs);
 </script></body></html>)HTML";
   return page;
 }
 
-void handleRoot() {
-  server.send(200, "text/html; charset=utf-8", buildIndexPage());
-}
-
-void handleStatus() {
-  server.sendHeader("Cache-Control", "no-store");
-  server.send(200, "application/json", statusJson());
-}
-
-void handleConfigGet() {
-  server.sendHeader("Cache-Control", "no-store");
-  server.send(200, "application/json", configJson());
-}
+void handleRoot() { server.send(200, "text/html; charset=utf-8", buildIndexPage()); }
+void handleStatus() { server.sendHeader("Cache-Control", "no-store"); server.send(200, "application/json", statusJson()); }
+void handleConfigGet() { server.sendHeader("Cache-Control", "no-store"); server.send(200, "application/json", configJson()); }
 
 void handleConfigPost() {
+  String oldName = deviceName;
+  String oldType = batteryType;
+  float oldLow = lowVoltage, oldCritical = criticalVoltage, oldFactor = calibrationFactor, oldOffset = calibrationOffset;
+  uint32_t oldSample = sampleIntervalSec;
+
   if (server.hasArg("name")) {
-    String value = server.arg("name");
-    value.trim();
+    String value = server.arg("name"); value.trim();
     if (value.length() >= 1 && value.length() <= 48) deviceName = value;
   }
   if (server.hasArg("batteryType")) {
@@ -310,12 +298,11 @@ void handleConfigPost() {
 
   if (sampleIntervalSec < 1) sampleIntervalSec = 1;
   if (sampleIntervalSec > 3600) sampleIntervalSec = 3600;
-  if (criticalVoltage < 6.0f || criticalVoltage > 20.0f || lowVoltage <= criticalVoltage || lowVoltage > 20.0f) {
-    server.send(400, "application/json", "{\"error\":\"invalid thresholds\"}");
-    return;
-  }
-  if (calibrationFactor < 0.5f || calibrationFactor > 1.5f || calibrationOffset < -5.0f || calibrationOffset > 5.0f) {
-    server.send(400, "application/json", "{\"error\":\"invalid calibration\"}");
+  if (criticalVoltage < 6.0f || criticalVoltage > 20.0f || lowVoltage <= criticalVoltage || lowVoltage > 20.0f ||
+      calibrationFactor < 0.5f || calibrationFactor > 1.5f || calibrationOffset < -5.0f || calibrationOffset > 5.0f) {
+    deviceName = oldName; batteryType = oldType; lowVoltage = oldLow; criticalVoltage = oldCritical;
+    sampleIntervalSec = oldSample; calibrationFactor = oldFactor; calibrationOffset = oldOffset;
+    server.send(400, "application/json", "{\"error\":\"invalid configuration\"}");
     return;
   }
 
@@ -340,18 +327,11 @@ void handleWifiScan() {
 }
 
 void handleWifiPost() {
-  if (!server.hasArg("ssid")) {
-    server.send(400, "application/json", "{\"error\":\"ssid required\"}");
-    return;
-  }
+  if (!server.hasArg("ssid")) { server.send(400, "application/json", "{\"error\":\"ssid required\"}"); return; }
   String ssid = server.arg("ssid");
   String pass = server.hasArg("password") ? server.arg("password") : "";
   ssid.trim();
-  if (ssid.length() == 0 || ssid.length() > 32 || pass.length() > 63) {
-    server.send(400, "application/json", "{\"error\":\"invalid Wi-Fi settings\"}");
-    return;
-  }
-
+  if (ssid.length() == 0 || ssid.length() > 32 || pass.length() > 63) { server.send(400, "application/json", "{\"error\":\"invalid Wi-Fi settings\"}"); return; }
   saveWifiSettings(ssid, pass);
   server.send(200, "application/json", "{\"ok\":true,\"message\":\"saved; reconnect attempt starting\"}");
   delay(250);
@@ -376,15 +356,27 @@ void configureHttpServer() {
   server.on("/api/wifi", HTTP_POST, handleWifiPost);
   server.on("/api/reset-wifi", HTTP_POST, handleResetWifi);
   server.on("/api/ping", HTTP_GET, []() { server.send(200, "application/json", "{\"ok\":true}"); });
-  server.onNotFound([]() {
-    if (fallbackApActive) {
-      server.sendHeader("Location", "http://192.168.4.1/", true);
-      server.send(302, "text/plain", "");
-    } else {
-      server.send(404, "application/json", "{\"error\":\"not found\"}");
-    }
-  });
+  server.onNotFound([]() { server.send(404, "application/json", "{\"error\":\"not found\"}"); });
   server.begin();
+  httpServerActive = true;
+}
+
+void stopHttpServer() {
+  if (!httpServerActive) return;
+  server.stop();
+  httpServerActive = false;
+}
+
+void startDiscovery() {
+  if (discoveryActive) return;
+  discoveryUdp.begin(DISCOVERY_PORT);
+  discoveryActive = true;
+}
+
+void stopDiscovery() {
+  if (!discoveryActive) return;
+  discoveryUdp.stop();
+  discoveryActive = false;
 }
 
 void startMdns() {
@@ -400,23 +392,33 @@ void startMdns() {
 }
 
 void stopMdns() {
-  if (mdnsActive) {
-    MDNS.end();
-    mdnsActive = false;
-  }
+  if (mdnsActive) { MDNS.end(); mdnsActive = false; }
+}
+
+void startNormalNetworkServices() {
+  if (!httpServerActive) configureHttpServer();
+  startDiscovery();
+  startMdns();
+}
+
+void stopNormalNetworkServices() {
+  stopMdns();
+  stopDiscovery();
+  stopHttpServer();
 }
 
 void startFallbackAp() {
   if (fallbackApActive) return;
-  WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP(apSsid.c_str());
-  fallbackApActive = true;
-  Serial.printf("Setup AP active: %s at %s\n", apSsid.c_str(), WiFi.softAPIP().toString().c_str());
+  stopNormalNetworkServices();
+  if (!startSecureProvisioning()) {
+    fallbackApActive = false;
+    Serial.println("No open setup AP was started. Connect by USB and initialize a per-device setup code.");
+  }
 }
 
 void stopFallbackAp() {
   if (!fallbackApActive) return;
-  WiFi.softAPdisconnect(true);
+  requestStopSecureProvisioning();
   fallbackApActive = false;
   WiFi.mode(WIFI_STA);
 }
@@ -427,41 +429,42 @@ bool blockingInitialConnect() {
   WiFi.setHostname(hostName.c_str());
   WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
   unsigned long started = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - started < CONNECT_ATTEMPT_MS) {
-    delay(200);
-  }
+  while (WiFi.status() != WL_CONNECTED && millis() - started < CONNECT_ATTEMPT_MS) delay(200);
   return WiFi.status() == WL_CONNECTED;
 }
 
 void serviceWifiState() {
+  // While Security-2 provisioning owns the Wi-Fi stack, don't run normal STA
+  // reconnect logic or the ordinary HTTP/discovery services alongside it.
+  if (fallbackApActive) return;
+
   bool connected = WiFi.status() == WL_CONNECTED;
   unsigned long now = millis();
-
   if (connected) {
     wifiDisconnectedSinceMs = 0;
     nextReconnectAttemptMs = now + RETRY_INTERVAL_MS;
-    if (fallbackApActive) stopFallbackAp();
-    startMdns();
+    startNormalNetworkServices();
     return;
   }
 
   stopMdns();
   if (wifiDisconnectedSinceMs == 0) wifiDisconnectedSinceMs = now;
-
-  if (!fallbackApActive && (wifiSsid.length() == 0 || now - wifiDisconnectedSinceMs >= CONNECT_ATTEMPT_MS)) {
+  if (now - wifiDisconnectedSinceMs >= CONNECT_ATTEMPT_MS) {
     startFallbackAp();
     nextReconnectAttemptMs = now + RETRY_INTERVAL_MS;
+    return;
   }
 
   if (wifiSsid.length() > 0 && (int32_t)(now - nextReconnectAttemptMs) >= 0) {
-    Serial.printf("Retrying Wi-Fi SSID %s\n", wifiSsid.c_str());
-    WiFi.mode(fallbackApActive ? WIFI_AP_STA : WIFI_STA);
+    WiFi.mode(WIFI_STA);
+    WiFi.setHostname(hostName.c_str());
     WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
     nextReconnectAttemptMs = now + RETRY_INTERVAL_MS;
   }
 }
 
 void serviceDiscovery() {
+  if (!discoveryActive) return;
   int packetSize = discoveryUdp.parsePacket();
   if (packetSize <= 0) return;
 
@@ -469,8 +472,7 @@ void serviceDiscovery() {
   int len = discoveryUdp.read(buffer, sizeof(buffer) - 1);
   if (len <= 0) return;
   buffer[len] = '\0';
-  String request(buffer);
-  request.trim();
+  String request(buffer); request.trim();
   if (request != DISCOVERY_REQUEST) return;
 
   String reply = "{";
@@ -494,10 +496,8 @@ void serviceResetButton() {
   if (pressed) {
     if (bootButtonPressedSinceMs == 0) bootButtonPressedSinceMs = now;
     if (now - bootButtonPressedSinceMs >= WIFI_RESET_HOLD_MS) {
-      Serial.println("BOOT held 5 seconds: clearing Wi-Fi settings");
+      Serial.println("BOOT held 5 seconds: clearing home Wi-Fi settings");
       clearWifiSettings();
-      // GPIO0 is a boot strap pin. Wait for release before rebooting so the
-      // board does not restart into the serial bootloader.
       while (digitalRead(RESET_WIFI_PIN) == LOW) delay(50);
       delay(100);
       ESP.restart();
@@ -515,12 +515,12 @@ void setup() {
   char suffix[7];
   snprintf(suffix, sizeof(suffix), "%06llX", (unsigned long long)(mac & 0xFFFFFFULL));
   deviceId = String("BM-") + suffix;
-  String suffixLower = String(suffix);
-  suffixLower.toLowerCase();
+  String suffixLower = String(suffix); suffixLower.toLowerCase();
   hostName = String("battery-") + suffixLower;
   apSsid = String("BatteryMonitor-") + suffix;
 
   loadSettings();
+  bool provisioningReady = loadProvisioningIdentity();
 
   pinMode(RESET_WIFI_PIN, INPUT_PULLUP);
   analogReadResolution(12);
@@ -530,26 +530,28 @@ void setup() {
   bool connected = blockingInitialConnect();
   if (connected) {
     Serial.printf("Wi-Fi connected: %s\n", WiFi.localIP().toString().c_str());
-    startMdns();
+    startNormalNetworkServices();
     nextReconnectAttemptMs = millis() + RETRY_INTERVAL_MS;
-  } else {
+  } else if (provisioningReady) {
     startFallbackAp();
-    nextReconnectAttemptMs = millis() + RETRY_INTERVAL_MS;
+  } else {
+    Serial.println("No Wi-Fi and no setup credential. Secure provisioning is disabled until USB admin initialization.");
   }
 
-  configureHttpServer();
-  discoveryUdp.begin(DISCOVERY_PORT);
   Serial.printf("Device %s (%s), hostname %s.local\n", deviceId.c_str(), deviceName.c_str(), hostName.c_str());
 }
 
 void loop() {
-  server.handleClient();
-  serviceDiscovery();
-  serviceWifiState();
+  if (!fallbackApActive) {
+    if (httpServerActive) server.handleClient();
+    serviceDiscovery();
+    serviceWifiState();
+  } else {
+    serviceSecureProvisioning();
+  }
   serviceResetButton();
 
   unsigned long intervalMs = sampleIntervalSec * 1000UL;
   if (millis() - lastSampleMs >= intervalMs) sampleBattery();
-
   delay(2);
 }
