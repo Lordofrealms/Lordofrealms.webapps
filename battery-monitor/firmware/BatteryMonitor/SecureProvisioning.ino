@@ -7,23 +7,29 @@
 // Stored on the ESP32:
 //   - SRP username (not secret)
 //   - SRP salt + verifier (not the Security-2 plaintext password)
-//   - setup code only as the WPA2 SoftAP service key
+//   - SHA-256 code check value for trusted USB verification
+//   - a SHA-256-derived WPA2 SoftAP service key
 //
-// The setup code itself is the user-facing credential. QR codes are only a
-// convenient encoding of the same service name / username / setup code.
+// The printed setup code itself is never stored directly. QR codes encode the
+// same user-facing setup code plus the derived AP password for convenience.
 
 #include <network_provisioning/manager.h>
 #include <network_provisioning/scheme_softap.h>
 #include <esp_srp.h>
 #include <esp_wifi.h>
 #include <esp_event.h>
+#include <psa/crypto.h>
 
 static const char* PROV_NAMESPACE = "batsec";
 static const char* PROV_DEFAULT_USERNAME = "batmon";
 static const size_t PROV_SALT_BYTES = 16;
+static const size_t PROV_CODE_HASH_BYTES = 32;
+static const size_t PROV_SETUP_CODE_CHARS = 16;
 
 static String provisioningUsername;
 static String provisioningServiceKey;
+static uint8_t provisioningCodeHash[PROV_CODE_HASH_BYTES] = {};
+static bool provisioningCodeHashLoaded = false;
 static uint8_t* provisioningSalt = nullptr;
 static size_t provisioningSaltLen = 0;
 static uint8_t* provisioningVerifier = nullptr;
@@ -34,6 +40,83 @@ static bool secureProvisioningInitialized = false;
 static bool secureProvisioningEventRegistered = false;
 static bool secureProvisioningRebootRequested = false;
 static unsigned long secureProvisioningRebootAtMs = 0;
+
+static bool isSetupCodeChar(char c) {
+  static const char* ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  return strchr(ALPHABET, c) != nullptr;
+}
+
+String normalizeProvisioningSetupCode(const String& input, bool* validOut = nullptr) {
+  String out;
+  out.reserve(PROV_SETUP_CODE_CHARS);
+  for (size_t i = 0; i < input.length(); i++) {
+    char c = input[i];
+    if (c == '-' || c == ' ' || c == '\t' || c == '\r' || c == '\n') continue;
+    if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
+    // Crockford-style human aliases. Generated codes never contain I/L/O/U,
+    // but accepting common visual substitutions makes manual entry friendlier.
+    if (c == 'O') c = '0';
+    if (c == 'I' || c == 'L') c = '1';
+    if (!isSetupCodeChar(c)) {
+      if (validOut) *validOut = false;
+      return "";
+    }
+    out += c;
+  }
+  bool valid = out.length() == PROV_SETUP_CODE_CHARS;
+  if (validOut) *validOut = valid;
+  return valid ? out : String();
+}
+
+static bool sha256String(const String& input, uint8_t out[32]) {
+  if (psa_crypto_init() != PSA_SUCCESS) return false;
+  size_t written = 0;
+  psa_status_t status = psa_hash_compute(
+    PSA_ALG_SHA_256,
+    (const uint8_t*)input.c_str(), input.length(),
+    out, 32, &written
+  );
+  return status == PSA_SUCCESS && written == 32;
+}
+
+static bool deriveProvisioningCodeHash(const String& normalizedCode, uint8_t out[32]) {
+  return sha256String(String("BATMON-CODECHECK-V1|") + deviceId + "|" + normalizedCode, out);
+}
+
+String deriveProvisioningApPassword(const String& setupCode) {
+  bool valid = false;
+  String normalized = normalizeProvisioningSetupCode(setupCode, &valid);
+  if (!valid) return "";
+
+  uint8_t digest[32];
+  if (!sha256String(String("BATMON-SOFTAP-V1|") + deviceId + "|" + normalized, digest)) return "";
+
+  static const char HEX[] = "0123456789ABCDEF";
+  String password;
+  password.reserve(32);
+  // 128-bit derived WPA2 key represented as 32 hexadecimal characters.
+  for (size_t i = 0; i < 16; i++) {
+    password += HEX[(digest[i] >> 4) & 0x0F];
+    password += HEX[digest[i] & 0x0F];
+  }
+  return password;
+}
+
+static bool constantTimeEquals(const uint8_t* a, const uint8_t* b, size_t len) {
+  uint8_t diff = 0;
+  for (size_t i = 0; i < len; i++) diff |= (uint8_t)(a[i] ^ b[i]);
+  return diff == 0;
+}
+
+bool verifyProvisioningSetupCode(const String& candidate) {
+  if (!provisioningCodeHashLoaded && !loadProvisioningIdentity()) return false;
+  bool valid = false;
+  String normalized = normalizeProvisioningSetupCode(candidate, &valid);
+  if (!valid) return false;
+  uint8_t candidateHash[32];
+  if (!deriveProvisioningCodeHash(normalized, candidateHash)) return false;
+  return constantTimeEquals(candidateHash, provisioningCodeHash, sizeof(candidateHash));
+}
 
 static void freeProvisioningMaterial() {
   if (provisioningSalt) {
@@ -51,6 +134,9 @@ static void freeProvisioningMaterial() {
 
 bool loadProvisioningIdentity() {
   freeProvisioningMaterial();
+  provisioningCodeHashLoaded = false;
+  memset(provisioningCodeHash, 0, sizeof(provisioningCodeHash));
+
   Preferences secPrefs;
   if (!secPrefs.begin(PROV_NAMESPACE, true)) return false;
 
@@ -58,13 +144,15 @@ bool loadProvisioningIdentity() {
   provisioningServiceKey = secPrefs.getString("apkey", "");
   provisioningSaltLen = secPrefs.getBytesLength("salt");
   provisioningVerifierLen = secPrefs.getBytesLength("verifier");
+  size_t codeHashLen = secPrefs.getBytesLength("codehash");
 
   bool plausible = provisioningUsername.length() >= 1 &&
                    provisioningUsername.length() <= 32 &&
                    provisioningServiceKey.length() >= 8 &&
                    provisioningServiceKey.length() <= 63 &&
                    provisioningSaltLen >= 8 && provisioningSaltLen <= 64 &&
-                   provisioningVerifierLen >= 64 && provisioningVerifierLen <= 512;
+                   provisioningVerifierLen >= 64 && provisioningVerifierLen <= 512 &&
+                   codeHashLen == PROV_CODE_HASH_BYTES;
 
   if (!plausible) {
     secPrefs.end();
@@ -87,14 +175,17 @@ bool loadProvisioningIdentity() {
 
   size_t saltRead = secPrefs.getBytes("salt", provisioningSalt, provisioningSaltLen);
   size_t verifierRead = secPrefs.getBytes("verifier", provisioningVerifier, provisioningVerifierLen);
+  size_t codeHashRead = secPrefs.getBytes("codehash", provisioningCodeHash, sizeof(provisioningCodeHash));
   secPrefs.end();
-  if (saltRead != provisioningSaltLen || verifierRead != provisioningVerifierLen) {
+  if (saltRead != provisioningSaltLen || verifierRead != provisioningVerifierLen || codeHashRead != sizeof(provisioningCodeHash)) {
     freeProvisioningMaterial();
     provisioningUsername = "";
     provisioningServiceKey = "";
+    memset(provisioningCodeHash, 0, sizeof(provisioningCodeHash));
     return false;
   }
 
+  provisioningCodeHashLoaded = true;
   provisioningSec2Params.salt = (const char*)provisioningSalt;
   provisioningSec2Params.salt_len = (uint16_t)provisioningSaltLen;
   provisioningSec2Params.verifier = (const char*)provisioningVerifier;
@@ -105,16 +196,16 @@ bool loadProvisioningIdentity() {
 bool hasProvisioningIdentity() {
   return provisioningUsername.length() > 0 &&
          provisioningServiceKey.length() >= 8 &&
-         provisioningSalt && provisioningVerifier &&
+         provisioningSalt && provisioningVerifier && provisioningCodeHashLoaded &&
          provisioningSaltLen > 0 && provisioningVerifierLen > 0;
 }
 
 String provisioningIdentitySummary() {
   if (!hasProvisioningIdentity()) return "UNSET";
-  return String("READY ") + percentEncode(provisioningUsername) + " " + apSsid;
+  return String("READY ") + percentEncode(provisioningUsername) + " " + apSsid + " SEC2";
 }
 
-bool setProvisioningIdentity(const String& usernameValue, const String& setupCode, String& errorOut) {
+bool setProvisioningIdentity(const String& usernameValue, const String& setupCodeInput, String& errorOut) {
 #if !defined(CONFIG_ESP_PROTOCOMM_SUPPORT_SECURITY_VERSION_2)
   errorOut = "SECURITY2_NOT_ENABLED";
   return false;
@@ -125,8 +216,18 @@ bool setProvisioningIdentity(const String& usernameValue, const String& setupCod
     errorOut = "INVALID_USERNAME";
     return false;
   }
-  if (setupCode.length() < 12 || setupCode.length() > 63) {
+
+  bool validCode = false;
+  String setupCode = normalizeProvisioningSetupCode(setupCodeInput, &validCode);
+  if (!validCode) {
     errorOut = "INVALID_SETUP_CODE";
+    return false;
+  }
+
+  String apKey = deriveProvisioningApPassword(setupCode);
+  uint8_t codeHash[32];
+  if (apKey.length() < 8 || !deriveProvisioningCodeHash(setupCode, codeHash)) {
+    errorOut = "CREDENTIAL_DERIVATION_FAILED";
     return false;
   }
 
@@ -155,7 +256,8 @@ bool setProvisioningIdentity(const String& usernameValue, const String& setupCod
   }
 
   bool ok = secPrefs.putString("user", username) > 0 &&
-            secPrefs.putString("apkey", setupCode) > 0 &&
+            secPrefs.putString("apkey", apKey) > 0 &&
+            secPrefs.putBytes("codehash", codeHash, sizeof(codeHash)) == sizeof(codeHash) &&
             secPrefs.putBytes("salt", salt, PROV_SALT_BYTES) == PROV_SALT_BYTES &&
             secPrefs.putBytes("verifier", verifier, (size_t)verifierLen) == (size_t)verifierLen;
   secPrefs.end();
@@ -181,6 +283,8 @@ void clearProvisioningIdentity() {
   freeProvisioningMaterial();
   provisioningUsername = "";
   provisioningServiceKey = "";
+  provisioningCodeHashLoaded = false;
+  memset(provisioningCodeHash, 0, sizeof(provisioningCodeHash));
 }
 
 static void syncProvisionedWifiToBatteryMonitorPrefs() {
@@ -266,7 +370,7 @@ bool startSecureProvisioning() {
   }
 
   secureProvisioningActive = true;
-  fallbackApActive = true; // API compatibility: setup AP is active.
+  fallbackApActive = true; // API/status compatibility: secure setup AP is active.
   Serial.printf("Secure setup AP active: %s (WPA2 + Security 2)\n", apSsid.c_str());
   return true;
 #endif
