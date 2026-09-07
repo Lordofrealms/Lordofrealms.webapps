@@ -70,9 +70,6 @@ internal sealed class WirelessProvisioningService
         }
         finally
         {
-            // The temporary setup AP credential is derived from the printed
-            // setup code. Remove the Windows WLAN profile as soon as the secure
-            // provisioning attempt finishes so it is not retained unnecessarily.
             try { await DeleteProfileAsync(setupSsid, CancellationToken.None); } catch { }
         }
     }
@@ -91,8 +88,8 @@ internal sealed class WirelessProvisioningService
             CreateNoWindow = true
         };
 
-        // There are deliberately NO secret command-line arguments. The setup
-        // code and home Wi-Fi credentials travel only through redirected stdin.
+        // Deliberately no secret command-line arguments. The setup code and
+        // home Wi-Fi credentials travel only through redirected stdin.
         using var process = new Process { StartInfo = psi };
         if (!process.Start()) throw new InvalidOperationException("Could not start the secure provisioning helper.");
 
@@ -130,9 +127,6 @@ internal sealed class WirelessProvisioningService
         var stderr = await stderrTask;
         if (final?.Ok == true && process.ExitCode == 0) return;
 
-        // Do not surface arbitrary helper stderr because third-party runtime
-        // diagnostics are outside our redaction contract. The structured helper
-        // result is specifically designed not to contain supplied credentials.
         if (final is not null && !string.IsNullOrWhiteSpace(final.Message))
             throw new InvalidOperationException(final.Message);
         if (!string.IsNullOrWhiteSpace(stderr))
@@ -214,7 +208,7 @@ internal sealed class WirelessProvisioningService
                 await Task.Delay(500, cancellationToken);
             }
         }
-        throw new TimeoutException("Windows connected to the setup network command, but the ESP32 provisioning service did not become reachable at 192.168.4.1.");
+        throw new TimeoutException("Windows requested the setup network, but the ESP32 provisioning service did not become reachable at 192.168.4.1.");
     }
 
     public static string NormalizeDeviceId(string input)
@@ -228,7 +222,7 @@ internal sealed class WirelessProvisioningService
 
     internal sealed class HelperRequest
     {
-        public string Protocol { get; set; } = Protocol;
+        public string Protocol { get; set; } = "BATMONPROV1";
         public string Username { get; set; } = "batmon";
         public string SetupCode { get; set; } = "";
         public string HomeSsid { get; set; } = "";
@@ -245,6 +239,7 @@ internal sealed class WirelessProvisioningService
     }
 }
 
+[System.Text.Json.Serialization.JsonSourceGenerationOptions(PropertyNamingPolicy = System.Text.Json.Serialization.JsonKnownNamingPolicy.CamelCase)]
 [System.Text.Json.Serialization.JsonSerializable(typeof(WirelessProvisioningService.HelperRequest))]
 [System.Text.Json.Serialization.JsonSerializable(typeof(WirelessProvisioningService.HelperMessage))]
 internal partial class HelperJsonContext : System.Text.Json.Serialization.JsonSerializerContext
