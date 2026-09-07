@@ -23,6 +23,7 @@ Version: V0.1.0 prototype
 - Fallback retry cadence: 10 minutes.
 - BOOT/GPIO0 hold for 5 seconds clears saved Wi-Fi.
 - UDP discovery port 4210 plus mDNS advertisement.
+- UART0/USB serial provisioning at 115200 baud using the line-oriented `BATMON1` protocol.
 
 ## Battery presets
 
@@ -45,6 +46,18 @@ Version: V0.1.0 prototype
 - `OFFLINE` alert occurs only after the configured elapsed time expires; retry count does not control offline state.
 - A successful response immediately clears the loss-of-contact timer and produces a recovery notification if the unit had gone offline.
 - Low/critical audible + tray alerts.
+- Configurable **Start with Windows** option. Startup registration is per-user and startup launches immediately minimize into the tray.
+- **USB Setup / Flash** wizard supports COM-port refresh, ESP32 detection, reading current Battery Monitor settings, USB-only configuration, firmware-only flash, and Flash + Configure.
+- USB configuration can set on-unit name, Wi-Fi, chemistry, thresholds, sample interval, and ADC calibration without requiring the device to be reachable by Wi-Fi.
+- Windows USB logs redact the Wi-Fi password.
+
+### Windows flash packaging
+
+- CI-generated Windows package contains the exact merged ESP32 factory image built by the same workflow run.
+- The package also contains Espressif `esptool` 5.3.1 for Windows amd64.
+- CI verifies the official esptool archive SHA-256: `2b4a73c45db27426685896f64ce3e557f63a64f43cc100cb65c0cc3486af96d3` before packaging.
+- First/factory flash writes the merged image at address `0x0` and intentionally clears existing NVS/Wi-Fi configuration.
+- `Configure USB` does not reflash and therefore preserves settings that are not explicitly changed.
 
 ### Android
 
@@ -53,8 +66,9 @@ Version: V0.1.0 prototype
 - Connects to temporary ESP32 setup AP using `WifiNetworkSpecifier` and an SSID-prefix system picker.
 - ESP32 performs the home-network scan.
 - Provisions SSID/password and initial device/battery configuration.
+- Android is an alternate provisioning path; it is not required when the Windows USB setup path is available.
 
-## Validated build checkpoint
+## Previous validated build checkpoint
 
 Product-source head:
 
@@ -84,15 +98,24 @@ Extracted deliverable SHA-256 values checked after download:
 
 Artifact archive integrity was also checked after download. The APK contains an APK signing block and expected Android package entries; the Windows deliverable identifies as an x86-64 GUI PE executable.
 
+## Current USB-feature validation
+
+USB flashing/provisioning/startup changes are on the current development line. Candidate product source after the Arduino `HEX` macro fix is `df40ffb04b35bbe61e8e1b6fb832107fd182a4fd`.
+
+The current CI cycle must pass firmware first; the Windows job then consumes that exact firmware artifact and verifies the bundled esptool archive before compiling/publishing the USB-capable Windows package. Do not replace the previous validated checkpoint above until this full dependent build is successful and its artifacts are inspected.
+
 ## CI maintenance
 
 Commit `220d8c2718d382b4ee86ce960ff444fba361d959` narrows Battery Monitor CI path triggers to firmware/Windows/Android source plus the workflow itself, so README/state/handoff-only edits do not rebuild all three targets.
 
 ## Next physical validation
 
-1. Flash one ESP32-WROOM-32.
-2. Compare the ADC-derived voltage against a trusted multimeter at several battery/input voltages and set calibration.
-3. Verify Android provisioning and wrong-password/fallback behavior.
-4. Verify Windows UDP discovery through a DHCP address change.
-5. Verify elapsed-time `UNREACHABLE` → `OFFLINE` → recovery behavior.
-6. Vehicle-test ADC jitter and Wi-Fi reach before deciding whether to add the optional 0.1 µF P34-to-GND capacitor or other front-end changes.
+1. Use the Windows USB wizard on one physical ESP32-WROOM-32: Detect ESP32 -> Flash + Configure.
+2. Confirm the unit joins Wi-Fi and is auto-discovered by the same Windows client.
+3. Reconnect by USB and verify Read Current / Configure USB without reflashing.
+4. Compare the ADC-derived voltage against a trusted multimeter at several battery/input voltages and set calibration.
+5. Verify Android provisioning as the alternate setup path, including wrong-password/fallback behavior.
+6. Verify Windows UDP discovery through a DHCP address change.
+7. Verify elapsed-time `UNREACHABLE` -> `OFFLINE` -> recovery behavior.
+8. Verify Start with Windows launches directly to the tray and can be disabled again.
+9. Vehicle-test ADC jitter and Wi-Fi reach before deciding whether to add the optional 0.1 µF P34-to-GND capacitor or other front-end changes.
