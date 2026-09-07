@@ -10,7 +10,19 @@ import asyncio
 import contextlib
 import io
 import json
+import os
 import sys
+
+# Espressif's esp_prov package loads generated protocomm protobuf modules from
+# IDF_PATH at import time. The packaged Windows helper carries only the pinned
+# protocomm/python support tree it needs under a synthetic bundled IDF root.
+if "IDF_PATH" not in os.environ:
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        os.environ["IDF_PATH"] = os.path.join(sys._MEIPASS, "idf")
+    else:
+        bundled_idf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "idf")
+        if os.path.isdir(bundled_idf):
+            os.environ["IDF_PATH"] = bundled_idf
 
 import esp_prov
 
@@ -43,7 +55,7 @@ async def provision(request: dict) -> None:
         raise ValueError("Setup code must be the 16-character canonical code.")
     if not home_ssid or len(home_ssid.encode("utf-8")) > 32:
         raise ValueError("Home Wi-Fi SSID is required and must fit the Wi-Fi SSID limit.")
-    if len(home_password) > 63:
+    if len(home_password.encode("utf-8")) > 63:
         raise ValueError("Home Wi-Fi password is too long.")
 
     emit("stage", message="Contacting Battery Monitor secure provisioning service...")
