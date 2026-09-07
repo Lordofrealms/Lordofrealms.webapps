@@ -147,8 +147,8 @@ internal sealed class WirelessProvisioningService
             var escapedProfile = SecurityElement.Escape(profileName) ?? profileName;
             var escapedSsid = SecurityElement.Escape(ssid) ?? ssid;
             var escapedKey = SecurityElement.Escape(passphrase) ?? passphrase;
-            var xml = $"""<?xml version="1.0"?>
-<WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
+            var xml = $@"<?xml version=""1.0""?>
+<WLANProfile xmlns=""http://www.microsoft.com/networking/WLAN/profile/v1"">
   <name>{escapedProfile}</name>
   <SSIDConfig><SSID><name>{escapedSsid}</name></SSID><nonBroadcast>false</nonBroadcast></SSIDConfig>
   <connectionType>ESS</connectionType>
@@ -158,7 +158,7 @@ internal sealed class WirelessProvisioningService
     <sharedKey><keyType>passPhrase</keyType><protected>false</protected><keyMaterial>{escapedKey}</keyMaterial></sharedKey>
   </security></MSM>
 </WLANProfile>
-""";
+";
             await File.WriteAllTextAsync(tempPath, xml, new UTF8Encoding(false), cancellationToken);
             await RunNetshAsync(new[] { "wlan", "add", "profile", $"filename={tempPath}", "user=current" }, cancellationToken);
         }
