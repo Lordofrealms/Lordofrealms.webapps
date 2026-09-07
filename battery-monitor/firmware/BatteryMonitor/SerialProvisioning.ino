@@ -6,12 +6,15 @@
 //
 // BATMON1 PING
 // BATMON1 STATUS
+// BATMON1 PROVSTATUS
 // BATMON1 SET NAME <encoded-name>
 // BATMON1 SET BATTERY <lead_acid|lifepo4_4s> <lowV> <criticalV>
 // BATMON1 SET SAMPLE <seconds>
 // BATMON1 SET CAL <factor> <offsetV>
 // BATMON1 SET WIFI <encoded-ssid> <encoded-password>
+// BATMON1 SET PROVCRED <encoded-username> <encoded-setup-code>
 // BATMON1 CLEARWIFI
+// BATMON1 CLEARPROVCRED
 // BATMON1 REBOOT
 
 static String serialProvisioningLine;
@@ -110,11 +113,21 @@ static void processSerialProvisioningCommand(String line) {
     return;
   }
 
+  if (command == "PROVSTATUS") {
+    serialOk("PROVSTATUS " + provisioningIdentitySummary());
+    return;
+  }
+
   if (command == "CLEARWIFI") {
     clearWifiSettings();
-    WiFi.disconnect(true, false);
-    startFallbackAp();
+    WiFi.disconnect(true, true);
     serialOk("CLEARWIFI");
+    return;
+  }
+
+  if (command == "CLEARPROVCRED") {
+    clearProvisioningIdentity();
+    serialOk("CLEARPROVCRED");
     return;
   }
 
@@ -205,12 +218,33 @@ static void processSerialProvisioningCommand(String line) {
       return;
     }
     saveWifiSettings(ssid, password);
-    WiFi.mode(fallbackApActive ? WIFI_AP_STA : WIFI_STA);
-    WiFi.setHostname(hostName.c_str());
-    WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
-    wifiDisconnectedSinceMs = millis();
-    nextReconnectAttemptMs = millis() + RETRY_INTERVAL_MS;
+    // A normal USB configuration workflow reboots after this command. If the
+    // secure provisioning manager is active, do not fight it for the Wi-Fi
+    // stack; the reboot will enter normal station mode with these credentials.
+    if (!secureProvisioningActive) {
+      WiFi.mode(WIFI_STA);
+      WiFi.setHostname(hostName.c_str());
+      WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
+      wifiDisconnectedSinceMs = millis();
+      nextReconnectAttemptMs = millis() + RETRY_INTERVAL_MS;
+    }
     serialOk("WIFI " + percentEncode(wifiSsid));
+    return;
+  }
+
+  if (setting == "PROVCRED") {
+    String encodedUsername = nextToken(remaining);
+    String encodedCode = nextToken(remaining);
+    String username = percentDecode(encodedUsername);
+    String setupCode = percentDecode(encodedCode);
+    String error;
+    if (!setProvisioningIdentity(username, setupCode, error)) {
+      serialErr(error);
+      return;
+    }
+    // Never echo the setup code back. It is intentionally write-only from the
+    // host's point of view once the admin tool has provisioned the device.
+    serialOk("PROVCRED " + percentEncode(username) + " " + apSsid);
     return;
   }
 
