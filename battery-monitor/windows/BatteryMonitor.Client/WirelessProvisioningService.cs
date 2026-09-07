@@ -39,19 +39,20 @@ internal sealed class WirelessProvisioningService
         if (canonicalCode.Length != 16) throw new ArgumentException("Enter a valid 16-character setup code.", nameof(setupCode));
         if (string.IsNullOrWhiteSpace(homeSsid) || Encoding.UTF8.GetByteCount(homeSsid) > 32)
             throw new ArgumentException("Home Wi-Fi SSID is required and must fit the Wi-Fi SSID limit.", nameof(homeSsid));
-        if ((homePassword ?? string.Empty).Length > 63)
+        if (Encoding.UTF8.GetByteCount(homePassword ?? string.Empty) > 63)
             throw new ArgumentException("Home Wi-Fi password is too long.", nameof(homePassword));
         if (HelperPath is null)
             throw new InvalidOperationException("The installed Battery Monitor package is missing the secure provisioning helper.");
 
         var setupSsid = "BatteryMonitor-" + deviceId[3..];
         var setupKey = ProvisioningCode.DeriveSoftApPassword(deviceId, canonicalCode);
-
-        progress?.Invoke($"Connecting Windows to {setupSsid}...");
-        await InstallAndConnectTemporaryProfileAsync(setupSsid, setupKey, cancellationToken);
+        string? temporaryProfileName = null;
 
         try
         {
+            progress?.Invoke($"Connecting Windows to {setupSsid}...");
+            temporaryProfileName = await InstallAndConnectTemporaryProfileAsync(setupSsid, setupKey, cancellationToken);
+
             progress?.Invoke("Waiting for the Battery Monitor provisioning service...");
             await WaitForProvisioningServiceAsync(cancellationToken);
 
@@ -70,7 +71,10 @@ internal sealed class WirelessProvisioningService
         }
         finally
         {
-            try { await DeleteProfileAsync(setupSsid, CancellationToken.None); } catch { }
+            if (!string.IsNullOrWhiteSpace(temporaryProfileName))
+            {
+                try { await DeleteProfileAsync(temporaryProfileName, CancellationToken.None); } catch { }
+            }
         }
     }
 
@@ -134,16 +138,18 @@ internal sealed class WirelessProvisioningService
         throw new InvalidOperationException("Secure wireless provisioning failed.");
     }
 
-    private static async Task InstallAndConnectTemporaryProfileAsync(string ssid, string passphrase, CancellationToken cancellationToken)
+    private static async Task<string> InstallAndConnectTemporaryProfileAsync(string ssid, string passphrase, CancellationToken cancellationToken)
     {
-        var tempPath = Path.Combine(Path.GetTempPath(), $"BatteryMonitor-{Guid.NewGuid():N}.xml");
+        var profileName = $"BatteryMonitor-Temporary-{Guid.NewGuid():N}";
+        var tempPath = Path.Combine(Path.GetTempPath(), $"{profileName}.xml");
         try
         {
+            var escapedProfile = SecurityElement.Escape(profileName) ?? profileName;
             var escapedSsid = SecurityElement.Escape(ssid) ?? ssid;
             var escapedKey = SecurityElement.Escape(passphrase) ?? passphrase;
             var xml = $"""<?xml version="1.0"?>
 <WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
-  <name>{escapedSsid}</name>
+  <name>{escapedProfile}</name>
   <SSIDConfig><SSID><name>{escapedSsid}</name></SSID><nonBroadcast>false</nonBroadcast></SSIDConfig>
   <connectionType>ESS</connectionType>
   <connectionMode>manual</connectionMode>
@@ -161,12 +167,21 @@ internal sealed class WirelessProvisioningService
             try { File.Delete(tempPath); } catch { }
         }
 
-        await RunNetshAsync(new[] { "wlan", "connect", $"name={ssid}", $"ssid={ssid}" }, cancellationToken);
+        try
+        {
+            await RunNetshAsync(new[] { "wlan", "connect", $"name={profileName}", $"ssid={ssid}" }, cancellationToken);
+            return profileName;
+        }
+        catch
+        {
+            try { await DeleteProfileAsync(profileName, CancellationToken.None); } catch { }
+            throw;
+        }
     }
 
-    private static async Task DeleteProfileAsync(string ssid, CancellationToken cancellationToken)
+    private static async Task DeleteProfileAsync(string profileName, CancellationToken cancellationToken)
     {
-        try { await RunNetshAsync(new[] { "wlan", "delete", "profile", $"name={ssid}" }, cancellationToken, throwOnFailure: false); }
+        try { await RunNetshAsync(new[] { "wlan", "delete", "profile", $"name={profileName}" }, cancellationToken, throwOnFailure: false); }
         catch { }
     }
 
