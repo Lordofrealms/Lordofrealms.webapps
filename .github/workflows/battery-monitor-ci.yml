@@ -50,6 +50,12 @@ jobs:
             --output-dir /tmp/battery-monitor-firmware \
             battery-monitor/firmware/BatteryMonitor
 
+      - name: Verify expected firmware images
+        run: |
+          test -f /tmp/battery-monitor-firmware/BatteryMonitor.ino.bin
+          test -f /tmp/battery-monitor-firmware/BatteryMonitor.ino.merged.bin
+          ls -lh /tmp/battery-monitor-firmware
+
       - name: Upload firmware binaries
         uses: actions/upload-artifact@v7
         with:
@@ -107,17 +113,21 @@ jobs:
             -p:DebugType=None `
             -o battery-monitor/windows/publish
 
-      - name: Bundle factory firmware and esptool
+      - name: Bundle update/factory firmware and esptool
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/firmware | Out-Null
           New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/tools/esptool | Out-Null
-          $merged = Get-ChildItem battery-monitor/windows/staging/firmware -Filter '*.merged.bin' -Recurse | Select-Object -First 1
-          if (-not $merged) { throw 'Merged Battery Monitor firmware was not downloaded from firmware job' }
+          $merged = Get-ChildItem battery-monitor/windows/staging/firmware -Filter 'BatteryMonitor.ino.merged.bin' -Recurse | Select-Object -First 1
+          $app = Get-ChildItem battery-monitor/windows/staging/firmware -Filter 'BatteryMonitor.ino.bin' -Recurse | Select-Object -First 1
+          if (-not $merged) { throw 'Merged Battery Monitor factory firmware was not downloaded from firmware job' }
+          if (-not $app) { throw 'Battery Monitor application update image was not downloaded from firmware job' }
           Copy-Item $merged.FullName battery-monitor/windows/publish/firmware/BatteryMonitor.ino.merged.bin
+          Copy-Item $app.FullName battery-monitor/windows/publish/firmware/BatteryMonitor.ino.bin
           Copy-Item battery-monitor/windows/staging/esptool/* battery-monitor/windows/publish/tools/esptool -Recurse -Force
           $tool = Get-ChildItem battery-monitor/windows/publish/tools/esptool -Filter esptool.exe -Recurse | Select-Object -First 1
           if (-not $tool) { throw 'Bundled esptool.exe missing' }
+          Get-FileHash battery-monitor/windows/publish/firmware/BatteryMonitor.ino.bin -Algorithm SHA256
           Get-FileHash battery-monitor/windows/publish/firmware/BatteryMonitor.ino.merged.bin -Algorithm SHA256
 
       - name: Upload Windows client
