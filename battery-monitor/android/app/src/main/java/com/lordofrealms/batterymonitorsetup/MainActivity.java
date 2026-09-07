@@ -2,22 +2,13 @@ package com.lordofrealms.batterymonitorsetup;
 
 import android.Manifest;
 import android.app.Activity;
-import android.content.Context;
-import android.content.Intent;
+import android.app.Dialog;
 import android.content.pm.PackageManager;
-import android.net.ConnectivityManager;
-import android.net.Network;
-import android.net.NetworkCapabilities;
-import android.net.NetworkRequest;
-import android.net.wifi.WifiNetworkSpecifier;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.PatternMatcher;
-import android.provider.Settings;
 import android.text.InputType;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -27,59 +18,79 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import org.json.JSONArray;
+import com.budiyev.android.codescanner.CodeScanner;
+import com.budiyev.android.codescanner.CodeScannerView;
+import com.budiyev.android.codescanner.ScanMode;
+import com.espressif.provisioning.DeviceConnectionEvent;
+import com.espressif.provisioning.ESPConstants;
+import com.espressif.provisioning.ESPDevice;
+import com.espressif.provisioning.ESPProvisionManager;
+import com.espressif.provisioning.WiFiAccessPoint;
+import com.espressif.provisioning.listeners.ProvisionListener;
+import com.espressif.provisioning.listeners.WiFiScanListener;
+
+import org.greenrobot.eventbus.EventBus;
+import org.greenrobot.eventbus.Subscribe;
+import org.greenrobot.eventbus.ThreadMode;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
     private static final int WIFI_PERMISSION_REQUEST = 1001;
-    private static final String MONITOR_PREFIX = "BatteryMonitor-";
-    private static final String DEVICE_BASE_URL = "http://192.168.4.1";
+    private static final int CAMERA_PERMISSION_REQUEST = 1002;
+    private static final String DEFAULT_USERNAME = "batmon";
+    private static final String CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-    private ConnectivityManager connectivityManager;
-    private final ExecutorService io = Executors.newSingleThreadExecutor();
-    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private ESPProvisionManager provisionManager;
+    private ESPDevice espDevice;
 
-    private EditText manualMonitorSsid;
+    private EditText deviceIdEdit;
+    private EditText setupCodeEdit;
     private Spinner homeWifiSpinner;
-    private EditText homeSsid;
-    private EditText wifiPassword;
-    private EditText deviceName;
-    private Spinner batteryType;
-    private EditText lowVoltage;
-    private EditText criticalVoltage;
-    private EditText sampleInterval;
-    private TextView statusText;
+    private EditText homeSsidEdit;
+    private EditText homePasswordEdit;
     private Button connectButton;
-    private Button configureButton;
+    private Button scanWifiButton;
+    private Button provisionButton;
+    private TextView statusText;
 
     private final List<String> homeSsids = new ArrayList<>();
     private ArrayAdapter<String> homeAdapter;
-
-    private Network monitorNetwork;
-    private ConnectivityManager.NetworkCallback monitorNetworkCallback;
+    private String provisioningUsername = DEFAULT_USERNAME;
+    private boolean pendingSecureConnect;
+    private boolean pendingQrScan;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        connectivityManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        provisionManager = ESPProvisionManager.getInstance(this);
         buildUi();
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        if (!EventBus.getDefault().isRegistered(this)) EventBus.getDefault().register(this);
+    }
+
+    @Override
+    protected void onStop() {
+        if (EventBus.getDefault().isRegistered(this)) EventBus.getDefault().unregister(this);
+        super.onStop();
+    }
+
+    @Override
+    protected void onDestroy() {
+        try { if (espDevice != null) espDevice.disconnectDevice(); } catch (Exception ignored) { }
+        super.onDestroy();
     }
 
     private void buildUi() {
@@ -91,80 +102,63 @@ public class MainActivity extends Activity {
         scroll.addView(root);
 
         TextView title = new TextView(this);
-        title.setText("Battery Monitor Setup");
+        title.setText("Battery Monitor Secure Setup");
         title.setTextSize(26);
-        title.setPadding(0, 0, 0, dp(12));
+        title.setPadding(0, 0, 0, dp(10));
         root.addView(title);
 
         TextView intro = new TextView(this);
-        intro.setText("Power the ESP32, then tap Find / Connect Monitor. Android will show nearby BatteryMonitor-XXXXXX setup networks. After connecting, choose your home Wi-Fi and configure the unit.");
+        intro.setText("Scan the Battery Monitor QR code or enter the Device ID and printed Setup Code. The app connects to the monitor's WPA2 setup network and uses Espressif Security 2 (SRP6a + AES-GCM) before your home Wi-Fi password is sent.");
         intro.setTextSize(16);
-        intro.setPadding(0, 0, 0, dp(16));
+        intro.setPadding(0, 0, 0, dp(14));
         root.addView(intro);
 
-        manualMonitorSsid = addEdit(root, "Specific monitor SSID (optional)", false);
+        Button qrButton = new Button(this);
+        qrButton.setText("Scan Setup QR");
+        qrButton.setOnClickListener(v -> requestQrScan());
+        root.addView(qrButton, fullWidth());
+
+        deviceIdEdit = addEdit(root, "Device ID (example BM-A1B2C3)", false);
+        setupCodeEdit = addEdit(root, "Setup Code (example K7M4-P9RQ-X2HD-W6CF)", false);
+        setupCodeEdit.setAllCaps(true);
 
         connectButton = new Button(this);
-        connectButton.setText("Find / Connect Monitor");
-        connectButton.setOnClickListener(v -> ensureWifiPermissionThenConnect());
+        connectButton.setText("Connect Securely");
+        connectButton.setOnClickListener(v -> requestSecureConnect());
         root.addView(connectButton, fullWidth());
 
-        Button wifiSettings = new Button(this);
-        wifiSettings.setText("Open Android Wi-Fi Settings (fallback)");
-        wifiSettings.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_WIFI_SETTINGS)));
-        root.addView(wifiSettings, fullWidth());
-
-        TextView monitorHelp = new TextView(this);
-        monitorHelp.setText("Leave the specific SSID blank to let Android present all nearby BatteryMonitor-* setup networks. If a unit is not advertising setup Wi-Fi, hold its BOOT button for 5 seconds to clear saved Wi-Fi.");
-        monitorHelp.setPadding(0, dp(6), 0, 0);
-        root.addView(monitorHelp);
-
         addDivider(root);
-        addLabel(root, "Home Wi-Fi network");
+        addLabel(root, "Home Wi-Fi");
         homeWifiSpinner = new Spinner(this);
         homeAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, homeSsids);
         homeWifiSpinner.setAdapter(homeAdapter);
         homeWifiSpinner.setOnItemSelectedListener(new SimpleItemSelectedListener(position -> {
-            if (homeSsid != null && position >= 0 && position < homeSsids.size()) homeSsid.setText(homeSsids.get(position));
+            if (position >= 0 && position < homeSsids.size()) homeSsidEdit.setText(homeSsids.get(position));
         }));
         root.addView(homeWifiSpinner, fullWidth());
 
-        Button scanHomeButton = new Button(this);
-        scanHomeButton.setText("Scan Home Wi-Fi from ESP32");
-        scanHomeButton.setOnClickListener(v -> scanHomeNetworks());
-        root.addView(scanHomeButton, fullWidth());
+        scanWifiButton = new Button(this);
+        scanWifiButton.setText("Scan Wi-Fi from Monitor");
+        scanWifiButton.setEnabled(false);
+        scanWifiButton.setOnClickListener(v -> scanHomeNetworks());
+        root.addView(scanWifiButton, fullWidth());
 
-        homeSsid = addEdit(root, "Home Wi-Fi SSID", false);
-        wifiPassword = addEdit(root, "Home Wi-Fi password", true);
+        homeSsidEdit = addEdit(root, "Home Wi-Fi SSID", false);
+        homePasswordEdit = addEdit(root, "Home Wi-Fi password", true);
 
-        addDivider(root);
-        deviceName = addEdit(root, "Device name (e.g. GX 460)", false);
+        provisionButton = new Button(this);
+        provisionButton.setText("Provision Home Wi-Fi");
+        provisionButton.setEnabled(false);
+        provisionButton.setOnClickListener(v -> provisionHomeWifi());
+        root.addView(provisionButton, fullWidth());
 
-        addLabel(root, "Battery type");
-        batteryType = new Spinner(this);
-        ArrayAdapter<String> batteryAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item,
-                new String[]{"12 V Lead Acid", "4S LiFePO4"});
-        batteryType.setAdapter(batteryAdapter);
-        batteryType.setOnItemSelectedListener(new SimpleItemSelectedListener(position -> applyChemistryDefaults(position == 1)));
-        root.addView(batteryType, fullWidth());
-
-        lowVoltage = addEdit(root, "Low warning voltage", false);
-        lowVoltage.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        criticalVoltage = addEdit(root, "Critical voltage", false);
-        criticalVoltage.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        sampleInterval = addEdit(root, "ESP32 sample interval in seconds (default 10)", false);
-        sampleInterval.setInputType(InputType.TYPE_CLASS_NUMBER);
-        sampleInterval.setText("10");
-        applyChemistryDefaults(false);
-
-        configureButton = new Button(this);
-        configureButton.setText("Configure Device");
-        configureButton.setEnabled(false);
-        configureButton.setOnClickListener(v -> configureDevice());
-        root.addView(configureButton, fullWidth());
+        TextView note = new TextView(this);
+        note.setText("This secure Android path configures Wi-Fi only. Device name, battery chemistry, thresholds, sample timing, and ADC calibration remain available through trusted USB while LAN configuration authentication is being hardened.");
+        note.setPadding(0, dp(12), 0, 0);
+        root.addView(note);
 
         statusText = new TextView(this);
-        statusText.setText("Tap Find / Connect Monitor to begin.");
+        statusText.setText("Ready. Scan the QR or enter the Device ID and Setup Code.");
         statusText.setTextSize(15);
         statusText.setPadding(0, dp(16), 0, dp(30));
         root.addView(statusText);
@@ -172,320 +166,304 @@ public class MainActivity extends Activity {
         setContentView(scroll);
     }
 
-    private void applyChemistryDefaults(boolean lifepo4) {
-        if (lowVoltage == null || criticalVoltage == null) return;
-        if (lifepo4) {
-            lowVoltage.setText("12.80");
-            criticalVoltage.setText("12.00");
-        } else {
-            lowVoltage.setText("12.20");
-            criticalVoltage.setText("11.90");
+    private void requestSecureConnect() {
+        if (!hasWifiPermission()) {
+            pendingSecureConnect = true;
+            requestWifiPermission();
+            return;
+        }
+        connectSecurely();
+    }
+
+    private void connectSecurely() {
+        String deviceId = normalizeDeviceId(deviceIdEdit.getText().toString());
+        String setupCode = normalizeSetupCode(setupCodeEdit.getText().toString());
+        if (deviceId.isEmpty()) {
+            toast("Enter a valid Device ID such as BM-A1B2C3.");
+            return;
+        }
+        if (setupCode.isEmpty()) {
+            toast("Enter the 16-character setup code printed with the device.");
+            return;
+        }
+
+        String setupSsid = setupSsidForDevice(deviceId);
+        String setupPassword;
+        try { setupPassword = deriveSoftApPassword(deviceId, setupCode); }
+        catch (Exception ex) { setStatus("Could not derive setup-network credentials: " + ex.getMessage()); return; }
+
+        try { if (espDevice != null) espDevice.disconnectDevice(); } catch (Exception ignored) { }
+        espDevice = provisionManager.createESPDevice(
+                ESPConstants.TransportType.TRANSPORT_SOFTAP,
+                ESPConstants.SecurityType.SECURITY_2);
+        espDevice.setDeviceName(setupSsid);
+        espDevice.setProofOfPossession(setupCode);
+        espDevice.setUserName(provisioningUsername);
+
+        connectButton.setEnabled(false);
+        scanWifiButton.setEnabled(false);
+        provisionButton.setEnabled(false);
+        setStatus("Connecting to " + setupSsid + " using its derived WPA2 key. Android may ask you to approve the temporary Wi-Fi connection...");
+
+        try {
+            espDevice.connectWiFiDevice(setupSsid, setupPassword);
+        } catch (SecurityException ex) {
+            connectButton.setEnabled(true);
+            setStatus("Android blocked the setup-network connection: " + ex.getMessage());
+        } catch (Exception ex) {
+            connectButton.setEnabled(true);
+            setStatus("Could not start secure connection: " + ex.getMessage());
         }
     }
 
-    private void ensureWifiPermissionThenConnect() {
-        if (hasWifiPermission()) {
-            requestMonitorNetwork();
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void onDeviceConnectionEvent(DeviceConnectionEvent event) {
+        if (event.getEventType() == ESPConstants.EVENT_DEVICE_CONNECTED) {
+            connectButton.setEnabled(true);
+            scanWifiButton.setEnabled(true);
+            provisionButton.setEnabled(true);
+            setStatus("Setup network connected. Establishing Security 2 and asking the monitor to scan nearby home Wi-Fi networks...");
+            scanHomeNetworks();
+        } else if (event.getEventType() == ESPConstants.EVENT_DEVICE_CONNECTION_FAILED) {
+            connectButton.setEnabled(true);
+            scanWifiButton.setEnabled(false);
+            provisionButton.setEnabled(false);
+            setStatus("Could not connect to the secure Battery Monitor setup network. Check the Device ID/setup code and confirm the monitor is in setup mode.");
+        }
+    }
+
+    private void scanHomeNetworks() {
+        if (espDevice == null) {
+            toast("Connect securely to the monitor first.");
             return;
         }
-        if (Build.VERSION.SDK_INT >= 33) {
-            requestPermissions(new String[]{Manifest.permission.NEARBY_WIFI_DEVICES}, WIFI_PERMISSION_REQUEST);
-        } else {
-            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, WIFI_PERMISSION_REQUEST);
+        scanWifiButton.setEnabled(false);
+        setStatus("Authenticating with Security 2 and scanning Wi-Fi from the monitor...");
+        espDevice.scanNetworks(new WiFiScanListener() {
+            @Override
+            public void onWifiListReceived(ArrayList<WiFiAccessPoint> wifiList) {
+                runOnUiThread(() -> {
+                    Map<String, WiFiAccessPoint> best = new LinkedHashMap<>();
+                    for (WiFiAccessPoint ap : wifiList) {
+                        String ssid = ap.getWifiName();
+                        if (ssid == null || ssid.trim().isEmpty()) continue;
+                        WiFiAccessPoint old = best.get(ssid);
+                        if (old == null || ap.getRssi() > old.getRssi()) best.put(ssid, ap);
+                    }
+                    List<WiFiAccessPoint> sorted = new ArrayList<>(best.values());
+                    sorted.sort(Comparator.comparingInt(WiFiAccessPoint::getRssi).reversed());
+                    homeSsids.clear();
+                    for (WiFiAccessPoint ap : sorted) homeSsids.add(ap.getWifiName());
+                    homeAdapter.notifyDataSetChanged();
+                    if (!homeSsids.isEmpty()) {
+                        homeWifiSpinner.setSelection(0);
+                        homeSsidEdit.setText(homeSsids.get(0));
+                    }
+                    scanWifiButton.setEnabled(true);
+                    provisionButton.setEnabled(true);
+                    setStatus("Security 2 session established. Found " + homeSsids.size() + " Wi-Fi network(s). Select your home Wi-Fi and enter its password.");
+                });
+            }
+
+            @Override
+            public void onWiFiScanFailed(Exception e) {
+                runOnUiThread(() -> {
+                    scanWifiButton.setEnabled(true);
+                    provisionButton.setEnabled(false);
+                    setStatus("Secure session/Wi-Fi scan failed. A wrong setup code is one possible cause. " + safeMessage(e));
+                });
+            }
+        });
+    }
+
+    private void provisionHomeWifi() {
+        if (espDevice == null) {
+            toast("Connect securely to the monitor first.");
+            return;
         }
+        String ssid = homeSsidEdit.getText().toString().trim();
+        String password = homePasswordEdit.getText().toString();
+        if (ssid.isEmpty() || ssid.length() > 32 || password.length() > 63) {
+            toast("Check the home Wi-Fi SSID and password.");
+            return;
+        }
+
+        provisionButton.setEnabled(false);
+        setStatus("Sending home Wi-Fi credentials inside the authenticated Security 2 session...");
+        espDevice.provision(ssid, password, new ProvisionListener() {
+            @Override public void createSessionFailed(Exception e) { failProvision("Could not establish the encrypted Security 2 session", e); }
+            @Override public void wifiConfigSent() { runOnUiThread(() -> setStatus("Encrypted Wi-Fi credentials sent. Waiting for the monitor to test them...")); }
+            @Override public void wifiConfigFailed(Exception e) { failProvision("Could not send Wi-Fi credentials", e); }
+            @Override public void wifiConfigApplied() { runOnUiThread(() -> setStatus("The monitor accepted the Wi-Fi credentials and is connecting...")); }
+            @Override public void wifiConfigApplyFailed(Exception e) { failProvision("The monitor could not apply the Wi-Fi credentials", e); }
+            @Override public void provisioningFailedFromDevice(ESPConstants.ProvisionFailureReason failureReason) {
+                runOnUiThread(() -> {
+                    provisionButton.setEnabled(true);
+                    setStatus("The monitor rejected the home Wi-Fi configuration: " + failureReason);
+                });
+            }
+            @Override public void deviceProvisioningSuccess() {
+                runOnUiThread(() -> {
+                    homePasswordEdit.setText("");
+                    setupCodeEdit.setText("");
+                    scanWifiButton.setEnabled(false);
+                    provisionButton.setEnabled(false);
+                    connectButton.setEnabled(true);
+                    setStatus("Secure provisioning succeeded. The monitor is joining " + ssid + ". Its setup code remains valid for future secure reprovisioning, but the app does not store it.");
+                    toast("Battery Monitor Wi-Fi configured securely");
+                });
+            }
+            @Override public void onProvisioningFailed(Exception e) { failProvision("Secure provisioning failed", e); }
+        });
+    }
+
+    private void failProvision(String prefix, Exception e) {
+        runOnUiThread(() -> {
+            provisionButton.setEnabled(true);
+            setStatus(prefix + ": " + safeMessage(e));
+        });
+    }
+
+    private void requestQrScan() {
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            pendingQrScan = true;
+            requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST);
+            return;
+        }
+        showQrScanner();
+    }
+
+    private void showQrScanner() {
+        Dialog dialog = new Dialog(this);
+        CodeScannerView scannerView = new CodeScannerView(this);
+        scannerView.setLayoutParams(new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        dialog.setContentView(scannerView);
+
+        CodeScanner scanner = new CodeScanner(this, scannerView);
+        scanner.setScanMode(ScanMode.SINGLE);
+        scanner.setDecodeCallback(result -> runOnUiThread(() -> {
+            try {
+                applyQrPayload(result.getText());
+                dialog.dismiss();
+            } catch (Exception ex) {
+                toast("Invalid Battery Monitor QR: " + ex.getMessage());
+                scanner.startPreview();
+            }
+        }));
+        scanner.setErrorCallback(error -> runOnUiThread(() -> {
+            toast("QR camera error: " + error.getMessage());
+            dialog.dismiss();
+        }));
+        dialog.setOnDismissListener(d -> scanner.releaseResources());
+        dialog.setOnShowListener(d -> scanner.startPreview());
+        dialog.show();
+        if (dialog.getWindow() != null) dialog.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+    }
+
+    private void applyQrPayload(String raw) throws Exception {
+        JSONObject json = new JSONObject(raw);
+        if (!"v1".equals(json.optString("ver"))) throw new IllegalArgumentException("unsupported QR version");
+        if (!"softap".equalsIgnoreCase(json.optString("transport"))) throw new IllegalArgumentException("unsupported transport");
+        if (json.optInt("security", 2) != 2) throw new IllegalArgumentException("Security 2 is required");
+
+        String deviceId = normalizeDeviceId(json.optString("id"));
+        String setupCode = normalizeSetupCode(json.optString("pop"));
+        String username = json.optString("username", DEFAULT_USERNAME).trim();
+        if (deviceId.isEmpty() || setupCode.isEmpty() || username.isEmpty()) throw new IllegalArgumentException("missing device identity/setup code");
+
+        String expectedSsid = setupSsidForDevice(deviceId);
+        String qrSsid = json.optString("name", expectedSsid);
+        if (!expectedSsid.equals(qrSsid)) throw new IllegalArgumentException("QR device name does not match Device ID");
+        String expectedPassword = deriveSoftApPassword(deviceId, setupCode);
+        String qrPassword = json.optString("password", "");
+        if (!qrPassword.isEmpty() && !MessageDigest.isEqual(expectedPassword.getBytes(StandardCharsets.US_ASCII), qrPassword.getBytes(StandardCharsets.US_ASCII)))
+            throw new IllegalArgumentException("QR setup-network credential mismatch");
+
+        provisioningUsername = username;
+        deviceIdEdit.setText(deviceId);
+        setupCodeEdit.setText(formatSetupCode(setupCode));
+        setStatus("QR accepted for " + deviceId + ". Tap Connect Securely.");
     }
 
     private boolean hasWifiPermission() {
-        if (Build.VERSION.SDK_INT >= 33) {
+        if (Build.VERSION.SDK_INT >= 33)
             return checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED;
-        }
         return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void requestWifiPermission() {
+        if (Build.VERSION.SDK_INT >= 33)
+            requestPermissions(new String[]{Manifest.permission.NEARBY_WIFI_DEVICES}, WIFI_PERMISSION_REQUEST);
+        else
+            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, WIFI_PERMISSION_REQUEST);
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == WIFI_PERMISSION_REQUEST && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            requestMonitorNetwork();
-        } else if (requestCode == WIFI_PERMISSION_REQUEST) {
-            setStatus("Nearby Wi-Fi permission was denied. It is required so Android can connect this app to the monitor's temporary setup Wi-Fi.");
-        }
-    }
-
-    private void requestMonitorNetwork() {
-        String requestedSsid = manualMonitorSsid.getText().toString().trim();
-        if (!requestedSsid.isEmpty() && !requestedSsid.startsWith(MONITOR_PREFIX)) {
-            toast("A specific monitor SSID must start with " + MONITOR_PREFIX);
-            return;
-        }
-
-        releaseMonitorNetwork();
-        connectButton.setEnabled(false);
-        configureButton.setEnabled(false);
-        setStatus(requestedSsid.isEmpty()
-                ? "Asking Android to show nearby BatteryMonitor-* setup networks..."
-                : "Requesting " + requestedSsid + "...");
-
-        WifiNetworkSpecifier.Builder specifierBuilder = new WifiNetworkSpecifier.Builder();
-        if (requestedSsid.isEmpty()) {
-            specifierBuilder.setSsidPattern(new PatternMatcher(MONITOR_PREFIX, PatternMatcher.PATTERN_PREFIX));
-        } else {
-            specifierBuilder.setSsid(requestedSsid);
-        }
-
-        WifiNetworkSpecifier specifier;
-        try {
-            specifier = specifierBuilder.build();
-        } catch (IllegalArgumentException | IllegalStateException ex) {
-            connectButton.setEnabled(true);
-            setStatus("Could not create the Wi-Fi request: " + ex.getMessage());
-            return;
-        }
-
-        NetworkRequest request = new NetworkRequest.Builder()
-                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-                .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .setNetworkSpecifier(specifier)
-                .build();
-
-        monitorNetworkCallback = new ConnectivityManager.NetworkCallback() {
-            @Override
-            public void onAvailable(Network network) {
-                monitorNetwork = network;
-                runOnUiThread(() -> {
-                    connectButton.setEnabled(true);
-                    configureButton.setEnabled(true);
-                    setStatus("Connected to the Battery Monitor setup network. Reading device settings...");
-                });
-                loadDeviceAndHomeNetworks();
+        boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+        if (requestCode == WIFI_PERMISSION_REQUEST) {
+            if (granted && pendingSecureConnect) {
+                pendingSecureConnect = false;
+                connectSecurely();
+            } else if (!granted) {
+                pendingSecureConnect = false;
+                setStatus("Nearby Wi-Fi permission is required to connect to the monitor's temporary setup network.");
             }
-
-            @Override
-            public void onUnavailable() {
-                runOnUiThread(() -> {
-                    connectButton.setEnabled(true);
-                    configureButton.setEnabled(false);
-                    setStatus("Android did not connect to a Battery Monitor. Make sure a unit is in setup mode and try again.");
-                });
-            }
-
-            @Override
-            public void onLost(Network network) {
-                if (monitorNetwork == network) monitorNetwork = null;
-                runOnUiThread(() -> {
-                    connectButton.setEnabled(true);
-                    configureButton.setEnabled(false);
-                    setStatus("The setup network disconnected. If configuration was just submitted, this is expected while the monitor joins your home Wi-Fi.");
-                });
-            }
-        };
-
-        try {
-            connectivityManager.requestNetwork(request, monitorNetworkCallback);
-        } catch (SecurityException ex) {
-            connectButton.setEnabled(true);
-            configureButton.setEnabled(false);
-            setStatus("Android blocked the Wi-Fi connection request: " + ex.getMessage());
-        }
-    }
-
-    private void loadDeviceAndHomeNetworks() {
-        io.execute(() -> {
-            try {
-                JSONObject status = new JSONObject(httpGet(DEVICE_BASE_URL + "/api/status"));
-                JSONObject scan = new JSONObject(httpGet(DEVICE_BASE_URL + "/api/wifi/scan"));
-                List<WifiChoice> choices = parseWifiChoices(scan);
-                runOnUiThread(() -> {
-                    deviceName.setText(status.optString("name", "Battery Monitor"));
-                    String type = status.optString("batteryType", "lead_acid");
-                    batteryType.setSelection("lifepo4_4s".equals(type) ? 1 : 0);
-                    lowVoltage.setText(String.format(Locale.US, "%.2f", status.optDouble("lowVoltage", 12.20)));
-                    criticalVoltage.setText(String.format(Locale.US, "%.2f", status.optDouble("criticalVoltage", 11.90)));
-                    sampleInterval.setText(String.valueOf(status.optInt("sampleIntervalSec", 10)));
-                    populateHomeChoices(choices);
-                    setStatus("Connected to " + status.optString("deviceId", "monitor") + ". Select your home Wi-Fi and tap Configure Device.");
-                });
-            } catch (Exception ex) {
-                runOnUiThread(() -> setStatus("Connected to setup Wi-Fi, but could not reach the ESP32 at 192.168.4.1: " + ex.getMessage()));
-            }
-        });
-    }
-
-    private void scanHomeNetworks() {
-        if (monitorNetwork == null) {
-            toast("Connect to a Battery Monitor setup network first.");
-            return;
-        }
-        setStatus("Asking the ESP32 to scan nearby home Wi-Fi networks...");
-        io.execute(() -> {
-            try {
-                JSONObject scan = new JSONObject(httpGet(DEVICE_BASE_URL + "/api/wifi/scan"));
-                List<WifiChoice> choices = parseWifiChoices(scan);
-                runOnUiThread(() -> {
-                    populateHomeChoices(choices);
-                    setStatus("ESP32 Wi-Fi scan complete. Choose the home network and enter its password.");
-                });
-            } catch (Exception ex) {
-                runOnUiThread(() -> setStatus("ESP32 Wi-Fi scan failed: " + ex.getMessage()));
-            }
-        });
-    }
-
-    private List<WifiChoice> parseWifiChoices(JSONObject scan) throws Exception {
-        JSONArray networks = scan.getJSONArray("networks");
-        Map<String, WifiChoice> best = new LinkedHashMap<>();
-        for (int i = 0; i < networks.length(); i++) {
-            JSONObject n = networks.getJSONObject(i);
-            String ssid = n.optString("ssid", "").trim();
-            if (ssid.isEmpty()) continue;
-            int rssi = n.optInt("rssi", -100);
-            boolean secure = n.optBoolean("secure", true);
-            WifiChoice old = best.get(ssid);
-            if (old == null || rssi > old.rssi) best.put(ssid, new WifiChoice(ssid, rssi, secure));
-        }
-        List<WifiChoice> result = new ArrayList<>(best.values());
-        result.sort(Comparator.comparingInt((WifiChoice w) -> w.rssi).reversed());
-        return result;
-    }
-
-    private void populateHomeChoices(List<WifiChoice> choices) {
-        homeSsids.clear();
-        for (WifiChoice choice : choices) homeSsids.add(choice.ssid);
-        homeAdapter.notifyDataSetChanged();
-        if (!homeSsids.isEmpty()) {
-            homeWifiSpinner.setSelection(0);
-            homeSsid.setText(homeSsids.get(0));
-        }
-    }
-
-    private void configureDevice() {
-        if (monitorNetwork == null) {
-            toast("Connect to the monitor setup network first.");
-            return;
-        }
-
-        String ssid = homeSsid.getText().toString().trim();
-        String pass = wifiPassword.getText().toString();
-        String name = deviceName.getText().toString().trim();
-        String type = batteryType.getSelectedItemPosition() == 1 ? "lifepo4_4s" : "lead_acid";
-        String low = lowVoltage.getText().toString().trim();
-        String crit = criticalVoltage.getText().toString().trim();
-        String sample = sampleInterval.getText().toString().trim();
-
-        if (ssid.isEmpty() || name.isEmpty()) {
-            toast("Home Wi-Fi SSID and device name are required.");
-            return;
-        }
-        try {
-            double lowV = Double.parseDouble(low);
-            double critV = Double.parseDouble(crit);
-            int sampleSec = Integer.parseInt(sample);
-            if (lowV <= critV || critV < 6 || lowV > 20 || sampleSec < 1 || sampleSec > 3600) throw new IllegalArgumentException();
-        } catch (Exception ex) {
-            toast("Check the voltage thresholds and sample interval.");
-            return;
-        }
-
-        configureButton.setEnabled(false);
-        setStatus("Saving device settings and Wi-Fi credentials...");
-        io.execute(() -> {
-            try {
-                Map<String, String> config = new LinkedHashMap<>();
-                config.put("name", name);
-                config.put("batteryType", type);
-                config.put("lowVoltage", low);
-                config.put("criticalVoltage", crit);
-                config.put("sampleIntervalSec", sample);
-                postForm(DEVICE_BASE_URL + "/api/config", config);
-
-                Map<String, String> wifi = new LinkedHashMap<>();
-                wifi.put("ssid", ssid);
-                wifi.put("password", pass);
-                postForm(DEVICE_BASE_URL + "/api/wifi", wifi);
-
-                runOnUiThread(() -> {
-                    setStatus("Configuration saved. The ESP32 is now trying " + ssid + ". If it cannot connect, its BatteryMonitor setup AP will remain/return and it will retry the saved Wi-Fi every 10 minutes. Hold BOOT for 5 seconds at any time to clear Wi-Fi and force setup mode.");
-                    toast("Battery Monitor configured");
-                    wifiPassword.setText("");
-                    mainHandler.postDelayed(this::releaseMonitorNetwork, 1500);
-                });
-            } catch (Exception ex) {
-                runOnUiThread(() -> {
-                    configureButton.setEnabled(true);
-                    setStatus("Configuration failed: " + ex.getMessage());
-                });
-            }
-        });
-    }
-
-    private String httpGet(String urlString) throws Exception {
-        HttpURLConnection connection = openConnection(urlString);
-        connection.setConnectTimeout(5000);
-        connection.setReadTimeout(8000);
-        connection.setRequestMethod("GET");
-        return readResponse(connection);
-    }
-
-    private String postForm(String urlString, Map<String, String> values) throws Exception {
-        StringBuilder body = new StringBuilder();
-        for (Map.Entry<String, String> entry : values.entrySet()) {
-            if (body.length() > 0) body.append('&');
-            body.append(URLEncoder.encode(entry.getKey(), StandardCharsets.UTF_8.name()));
-            body.append('=');
-            body.append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8.name()));
-        }
-        byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
-        HttpURLConnection connection = openConnection(urlString);
-        connection.setConnectTimeout(5000);
-        connection.setReadTimeout(8000);
-        connection.setRequestMethod("POST");
-        connection.setDoOutput(true);
-        connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
-        connection.setFixedLengthStreamingMode(bytes.length);
-        try (OutputStream out = connection.getOutputStream()) {
-            out.write(bytes);
-        }
-        return readResponse(connection);
-    }
-
-    private HttpURLConnection openConnection(String urlString) throws Exception {
-        URL url = new URL(urlString);
-        Network network = monitorNetwork;
-        if (network == null) throw new IllegalStateException("Not connected to the monitor setup network.");
-        return (HttpURLConnection) network.openConnection(url);
-    }
-
-    private String readResponse(HttpURLConnection connection) throws Exception {
-        int code = connection.getResponseCode();
-        InputStream stream = code >= 200 && code < 300 ? connection.getInputStream() : connection.getErrorStream();
-        StringBuilder text = new StringBuilder();
-        if (stream != null) {
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) text.append(line);
+        } else if (requestCode == CAMERA_PERMISSION_REQUEST) {
+            if (granted && pendingQrScan) {
+                pendingQrScan = false;
+                showQrScanner();
+            } else if (!granted) {
+                pendingQrScan = false;
+                setStatus("Camera permission was denied. You can enter the Device ID and Setup Code manually instead.");
             }
         }
-        connection.disconnect();
-        if (code < 200 || code >= 300) throw new IllegalStateException("ESP32 returned HTTP " + code + ": " + text);
-        return text.toString();
     }
 
-    private void releaseMonitorNetwork() {
-        monitorNetwork = null;
-        if (monitorNetworkCallback != null) {
-            try { connectivityManager.unregisterNetworkCallback(monitorNetworkCallback); } catch (Exception ignored) { }
-            monitorNetworkCallback = null;
+    private static String normalizeDeviceId(String input) {
+        if (input == null) return "";
+        String value = input.trim().toUpperCase(Locale.US).replace(" ", "");
+        if (!value.matches("BM-[0-9A-F]{6}")) return "";
+        return value;
+    }
+
+    private static String setupSsidForDevice(String deviceId) {
+        return "BatteryMonitor-" + deviceId.substring(3);
+    }
+
+    private static String normalizeSetupCode(String input) {
+        if (input == null) return "";
+        StringBuilder out = new StringBuilder(16);
+        for (int i = 0; i < input.length(); i++) {
+            char c = Character.toUpperCase(input.charAt(i));
+            if (c == '-' || Character.isWhitespace(c)) continue;
+            if (c == 'O') c = '0';
+            if (c == 'I' || c == 'L') c = '1';
+            if (CODE_ALPHABET.indexOf(c) < 0) return "";
+            out.append(c);
         }
-        configureButton.setEnabled(false);
-        connectButton.setEnabled(true);
+        return out.length() == 16 ? out.toString() : "";
     }
 
-    private void setStatus(String text) {
-        statusText.setText(text);
+    private static String formatSetupCode(String code) {
+        if (code.length() != 16) return code;
+        return code.substring(0, 4) + "-" + code.substring(4, 8) + "-" + code.substring(8, 12) + "-" + code.substring(12, 16);
     }
 
-    private void toast(String text) {
-        Toast.makeText(this, text, Toast.LENGTH_LONG).show();
+    private static String deriveSoftApPassword(String deviceId, String setupCode) throws Exception {
+        String canonical = normalizeSetupCode(setupCode);
+        if (canonical.isEmpty()) throw new IllegalArgumentException("invalid setup code");
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] hash = digest.digest(("BATMON-SOFTAP-V1|" + deviceId + "|" + canonical).getBytes(StandardCharsets.UTF_8));
+        StringBuilder out = new StringBuilder(32);
+        for (int i = 0; i < 16; i++) out.append(String.format(Locale.US, "%02X", hash[i] & 0xFF));
+        return out.toString();
+    }
+
+    private static String safeMessage(Exception e) {
+        if (e == null || e.getMessage() == null || e.getMessage().trim().isEmpty()) return "unknown error";
+        return e.getMessage();
     }
 
     private EditText addEdit(LinearLayout root, String hint, boolean password) {
@@ -516,31 +494,11 @@ public class MainActivity extends Activity {
         return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
     }
 
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
-    }
-
-    @Override
-    protected void onDestroy() {
-        releaseMonitorNetwork();
-        io.shutdownNow();
-        super.onDestroy();
-    }
-
-    private static final class WifiChoice {
-        final String ssid;
-        final int rssi;
-        final boolean secure;
-
-        WifiChoice(String ssid, int rssi, boolean secure) {
-            this.ssid = ssid;
-            this.rssi = rssi;
-            this.secure = secure;
-        }
-    }
+    private void setStatus(String text) { statusText.setText(text); }
+    private void toast(String text) { Toast.makeText(this, text, Toast.LENGTH_LONG).show(); }
+    private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
 
     private interface PositionConsumer { void accept(int position); }
-
     private static final class SimpleItemSelectedListener implements android.widget.AdapterView.OnItemSelectedListener {
         private final PositionConsumer consumer;
         private SimpleItemSelectedListener(PositionConsumer consumer) { this.consumer = consumer; }
