@@ -10,13 +10,22 @@ internal static class ClientEnhancements
 
         if (toolbar is not null)
         {
-            var usbSetup = new Button { Text = "USB Setup / Flash", AutoSize = true };
+            var usbSetup = new Button { Text = "USB Setup", AutoSize = true };
             usbSetup.Click += (_, _) =>
             {
                 using var dialog = new UsbSetupForm();
                 dialog.ShowDialog(form);
             };
             toolbar.Controls.Add(usbSetup);
+
+            var advanced = new Button { Text = "Advanced...", AutoSize = true };
+            advanced.Click += (_, _) =>
+            {
+                if (!AdminSecurity.Authenticate(form)) return;
+                using var dialog = new AdvancedToolsForm();
+                dialog.ShowDialog(form);
+            };
+            toolbar.Controls.Add(advanced);
 
             var startup = new CheckBox
             {
@@ -46,7 +55,6 @@ internal static class ClientEnhancements
             form.Shown += (_, _) =>
             {
                 form.WindowState = FormWindowState.Minimized;
-                // MainForm's Resize handler performs the normal hide-to-tray path.
                 form.BeginInvoke(new Action(() => form.WindowState = FormWindowState.Minimized));
             };
         }
