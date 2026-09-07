@@ -131,17 +131,24 @@ jobs:
           $helperDir = 'battery-monitor/windows/staging/esp-provisioner'
           New-Item -ItemType Directory -Force -Path $helperDir | Out-Null
           Copy-Item dist/BatteryMonitorEspProv.exe "$helperDir/BatteryMonitorEspProv.exe"
-          Copy-Item "$vendor/LICENSE" "$helperDir/ESPRESSIF-IDF-EXTRA-COMPONENTS-LICENSE.txt"
+          # esp_prov sources are SPDX Apache-2.0. This repository has no single
+          # root LICENSE, so package a canonical Apache-2.0 text from the same
+          # exact pinned Espressif commit plus the source/commit notice.
+          Copy-Item "$vendor/json_parser/LICENSE" "$helperDir/APACHE-2.0.txt"
           @"
           Espressif idf-extra-components provisioning source
           repository: https://github.com/espressif/idf-extra-components
           commit: $vendorCommit
           component: network_provisioning/tool/esp_prov
+          source license: Apache-2.0 (SPDX headers in provisioner source files)
           "@ | Set-Content "$helperDir/PINNED-SOURCE.txt"
 
           # Smoke-test the standalone executable without supplying any secret.
-          '{"protocol":"INVALID"}' | & "$helperDir/BatteryMonitorEspProv.exe" | Tee-Object -Variable helperOutput
+          $helperOutput = '{"protocol":"INVALID"}' | & "$helperDir/BatteryMonitorEspProv.exe"
+          $helperExit = $LASTEXITCODE
+          if ($helperExit -ne 1) { throw "Provisioning helper smoke test returned unexpected exit code $helperExit" }
           if ($helperOutput -notmatch 'BATMONPROV1') { throw 'Standalone provisioning helper did not start correctly' }
+          $global:LASTEXITCODE = 0
 
       - name: Build
         shell: pwsh
