@@ -1,5 +1,5 @@
-using System.Drawing;
 using System.Diagnostics;
+using System.Drawing;
 using System.Media;
 
 namespace BatteryMonitor.Client;
@@ -7,6 +7,7 @@ namespace BatteryMonitor.Client;
 public sealed class MainForm : Form
 {
     private readonly SettingsStore _settings = new();
+    private readonly DeviceCredentialStore _credentials = new();
     private readonly DeviceClient _deviceClient = new();
     private readonly DiscoveryService _discovery = new();
     private readonly List<MonitorEntry> _devices;
@@ -27,9 +28,9 @@ public sealed class MainForm : Form
         }
 
         Text = "Battery Monitor";
-        Width = 1060;
+        Width = 1120;
         Height = 560;
-        MinimumSize = new Size(840, 430);
+        MinimumSize = new Size(900, 430);
         StartPosition = FormStartPosition.CenterScreen;
 
         BuildUi();
@@ -48,13 +49,15 @@ public sealed class MainForm : Form
         var top = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 44, Padding = new Padding(8), WrapContents = false };
         var discover = new Button { Text = "Discover Now", AutoSize = true };
         var configure = new Button { Text = "Configure", AutoSize = true };
+        var changeWifi = new Button { Text = "Change Wi-Fi", AutoSize = true };
         var openWeb = new Button { Text = "Open Web Page", AutoSize = true };
         var remove = new Button { Text = "Remove from PC", AutoSize = true };
         discover.Click += async (_, _) => await DiscoverNowAsync();
         configure.Click += async (_, _) => await ConfigureSelectedAsync();
+        changeWifi.Click += async (_, _) => await ChangeWifiSelectedAsync();
         openWeb.Click += (_, _) => OpenSelectedWebPage();
         remove.Click += (_, _) => RemoveSelected();
-        top.Controls.AddRange(new Control[] { discover, configure, openWeb, remove });
+        top.Controls.AddRange(new Control[] { discover, configure, changeWifi, openWeb, remove });
         Controls.Add(top);
 
         _grid.Dock = DockStyle.Fill;
@@ -109,7 +112,6 @@ public sealed class MainForm : Form
         {
             if (!device.PollInProgress && (now - device.LastPollUtc).TotalSeconds >= Math.Max(2, device.PollIntervalSec))
                 _ = PollDeviceAsync(device);
-
             EvaluateOfflineState(device, now);
         }
         RenderGrid();
@@ -191,8 +193,6 @@ public sealed class MainForm : Form
         device.Rssi = status.Rssi;
         device.LastSeenUtc = DateTime.UtcNow;
 
-        // Persist only when something durable actually changed. Runtime polling
-        // happens every few seconds; it should not rewrite devices.json on every poll.
         var newAddress = string.IsNullOrWhiteSpace(status.Ip) ? device.Address : status.Ip;
         var persistentChanged = !string.Equals(device.DeviceName, status.Name, StringComparison.Ordinal)
             || !string.Equals(device.Hostname, status.Hostname, StringComparison.OrdinalIgnoreCase)
@@ -226,7 +226,6 @@ public sealed class MainForm : Form
     {
         if (!device.FailureStartedUtc.HasValue)
             device.FailureStartedUtc = device.LastSeenUtc ?? DateTime.UtcNow;
-
         EvaluateOfflineState(device, DateTime.UtcNow);
         RenderGrid();
     }
@@ -234,13 +233,9 @@ public sealed class MainForm : Form
     private void EvaluateOfflineState(MonitorEntry device, DateTime now)
     {
         if (!IsOffline(device, now) || device.OfflineAlerted) return;
-
         device.OfflineAlerted = true;
         SystemSounds.Asterisk.Play();
-        ShowBalloon(
-            "Battery Monitor Offline",
-            $"{device.DisplayName} has been unreachable for {FormatDuration(device.OfflineTimeoutSec)}.",
-            ToolTipIcon.Warning);
+        ShowBalloon("Battery Monitor Offline", $"{device.DisplayName} has been unreachable for {FormatDuration(device.OfflineTimeoutSec)}.", ToolTipIcon.Warning);
     }
 
     private static bool IsOffline(MonitorEntry device, DateTime now)
@@ -256,7 +251,6 @@ public sealed class MainForm : Form
         var isAlert = current is "low" or "critical";
         var changed = !string.Equals(current, device.LastAlertState, StringComparison.OrdinalIgnoreCase);
         var repeatDue = isAlert && (DateTime.UtcNow - device.LastAlertUtc).TotalMinutes >= 30;
-
         if ((changed && isAlert) || repeatDue)
         {
             if (current == "critical") SystemSounds.Hand.Play(); else SystemSounds.Exclamation.Play();
@@ -271,24 +265,74 @@ public sealed class MainForm : Form
     {
         var device = SelectedDevice();
         if (device is null) return;
-        using var dialog = new DeviceConfigForm(device);
+        var savedPassword = _credentials.Load(device.DeviceId);
+        using var dialog = new DeviceConfigForm(device, savedPassword);
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
         _settings.Save(_devices);
         EvaluateOfflineState(device, DateTime.UtcNow);
+        if (dialog.ForgetSavedPassword) _credentials.Forget(device.DeviceId);
+
         if (dialog.ApplyToUnit)
         {
+            var configApplied = false;
             try
             {
-                var status = await _deviceClient.ApplyConfigAsync(device);
+                var status = await _deviceClient.ApplyConfigAsync(device, dialog.DevicePassword);
+                configApplied = true;
                 ApplyStatus(device, status);
-                MessageBox.Show(this, "Settings were saved locally and applied to the unit.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                if (!string.IsNullOrEmpty(dialog.NewDevicePassword))
+                {
+                    await _deviceClient.RotateDevicePasswordAsync(device, dialog.DevicePassword, dialog.NewDevicePassword);
+                    if (dialog.RememberDevicePassword) _credentials.Save(device.DeviceId, dialog.NewDevicePassword);
+                    else _credentials.Forget(device.DeviceId);
+                    MessageBox.Show(this, "Settings were applied and the Device Password was changed. Existing management sessions were invalidated.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    if (dialog.RememberDevicePassword) _credentials.Save(device.DeviceId, dialog.DevicePassword);
+                    else _credentials.Forget(device.DeviceId);
+                    MessageBox.Show(this, "Settings were saved locally and applied to the unit.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, $"Local settings were saved, but the unit could not be updated.\n\n{ex.Message}", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                if (configApplied && dialog.RememberDevicePassword) _credentials.Save(device.DeviceId, dialog.DevicePassword);
+                MessageBox.Show(this,
+                    configApplied
+                        ? $"Device settings were applied, but the later security operation failed.\n\n{ex.Message}"
+                        : $"Local settings were saved, but the unit could not be updated.\n\n{ex.Message}",
+                    "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
         RenderGrid();
+    }
+
+    private async Task ChangeWifiSelectedAsync()
+    {
+        var device = SelectedDevice();
+        if (device is null) return;
+        var savedPassword = _credentials.Load(device.DeviceId);
+        using var passwordDialog = new DevicePasswordPromptForm(device.DisplayName, savedPassword);
+        if (passwordDialog.ShowDialog(this) != DialogResult.OK) return;
+
+        try
+        {
+            await _deviceClient.EnterSecureProvisioningAsync(device, passwordDialog.DevicePassword);
+            if (passwordDialog.Remember) _credentials.Save(device.DeviceId, passwordDialog.DevicePassword);
+            else _credentials.Forget(device.DeviceId);
+
+            MessageBox.Show(this,
+                "The monitor accepted the authenticated request and is starting its secure setup network. Windows setup will now connect to it using the same Device Password.",
+                "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            using var setup = new WirelessSetupForm(device.DeviceId, passwordDialog.DevicePassword);
+            setup.ShowDialog(this);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"Could not start secure Wi-Fi setup.\n\n{ex.Message}", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     private MonitorEntry? SelectedDevice()
@@ -309,7 +353,8 @@ public sealed class MainForm : Form
     {
         var device = SelectedDevice();
         if (device is null) return;
-        if (MessageBox.Show(this, $"Remove {device.DisplayName} from this PC? The ESP32 itself will not be changed.", "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        if (MessageBox.Show(this, $"Remove {device.DisplayName} from this PC? The ESP32 itself will not be changed. Any remembered Device Password on this PC will also be removed.", "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        _credentials.Forget(device.DeviceId);
         _devices.Remove(device);
         _settings.Save(_devices);
         RenderGrid();
