@@ -16,15 +16,25 @@ public sealed class DeviceConfigForm : Form
     private readonly ComboBox _offlineTimeoutUnit = new();
     private readonly NumericUpDown _calFactor = new();
     private readonly NumericUpDown _calOffset = new();
+    private readonly TextBox _devicePassword = new() { UseSystemPasswordChar = true };
+    private readonly TextBox _newPassword = new() { UseSystemPasswordChar = true };
+    private readonly TextBox _confirmPassword = new() { UseSystemPasswordChar = true };
+    private readonly CheckBox _rememberPassword = new() { Text = "Remember Device Password on this Windows account", AutoSize = true };
+    private readonly CheckBox _showPasswords = new() { Text = "Show passwords", AutoSize = true };
+    private bool _forgetSavedPassword;
 
     public bool ApplyToUnit { get; private set; }
+    public string DevicePassword => _devicePassword.Text;
+    public string? NewDevicePassword => string.IsNullOrEmpty(_newPassword.Text) ? null : _newPassword.Text;
+    public bool RememberDevicePassword => _rememberPassword.Checked;
+    public bool ForgetSavedPassword => _forgetSavedPassword;
 
-    public DeviceConfigForm(MonitorEntry device)
+    public DeviceConfigForm(MonitorEntry device, string? savedDevicePassword = null)
     {
         _device = device;
         Text = $"Configure {device.DisplayName}";
-        Width = 500;
-        Height = 665;
+        Width = 540;
+        Height = 850;
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -47,7 +57,7 @@ public sealed class DeviceConfigForm : Form
         _offlineTimeoutUnit.Items.Add(new TimeUnitChoice("minutes", 60));
         _offlineTimeoutUnit.Items.Add(new TimeUnitChoice("hours", 3600));
 
-        var table = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14), ColumnCount = 2, RowCount = 13, AutoSize = true };
+        var table = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14), ColumnCount = 2, RowCount = 20, AutoScroll = true };
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60));
         Controls.Add(table);
@@ -75,14 +85,39 @@ public sealed class DeviceConfigForm : Form
         preset.Click += (_, _) => ApplyPreset();
         table.Controls.Add(preset, 1, 10);
 
+        var securityHeader = new Label { Text = "Device security", AutoSize = true, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(3, 14, 3, 3) };
+        table.Controls.Add(securityHeader, 0, 11); table.SetColumnSpan(securityHeader, 2);
+        AddRow(table, 12, "Current Device Password", _devicePassword);
+        table.Controls.Add(_rememberPassword, 1, 13);
+
+        var forget = new Button { Text = "Forget Saved Password", AutoSize = true };
+        forget.Click += (_, _) =>
+        {
+            _forgetSavedPassword = true;
+            _rememberPassword.Checked = false;
+            _devicePassword.Clear();
+            MessageBox.Show(this, "The saved password will be removed when you save/close this dialog.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        };
+        table.Controls.Add(forget, 1, 14);
+
+        AddRow(table, 15, "New Device Password", _newPassword);
+        AddRow(table, 16, "Confirm new password", _confirmPassword);
+        table.Controls.Add(_showPasswords, 1, 17);
+        _showPasswords.CheckedChanged += (_, _) =>
+        {
+            var hide = !_showPasswords.Checked;
+            _devicePassword.UseSystemPasswordChar = hide;
+            _newPassword.UseSystemPasswordChar = hide;
+            _confirmPassword.UseSystemPasswordChar = hide;
+        };
+
         var info = new Label
         {
             AutoSize = true,
-            MaximumSize = new Size(430, 0),
-            Text = "Offline timeout is elapsed time, not a retry count. The timer starts from the last successful contact when a poll fails and resets immediately after a successful response. Local alias only changes this PC; the unit name is pushed to the ESP32."
+            MaximumSize = new Size(470, 0),
+            Text = "Save + Apply authenticates with the Device Password before changing the unit. A replacement password is optional. Weak passwords are allowed by design, but the app will warn before saving one. Remembered passwords are protected with Windows DPAPI and are not stored in devices.json."
         };
-        table.Controls.Add(info, 0, 11);
-        table.SetColumnSpan(info, 2);
+        table.Controls.Add(info, 0, 18); table.SetColumnSpan(info, 2);
 
         var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill };
         var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
@@ -93,12 +128,11 @@ public sealed class DeviceConfigForm : Form
         buttons.Controls.Add(cancel);
         buttons.Controls.Add(saveBoth);
         buttons.Controls.Add(saveLocal);
-        table.Controls.Add(buttons, 0, 12);
-        table.SetColumnSpan(buttons, 2);
+        table.Controls.Add(buttons, 0, 19); table.SetColumnSpan(buttons, 2);
 
         AcceptButton = saveBoth;
         CancelButton = cancel;
-        LoadValues();
+        LoadValues(savedDevicePassword);
     }
 
     private static void ConfigureNumeric(NumericUpDown control, decimal min, decimal max, int decimals, decimal increment)
@@ -118,7 +152,7 @@ public sealed class DeviceConfigForm : Form
         table.Controls.Add(control, 1, row);
     }
 
-    private void LoadValues()
+    private void LoadValues(string? savedDevicePassword)
     {
         _localName.Text = _device.LocalName;
         _deviceName.Text = _device.DeviceName;
@@ -130,25 +164,18 @@ public sealed class DeviceConfigForm : Form
         LoadOfflineTimeout(_device.OfflineTimeoutSec <= 0 ? 300 : _device.OfflineTimeoutSec);
         _calFactor.Value = Clamp((decimal)_device.CalibrationFactor, _calFactor);
         _calOffset.Value = Clamp((decimal)_device.CalibrationOffset, _calOffset);
+        if (!string.IsNullOrEmpty(savedDevicePassword))
+        {
+            _devicePassword.Text = savedDevicePassword;
+            _rememberPassword.Checked = true;
+        }
     }
 
     private void LoadOfflineTimeout(int seconds)
     {
-        if (seconds % 3600 == 0)
-        {
-            _offlineTimeoutUnit.SelectedIndex = 2;
-            _offlineTimeoutValue.Value = Clamp(seconds / 3600, _offlineTimeoutValue);
-        }
-        else if (seconds % 60 == 0)
-        {
-            _offlineTimeoutUnit.SelectedIndex = 1;
-            _offlineTimeoutValue.Value = Clamp(seconds / 60, _offlineTimeoutValue);
-        }
-        else
-        {
-            _offlineTimeoutUnit.SelectedIndex = 0;
-            _offlineTimeoutValue.Value = Clamp(seconds, _offlineTimeoutValue);
-        }
+        if (seconds % 3600 == 0) { _offlineTimeoutUnit.SelectedIndex = 2; _offlineTimeoutValue.Value = Clamp(seconds / 3600, _offlineTimeoutValue); }
+        else if (seconds % 60 == 0) { _offlineTimeoutUnit.SelectedIndex = 1; _offlineTimeoutValue.Value = Clamp(seconds / 60, _offlineTimeoutValue); }
+        else { _offlineTimeoutUnit.SelectedIndex = 0; _offlineTimeoutValue.Value = Clamp(seconds, _offlineTimeoutValue); }
     }
 
     private int OfflineTimeoutSecondsFromControls()
@@ -194,6 +221,40 @@ public sealed class DeviceConfigForm : Form
             return;
         }
 
+        if (applyToUnit)
+        {
+            if (!DevicePasswordRules.TryValidate(_devicePassword.Text, out var currentError))
+            {
+                MessageBox.Show(this, "A valid current Device Password is required to change the unit.\n\n" + currentError, "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            if (!string.IsNullOrEmpty(_newPassword.Text))
+            {
+                if (!DevicePasswordRules.TryValidate(_newPassword.Text, out var newError))
+                {
+                    MessageBox.Show(this, newError, "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                if (_newPassword.Text != _confirmPassword.Text)
+                {
+                    MessageBox.Show(this, "The new Device Password entries do not match.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                if (DevicePasswordRules.IsWeak(_newPassword.Text, out var reason))
+                {
+                    var result = MessageBox.Show(this,
+                        $"This Device Password looks weak. {reason}\n\nA person on the same LAN may have an easier time guessing it. Use it anyway?",
+                        "Weak Device Password", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
+                    if (result != DialogResult.Yes) return;
+                }
+            }
+        }
+        else if (!string.IsNullOrEmpty(_newPassword.Text))
+        {
+            MessageBox.Show(this, "Changing the Device Password requires Save + Apply to Unit.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
         _device.LocalName = _localName.Text.Trim();
         _device.DeviceName = _deviceName.Text.Trim();
         _device.BatteryType = (_batteryType.SelectedItem as Choice)?.Value ?? "lead_acid";
@@ -209,13 +270,6 @@ public sealed class DeviceConfigForm : Form
         Close();
     }
 
-    private sealed record Choice(string Text, string Value)
-    {
-        public override string ToString() => Text;
-    }
-
-    private sealed record TimeUnitChoice(string Text, int SecondsMultiplier)
-    {
-        public override string ToString() => Text;
-    }
+    private sealed record Choice(string Text, string Value) { public override string ToString() => Text; }
+    private sealed record TimeUnitChoice(string Text, int SecondsMultiplier) { public override string ToString() => Text; }
 }
