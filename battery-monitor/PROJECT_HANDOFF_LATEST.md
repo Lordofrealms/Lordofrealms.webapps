@@ -20,9 +20,25 @@ Do not add an ADC capacitor by default. V0.1 intentionally uses trimmed multi-sa
 
 Do not introduce cloud/Firebase/user accounts into V0.1 unless explicitly requested. The current architecture is entirely local after Android provisioning.
 
-Windows offline detection is **elapsed-time based, never retry-count based**. Each unit has a PC-side `OfflineTimeoutSec` setting, default 300 seconds. A failed request starts/continues the loss-of-contact interval using the last successful contact time when available. The UI shows `UNREACHABLE elapsed/timeout` during the grace interval and alerts only when the configured elapsed timeout expires. A successful response immediately clears the timer. Keep the offline timeout independent of the ESP32 configuration because it is a client interpretation setting.
+Windows offline detection is **elapsed-time based, never retry-count based**. Each unit has a PC-side `OfflineTimeoutSec` setting, default 300 seconds / 5 minutes. The Windows editor supports seconds, minutes, or hours. A failed request starts/continues the loss-of-contact interval using the last successful contact time when available. The UI shows `UNREACHABLE elapsed/timeout` during the grace interval and alerts only when the configured elapsed timeout expires. A successful response immediately clears the timer. Keep the offline timeout independent of ESP32 configuration because it is a client interpretation setting.
 
-Next validation order after CI passes:
+## Validated product checkpoint
+
+The exact product-source head:
+
+`8b31f2efae44d78211c38ca48030c8846919c4f0`
+
+passed Battery Monitor Toolchain run `34160750659` with all three jobs successful:
+
+- ESP32 Arduino compile and artifact.
+- Windows .NET 8 build/self-contained x64 publish and artifact.
+- Android API 36 APK build and artifact.
+
+Post-download artifact integrity checks also passed. See `PROJECT_STATE_LATEST.md` for artifact IDs and SHA-256 hashes.
+
+CI maintenance commit `220d8c2718d382b4ee86ce960ff444fba361d959` narrows Battery Monitor CI triggers to product source/workflow changes so project-state documentation can be updated without rebuilding everything.
+
+## Next physical validation
 
 1. Flash one physical ESP32-WROOM-32.
 2. Bench-check ADC voltage against a multimeter at several input voltages and set calibration.
