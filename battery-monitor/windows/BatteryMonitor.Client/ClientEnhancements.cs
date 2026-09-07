@@ -18,6 +18,14 @@ internal static class ClientEnhancements
             };
             toolbar.Controls.Add(usbSetup);
 
+            var firmwareUpdate = new Button { Text = "Update Firmware", AutoSize = true };
+            firmwareUpdate.Click += (_, _) =>
+            {
+                using var dialog = new FirmwareUpdateForm();
+                dialog.ShowDialog(form);
+            };
+            toolbar.Controls.Add(firmwareUpdate);
+
             var advanced = new Button { Text = "Advanced...", AutoSize = true };
             advanced.Click += (_, _) =>
             {
