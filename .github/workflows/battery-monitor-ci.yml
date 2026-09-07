@@ -73,6 +73,10 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
       - name: Download exact firmware built by firmware job
         uses: actions/download-artifact@v8
         with:
@@ -95,6 +99,50 @@ jobs:
           if (-not $exe) { throw 'esptool.exe not found after extraction' }
           & $exe.FullName version
 
+      - name: Build pinned Espressif Security 2 provisioner helper
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vendorCommit = '3ba4a43776a737054b43ead300ea0377787cad4a'
+          $vendor = Join-Path $env:RUNNER_TEMP 'idf-extra-components'
+          New-Item -ItemType Directory -Force -Path $vendor | Out-Null
+          git -C $vendor init
+          git -C $vendor remote add origin https://github.com/espressif/idf-extra-components.git
+          git -C $vendor fetch --depth=1 origin $vendorCommit
+          git -C $vendor checkout --detach FETCH_HEAD
+          $actualCommit = (git -C $vendor rev-parse HEAD).Trim()
+          if ($actualCommit -ne $vendorCommit) { throw "Espressif provisioner source commit mismatch: $actualCommit" }
+
+          python -m pip install --disable-pip-version-check `
+            pyinstaller==6.16.0 `
+            cryptography==46.0.3 `
+            protobuf==5.29.5 `
+            bleak==1.1.1
+
+          $provDir = Join-Path $vendor 'network_provisioning/tool/esp_prov'
+          python -m PyInstaller `
+            --noconfirm `
+            --clean `
+            --onefile `
+            --name BatteryMonitorEspProv `
+            --paths $provDir `
+            battery-monitor/windows/esp_provision_helper.py
+
+          $helperDir = 'battery-monitor/windows/staging/esp-provisioner'
+          New-Item -ItemType Directory -Force -Path $helperDir | Out-Null
+          Copy-Item dist/BatteryMonitorEspProv.exe "$helperDir/BatteryMonitorEspProv.exe"
+          Copy-Item "$vendor/LICENSE" "$helperDir/ESPRESSIF-IDF-EXTRA-COMPONENTS-LICENSE.txt"
+          @"
+          Espressif idf-extra-components provisioning source
+          repository: https://github.com/espressif/idf-extra-components
+          commit: $vendorCommit
+          component: network_provisioning/tool/esp_prov
+          "@ | Set-Content "$helperDir/PINNED-SOURCE.txt"
+
+          # Smoke-test the standalone executable without supplying any secret.
+          '{"protocol":"INVALID"}' | & "$helperDir/BatteryMonitorEspProv.exe" | Tee-Object -Variable helperOutput
+          if ($helperOutput -notmatch 'BATMONPROV1') { throw 'Standalone provisioning helper did not start correctly' }
+
       - name: Build
         shell: pwsh
         run: |
@@ -113,11 +161,12 @@ jobs:
             -p:DebugType=None `
             -o battery-monitor/windows/publish
 
-      - name: Bundle update/factory firmware and esptool
+      - name: Bundle firmware, flash tool, and secure provisioner
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/firmware | Out-Null
           New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/tools/esptool | Out-Null
+          New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/tools/esp-provisioner | Out-Null
           $merged = Get-ChildItem battery-monitor/windows/staging/firmware -Filter 'BatteryMonitor.ino.merged.bin' -Recurse | Select-Object -First 1
           $app = Get-ChildItem battery-monitor/windows/staging/firmware -Filter 'BatteryMonitor.ino.bin' -Recurse | Select-Object -First 1
           if (-not $merged) { throw 'Merged Battery Monitor factory firmware was not downloaded from firmware job' }
@@ -125,10 +174,14 @@ jobs:
           Copy-Item $merged.FullName battery-monitor/windows/publish/firmware/BatteryMonitor.ino.merged.bin
           Copy-Item $app.FullName battery-monitor/windows/publish/firmware/BatteryMonitor.ino.bin
           Copy-Item battery-monitor/windows/staging/esptool/* battery-monitor/windows/publish/tools/esptool -Recurse -Force
+          Copy-Item battery-monitor/windows/staging/esp-provisioner/* battery-monitor/windows/publish/tools/esp-provisioner -Recurse -Force
           $tool = Get-ChildItem battery-monitor/windows/publish/tools/esptool -Filter esptool.exe -Recurse | Select-Object -First 1
+          $provisioner = Get-ChildItem battery-monitor/windows/publish/tools/esp-provisioner -Filter BatteryMonitorEspProv.exe -Recurse | Select-Object -First 1
           if (-not $tool) { throw 'Bundled esptool.exe missing' }
+          if (-not $provisioner) { throw 'Bundled Security-2 provisioning helper missing' }
           Get-FileHash battery-monitor/windows/publish/firmware/BatteryMonitor.ino.bin -Algorithm SHA256
           Get-FileHash battery-monitor/windows/publish/firmware/BatteryMonitor.ino.merged.bin -Algorithm SHA256
+          Get-FileHash $provisioner.FullName -Algorithm SHA256
 
       - name: Upload Windows client
         uses: actions/upload-artifact@v7
