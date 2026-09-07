@@ -94,11 +94,17 @@ The .NET 8 WinForms client:
 - updates addresses when DHCP changes them;
 - supports a **local alias** plus a separate **name stored on the ESP32**;
 - polls each device independently (10 seconds default, configurable per device);
+- uses a **time-based offline timeout**, not a retry count;
+- defaults the offline timeout to **300 seconds**, configurable from 5 seconds to 24 hours per device;
+- starts the timeout from the last successful response (or first failed contact if the app has not yet seen that unit this session);
+- immediately displays `UNREACHABLE elapsed/timeout` after contact is lost, but does not beep until the configured timeout expires;
+- resets the timeout immediately after a successful response and gives a recovery notification if the unit had gone offline;
 - displays voltage, state, battery type, last seen, RSSI, IP, and ID;
 - beeps and shows a Windows tray balloon on low/critical transitions;
 - repeats an active low/critical alert every 30 minutes;
-- declares a monitor offline after 3 consecutive failed polls;
 - provides Configure and Open Web Page actions.
+
+The offline timeout is a **PC-side setting**. It is not stored on the ESP32 because it controls how the Windows client interprets loss of contact.
 
 Local settings are stored under `%LOCALAPPDATA%/BatteryMonitor/devices.json`.
 
@@ -110,8 +116,8 @@ The Android app uses the same native Java + Gradle style used by the existing Pa
 
 Setup flow:
 
-1. Scan for `BatteryMonitor-XXXXXX` setup APs.
-2. Select/connect to a monitor. Android may show its system approval dialog for the temporary Wi-Fi connection.
+1. Tap **Find / Connect Monitor**. Android presents nearby `BatteryMonitor-*` setup APs through its system Wi-Fi selection flow.
+2. Select/connect to a monitor.
 3. Ask the ESP32 itself to scan nearby home Wi-Fi networks.
 4. Select/type the home SSID and enter its password.
 5. Give the unit a name, select battery chemistry/thresholds, and choose sample interval.
