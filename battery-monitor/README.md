@@ -8,7 +8,8 @@ Local-first ESP32 battery monitoring toolchain for 12 V batteries.
 - **GPIO34 / P34** measures battery voltage through a **100 kΩ / 22 kΩ** divider.
 - The ESP32 hosts a small status/configuration page and JSON API.
 - A **Windows .NET 8 WinForms tray client** automatically discovers and monitors multiple units.
-- A **native Android Java setup APK** provisions the initial Wi-Fi connection.
+- The Windows client can also **detect, flash, and configure an ESP32 directly over USB**.
+- A **native Android Java setup APK** remains available as an alternate Wi-Fi provisioning method when a Windows PC is not convenient.
 - No cloud account, user signup, remote server, Firebase, or always-on home server is required for V0.1.
 
 ## Wiring
@@ -54,6 +55,7 @@ LiFePO4 has a relatively flat discharge curve, so voltage alone is especially po
 2. Hosts `http://<device-ip>/`.
 3. Advertises mDNS services and listens for Battery Monitor UDP discovery on port 4210.
 4. Responds to Windows client polling through `/api/status`.
+5. Listens on USB/UART0 at 115200 baud for the `BATMON1` provisioning protocol.
 
 ### Initial Wi-Fi setup / failed Wi-Fi
 
@@ -102,11 +104,31 @@ The .NET 8 WinForms client:
 - displays voltage, state, battery type, last seen, RSSI, IP, and ID;
 - beeps and shows a Windows tray balloon on low/critical transitions;
 - repeats an active low/critical alert every 30 minutes;
-- provides Configure and Open Web Page actions.
+- provides Configure and Open Web Page actions;
+- has a configurable **Start with Windows** option; startup launches use `--startup` and immediately minimize into the system tray;
+- provides a **USB Setup / Flash** wizard for first flash, recovery, or direct USB configuration.
 
 The offline timeout is a **PC-side setting**. It is not stored on the ESP32 because it controls how the Windows client interprets loss of contact.
 
 Local settings are stored under `%LOCALAPPDATA%/BatteryMonitor/devices.json`.
+
+### Windows-only first-use workflow
+
+With the packaged Windows build, Android is not required for initial setup:
+
+1. Connect the ESP32-WROOM-32 development board by USB.
+2. Open the Battery Monitor Windows client.
+3. Open **USB Setup / Flash**.
+4. Click **Detect ESP32** or select the COM port manually.
+5. Enter the device name, home Wi-Fi SSID/password, battery chemistry, thresholds, sample interval, and optional calibration.
+6. Click **Flash + Configure**.
+7. The client uses the bundled official Espressif esptool to flash the exact merged firmware built by CI.
+8. After the ESP32 boots, the same USB connection sends configuration through the `BATMON1` serial protocol.
+9. The ESP32 reboots, joins the configured Wi-Fi, and the normal Windows client discovers it automatically on the LAN.
+
+For an existing Battery Monitor, **Read Current** and **Configure USB** work without reflashing. This is useful when Wi-Fi credentials change or the unit is not reachable on the network.
+
+The merged first-flash image is written at `0x0` and intentionally clears prior flash/NVS settings. `Configure USB` does not reflash.
 
 ## Android setup app
 
@@ -137,7 +159,7 @@ GitHub Actions workflow: `.github/workflows/battery-monitor-ci.yml`
 It builds:
 
 - ESP32 sketch against Espressif Arduino core **3.3.11**;
-- Windows x64 self-contained single-file publish;
+- Windows x64 self-contained publish with the exact CI-built merged firmware plus **Espressif esptool 5.3.1**, whose official Windows archive is SHA-256 pinned in CI;
 - Android debug APK using the same Android toolchain family as Pad Grade (compile/target SDK 36, AGP 9.3.0, Gradle 9.5.0).
 
 ## Development state
