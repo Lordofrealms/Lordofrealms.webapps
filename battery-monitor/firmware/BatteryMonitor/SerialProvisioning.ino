@@ -7,6 +7,7 @@
 // BATMON1 PING
 // BATMON1 STATUS
 // BATMON1 PROVSTATUS
+// BATMON1 VERIFYPROVCRED <encoded-setup-code>
 // BATMON1 SET NAME <encoded-name>
 // BATMON1 SET BATTERY <lead_acid|lifepo4_4s> <lowV> <criticalV>
 // BATMON1 SET SAMPLE <seconds>
@@ -18,6 +19,8 @@
 // BATMON1 REBOOT
 
 static String serialProvisioningLine;
+static uint8_t provisioningVerifyFailures = 0;
+static unsigned long provisioningVerifyBlockedUntilMs = 0;
 
 static int hexNibble(char c) {
   if (c >= '0' && c <= '9') return c - '0';
@@ -86,6 +89,26 @@ static void serialErr(const String& message) {
   Serial.println(message);
 }
 
+static unsigned long provisioningVerifyCooldownRemainingMs() {
+  if (provisioningVerifyBlockedUntilMs == 0) return 0;
+  long remaining = (long)(provisioningVerifyBlockedUntilMs - millis());
+  if (remaining <= 0) {
+    provisioningVerifyBlockedUntilMs = 0;
+    return 0;
+  }
+  return (unsigned long)remaining;
+}
+
+static void recordProvisioningVerifyFailure() {
+  if (provisioningVerifyFailures < 250) provisioningVerifyFailures++;
+  if (provisioningVerifyFailures < 5) return;
+
+  uint8_t step = provisioningVerifyFailures - 5;
+  if (step > 3) step = 3;
+  unsigned long cooldownSec = 30UL << step; // 30, 60, 120, then 240 seconds.
+  provisioningVerifyBlockedUntilMs = millis() + cooldownSec * 1000UL;
+}
+
 static void processSerialProvisioningCommand(String line) {
   line.trim();
   if (!line.startsWith("BATMON1 ")) return;
@@ -118,6 +141,29 @@ static void processSerialProvisioningCommand(String line) {
     return;
   }
 
+  if (command == "VERIFYPROVCRED") {
+    unsigned long remainingMs = provisioningVerifyCooldownRemainingMs();
+    if (remainingMs > 0) {
+      serialErr("PROVCRED_VERIFY_COOLDOWN " + String((remainingMs + 999UL) / 1000UL));
+      return;
+    }
+    if (!hasProvisioningIdentity() && !loadProvisioningIdentity()) {
+      serialErr("PROVCRED_UNSET");
+      return;
+    }
+
+    String candidate = percentDecode(remaining);
+    if (verifyProvisioningSetupCode(candidate)) {
+      provisioningVerifyFailures = 0;
+      provisioningVerifyBlockedUntilMs = 0;
+      serialOk("PROVCRED MATCH");
+    } else {
+      recordProvisioningVerifyFailure();
+      serialOk("PROVCRED NO_MATCH");
+    }
+    return;
+  }
+
   if (command == "CLEARWIFI") {
     clearWifiSettings();
     WiFi.disconnect(true, true);
@@ -127,6 +173,8 @@ static void processSerialProvisioningCommand(String line) {
 
   if (command == "CLEARPROVCRED") {
     clearProvisioningIdentity();
+    provisioningVerifyFailures = 0;
+    provisioningVerifyBlockedUntilMs = 0;
     serialOk("CLEARPROVCRED");
     return;
   }
@@ -242,6 +290,8 @@ static void processSerialProvisioningCommand(String line) {
       serialErr(error);
       return;
     }
+    provisioningVerifyFailures = 0;
+    provisioningVerifyBlockedUntilMs = 0;
     // Never echo the setup code back. It is intentionally write-only from the
     // host's point of view once the admin tool has provisioned the device.
     serialOk("PROVCRED " + percentEncode(username) + " " + apSsid);
