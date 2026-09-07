@@ -21,7 +21,6 @@
 #include <psa/crypto.h>
 
 static const char* PROV_NAMESPACE = "batsec";
-static const char* PROV_DEFAULT_USERNAME = "batmon";
 static const size_t PROV_SALT_BYTES = 16;
 static const size_t PROV_CODE_HASH_BYTES = 32;
 static const size_t PROV_SETUP_CODE_CHARS = 16;
@@ -38,8 +37,6 @@ static network_prov_security2_params_t provisioningSec2Params = {};
 static bool secureProvisioningActive = false;
 static bool secureProvisioningInitialized = false;
 static bool secureProvisioningEventRegistered = false;
-static bool secureProvisioningRebootRequested = false;
-static unsigned long secureProvisioningRebootAtMs = 0;
 
 static bool isSetupCodeChar(char c) {
   static const char* ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -53,8 +50,6 @@ String normalizeProvisioningSetupCode(const String& input, bool* validOut = null
     char c = input[i];
     if (c == '-' || c == ' ' || c == '\t' || c == '\r' || c == '\n') continue;
     if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
-    // Crockford-style human aliases. Generated codes never contain I/L/O/U,
-    // but accepting common visual substitutions makes manual entry friendlier.
     if (c == 'O') c = '0';
     if (c == 'I' || c == 'L') c = '1';
     if (!isSetupCodeChar(c)) {
@@ -94,7 +89,6 @@ String deriveProvisioningApPassword(const String& setupCode) {
   static const char HEX[] = "0123456789ABCDEF";
   String password;
   password.reserve(32);
-  // 128-bit derived WPA2 key represented as 32 hexadecimal characters.
   for (size_t i = 0; i < 16; i++) {
     password += HEX[(digest[i] >> 4) & 0x0F];
     password += HEX[digest[i] & 0x0F];
@@ -304,13 +298,13 @@ static void secureProvisioningEventHandler(void* arg, esp_event_base_t eventBase
     case NETWORK_PROV_WIFI_CRED_SUCCESS:
       Serial.println("Secure provisioning Wi-Fi credentials accepted");
       syncProvisionedWifiToBatteryMonitorPrefs();
-      secureProvisioningRebootRequested = true;
-      secureProvisioningRebootAtMs = millis() + 1200UL;
       break;
     case NETWORK_PROV_WIFI_CRED_FAIL:
       Serial.println("Secure provisioning Wi-Fi connection failed; setup service remains available");
       break;
     case NETWORK_PROV_END:
+      Serial.println("Secure provisioning session ended; returning to normal network services");
+      network_prov_mgr_deinit();
       secureProvisioningActive = false;
       secureProvisioningInitialized = false;
       fallbackApActive = false;
@@ -370,7 +364,7 @@ bool startSecureProvisioning() {
   }
 
   secureProvisioningActive = true;
-  fallbackApActive = true; // API/status compatibility: secure setup AP is active.
+  fallbackApActive = true;
   Serial.printf("Secure setup AP active: %s (WPA2 + Security 2)\n", apSsid.c_str());
   return true;
 #endif
@@ -379,15 +373,10 @@ bool startSecureProvisioning() {
 void requestStopSecureProvisioning() {
   if (!secureProvisioningInitialized) return;
   network_prov_mgr_stop_provisioning();
-  fallbackApActive = false;
 }
 
 void serviceSecureProvisioning() {
-  if (secureProvisioningRebootRequested && (int32_t)(millis() - secureProvisioningRebootAtMs) >= 0) {
-    secureProvisioningRebootRequested = false;
-    Serial.println("Secure provisioning complete; rebooting into normal Wi-Fi mode");
-    Serial.flush();
-    delay(100);
-    ESP.restart();
-  }
+  // Provisioning manager and its event loop own the active secure session.
+  // No forced reboot is used; this avoids racing the provisioner's final status
+  // exchange. NETWORK_PROV_END returns control to normal network services.
 }
