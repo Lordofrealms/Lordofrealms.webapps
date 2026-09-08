@@ -92,7 +92,16 @@ public sealed class DiscoveryService : IDisposable
             if (device is null || string.IsNullOrWhiteSpace(device.DeviceId)) return null;
             device.Protocol = envelope.Protocol;
             if (remote.Address.AddressFamily != AddressFamily.InterNetwork || device.Port < 1 || device.Port > 65535) return null;
-            device.Ip = remote.Address.ToString();
+
+            // P0-3 binds the signed discovery proof to the address the device
+            // believes it owns. A captured valid reply replayed from another LAN
+            // host therefore cannot move a trusted Device ID to the attacker's IP.
+            if (!IPAddress.TryParse(device.Ip, out var signedIp) ||
+                signedIp.AddressFamily != AddressFamily.InterNetwork ||
+                !signedIp.Equals(remote.Address))
+            {
+                return null;
+            }
 
             var key = _monitoringKeyResolver(device.DeviceId);
             if (key is null)
