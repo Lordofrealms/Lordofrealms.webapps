@@ -5,6 +5,7 @@ namespace BatteryMonitor.Client;
 public sealed class DeviceConfigForm : Form
 {
     private readonly MonitorEntry _device;
+    private readonly BatteryProfileCatalog _profiles = BatteryProfileCatalog.Current;
     private readonly TextBox _localName = new();
     private readonly TextBox _deviceName = new();
     private readonly ComboBox _batteryType = new();
@@ -45,19 +46,18 @@ public sealed class DeviceConfigForm : Form
 
         Text = $"Configure {device.DisplayName}";
         Icon = AppIcon.Current;
-        Width = 560;
-        Height = 900;
+        Width = 620;
+        Height = 930;
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
 
         _batteryType.DropDownStyle = ComboBoxStyle.DropDownList;
-        _batteryType.Items.Add(new Choice("12 V Lead Acid", "lead_acid"));
-        _batteryType.Items.Add(new Choice("4S LiFePO4", "lifepo4_4s"));
+        LoadBatteryProfiles(_device.BatteryType, _device.LowVoltage, _device.CriticalVoltage);
 
-        ConfigureNumeric(_low, 6, 20, 2, 0.01m);
-        ConfigureNumeric(_critical, 6, 20, 2, 0.01m);
+        ConfigureNumeric(_low, 1, 20, 2, 0.01m);
+        ConfigureNumeric(_critical, 1, 20, 2, 0.01m);
         ConfigureNumeric(_sample, 1, 3600, 0, 1);
         ConfigureNumeric(_poll, 2, 3600, 0, 1);
         ConfigureNumeric(_offlineTimeoutValue, 1, 86400, 0, 1);
@@ -83,7 +83,7 @@ public sealed class DeviceConfigForm : Form
 
         AddRow(table, 0, "Local alias", _localName);
         AddRow(table, 1, "Name stored on unit", _deviceName);
-        AddRow(table, 2, "Battery type", _batteryType);
+        AddRow(table, 2, "Battery profile", _batteryType);
         AddRow(table, 3, "Low warning (V)", _low);
         AddRow(table, 4, "Critical (V)", _critical);
         AddRow(table, 5, "Unit sample interval (s)", _sample);
@@ -107,11 +107,16 @@ public sealed class DeviceConfigForm : Form
         AddRow(table, 8, "Calibration factor", _calFactor);
         AddRow(table, 9, "Calibration offset (V)", _calOffset);
 
-        var preset = new Button { Text = "Apply Chemistry Defaults", AutoSize = true };
+        var profileActions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
+        var preset = new Button { Text = "Apply Profile Defaults", AutoSize = true };
         preset.Click += (_, _) => ApplyPreset();
-        table.Controls.Add(preset, 1, 10);
+        var manageProfiles = new Button { Text = "Manage Profiles", AutoSize = true };
+        manageProfiles.Click += (_, _) => ManageProfiles();
+        profileActions.Controls.Add(preset);
+        profileActions.Controls.Add(manageProfiles);
+        table.Controls.Add(profileActions, 1, 10);
 
-        var alertButton = new Button { Text = "Configure Alerts...", AutoSize = true };
+        var alertButton = new Button { Text = "Configure Alerts", AutoSize = true };
         alertButton.Click += (_, _) => ConfigureAlerts();
         table.Controls.Add(new Label
         {
@@ -161,8 +166,8 @@ public sealed class DeviceConfigForm : Form
         var info = new Label
         {
             AutoSize = true,
-            MaximumSize = new Size(490, 0),
-            Text = "Save + Apply authenticates with the Device Password before changing the unit. Alert settings, the local alias, PC poll interval, and offline timeout are Windows-only settings. A replacement Device Password is optional. Remembered passwords are protected with Windows DPAPI and are not stored in devices.json."
+            MaximumSize = new Size(540, 0),
+            Text = "Save + Apply authenticates with the Device Password before changing the unit. Battery profile IDs and active voltage thresholds are stored on the unit; custom profile definitions remain Windows-side. Applying profile defaults is explicit and never happens just because you select another profile. Alert settings, the local alias, PC poll interval, and offline timeout are Windows-only settings."
         };
         table.Controls.Add(info, 0, 19);
         table.SetColumnSpan(info, 2);
@@ -187,6 +192,46 @@ public sealed class DeviceConfigForm : Form
         AcceptButton = saveBoth;
         CancelButton = cancel;
         LoadValues(savedDevicePassword);
+    }
+
+    private void LoadBatteryProfiles(string? selectId, double currentLow, double currentCritical)
+    {
+        _profiles.Reload();
+        _batteryType.Items.Clear();
+        foreach (var profile in _profiles.All) _batteryType.Items.Add(profile);
+        if (!string.IsNullOrWhiteSpace(selectId) && _profiles.Find(selectId) is null)
+        {
+            _batteryType.Items.Add(new BatteryProfile
+            {
+                Id = selectId,
+                Name = $"Unknown / Custom ({selectId})",
+                LowVoltage = currentLow,
+                CriticalVoltage = currentCritical,
+                BuiltIn = false
+            });
+        }
+        SelectBatteryProfile(selectId);
+    }
+
+    private void SelectBatteryProfile(string? id)
+    {
+        for (var i = 0; i < _batteryType.Items.Count; i++)
+        {
+            if (_batteryType.Items[i] is BatteryProfile profile && profile.Id.Equals(id, StringComparison.OrdinalIgnoreCase))
+            {
+                _batteryType.SelectedIndex = i;
+                return;
+            }
+        }
+        if (_batteryType.Items.Count > 0) _batteryType.SelectedIndex = 0;
+    }
+
+    private void ManageProfiles()
+    {
+        var selectedId = (_batteryType.SelectedItem as BatteryProfile)?.Id ?? _device.BatteryType;
+        using var dialog = new BatteryProfilesForm();
+        dialog.ShowDialog(this);
+        LoadBatteryProfiles(selectedId, (double)_low.Value, (double)_critical.Value);
     }
 
     private static void ConfigureNumeric(NumericUpDown control, decimal min, decimal max, int decimals, decimal increment)
@@ -216,7 +261,7 @@ public sealed class DeviceConfigForm : Form
     {
         _localName.Text = _device.LocalName;
         _deviceName.Text = _device.DeviceName;
-        _batteryType.SelectedIndex = _device.BatteryType == "lifepo4_4s" ? 1 : 0;
+        SelectBatteryProfile(_device.BatteryType);
         _low.Value = Clamp((decimal)_device.LowVoltage, _low);
         _critical.Value = Clamp((decimal)_device.CriticalVoltage, _critical);
         _sample.Value = Clamp(_device.SampleIntervalSec, _sample);
@@ -282,10 +327,9 @@ public sealed class DeviceConfigForm : Form
 
     private void ApplyPreset()
     {
-        var type = (_batteryType.SelectedItem as Choice)?.Value ?? "lead_acid";
-        var preset = BatteryPresets.For(type);
-        _low.Value = (decimal)preset.Low;
-        _critical.Value = (decimal)preset.Critical;
+        if (_batteryType.SelectedItem is not BatteryProfile profile) return;
+        _low.Value = Clamp((decimal)profile.LowVoltage, _low);
+        _critical.Value = Clamp((decimal)profile.CriticalVoltage, _critical);
     }
 
     private void SaveAndClose(bool applyToUnit)
@@ -293,6 +337,13 @@ public sealed class DeviceConfigForm : Form
         if (string.IsNullOrWhiteSpace(_deviceName.Text))
         {
             MessageBox.Show(this, "The name stored on the unit cannot be blank.",
+                "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (_batteryType.SelectedItem is not BatteryProfile selectedProfile || !BatteryProfileCatalog.IsValidProfileId(selectedProfile.Id))
+        {
+            MessageBox.Show(this, "Select a valid battery profile.",
                 "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
@@ -365,7 +416,7 @@ public sealed class DeviceConfigForm : Form
 
         _device.LocalName = _localName.Text.Trim();
         _device.DeviceName = _deviceName.Text.Trim();
-        _device.BatteryType = (_batteryType.SelectedItem as Choice)?.Value ?? "lead_acid";
+        _device.BatteryType = selectedProfile.Id;
         _device.LowVoltage = (double)_low.Value;
         _device.CriticalVoltage = (double)_critical.Value;
         _device.SampleIntervalSec = (int)_sample.Value;
@@ -383,11 +434,6 @@ public sealed class DeviceConfigForm : Form
         ApplyToUnit = applyToUnit;
         DialogResult = DialogResult.OK;
         Close();
-    }
-
-    private sealed record Choice(string Text, string Value)
-    {
-        public override string ToString() => Text;
     }
 
     private sealed record TimeUnitChoice(string Text, int SecondsMultiplier)
