@@ -7,7 +7,7 @@ set -euo pipefail
 #   IDF_PATH=/path/to/esp-idf ./build.sh [output-directory]
 #
 # Both ordinary CI and the signed-release workflow call this script. There is
-# no separate Arduino-CLI firmware build.
+# no separate Arduino-CLI firmware build and no separate dev/prod firmware tree.
 
 EXPECTED_IDF_COMMIT="b774170ff46c393eeb5e495ea37936038d3f4f4f" # ESP-IDF v5.5.5
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,14 +32,43 @@ cd "$PROJECT_DIR"
 idf.py set-target esp32
 idf.py build
 
+# Fail closed if the generated configuration ever drifts from the production
+# device-at-rest security authority.
+for required in \
+  'CONFIG_SECURE_FLASH_ENC_ENABLED=y' \
+  'CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y' \
+  'CONFIG_NVS_ENCRYPTION=y' \
+  'CONFIG_NVS_SEC_KEY_PROTECT_USING_FLASH_ENC=y'; do
+  if ! grep -qx "$required" sdkconfig; then
+    echo "Required production security setting missing from generated sdkconfig: $required" >&2
+    exit 3
+  fi
+done
+if grep -qx 'CONFIG_SECURE_BOOT=y' sdkconfig; then
+  echo 'Secure Boot must remain disabled until the explicit post-test activation gate.' >&2
+  exit 3
+fi
+if ! grep -Eq '^nvs_keys,[[:space:]]*data,[[:space:]]*nvs_keys,[[:space:]]*0xd000,[[:space:]]*0x1000,[[:space:]]*encrypted[[:space:]]*$' partitions.csv; then
+  echo 'Required encrypted 4 KiB nvs_keys partition is missing or moved.' >&2
+  exit 3
+fi
+if ! grep -Eq '^app0,[[:space:]]*app,[[:space:]]*ota_0,[[:space:]]*0x10000,' partitions.csv; then
+  echo 'Application authority must remain app0 @ 0x10000.' >&2
+  exit 3
+fi
+
 # Keep the established Windows/update artifact names even though ESP-IDF is now
-# the sole compiler. Application update remains app0 @ 0x10000.
+# the sole compiler. The plaintext application image is suitable for first-time
+# factory flashing before encryption activates and for an application-mediated
+# OTA writer after activation; it must not be written directly by the UART ROM
+# bootloader once release-mode Flash Encryption is active.
 cp build/BatteryMonitor.bin "$OUT_DIR/BatteryMonitor.ino.bin"
 
-# Create a complete 4 MiB factory/recovery image. ESP-IDF merge-bin supplies
+# Create a complete 4 MiB first-install image. ESP-IDF merge-bin supplies
 # bootloader, partition table, OTA data and application at their configured
-# offsets; padding the tail with 0xFF preserves the existing destructive
-# full-flash semantics and makes the artifact size deterministic.
+# offsets. On a blank ESP32, first boot generates the per-device Flash
+# Encryption key and encrypts the protected regions in place. This plaintext
+# merged image is intentionally NOT a post-encryption recovery image.
 idf.py merge-bin -o "$OUT_DIR/BatteryMonitor.ino.merged.bin" -f raw
 python - "$OUT_DIR/BatteryMonitor.ino.merged.bin" <<'PY'
 from pathlib import Path
@@ -74,8 +103,12 @@ flash_size=4MB
 application_flash_offset=0x10000
 application_sha256=$app_sha
 merged_sha256=$merged_sha
-secure_boot=disabled-pending-explicit-production-gate
-flash_encryption=disabled-pending-P1-1-activation
+secure_boot=disabled-pending-post-test-activation
+flash_encryption=enabled-release-mode
+nvs_encryption=enabled-flash-encryption-key-protection
+nvs_keys_partition=0xd000+0x1000-encrypted
+factory_image_scope=blank-unencrypted-device-first-install-only
+post_encryption_plaintext_uart_flash=disabled
 EOF
 
 ls -lh "$OUT_DIR"

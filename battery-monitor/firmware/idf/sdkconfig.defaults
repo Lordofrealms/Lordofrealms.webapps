@@ -18,12 +18,21 @@ CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_PARTITION_TABLE_OFFSET=0x8000
 
-# SECURITY ACTIVATION NOTE
-#
-# Secure Boot is intentionally NOT enabled yet.
-# Flash Encryption / NVS Encryption are also not enabled in this migration
-# commit because enabling release-mode encryption changes real-device flash
-# and eFuse behavior. P1-1 will activate those settings deliberately after the
-# single ESP-IDF architecture is proven build-clean.
-#
+# P1-1 device-at-rest protection is active in the one production build.
+# Release-mode Flash Encryption generates a unique device key on first boot and
+# permanently disables ROM-download encryption/decryption operations. Plaintext
+# application updates therefore have to be written by the running application
+# (OTA/app-mediated path), not directly by esptool after encryption is active.
+CONFIG_SECURE_FLASH_ENC_ENABLED=y
+CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y
+# CONFIG_SECURE_FLASH_UART_BOOTLOADER_ALLOW_ENC is not set
+
+# Encrypt the default NVS partition using XTS keys stored in the encrypted
+# nvs_keys partition from partitions.csv. nvs_flash_init() generates the keys
+# on-device when that key partition is blank.
+CONFIG_NVS_ENCRYPTION=y
+CONFIG_NVS_SEC_KEY_PROTECT_USING_FLASH_ENC=y
+
+# Secure Boot remains intentionally disabled until the encrypted-hardware test
+# program is complete. Flash/NVS encryption and Secure Boot are separate gates.
 # This is one build architecture, not a separate dev/prod firmware tree.

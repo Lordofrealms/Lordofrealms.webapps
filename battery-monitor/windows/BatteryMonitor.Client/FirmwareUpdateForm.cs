@@ -36,7 +36,7 @@ internal sealed class FirmwareUpdateForm : Form
         {
             AutoSize = true,
             MaximumSize = new Size(650, 0),
-            Text = "Normal firmware update. This verifies that the selected USB device is already running Battery Monitor and verifies the bundled RSA-3072/PSS firmware signature before esptool is allowed to run, then writes only the application partition. Wi-Fi credentials, setup identity/code verifier, battery settings, monitoring identity, and ADC calibration are preserved. Use Advanced > Factory Flash only for blank-board/recovery work or a future partition-layout migration."
+            Text = "Battery Monitor now uses release-mode Flash Encryption. After first encrypted boot, the ESP32 ROM bootloader cannot accept a plaintext application update at 0x10000. The previous direct USB/esptool update path is therefore intentionally fail-closed. Normal updates must move through the application-mediated OTA writer so flash writes are encrypted on-device."
         };
         root.Controls.Add(intro, 0, 0); root.SetColumnSpan(intro, 2);
 
@@ -91,7 +91,8 @@ internal sealed class FirmwareUpdateForm : Form
         var tool = _flasher.EsptoolPath is null ? "esptool MISSING" : "esptool bundled";
         var firmware = _flasher.UpdateFirmwarePath is null ? "update image MISSING" : "update image bundled";
         var signature = _flasher.UpdateSignaturePath is null ? "production signature MISSING" : "production signature bundled";
-        _bundleStatus.Text = $"Bundle: {tool}; {firmware}; {signature}.";
+        var transport = _flasher.DirectApplicationUpdateSupported ? "direct update available" : "direct UART update disabled by Flash Encryption";
+        _bundleStatus.Text = $"Bundle: {tool}; {firmware}; {signature}; {transport}.";
     }
 
     private async Task DetectAsync()
@@ -113,12 +114,23 @@ internal sealed class FirmwareUpdateForm : Form
                 catch (OperationCanceledException) { throw; }
                 catch { }
             }
-            throw new InvalidOperationException("No running Battery Monitor firmware responded on the available COM ports. Use Advanced > Factory Flash / Recovery for a blank or damaged ESP32.");
+            throw new InvalidOperationException("No running Battery Monitor firmware responded on the available COM ports.");
         });
     }
 
     private async Task UpdateAsync()
     {
+        if (!_flasher.DirectApplicationUpdateSupported)
+        {
+            AppendLog(_flasher.DirectApplicationUpdateDisabledReason);
+            MessageBox.Show(this,
+                _flasher.DirectApplicationUpdateDisabledReason,
+                "Battery Monitor - Encrypted Firmware Update",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return;
+        }
+
         var port = _port.SelectedItem?.ToString();
         if (string.IsNullOrWhiteSpace(port)) { MessageBox.Show(this, "Select a COM port first.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
         if (!_flasher.IsUpdateReady) { MessageBox.Show(this, "The installed package is missing esptool, the update image, or its required production signature. Unsigned firmware cannot be installed by this client.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
@@ -135,7 +147,7 @@ internal sealed class FirmwareUpdateForm : Form
                 return;
             }
 
-            AppendLog($"Verified {status.DeviceId}; validating production firmware signature before bootloader access...");
+            AppendLog($"Verified {status.DeviceId}; validating production firmware signature before update...");
             var result = await _flasher.UpdateFirmwareAsync(port, AppendLog, token);
             if (!result.Success) throw new InvalidOperationException("Firmware update failed. See the log for details.");
             AppendLog("Signed firmware update completed successfully; NVS/settings partitions were not written.");

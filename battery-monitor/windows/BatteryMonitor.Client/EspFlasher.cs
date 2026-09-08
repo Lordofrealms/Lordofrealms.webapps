@@ -34,6 +34,14 @@ internal sealed class EspFlasher
         ? FindFirstExisting(firmware + ".sig")
         : null;
 
+    // Release-mode Flash Encryption disables ROM-download encryption operations
+    // after first boot. A plaintext app image can therefore no longer be safely
+    // written directly to 0x10000 with esptool. Keep this explicit and fail
+    // closed until the application-mediated OTA writer owns normal updates.
+    public bool DirectApplicationUpdateSupported => false;
+    public string DirectApplicationUpdateDisabledReason =>
+        "Direct USB/ROM firmware update is disabled because Battery Monitor uses release-mode Flash Encryption. Use the application-mediated OTA update path; plaintext esptool writes are not permitted after first encrypted boot.";
+
     // Backward-compatible alias used by older UI code while the updater/factory
     // split is being completed.
     public string? FirmwarePath => FactoryFirmwarePath;
@@ -68,36 +76,21 @@ internal sealed class EspFlasher
         return await RunEsptoolAsync(new[] { "--chip", "esp32", "--port", port, "chip-id" }, null, TimeSpan.FromSeconds(10), cancellationToken);
     }
 
-    public async Task<(bool Success, string Output)> UpdateFirmwareAsync(
+    public Task<(bool Success, string Output)> UpdateFirmwareAsync(
         string port,
         Action<string>? output,
         CancellationToken cancellationToken = default)
     {
-        if (EsptoolPath is null) return (false, "Bundled esptool.exe was not found.");
-        if (UpdateFirmwarePath is null) return (false, "Bundled Battery Monitor application firmware image was not found.");
-        if (UpdateSignaturePath is null) return (false, "Bundled Battery Monitor application firmware signature was not found. Flashing was blocked.");
+        _ = port;
+        _ = cancellationToken;
+        if (EsptoolPath is null) return Task.FromResult((false, "Bundled esptool.exe was not found."));
+        if (UpdateFirmwarePath is null) return Task.FromResult((false, "Bundled Battery Monitor application firmware image was not found."));
+        if (UpdateSignaturePath is null) return Task.FromResult((false, "Bundled Battery Monitor application firmware signature was not found. Flashing was blocked."));
         if (!VerifyFirmware(UpdateFirmwarePath, UpdateSignaturePath, output, out var verificationError))
-            return (false, verificationError);
+            return Task.FromResult((false, verificationError));
 
-        // Normal USB firmware update: update only the application partition at
-        // the classic ESP32 Arduino default app offset. NVS, provisioning
-        // identity, Wi-Fi credentials, calibration, and other settings remain
-        // untouched. Signature verification above is mandatory and has no UI
-        // bypass in the distributed client.
-        return await RunEsptoolAsync(
-            new[]
-            {
-                "--chip", "esp32",
-                "--port", port,
-                "--baud", "460800",
-                "--before", "default-reset",
-                "--after", "hard-reset",
-                "write-flash",
-                "0x10000", UpdateFirmwarePath
-            },
-            output,
-            TimeSpan.FromMinutes(3),
-            cancellationToken);
+        output?.Invoke(DirectApplicationUpdateDisabledReason);
+        return Task.FromResult((false, DirectApplicationUpdateDisabledReason));
     }
 
     public async Task<(bool Success, string Output)> FactoryFlashAsync(
@@ -106,11 +99,15 @@ internal sealed class EspFlasher
         CancellationToken cancellationToken = default)
     {
         if (EsptoolPath is null) return (false, "Bundled esptool.exe was not found.");
-        if (FactoryFirmwarePath is null) return (false, "Bundled Battery Monitor merged factory firmware image was not found.");
-        if (FactorySignaturePath is null) return (false, "Bundled Battery Monitor factory firmware signature was not found. Flashing was blocked.");
+        if (FactoryFirmwarePath is null) return (false, "Bundled Battery Monitor merged first-install firmware image was not found.");
+        if (FactorySignaturePath is null) return (false, "Bundled Battery Monitor first-install firmware signature was not found. Flashing was blocked.");
         if (!VerifyFirmware(FactoryFirmwarePath, FactorySignaturePath, output, out var verificationError))
             return (false, verificationError);
 
+        // This plaintext merged image is for blank/un-encrypted ESP32 devices.
+        // After first boot enables release-mode Flash Encryption, esptool's own
+        // encrypted-flash protection will reject a plaintext overwrite. We do
+        // not pass --force and must never bypass that safety check.
         return await RunEsptoolAsync(
             new[]
             {
@@ -127,7 +124,7 @@ internal sealed class EspFlasher
             cancellationToken);
     }
 
-    // Older callers are intentionally mapped to factory flash until removed.
+    // Older callers are intentionally mapped to first-install factory flash.
     // Signature enforcement still applies because FactoryFlashAsync owns the
     // actual operation.
     public Task<(bool Success, string Output)> FlashAsync(string port, Action<string>? output, CancellationToken cancellationToken = default) =>

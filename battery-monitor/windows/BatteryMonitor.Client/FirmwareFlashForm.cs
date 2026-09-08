@@ -13,7 +13,7 @@ internal sealed class FirmwareFlashForm : Form
 
     public FirmwareFlashForm()
     {
-        Text = "Battery Monitor - Advanced Factory Flash / Recovery";
+        Text = "Battery Monitor - Advanced First Install";
         Width = 700;
         Height = 560;
         MinimumSize = new Size(620, 480);
@@ -35,7 +35,7 @@ internal sealed class FirmwareFlashForm : Form
         {
             AutoSize = true,
             MaximumSize = new Size(650, 0),
-            Text = "Advanced/recovery function. This verifies the bundled RSA-3072/PSS production signature before esptool is allowed to run, then writes the complete bundled factory image at 0x0 and clears existing ESP32 settings, including Wi-Fi, calibration, provisioning identity, and monitoring identity. Use the normal Firmware Update function to preserve settings."
+            Text = "Advanced first-install function for a blank, unencrypted ESP32 only. This verifies the bundled RSA-3072/PSS production signature before esptool is allowed to write the complete image at 0x0. On first boot the device enables release-mode Flash Encryption and NVS Encryption. After that encrypted boot, this plaintext merged image is NOT a recovery image and must not be forced onto the device; esptool's encrypted-flash protection must remain enabled."
         };
         root.Controls.Add(warning, 0, 0); root.SetColumnSpan(warning, 2);
 
@@ -47,7 +47,7 @@ internal sealed class FirmwareFlashForm : Form
         AddRow(root, 1, "USB serial port", ports);
 
         root.Controls.Add(_bundleStatus, 1, 2);
-        var flash = MakeButton("Factory Flash / Recovery", async (_, _) => await FlashAsync());
+        var flash = MakeButton("First Install (Blank ESP32)", async (_, _) => await FlashAsync());
         root.Controls.Add(flash, 1, 3);
 
         _log.Dock = DockStyle.Fill;
@@ -88,7 +88,7 @@ internal sealed class FirmwareFlashForm : Form
     private void UpdateBundleStatus()
     {
         var tool = _flasher.EsptoolPath is null ? "esptool MISSING" : "esptool bundled";
-        var firmware = _flasher.FactoryFirmwarePath is null ? "factory image MISSING" : "factory image bundled";
+        var firmware = _flasher.FactoryFirmwarePath is null ? "first-install image MISSING" : "first-install image bundled";
         var signature = _flasher.FactorySignaturePath is null ? "production signature MISSING" : "production signature bundled";
         _bundleStatus.Text = $"Bundle: {tool}; {firmware}; {signature}.";
     }
@@ -116,21 +116,25 @@ internal sealed class FirmwareFlashForm : Form
     {
         var port = _port.SelectedItem?.ToString();
         if (string.IsNullOrWhiteSpace(port)) { MessageBox.Show(this, "Select a COM port first.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-        if (!_flasher.IsFactoryReady) { MessageBox.Show(this, "The installed package is missing esptool, the factory image, or its required production signature. Unsigned firmware cannot be installed by this client.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        if (!_flasher.IsFactoryReady) { MessageBox.Show(this, "The installed package is missing esptool, the first-install image, or its required production signature. Unsigned firmware cannot be installed by this client.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
 
         if (MessageBox.Show(this,
-            "This signed factory/recovery flash erases the monitor's current settings and security identities. Continue?",
-            "Battery Monitor - Factory Flash", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            "Use this only on a blank, unencrypted ESP32. First boot will permanently activate release-mode Flash Encryption and NVS Encryption on that chip. Do not use this as recovery after encryption is active. Continue?",
+            "Battery Monitor - First Install",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning) != DialogResult.Yes) return;
 
         await RunAsync(async token =>
         {
-            AppendLog("Validating production firmware signature before bootloader access...");
+            AppendLog("Validating production firmware signature before first-install bootloader access...");
             var result = await _flasher.FactoryFlashAsync(port, AppendLog, token);
-            if (!result.Success) throw new InvalidOperationException("ESP32 factory flash failed. See the log for details.");
-            AppendLog("Signed factory/recovery flash completed successfully.");
+            if (!result.Success) throw new InvalidOperationException("ESP32 first install failed. See the log for details. Never bypass esptool's encrypted-flash protection with --force.");
+            AppendLog("Signed first-install flash completed successfully. Flash/NVS encryption will activate on first boot.");
             BeginInvoke(new Action(() => MessageBox.Show(this,
-                "Signed factory flash completed. The device must be configured and have its Device Password/provisioning identity and monitoring trust initialized again.",
-                "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information)));
+                "Signed first install completed. On first boot the ESP32 will generate its device Flash Encryption key, encrypt protected flash, and initialize encrypted NVS. Allow that first boot to complete without removing power.",
+                "Battery Monitor",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information)));
         });
     }
 
