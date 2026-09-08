@@ -3,37 +3,36 @@
 **Updated:** 2026-09-08 (America/Chicago)  
 **Repository:** `Lordofrealms/Lordofrealms.webapps`  
 **Branch:** `battery-monitor-dev`  
-**Version:** V0.1.0 prototype
+**Prototype version:** `0.1.0`  
+**Signed firmware app version / software release sequence:** `0.1.0.1` / `1`
 
 ## A. Resolve live state first
 
 Always resolve the live `battery-monitor-dev` remote head before making changes. Do not assume the SHA in this document is still the branch head.
 
-The latest fully validated **product-source** checkpoint is:
+Latest fully validated **product/security-source** checkpoint:
 
-`68926765874db20db034edef46ef3694a340c871` — `Pin upstream hardened Arduino WebServer`
+`d47215c7c5a157094af2803002e8b94f6af6631f` — `Pin Battery Monitor GitHub Actions`
 
 Authoritative validation:
 
 - Workflow: `Battery Monitor Toolchain`
-- Run: **#139**
-- Run ID: **`34190803829`**
+- Run: **#146**
+- Run ID: **`34229449081`**
 - Result: **SUCCESS**
 
-Run #139 completed all normal Toolchain jobs successfully, including:
+Run #146 passed the complete normal toolchain:
 
-- ESP32 ESP-IDF + Arduino firmware build;
+- authoritative ESP32 ESP-IDF firmware build;
 - Android provisioning APK build/package;
-- exact firmware artifact handoff to Windows;
+- exact firmware-artifact handoff to Windows;
 - pinned esptool verification;
 - pinned Espressif Security-2 helper build/smoke test;
 - Windows .NET 8 client build;
 - **P0-3 protocol self-test**;
-- self-contained Windows publish, firmware/tool bundle, and artifact upload.
+- self-contained Windows publish/bundle/artifact upload.
 
-The run #139 firmware artifact was inspected after CI. `dependencies.lock` resolved Arduino-ESP32 from upstream Git at exact commit `5cdf8975ae8d9e35888b724b01a444d22406424e`, and `BUILD_AUTHORITY.txt` recorded the security/build authority described below.
-
-Later commits `8a078164cd7d674781f8532cfad8fb7f10bc538a` and `dca76f7a40be55fb7240e0cef63cdc12d76d8258` only align signed-release provenance and clarify blank-device image wording; they do not modify Battery Monitor runtime behavior. Toolchain #140 was started by the CI-workflow wording change and is an additional revalidation, not a new product architecture.
+All GitHub Actions used by the Battery Monitor normal-CI and manual signed-release workflows are now pinned to immutable commit SHAs. Android application backup is disabled.
 
 ## B. Canonical production firmware architecture
 
@@ -42,152 +41,163 @@ Battery Monitor has **one production firmware architecture**:
 - ESP-IDF **v5.5.5**;
 - exact ESP-IDF commit `b774170ff46c393eeb5e495ea37936038d3f4f4f`;
 - target: classic ESP32 / ESP32-WROOM-32;
-- Arduino compatibility/runtime base: Arduino-ESP32 **3.3.11**;
-- authoritative Arduino source: immutable upstream Git commit `5cdf8975ae8d9e35888b724b01a444d22406424e`;
-- that commit is exactly two commits after the 3.3.11 release and includes Espressif's merged WebServer hardening PR #12794;
+- Arduino-ESP32 stable base **3.3.11**;
+- authoritative Arduino source: immutable upstream commit `5cdf8975ae8d9e35888b724b01a444d22406424e`;
+- that source includes Espressif's merged WebServer hardening PR #12794;
 - project root: `battery-monitor/firmware/idf/`;
-- application component: `battery-monitor/firmware/idf/main/`;
-- thin wrapper/entrypoint: `battery-monitor/firmware/idf/main/BatteryMonitorApp.cpp`;
-- sole runtime behavior implementation: the existing Arduino-style source under `battery-monitor/firmware/BatteryMonitor/`;
-- sole authoritative firmware build entrypoint: `battery-monitor/firmware/idf/build.sh`.
+- wrapper: `battery-monitor/firmware/idf/main/BatteryMonitorApp.cpp`;
+- sole runtime behavior implementation: Arduino-style source under `battery-monitor/firmware/BatteryMonitor/`;
+- sole authoritative build entrypoint: `battery-monitor/firmware/idf/build.sh`.
 
-There is no production PlatformIO path and no second firmware runtime. `BatteryMonitorApp.cpp` remains only the ESP-IDF translation-unit wrapper around the established `.ino` implementation.
+There is no production PlatformIO path and no second firmware runtime.
 
-### Retired Arduino 3.3.7 pin
-
-Arduino-ESP32 3.3.7 is **not** current authority. It was briefly used during the ESP-IDF migration and was retired after security follow-up identified that versions through 3.3.7 are affected by the critical WebServer multipart-boundary overflow fixed in 3.3.8. Because multipart parsing occurs before Battery Monitor route authentication, application authentication is not a sufficient mitigation for that parser defect.
-
-The current exact upstream commit uses 3.3.11 as its stable base and additionally includes upstream PR #12794 request/parser hardening. `build.sh` fails closed if `idf_component.yml` drifts from this exact source pin.
+**Do not restore Arduino-ESP32 3.3.7.** Versions through 3.3.7 are affected by the critical pre-handler multipart WebServer overflow fixed in 3.3.8. Route authentication cannot protect a parser vulnerability reached before the route handler.
 
 ## C. Active device-at-rest security
 
-The production ESP-IDF configuration now enables:
+Current production ESP-IDF configuration:
 
-- **Flash Encryption: enabled in Release mode**;
-- **NVS Encryption: enabled**, with NVS XTS keys protected by Flash Encryption;
-- encrypted `nvs_keys` partition at `0x294000`, size `0x1000`;
-- partition table at `0xF000`;
-- `app0` authority remains at `0x10000`;
-- `app1` remains at `0x150000`;
-- **Secure Boot: intentionally disabled pending explicit encrypted-hardware validation and later activation**.
+- **Flash Encryption: Release mode enabled**;
+- **NVS Encryption: enabled** with XTS keys protected by Flash Encryption;
+- partition table: `0xF000`;
+- `app0`: `0x10000`;
+- `app1`: `0x150000`;
+- encrypted `nvs_keys`: `0x294000`, size `0x1000`;
+- **Secure Boot: intentionally disabled pending encrypted-device hardware validation**;
+- irreversible eFuse application anti-rollback: **disabled** pending the later Secure Boot/eFuse production gate.
 
-`build.sh` verifies the generated `sdkconfig` and partition table and rejects a build if required Flash/NVS Encryption settings or the protected layout drift. It also rejects unexpected Secure Boot activation before the explicit post-test gate.
+`build.sh` fails closed if these security/layout authorities drift.
 
-On a blank ESP32, the first boot generates the per-device Flash Encryption key in eFuse and encrypts protected flash regions in place. NVS encryption keys are generated on-device when the encrypted `nvs_keys` partition is blank.
+## D. Firmware image roles
 
-## D. Firmware image roles — do not conflate them
+- `BatteryMonitor.ino.bin` — plaintext application payload for the running application's signed OTA writer. Device-specific Flash Encryption occurs during OTA writes.
+- `BatteryMonitor.ino.merged.bin` — deterministic 4 MiB **blank, unencrypted ESP32 first-install image only**.
 
-`BatteryMonitor.ino.bin` and `BatteryMonitor.ino.merged.bin` have different roles under release-mode Flash Encryption:
+The merged image is **not** a post-encryption recovery image. After first encrypted boot, plaintext direct UART/esptool flashing is not the supported application-update path and the Windows tool does not use `--force` to bypass encrypted-device protection.
 
-- **`BatteryMonitor.ino.bin`** — plaintext application image used as the signed payload for application-mediated post-encryption OTA; application offset remains `0x10000`.
-- **`BatteryMonitor.ino.merged.bin`** — deterministic 4 MiB **blank-device first-install image only**.
+## E. Signed USB OTA and trust authority
 
-The merged image is **not a post-encryption recovery image**. After a device's first encrypted boot, do not use plaintext `esptool write-flash` to overwrite the application or write the merged image. Release-mode Flash Encryption permanently changes the safe recovery/update model.
+Post-encryption application updates use **`SIGNED_USB_OTA_V1`**:
 
-The Windows first-install/factory path deliberately does not force a plaintext write to an encrypted device; esptool's encrypted-device protection remains an additional guard.
+1. Windows validates the detached production RSA-3072-PSS-SHA256 signature.
+2. The image is transferred over physical USB in bounded chunks.
+3. The running ESP32 writes the inactive OTA slot with `esp_ota_write()`; ESP-IDF encrypts the flash writes.
+4. The ESP32 independently checks the image hash, application identity, and production RSA-PSS signature.
+5. Only a fully validated candidate may be selected as the next boot partition.
 
-## E. Signed post-encryption update authority
-
-Normal firmware updates after first encrypted boot use **`SIGNED_USB_OTA_V1`** over trusted physical USB.
-
-Current update chain:
-
-1. Windows verifies the detached production **RSA-3072-PSS-SHA256** signature before transfer.
-2. Windows transfers the plaintext application image to the running Battery Monitor over physical USB in bounded binary chunks.
-3. Firmware writes the inactive OTA partition with `esp_ota_write()`; ESP-IDF performs device-specific Flash Encryption during the write.
-4. The ESP32 independently verifies the received image/hash and the same production signature using its compiled trust root.
-5. Firmware selects the new boot partition only after validation succeeds.
-
-The production firmware-signing public-key SPKI SHA-256 fingerprint is:
+Production firmware public-key SPKI SHA-256:
 
 `69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e`
 
-`build.sh` independently derives the fingerprint of the repository public key and of the public key embedded in `FirmwareUpdate.ino`; ordinary firmware CI fails if either differs from the expected production trust root.
+Ordinary CI fails if the repository key or firmware-embedded key drifts from this trust root.
 
-Interrupted transfer, timeout, wrong hash/signature, malformed/wrong application image, OTA write failure, or boot-selection failure remains fail-closed and must not intentionally replace the current boot partition.
+## F. Post-boot rollback probation
 
-## F. Run #139 emitted build authority
+ESP-IDF automatic application rollback is enabled with `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`.
 
-The inspected run #139 `BUILD_AUTHORITY.txt` recorded:
+A newly selected signed OTA candidate receives a **60-second local health probation**. It is marked valid only after setup succeeds, the Monitoring Identity Key is available, and the main loop executes repeatedly. Wi-Fi availability is intentionally not a health requirement.
 
-- `architecture=ESP-IDF+Arduino-component`;
-- `esp_idf_version=5.5.5`;
-- `arduino_esp32_base_release=3.3.11`;
-- `arduino_esp32_component_source=upstream-git`;
-- `arduino_esp32_commit=5cdf8975ae8d9e35888b724b01a444d22406424e`;
-- `arduino_esp32_webserver_hardening=upstream-pr-12794-merged`;
-- `flash_encryption=enabled-release-mode`;
-- `nvs_encryption=enabled-flash-encryption-key-protection`;
-- `signed_usb_ota=SIGNED_USB_OTA_V1`;
-- `factory_image_scope=blank-unencrypted-device-first-install-only`;
-- `post_encryption_plaintext_uart_flash=disabled`;
-- `post_encryption_update_path=signed-application-mediated-ota`.
+If the candidate resets, watchdogs, loses power, or explicitly fails required local identity initialization before confirmation, the bootloader can return to the previous valid OTA slot.
 
-For that exact CI build, the artifact also recorded:
+This is distinct from irreversible eFuse anti-rollback.
 
-- application SHA-256: `0dfd0a7e207ebc2fccd32e09eab1725f454a0fc4419b67012e1ab74ec0666cd2`;
-- merged first-install image SHA-256: `2ba099a42ca2c5379634e4ca75429597e61c9f3e6b89beccae4d4804d34fe2e1`.
+## G. Monotonic software anti-downgrade floor
 
-These hashes identify the unsigned CI output from run #139; they are not a substitute for production detached signatures.
+The signed application descriptor now carries app version **`0.1.0.1`**. The fourth numeric component is the monotonic software release sequence; current sequence is **1**.
 
-## G. Manual signed-production release gate
+Before boot selection, firmware compares the candidate signed-image sequence against the effective release floor. Equal or older signed images are rejected.
 
-`.github/workflows/battery-monitor-signed-release.yml` remains a manual `workflow_dispatch` production-release gate. Do not dispatch it merely to obtain a green migration/security badge.
+The highest accepted sequence is persisted as `batmon/fwseq` in **encrypted NVS**. Supported Wi-Fi/password/admin recovery paths do not erase that floor.
 
-It builds through the same authoritative `firmware/idf/build.sh` path and enforces:
+`build.sh` verifies and records:
 
-- exact requested source SHA;
-- production signing-key fingerprint;
-- RSA-3072-PSS-SHA256 signatures;
-- independent signature verification;
-- tampered-image rejection;
-- wrong-key rejection;
-- production Windows `FirmwareSignatureVerifier` validation and tamper rejection;
-- signed-release provenance for ESP-IDF 5.5.5 and the exact hardened Arduino source (`3.3.11` base + `5cdf8975...`).
+- embedded app version;
+- software release sequence;
+- encrypted-NVS floor authority;
+- rollback configuration;
+- Secure Boot/eFuse anti-rollback state.
 
-No production release was requested during this security closeout, so this manual workflow has not been dispatched as a substitute for normal CI.
+The manual production signer also rejects an operator-supplied release version that differs from authoritative `version.txt`.
 
-## H. Frozen runtime/security expectations
+## H. Current supply-chain/distribution posture
 
-Do not weaken the established Battery Monitor behavior, including:
+Completed:
 
-- relay safety/fail-safe behavior;
-- voltage/current/operating-state freshness checks;
-- secure provisioning and administrator recovery controls;
-- authenticated/paired device identity expectations;
-- OTA availability and fail-closed update behavior;
-- signed update/release-policy enforcement and rollback protections;
-- WebUI and SerialUI administrator security/recovery;
-- lockout/human-challenge behavior;
-- audit persistence/export behavior;
-- production signature/trust-root verification;
-- P0-3 protocol identity/authentication behavior.
+- ESP-IDF pinned to an immutable commit;
+- hardened Arduino source pinned to an immutable commit;
+- esptool download SHA-256 verified;
+- Security-2 helper source pinned to exact upstream commits;
+- Python provisioning-helper dependencies pinned;
+- normal CI and manual signed-release GitHub Actions pinned to immutable commits;
+- firmware release artifact signing and independent verifier/tamper/wrong-key gates implemented.
 
-Security/build changes must stay in the one existing runtime rather than creating a parallel implementation.
+Still open:
 
-## I. Next security gate: hardware validation before Secure Boot
+- production Android APK signing/release packaging;
+- Windows Authenticode/code signing for distributed executables;
+- repository branch/ruleset protection. The live branch is currently not protected and the repository exposes no rulesets. The connected GitHub authority in this session does not have administration/write access for rulesets, so this cannot be enforced from chat.
 
-The next security milestone is **real encrypted-device validation**, not another architecture migration. Before enabling Secure Boot, exercise at minimum:
+## I. LAN management residual risk
 
-1. blank-device first install using the merged image;
-2. first boot and confirmation that Flash Encryption Release mode activates;
-3. Wi-Fi/config provisioning and NVS persistence across reboot/power loss;
-4. successful signed USB OTA to the inactive slot;
-5. wrong/tampered signature rejection by Windows and by the ESP32;
-6. interrupted/timeout OTA behavior with the old application remaining bootable;
-7. repeated signed OTA in both slot directions;
-8. confirmation that plaintext direct UART flashing is not treated as a supported post-encryption recovery path;
-9. normal monitoring, relay safety, discovery/authentication, and administrator workflows on the encrypted unit.
+P0-2 management authentication is implemented and source/build resolved: Device Password proof uses a one-time HMAC challenge; sessions are source-IP-bound, short-lived, CSRF-protected, rate-limited, and password rotation/Monitoring Identity Key export add cryptographic protection of their sensitive payloads.
 
-Only after those tests should Secure Boot activation be considered. Secure Boot remains a separate, deliberate security change with its own recovery/manufacturing implications.
+However, normal LAN management currently uses HTTP on dynamically addressed local devices. Session and CSRF bearer values therefore cross the LAN in cleartext. An **active on-path LAN attacker** may be able to observe a valid session and interfere with management traffic. Source-IP binding and CSRF prevent many off-path attacks but do not provide end-to-end request integrity against an active MITM.
 
-## J. Historical review note
+A proposed `BATMON-MGMT-WRITE-V2` hardening should require a management-key HMAC and monotonic per-session write counter over canonical semantic request fields for every privileged write. It must be implemented atomically across:
 
-`battery-monitor/SECURITY_REVIEW_2026-09-07.md` is a historical point-in-time review of an older source head. Statements in it describing an open setup AP, unauthenticated APIs, Arduino 3.3.11 slow-header exposure, or encryption as not enabled must not be treated as current live authority without checking the present source and this state file.
+- embedded WebUI;
+- Windows client;
+- Android client;
+- firmware verifier/replay state.
 
-## K. Read-first authorities
+Do not disable Android cleartext globally before that transport/protocol decision; doing so would break current dynamic-IP LAN management.
 
-At the exact live branch head, use these as primary authorities:
+## J. P0 security status
+
+Source/build status:
+
+- **P0-1 secure provisioning:** resolved in source/build; hardware/adversarial matrix pending.
+- **P0-2 administrator security/recovery:** resolved in source/build; hardware/adversarial matrix pending; active-LAN request-integrity hardening remains as section I.
+- **P0-3 monitoring identity / spoof resistance:** resolved in source/build; P0-3 protocol self-test green; real-network adversarial matrix pending.
+
+The historical `battery-monitor/SECURITY_REVIEW_2026-09-07.md` predates most of these changes and is not live authority.
+
+## K. Next hardware security gate
+
+Before enabling Secure Boot, validate real encrypted devices through at minimum:
+
+1. blank-device first install;
+2. first-boot Release Flash Encryption activation;
+3. encrypted NVS persistence through reboot/power interruption;
+4. secure Wi-Fi provisioning and administrator recovery;
+5. signed USB OTA in both OTA-slot directions;
+6. Windows and ESP32 wrong/tampered signature rejection;
+7. interrupted/timeout OTA retaining the old application;
+8. 60-second probation success and deliberate candidate-failure rollback;
+9. software downgrade rejection with an older legitimately signed image;
+10. confirmation that plaintext UART flashing is not treated as post-encryption recovery;
+11. P0-1/P0-2/P0-3 hostile-network tests;
+12. normal monitoring, relay fail-safe, freshness checks, WebUI/SerialUI, and audit behavior while encrypted.
+
+Only after this test gate should Secure Boot/eFuse production policy be activated.
+
+**Important migration caveat:** post-boot rollback support is a bootloader feature. A blank unit installed with the current merged image gets the rollback-capable bootloader. An already encrypted device installed with an older bootloader cannot retrofit that bootloader through the current application-only signed OTA path.
+
+## L. Manual signed-release workflow
+
+`.github/workflows/battery-monitor-signed-release.yml` remains a manual `workflow_dispatch` production release gate. Do not dispatch it merely to create a green security badge.
+
+It builds through the same `firmware/idf/build.sh` authority and enforces exact source SHA, authoritative version, signing-key fingerprint, RSA-PSS signing, independent verification, tamper rejection, wrong-key rejection, and Windows production verifier checks.
+
+No production release was requested during this security-hardening session.
+
+## M. Frozen expectations
+
+Do not weaken or bypass established behavior, including relay safety/fail-safe behavior, sensor/state freshness checks, secure provisioning/recovery, paired monitoring identity, signed OTA/release policy, rollback/downgrade protections, WebUI/SerialUI administrator controls, lockout/challenge behavior, audit persistence/export, trust-root verification, or P0-3 protocol behavior.
+
+## N. Read-first authorities
+
+At the exact live branch head, read:
 
 1. `battery-monitor/PROJECT_HANDOFF_LATEST.md`
 2. `battery-monitor/PROJECT_STATE_LATEST.md`
@@ -196,13 +206,14 @@ At the exact live branch head, use these as primary authorities:
 5. `battery-monitor/firmware/idf/main/idf_component.yml`
 6. `battery-monitor/firmware/idf/sdkconfig.defaults`
 7. `battery-monitor/firmware/idf/partitions.csv`
-8. `battery-monitor/firmware/BatteryMonitor/FirmwareUpdate.ino` when OTA/security work is relevant
-9. `.github/workflows/battery-monitor-ci.yml`
-10. `.github/workflows/battery-monitor-signed-release.yml` when production release work is relevant
-11. `battery-monitor/signing/firmware_signatures_v0_1_0.json`
+8. `battery-monitor/firmware/BatteryMonitor/FirmwareUpdate.ino`
+9. `battery-monitor/firmware/BatteryMonitor/FirmwareReleasePolicy.ino`
+10. `.github/workflows/battery-monitor-ci.yml`
+11. `.github/workflows/battery-monitor-signed-release.yml`
+12. `battery-monitor/signing/firmware_signatures_v0_1_0.json`
 
-Earlier references to `battery-monitor/AGENTS.md`, `battery-monitor/firmware/README.md`, and `battery-monitor/firmware/include/` were verified absent during migration closeout; do not silently substitute stale/default-branch files.
+Then resolve the latest applicable `Battery Monitor Toolchain` run before changing production source.
 
-## L. Remote/local warning
+## O. Remote/local warning
 
-This state is based on the **GitHub remote branch**. A local clone is not proven current by this document. Fetch and compare against the live `battery-monitor-dev` remote head before further work.
+This state is based on the GitHub remote branch. Any local checkout must fetch and compare against the live `battery-monitor-dev` remote head before further work.
