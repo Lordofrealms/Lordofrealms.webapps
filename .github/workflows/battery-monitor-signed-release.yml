@@ -35,7 +35,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.source_sha }}
           persist-credentials: false
@@ -193,7 +193,7 @@ jobs:
           } > /tmp/battery-monitor-signed-firmware/SIGNED_RELEASE.txt
 
       - name: Upload signed firmware
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Battery-Monitor-Signed-Firmware-${{ inputs.version }}
           path: /tmp/battery-monitor-signed-firmware
@@ -203,21 +203,21 @@ jobs:
     runs-on: windows-latest
     needs: signed_firmware
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.source_sha }}
           persist-credentials: false
 
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           dotnet-version: '8.0.x'
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
 
       - name: Download exact signed firmware
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: Battery-Monitor-Signed-Firmware-${{ inputs.version }}
           path: battery-monitor/windows/staging/firmware
@@ -325,7 +325,7 @@ jobs:
           Copy-Item battery-monitor/windows/staging/esp-provisioner/* battery-monitor/windows/publish/tools/esp-provisioner -Recurse -Force
 
       - name: Upload signed Windows package
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Battery-Monitor-Windows-Signed-${{ inputs.version }}
           path: battery-monitor/windows/publish

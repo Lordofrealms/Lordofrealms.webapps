@@ -28,7 +28,7 @@ jobs:
     name: ESP32 ESP-IDF + Arduino firmware
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install pinned ESP-IDF 5.5.5
         shell: bash
@@ -57,7 +57,7 @@ jobs:
           test "$(stat -c %s /tmp/battery-monitor-firmware/BatteryMonitor.ino.merged.bin)" -eq 4194304
 
       - name: Upload unsigned CI firmware binaries
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: battery-monitor-esp32-CI-UNSIGNED-v0.1.0
           path: /tmp/battery-monitor-firmware
@@ -67,18 +67,18 @@ jobs:
     runs-on: windows-latest
     needs: firmware
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           dotnet-version: '8.0.x'
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
 
       - name: Download exact unsigned CI firmware built by firmware job
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: battery-monitor-esp32-CI-UNSIGNED-v0.1.0
           path: battery-monitor/windows/staging/firmware
@@ -222,7 +222,7 @@ jobs:
           Get-FileHash $provisioner.FullName -Algorithm SHA256
 
       - name: Upload unsigned CI Windows client
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Battery-Monitor-Windows-CI-UNSIGNED-v0.1.0
           path: battery-monitor/windows/publish
@@ -231,19 +231,19 @@ jobs:
     name: Android provisioning APK
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-java@v6
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v4
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
 
       - name: Install Android SDK 36
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
 
-      - uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
           gradle-version: '9.5.0'
 
@@ -254,7 +254,7 @@ jobs:
         run: cp battery-monitor/android/app/build/outputs/apk/debug/app-debug.apk /tmp/Battery-Monitor-Setup-v0.1.0.apk
 
       - name: Upload Android APK
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Battery-Monitor-Setup-Android-v0.1.0
           path: /tmp/Battery-Monitor-Setup-v0.1.0.apk
