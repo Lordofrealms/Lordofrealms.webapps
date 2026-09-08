@@ -1,5 +1,6 @@
 using Microsoft.Win32;
 using System.Diagnostics;
+using System.Security.Cryptography;
 
 namespace BatteryMonitor.Client;
 
