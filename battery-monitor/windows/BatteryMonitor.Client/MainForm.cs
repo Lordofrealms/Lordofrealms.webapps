@@ -26,16 +26,17 @@ public sealed class MainForm : Form
         _devices = _settings.Load();
         foreach (var device in _devices)
         {
-            if (device.OfflineTimeoutSec <= 0) device.OfflineTimeoutSec = 300;
-            if (device.PollIntervalSec < 2) device.PollIntervalSec = 10;
+            device.NormalizeLocalSettings();
             device.MonitoringTrustState = _monitoringIdentities.Has(device.DeviceId) ? "Trusted" : "Unpaired";
         }
+
         _discovery = new DiscoveryService(id => _monitoringIdentities.Load(id));
 
         Text = "Battery Monitor";
+        Icon = AppIcon.Current;
         Width = 1220;
-        Height = 580;
-        MinimumSize = new Size(980, 440);
+        Height = 620;
+        MinimumSize = new Size(980, 480);
         StartPosition = FormStartPosition.CenterScreen;
 
         BuildUi();
@@ -51,21 +52,38 @@ public sealed class MainForm : Form
 
     private void BuildUi()
     {
-        var top = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 44, Padding = new Padding(8), WrapContents = false };
+        var root = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 4,
+            Margin = new Padding(0),
+            Padding = new Padding(0)
+        };
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+        Controls.Add(root);
+
+        var menu = BuildMenu();
+        MainMenuStrip = menu;
+        root.Controls.Add(menu, 0, 0);
+
+        var quick = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            Padding = new Padding(8, 7, 8, 4),
+            WrapContents = false
+        };
         var discover = new Button { Text = "Discover Now", AutoSize = true };
-        var pair = new Button { Text = "Pair / Trust", AutoSize = true };
         var configure = new Button { Text = "Configure", AutoSize = true };
-        var changeWifi = new Button { Text = "Change Wi-Fi", AutoSize = true };
         var openWeb = new Button { Text = "Open Web Page", AutoSize = true };
-        var remove = new Button { Text = "Remove from PC", AutoSize = true };
         discover.Click += async (_, _) => await DiscoverNowAsync();
-        pair.Click += async (_, _) => await PairSelectedAsync();
         configure.Click += async (_, _) => await ConfigureSelectedAsync();
-        changeWifi.Click += async (_, _) => await ChangeWifiSelectedAsync();
         openWeb.Click += (_, _) => OpenSelectedWebPage();
-        remove.Click += (_, _) => RemoveSelected();
-        top.Controls.AddRange(new Control[] { discover, pair, configure, changeWifi, openWeb, remove });
-        Controls.Add(top);
+        quick.Controls.AddRange([discover, configure, openWeb]);
+        root.Controls.Add(quick, 0, 1);
 
         _grid.Dock = DockStyle.Fill;
         _grid.ReadOnly = true;
@@ -86,14 +104,72 @@ public sealed class MainForm : Form
         _grid.Columns.Add("rssi", "RSSI");
         _grid.Columns.Add("id", "Device ID");
         _grid.DoubleClick += async (_, _) => await ConfigureSelectedAsync();
-        Controls.Add(_grid);
-        _grid.BringToFront();
+        root.Controls.Add(_grid, 0, 2);
 
-        _summary.Dock = DockStyle.Bottom;
-        _summary.Height = 30;
+        _summary.Dock = DockStyle.Fill;
         _summary.Padding = new Padding(8, 6, 8, 4);
-        Controls.Add(_summary);
+        root.Controls.Add(_summary, 0, 3);
+
         RenderGrid();
+    }
+
+    private MenuStrip BuildMenu()
+    {
+        var menu = new MenuStrip();
+
+        var file = new ToolStripMenuItem("&File");
+        file.DropDownItems.Add("E&xit", null, (_, _) => { _allowClose = true; Close(); });
+
+        var devices = new ToolStripMenuItem("&Devices");
+        devices.DropDownItems.Add("&Discover Now", null, async (_, _) => await DiscoverNowAsync());
+        devices.DropDownItems.Add(new ToolStripSeparator());
+        devices.DropDownItems.Add("&Pair / Trust", null, async (_, _) => await PairSelectedAsync());
+        devices.DropDownItems.Add("&Configure...", null, async (_, _) => await ConfigureSelectedAsync());
+        devices.DropDownItems.Add("Change &Wi-Fi...", null, async (_, _) => await ChangeWifiSelectedAsync());
+        devices.DropDownItems.Add("&Open Web Page", null, (_, _) => OpenSelectedWebPage());
+        devices.DropDownItems.Add(new ToolStripSeparator());
+        devices.DropDownItems.Add("&Remove from PC", null, (_, _) => RemoveSelected());
+
+        var tools = new ToolStripMenuItem("&Tools");
+        tools.DropDownItems.Add("&USB Setup...", null, (_, _) => OpenUsbSetup());
+        tools.DropDownItems.Add("USB Pair / &Trust...", null, (_, _) => OpenUsbTrust());
+        tools.DropDownItems.Add("&Wireless Setup...", null, (_, _) => OpenWirelessSetup());
+        tools.DropDownItems.Add("&Update Firmware...", null, (_, _) => OpenFirmwareUpdate());
+        tools.DropDownItems.Add(new ToolStripSeparator());
+        tools.DropDownItems.Add("&Advanced Tools...", null, (_, _) => OpenAdvancedTools());
+        tools.DropDownItems.Add(new ToolStripSeparator());
+
+        var startup = new ToolStripMenuItem("Start with &Windows")
+        {
+            CheckOnClick = true,
+            Checked = StartupManager.IsEnabled()
+        };
+        startup.CheckedChanged += (_, _) =>
+        {
+            try
+            {
+                StartupManager.SetEnabled(startup.Checked);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Windows startup setting could not be changed.\n\n{ex.Message}",
+                    "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                var actual = StartupManager.IsEnabled();
+                if (startup.Checked != actual) startup.Checked = actual;
+            }
+        };
+        tools.DropDownItems.Add(startup);
+
+        var help = new ToolStripMenuItem("&Help");
+        help.DropDownItems.Add("&Getting Started...", null, (_, _) => OpenHelp("Getting Started"));
+        help.DropDownItems.Add("&Wi-Fi and Recovery...", null, (_, _) => OpenHelp("Wi-Fi"));
+        help.DropDownItems.Add("&Alerts...", null, (_, _) => OpenHelp("Alerts"));
+        help.DropDownItems.Add("&Troubleshooting...", null, (_, _) => OpenHelp("Troubleshooting"));
+        help.DropDownItems.Add(new ToolStripSeparator());
+        help.DropDownItems.Add("&About Battery Monitor...", null, (_, _) => OpenHelp("About"));
+
+        menu.Items.AddRange([file, devices, tools, help]);
+        return menu;
     }
 
     private void BuildTray()
@@ -103,11 +179,49 @@ public sealed class MainForm : Form
         menu.Items.Add("Discover Now", null, async (_, _) => await DiscoverNowAsync());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => { _allowClose = true; Close(); });
-        _tray.Icon = SystemIcons.Information;
+
+        _tray.Icon = AppIcon.Current;
         _tray.Text = "Battery Monitor";
         _tray.Visible = true;
         _tray.ContextMenuStrip = menu;
         _tray.DoubleClick += (_, _) => ShowFromTray();
+    }
+
+    private void OpenUsbSetup()
+    {
+        using var dialog = new UsbSetupForm();
+        dialog.ShowDialog(this);
+    }
+
+    private void OpenUsbTrust()
+    {
+        using var dialog = new UsbMonitoringTrustForm();
+        dialog.ShowDialog(this);
+    }
+
+    private void OpenWirelessSetup()
+    {
+        using var dialog = new WirelessSetupForm();
+        dialog.ShowDialog(this);
+    }
+
+    private void OpenFirmwareUpdate()
+    {
+        using var dialog = new FirmwareUpdateForm();
+        dialog.ShowDialog(this);
+    }
+
+    private void OpenAdvancedTools()
+    {
+        if (!AdminSecurity.Authenticate(this)) return;
+        using var dialog = new AdvancedToolsForm();
+        dialog.ShowDialog(this);
+    }
+
+    private void OpenHelp(string topic)
+    {
+        using var dialog = new HelpForm(topic);
+        dialog.ShowDialog(this);
     }
 
     private async void Tick(object? sender, EventArgs e)
@@ -118,11 +232,14 @@ public sealed class MainForm : Form
 
         foreach (var device in _devices.ToArray())
         {
-            if (!device.IsCandidate && !device.PollInProgress && (now - device.LastPollUtc).TotalSeconds >= Math.Max(2, device.PollIntervalSec))
+            if (!device.IsCandidate && !device.PollInProgress &&
+                (now - device.LastPollUtc).TotalSeconds >= Math.Max(2, device.PollIntervalSec))
                 _ = PollDeviceAsync(device);
+
             if (device.MonitoringTrustState == "Trusted" && !device.IdentityFailure)
                 EvaluateOfflineState(device, now);
         }
+
         RenderGrid();
     }
 
@@ -146,12 +263,11 @@ public sealed class MainForm : Form
 
         if (found.IdentityFailure && hasTrust)
         {
-            if (device is not null) ApplyIdentityFailure(device, "Authenticated discovery proof failed for a known Device ID.");
+            if (device is not null)
+                ApplyIdentityFailure(device, "Authenticated discovery proof failed for a known Device ID.");
             return;
         }
 
-        // A V1/otherwise unauthenticated reply can advertise a candidate, but it
-        // must never move a monitor for which this PC already has a trust key.
         if (!found.Authenticated && hasTrust) return;
 
         if (device is null)
@@ -168,7 +284,9 @@ public sealed class MainForm : Form
                 IsCandidate = !found.Authenticated,
                 MonitoringTrustState = found.Authenticated ? "Trusted" : "Unpaired"
             };
+            device.NormalizeLocalSettings();
             _devices.Add(device);
+
             if (!device.IsCandidate) _settings.Save(_devices);
             ShowBalloon(found.Authenticated ? "Trusted Battery Monitor Found" : "Unpaired Battery Monitor Found",
                 found.Authenticated
@@ -178,20 +296,25 @@ public sealed class MainForm : Form
         }
         else
         {
+            device.NormalizeLocalSettings();
             var changed = !string.Equals(device.Address, found.Ip, StringComparison.OrdinalIgnoreCase)
                 || device.Port != found.Port
                 || !string.Equals(device.Hostname, found.Hostname, StringComparison.OrdinalIgnoreCase)
-                || (!string.IsNullOrWhiteSpace(found.Name) && !string.Equals(device.DeviceName, found.Name, StringComparison.Ordinal));
+                || (!string.IsNullOrWhiteSpace(found.Name) &&
+                    !string.Equals(device.DeviceName, found.Name, StringComparison.Ordinal));
+
             device.Address = found.Ip;
             device.Port = found.Port;
             device.Hostname = found.Hostname;
             if (!string.IsNullOrWhiteSpace(found.Name)) device.DeviceName = found.Name;
+
             if (found.Authenticated)
             {
                 device.IsCandidate = false;
                 device.IdentityFailure = false;
                 device.MonitoringTrustState = "Trusted";
             }
+
             if (changed && !device.IsCandidate) _settings.Save(_devices);
         }
 
@@ -201,6 +324,7 @@ public sealed class MainForm : Form
             if (!string.IsNullOrEmpty(savedPassword))
                 _ = PairDeviceAsync(device, savedPassword, rememberPassword: true, silent: true);
         }
+
         RenderGrid();
     }
 
@@ -208,9 +332,11 @@ public sealed class MainForm : Form
     {
         var device = SelectedDevice();
         if (device is null) return;
+
         var savedPassword = _credentials.Load(device.DeviceId);
         using var dialog = new DevicePasswordPromptForm(device.DisplayName, savedPassword);
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
         await PairDeviceAsync(device, dialog.DevicePassword, dialog.Remember, silent: false);
     }
 
@@ -222,15 +348,23 @@ public sealed class MainForm : Form
             var key = await _deviceClient.PairMonitoringIdentityAsync(device, password);
             try { _monitoringIdentities.Save(device.DeviceId, key); }
             finally { CryptographicOperations.ZeroMemory(key); }
+
             if (rememberPassword) _credentials.Save(device.DeviceId, password);
             else _credentials.Forget(device.DeviceId);
+
             device.IsCandidate = false;
             device.IdentityFailure = false;
             device.MonitoringTrustState = "Trusted";
             device.FailureStartedUtc = null;
             _settings.Save(_devices);
+
             if (!silent)
-                MessageBox.Show(this, "This PC is now paired with the monitor. Future discovery and battery status must authenticate with the monitor's separate DPAPI-protected trust key.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            {
+                MessageBox.Show(this,
+                    "This PC is now paired with the monitor. Future discovery and battery status must authenticate with the monitor's separate DPAPI-protected trust key.",
+                    "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+
             await PollDeviceAsync(device);
             return true;
         }
@@ -238,11 +372,15 @@ public sealed class MainForm : Form
         {
             device.MonitoringTrustState = "Unpaired";
             if (!silent)
-                MessageBox.Show(this, $"Could not pair/trust this monitor.\n\n{ex.Message}", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(this, $"Could not pair/trust this monitor.\n\n{ex.Message}",
+                    "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             RenderGrid();
             return false;
         }
-        finally { _pairing.Remove(device.DeviceId); }
+        finally
+        {
+            _pairing.Remove(device.DeviceId);
+        }
     }
 
     private async Task PollDeviceAsync(MonitorEntry device)
@@ -260,15 +398,15 @@ public sealed class MainForm : Form
         try
         {
             var status = await _deviceClient.GetAuthenticatedStatusAsync(device, key);
-            BeginInvoke(new Action(() => ApplyStatus(device, status)));
+            if (!IsDisposed) BeginInvoke(new Action(() => ApplyStatus(device, status)));
         }
         catch (MonitoringIdentityException ex)
         {
-            BeginInvoke(new Action(() => ApplyIdentityFailure(device, ex.Message)));
+            if (!IsDisposed) BeginInvoke(new Action(() => ApplyIdentityFailure(device, ex.Message)));
         }
         catch
         {
-            BeginInvoke(new Action(() => ApplyFailure(device)));
+            if (!IsDisposed) BeginInvoke(new Action(() => ApplyFailure(device)));
         }
         finally
         {
@@ -280,8 +418,10 @@ public sealed class MainForm : Form
     private void ApplyStatus(MonitorEntry device, DeviceStatus status)
     {
         var wasOffline = device.OfflineAlerted || IsOffline(device, DateTime.UtcNow);
+
         device.FailureStartedUtc = null;
         device.OfflineAlerted = false;
+        device.LastOfflineAlertUtc = DateTime.MinValue;
         device.IdentityFailure = false;
         device.MonitoringTrustState = "Trusted";
         device.Voltage = status.Voltage;
@@ -289,8 +429,6 @@ public sealed class MainForm : Form
         device.Rssi = status.Rssi;
         device.LastSeenUtc = DateTime.UtcNow;
 
-        // Network address authority comes only from authenticated UDP discovery's
-        // actual source endpoint, never from a status payload field.
         var persistentChanged = !string.Equals(device.DeviceName, status.Name, StringComparison.Ordinal)
             || !string.Equals(device.Hostname, status.Hostname, StringComparison.OrdinalIgnoreCase)
             || !string.Equals(device.BatteryType, status.BatteryType, StringComparison.Ordinal)
@@ -308,10 +446,16 @@ public sealed class MainForm : Form
         device.SampleIntervalSec = status.SampleIntervalSec;
         device.CalibrationFactor = status.CalibrationFactor;
         device.CalibrationOffset = status.CalibrationOffset;
+
         if (persistentChanged) _settings.Save(_devices);
 
-        if (wasOffline)
-            ShowBalloon("Battery Monitor Online", $"{device.DisplayName} is authenticated and reachable again at {device.Voltage:0.00} V.", ToolTipIcon.Info);
+        if (wasOffline && device.RecoveryAlert.Enabled)
+        {
+            AlertSoundPlayer.Play(device.RecoveryAlert);
+            ShowBalloon("Battery Monitor Online",
+                $"{device.DisplayName} is authenticated and reachable again at {device.Voltage:0.00} V.",
+                ToolTipIcon.Info);
+        }
 
         HandleVoltageAlert(device);
         RenderGrid();
@@ -326,11 +470,13 @@ public sealed class MainForm : Form
         device.State = "unknown";
         device.FailureStartedUtc = null;
         device.OfflineAlerted = false;
+
         if (first)
         {
             SystemSounds.Hand.Play();
             ShowBalloon("Battery Monitor Identity Failure", $"{device.DisplayName}: {reason}", ToolTipIcon.Error);
         }
+
         RenderGrid();
     }
 
@@ -339,16 +485,30 @@ public sealed class MainForm : Form
         if (device.IdentityFailure || device.MonitoringTrustState != "Trusted") return;
         if (!device.FailureStartedUtc.HasValue)
             device.FailureStartedUtc = device.LastSeenUtc ?? DateTime.UtcNow;
+
         EvaluateOfflineState(device, DateTime.UtcNow);
         RenderGrid();
     }
 
     private void EvaluateOfflineState(MonitorEntry device, DateTime now)
     {
-        if (device.IdentityFailure || device.MonitoringTrustState != "Trusted" || !IsOffline(device, now) || device.OfflineAlerted) return;
+        if (device.IdentityFailure || device.MonitoringTrustState != "Trusted" || !IsOffline(device, now)) return;
+
+        var first = !device.OfflineAlerted;
+        var profile = device.OfflineAlert;
+        var repeatDue = device.OfflineAlerted && profile.RepeatMinutes > 0 &&
+                        (now - device.LastOfflineAlertUtc).TotalMinutes >= profile.RepeatMinutes;
+
         device.OfflineAlerted = true;
-        SystemSounds.Asterisk.Play();
-        ShowBalloon("Battery Monitor Offline", $"{device.DisplayName} has been unreachable for {FormatDuration(device.OfflineTimeoutSec)}.", ToolTipIcon.Warning);
+        if (!first && !repeatDue) return;
+
+        device.LastOfflineAlertUtc = now;
+        if (!profile.Enabled) return;
+
+        AlertSoundPlayer.Play(profile);
+        ShowBalloon("Battery Monitor Offline",
+            $"{device.DisplayName} has been unreachable for {FormatDuration(device.OfflineTimeoutSec)}.",
+            ToolTipIcon.Warning);
     }
 
     private static bool IsOffline(MonitorEntry device, DateTime now)
@@ -361,17 +521,30 @@ public sealed class MainForm : Form
     private void HandleVoltageAlert(MonitorEntry device)
     {
         if (device.MonitoringTrustState != "Trusted" || device.IdentityFailure) return;
+
         var current = device.State;
-        var isAlert = current is "low" or "critical";
-        var changed = !string.Equals(current, device.LastAlertState, StringComparison.OrdinalIgnoreCase);
-        var repeatDue = isAlert && (DateTime.UtcNow - device.LastAlertUtc).TotalMinutes >= 30;
-        if ((changed && isAlert) || repeatDue)
+        if (current != "low" && current != "critical")
         {
-            if (current == "critical") SystemSounds.Hand.Play(); else SystemSounds.Exclamation.Play();
+            device.LastAlertState = current;
+            device.LastAlertUtc = DateTime.MinValue;
+            return;
+        }
+
+        var profile = current == "critical" ? device.CriticalAlert : device.LowAlert;
+        var changed = !string.Equals(current, device.LastAlertState, StringComparison.OrdinalIgnoreCase);
+        var neverAlerted = device.LastAlertUtc == DateTime.MinValue;
+        var repeatDue = profile.RepeatMinutes > 0 &&
+                        (DateTime.UtcNow - device.LastAlertUtc).TotalMinutes >= profile.RepeatMinutes;
+
+        if (profile.Enabled && (changed || neverAlerted || repeatDue))
+        {
+            AlertSoundPlayer.Play(profile);
             var title = current == "critical" ? "CRITICAL Battery" : "Low Battery";
-            ShowBalloon(title, $"{device.DisplayName}: {device.Voltage:0.00} V", current == "critical" ? ToolTipIcon.Error : ToolTipIcon.Warning);
+            ShowBalloon(title, $"{device.DisplayName}: {device.Voltage:0.00} V",
+                current == "critical" ? ToolTipIcon.Error : ToolTipIcon.Warning);
             device.LastAlertUtc = DateTime.UtcNow;
         }
+
         device.LastAlertState = current;
     }
 
@@ -379,6 +552,8 @@ public sealed class MainForm : Form
     {
         var device = SelectedDevice();
         if (device is null) return;
+
+        device.NormalizeLocalSettings();
         var savedPassword = _credentials.Load(device.DeviceId);
         using var dialog = new DeviceConfigForm(device, savedPassword);
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
@@ -395,13 +570,12 @@ public sealed class MainForm : Form
                 await _deviceClient.ApplyConfigAsync(device, dialog.DevicePassword);
                 configApplied = true;
 
-                // Acquire monitoring trust while the current password is known,
-                // before any password rotation invalidates that credential.
                 if (!_monitoringIdentities.Has(device.DeviceId))
                 {
                     var key = await _deviceClient.PairMonitoringIdentityAsync(device, dialog.DevicePassword);
                     try { _monitoringIdentities.Save(device.DeviceId, key); }
                     finally { CryptographicOperations.ZeroMemory(key); }
+
                     device.IsCandidate = false;
                     device.MonitoringTrustState = "Trusted";
                     _settings.Save(_devices);
@@ -412,19 +586,28 @@ public sealed class MainForm : Form
                     await _deviceClient.RotateDevicePasswordAsync(device, dialog.DevicePassword, dialog.NewDevicePassword);
                     if (dialog.RememberDevicePassword) _credentials.Save(device.DeviceId, dialog.NewDevicePassword);
                     else _credentials.Forget(device.DeviceId);
-                    MessageBox.Show(this, "Settings were applied, this PC is paired for authenticated monitoring, and the Device Password was changed. Monitoring trust is intentionally unchanged by password rotation.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                    MessageBox.Show(this,
+                        "Settings were applied, this PC is paired for authenticated monitoring, and the Device Password was changed. Monitoring trust is intentionally unchanged by password rotation.",
+                        "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
                 else
                 {
                     if (dialog.RememberDevicePassword) _credentials.Save(device.DeviceId, dialog.DevicePassword);
                     else _credentials.Forget(device.DeviceId);
-                    MessageBox.Show(this, "Settings were saved locally/applied to the unit, and authenticated monitoring trust is established on this PC.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                    MessageBox.Show(this,
+                        "Settings were saved locally/applied to the unit, and authenticated monitoring trust is established on this PC.",
+                        "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
+
                 await PollDeviceAsync(device);
             }
             catch (Exception ex)
             {
-                if (configApplied && dialog.RememberDevicePassword) _credentials.Save(device.DeviceId, dialog.DevicePassword);
+                if (configApplied && dialog.RememberDevicePassword)
+                    _credentials.Save(device.DeviceId, dialog.DevicePassword);
+
                 MessageBox.Show(this,
                     configApplied
                         ? $"Device settings were applied, but the later security operation failed.\n\n{ex.Message}"
@@ -432,6 +615,7 @@ public sealed class MainForm : Form
                     "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
+
         RenderGrid();
     }
 
@@ -439,6 +623,7 @@ public sealed class MainForm : Form
     {
         var device = SelectedDevice();
         if (device is null) return;
+
         var savedPassword = _credentials.Load(device.DeviceId);
         using var passwordDialog = new DevicePasswordPromptForm(device.DisplayName, savedPassword);
         if (passwordDialog.ShowDialog(this) != DialogResult.OK) return;
@@ -450,6 +635,7 @@ public sealed class MainForm : Form
                 var key = await _deviceClient.PairMonitoringIdentityAsync(device, passwordDialog.DevicePassword);
                 try { _monitoringIdentities.Save(device.DeviceId, key); }
                 finally { CryptographicOperations.ZeroMemory(key); }
+
                 device.IsCandidate = false;
                 device.MonitoringTrustState = "Trusted";
                 _settings.Save(_devices);
@@ -462,12 +648,14 @@ public sealed class MainForm : Form
             MessageBox.Show(this,
                 "The monitor accepted the authenticated request and is starting its secure setup network. Windows setup will now connect to it using the same Device Password. The separate monitoring trust key remains unchanged.",
                 "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
             using var setup = new WirelessSetupForm(device.DeviceId, passwordDialog.DevicePassword);
             setup.ShowDialog(this);
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"Could not start secure Wi-Fi setup.\n\n{ex.Message}", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, $"Could not start secure Wi-Fi setup.\n\n{ex.Message}",
+                "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
 
@@ -481,15 +669,27 @@ public sealed class MainForm : Form
     {
         var device = SelectedDevice();
         if (device is null || string.IsNullOrWhiteSpace(device.Address)) return;
-        try { Process.Start(new ProcessStartInfo($"http://{device.Address}:{device.Port}/") { UseShellExecute = true }); }
-        catch (Exception ex) { MessageBox.Show(this, ex.Message, "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo($"http://{device.Address}:{device.Port}/") { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     private void RemoveSelected()
     {
         var device = SelectedDevice();
         if (device is null) return;
-        if (MessageBox.Show(this, $"Remove {device.DisplayName} from this PC? The ESP32 itself will not be changed. Any remembered Device Password and the DPAPI-protected Monitoring Identity Key on this PC will also be removed.", "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+
+        if (MessageBox.Show(this,
+                $"Remove {device.DisplayName} from this PC? The ESP32 itself will not be changed. Any remembered Device Password and the DPAPI-protected Monitoring Identity Key on this PC will also be removed.",
+                "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            return;
+
         _credentials.Forget(device.DeviceId);
         _monitoringIdentities.Forget(device.DeviceId);
         _devices.Remove(device);
@@ -500,13 +700,17 @@ public sealed class MainForm : Form
     private void RenderGrid()
     {
         if (IsDisposed) return;
+
         var now = DateTime.UtcNow;
         var selectedId = SelectedDevice()?.DeviceId;
         _grid.Rows.Clear();
+
         foreach (var device in _devices.OrderBy(d => d.DisplayName, StringComparer.OrdinalIgnoreCase))
         {
             var offline = device.MonitoringTrustState == "Trusted" && IsOffline(device, now);
-            var unreachable = device.MonitoringTrustState == "Trusted" && device.FailureStartedUtc.HasValue && !offline;
+            var unreachable = device.MonitoringTrustState == "Trusted" &&
+                              device.FailureStartedUtc.HasValue && !offline;
+
             var lastSeen = device.LastSeenUtc.HasValue ? ToAge(device.LastSeenUtc.Value) : "Never";
             var stateText = device.IdentityFailure
                 ? "IDENTITY FAILURE"
@@ -521,7 +725,9 @@ public sealed class MainForm : Form
             var rowIndex = _grid.Rows.Add(
                 device.DisplayName,
                 device.DeviceName,
-                device.Voltage.HasValue && device.MonitoringTrustState == "Trusted" && !device.IdentityFailure ? $"{device.Voltage:0.00} V" : "--",
+                device.Voltage.HasValue && device.MonitoringTrustState == "Trusted" && !device.IdentityFailure
+                    ? $"{device.Voltage:0.00} V"
+                    : "--",
                 stateText,
                 device.IsCandidate ? "Unpaired candidate" : device.MonitoringTrustState,
                 BatteryPresets.FriendlyName(device.BatteryType),
@@ -529,19 +735,27 @@ public sealed class MainForm : Form
                 lastSeen,
                 device.Rssi == 0 ? "--" : $"{device.Rssi} dBm",
                 device.DeviceId);
+
             var row = _grid.Rows[rowIndex];
             row.Tag = device;
             if (device.DeviceId == selectedId) row.Selected = true;
         }
 
         var trusted = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure);
-        var good = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure && !d.FailureStartedUtc.HasValue && d.State == "good");
-        var alert = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure && !d.FailureStartedUtc.HasValue && d.State is "low" or "critical");
+        var good = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure &&
+                                       !d.FailureStartedUtc.HasValue && d.State == "good");
+        var alert = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure &&
+                                        !d.FailureStartedUtc.HasValue && d.State is "low" or "critical");
         var identityFailures = _devices.Count(d => d.IdentityFailure);
         var unpaired = _devices.Count(d => d.MonitoringTrustState != "Trusted" && !d.IdentityFailure);
-        var offlineCount = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure && IsOffline(d, now));
-        var unreachableCount = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure && d.FailureStartedUtc.HasValue && !IsOffline(d, now));
-        _summary.Text = $"{_devices.Count} visible | {trusted} trusted | {good} good | {alert} battery alert(s) | {unpaired} unpaired | {identityFailures} identity failure(s) | {unreachableCount} unreachable | {offlineCount} offline";
+        var offlineCount = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure &&
+                                               IsOffline(d, now));
+        var unreachableCount = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure &&
+                                                   d.FailureStartedUtc.HasValue && !IsOffline(d, now));
+
+        _summary.Text =
+            $"{_devices.Count} visible | {trusted} trusted | {good} good | {alert} battery alert(s) | {unpaired} unpaired | {identityFailures} identity failure(s) | {unreachableCount} unreachable | {offlineCount} offline";
+
         _tray.Text = _devices.Count == 0 ? "Battery Monitor" : $"Battery Monitor - {_devices.Count} device(s)";
     }
 
@@ -558,7 +772,9 @@ public sealed class MainForm : Form
     {
         seconds = Math.Max(0, seconds);
         if (seconds < 60) return $"{seconds}s";
-        if (seconds < 3600) return seconds % 60 == 0 ? $"{seconds / 60}m" : $"{seconds / 60}m {seconds % 60}s";
+        if (seconds < 3600)
+            return seconds % 60 == 0 ? $"{seconds / 60}m" : $"{seconds / 60}m {seconds % 60}s";
+
         var hours = seconds / 3600;
         var minutes = (seconds % 3600) / 60;
         return minutes == 0 ? $"{hours}h" : $"{hours}h {minutes}m";
@@ -594,8 +810,10 @@ public sealed class MainForm : Form
             HideToTray();
             return;
         }
+
         _tick.Stop();
         _discovery.Dispose();
+        AlertSoundPlayer.Stop();
         _tray.Visible = false;
         _tray.Dispose();
     }

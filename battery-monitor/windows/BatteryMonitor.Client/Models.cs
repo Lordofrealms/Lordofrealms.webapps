@@ -2,6 +2,64 @@ using System.Text.Json.Serialization;
 
 namespace BatteryMonitor.Client;
 
+public sealed class AlertProfile
+{
+    public bool Enabled { get; set; } = true;
+    public string SoundId { get; set; } = "builtin:warning";
+    public string CustomSoundPath { get; set; } = "";
+    public int VolumePercent { get; set; } = 75;
+    public int RepeatMinutes { get; set; } = 30;
+
+    public AlertProfile Clone() => new()
+    {
+        Enabled = Enabled,
+        SoundId = SoundId,
+        CustomSoundPath = CustomSoundPath,
+        VolumePercent = VolumePercent,
+        RepeatMinutes = RepeatMinutes
+    };
+
+    public void Normalize()
+    {
+        VolumePercent = Math.Clamp(VolumePercent, 0, 100);
+        RepeatMinutes = Math.Clamp(RepeatMinutes, 0, 1440);
+        if (string.IsNullOrWhiteSpace(SoundId)) SoundId = "builtin:warning";
+        CustomSoundPath ??= "";
+    }
+
+    public static AlertProfile LowDefault() => new()
+    {
+        Enabled = true,
+        SoundId = "builtin:warning",
+        VolumePercent = 70,
+        RepeatMinutes = 30
+    };
+
+    public static AlertProfile CriticalDefault() => new()
+    {
+        Enabled = true,
+        SoundId = "builtin:critical",
+        VolumePercent = 100,
+        RepeatMinutes = 15
+    };
+
+    public static AlertProfile OfflineDefault() => new()
+    {
+        Enabled = true,
+        SoundId = "builtin:urgent",
+        VolumePercent = 85,
+        RepeatMinutes = 30
+    };
+
+    public static AlertProfile RecoveryDefault() => new()
+    {
+        Enabled = true,
+        SoundId = "builtin:recovery",
+        VolumePercent = 65,
+        RepeatMinutes = 0
+    };
+}
+
 public sealed class MonitorEntry
 {
     public string DeviceId { get; set; } = "";
@@ -19,6 +77,11 @@ public sealed class MonitorEntry
     public int PollIntervalSec { get; set; } = 10;
     public int OfflineTimeoutSec { get; set; } = 300;
 
+    public AlertProfile LowAlert { get; set; } = AlertProfile.LowDefault();
+    public AlertProfile CriticalAlert { get; set; } = AlertProfile.CriticalDefault();
+    public AlertProfile OfflineAlert { get; set; } = AlertProfile.OfflineDefault();
+    public AlertProfile RecoveryAlert { get; set; } = AlertProfile.RecoveryDefault();
+
     [JsonIgnore] public double? Voltage { get; set; }
     [JsonIgnore] public string State { get; set; } = "unknown";
     [JsonIgnore] public int Rssi { get; set; }
@@ -27,6 +90,7 @@ public sealed class MonitorEntry
     [JsonIgnore] public bool PollInProgress { get; set; }
     [JsonIgnore] public DateTime? FailureStartedUtc { get; set; }
     [JsonIgnore] public bool OfflineAlerted { get; set; }
+    [JsonIgnore] public DateTime LastOfflineAlertUtc { get; set; } = DateTime.MinValue;
     [JsonIgnore] public string LastAlertState { get; set; } = "";
     [JsonIgnore] public DateTime LastAlertUtc { get; set; } = DateTime.MinValue;
     [JsonIgnore] public bool IsCandidate { get; set; }
@@ -37,6 +101,20 @@ public sealed class MonitorEntry
     public string DisplayName => string.IsNullOrWhiteSpace(LocalName)
         ? (string.IsNullOrWhiteSpace(DeviceName) ? DeviceId : DeviceName)
         : LocalName;
+
+    public void NormalizeLocalSettings()
+    {
+        if (OfflineTimeoutSec <= 0) OfflineTimeoutSec = 300;
+        if (PollIntervalSec < 2) PollIntervalSec = 10;
+        LowAlert ??= AlertProfile.LowDefault();
+        CriticalAlert ??= AlertProfile.CriticalDefault();
+        OfflineAlert ??= AlertProfile.OfflineDefault();
+        RecoveryAlert ??= AlertProfile.RecoveryDefault();
+        LowAlert.Normalize();
+        CriticalAlert.Normalize();
+        OfflineAlert.Normalize();
+        RecoveryAlert.Normalize();
+    }
 }
 
 public sealed class DeviceStatus
