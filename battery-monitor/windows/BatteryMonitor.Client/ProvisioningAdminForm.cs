@@ -22,10 +22,10 @@ internal sealed class ProvisioningAdminForm : Form
 
     public ProvisioningAdminForm()
     {
-        Text = "Battery Monitor - Advanced Provisioning Identity";
+        Text = "Battery Monitor - Factory Setup Code / QR";
         Width = 760;
-        Height = 760;
-        MinimumSize = new Size(680, 650);
+        Height = 780;
+        MinimumSize = new Size(680, 660);
         StartPosition = FormStartPosition.CenterParent;
         BuildUi();
         RefreshPorts();
@@ -43,7 +43,7 @@ internal sealed class ProvisioningAdminForm : Form
         {
             AutoSize = true,
             MaximumSize = new Size(700, 0),
-            Text = "This protected tool initializes or rotates the unique per-device setup credential. The printed code is never readable back from the ESP32. QR scanning and manual code entry are equivalent provisioning credentials."
+            Text = "Factory/manufacturing tool for the historical 16-character / 80-bit printed initial Device Password and matching QR. Use Tools > USB Setup for an arbitrary normal Device Password. A factory code written here is never readable back from the ESP32."
         };
         root.Controls.Add(intro, 0, 0); root.SetColumnSpan(intro, 2);
 
@@ -60,11 +60,11 @@ internal sealed class ProvisioningAdminForm : Form
         var generate = MakeButton("Generate New", (_, _) => GenerateCode());
         var copy = MakeButton("Copy Code", (_, _) => CopyCode());
         codePanel.Controls.AddRange(new Control[] { _setupCode, generate, copy });
-        AddRow(root, 4, "Setup code", codePanel);
+        AddRow(root, 4, "Factory setup code", codePanel);
 
         var actions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
-        var write = MakeButton("Write / Rotate on Device", async (_, _) => await WriteCredentialAsync());
-        var verify = MakeButton("Verify Code", async (_, _) => await VerifyCodeAsync());
+        var write = MakeButton("Write / Rotate Factory Code", async (_, _) => await WriteCredentialAsync());
+        var verify = MakeButton("Verify Factory Code", async (_, _) => await VerifyCodeAsync());
         var saveQr = MakeButton("Save QR PNG", (_, _) => SaveQr());
         actions.Controls.AddRange(new Control[] { write, verify, saveQr });
         root.Controls.Add(actions, 0, 5); root.SetColumnSpan(actions, 2);
@@ -76,7 +76,7 @@ internal sealed class ProvisioningAdminForm : Form
             AutoSize = true,
             MaximumSize = new Size(330, 0),
             Margin = new Padding(14, 8, 3, 3),
-            Text = "The QR contains the same setup code plus the derived WPA2 setup-network password and Espressif Security-2 metadata. Treat a saved/printed QR like the printed setup code."
+            Text = "The QR contains the same factory code plus the derived WPA2 setup-network password and Espressif Security-2 metadata. Treat a saved/printed QR exactly like the printed initial Device Password."
         };
         qrPanel.Controls.Add(qrNote);
         root.Controls.Add(qrPanel, 0, 6); root.SetColumnSpan(qrPanel, 2);
@@ -142,7 +142,7 @@ internal sealed class ProvisioningAdminForm : Form
                 {
                     _username = "batmon";
                     _setupSsid = "BatteryMonitor-" + status.DeviceId.Replace("BM-", "", StringComparison.OrdinalIgnoreCase);
-                    _identityLabel.Text = "Not initialized — generate and write a setup code.";
+                    _identityLabel.Text = "Not initialized — generate and write a factory setup code, or use normal USB Setup for a flexible Device Password.";
                 }
                 RebuildQr();
             }));
@@ -153,22 +153,22 @@ internal sealed class ProvisioningAdminForm : Form
     {
         _setupCode.Text = ProvisioningCode.GenerateFormatted();
         RebuildQr();
-        AppendLog("Generated a new 80-bit setup code in memory. It has not been written to the ESP32 yet.");
+        AppendLog("Generated a new 80-bit factory setup code in memory. It has not been written to the ESP32 yet.");
     }
 
     private async Task WriteCredentialAsync()
     {
         var port = SelectedPort(); if (port is null) return;
         var canonical = ProvisioningCode.Normalize(_setupCode.Text);
-        if (canonical.Length != 16) { MessageBox.Show(this, "Enter or generate a valid 16-character setup code.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        if (canonical.Length != 16) { MessageBox.Show(this, "Enter or generate a valid 16-character factory setup code.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
         if (string.IsNullOrWhiteSpace(_deviceId)) { MessageBox.Show(this, "Read the connected device first so its identity is known.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-        if (MessageBox.Show(this, "Write this setup code to the connected device? If the device already has a code, this rotates it and old labels/codes will stop working.", "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        if (MessageBox.Show(this, "Write this factory setup code to the connected device? If the device already has a Device Password, this replaces it and old saved passwords/labels/codes will stop working.", "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
 
         await RunAsync(async token =>
         {
             await _provisioner.SetProvisioningCredentialAsync(port, _username, canonical, AppendLog, token);
             var matched = await _provisioner.VerifyProvisioningCredentialAsync(port, canonical, AppendLog, token);
-            if (!matched) throw new InvalidOperationException("The ESP32 accepted the credential write but did not verify the same code afterward.");
+            if (!matched) throw new InvalidOperationException("The ESP32 accepted the factory credential write but did not verify the same code afterward.");
             var identity = await _provisioner.ReadProvisioningIdentityAsync(port, AppendLog, token);
             BeginInvoke(new Action(() =>
             {
@@ -177,7 +177,7 @@ internal sealed class ProvisioningAdminForm : Form
                 _username = identity.Username;
                 _identityLabel.Text = $"Configured and verified: {identity.Security}, {_setupSsid}, user {_username}";
                 RebuildQr();
-                MessageBox.Show(this, "Setup credential written and verified. Save/print the QR or record the displayed setup code before closing this window.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(this, "Factory setup code written and verified. Save/print the QR or record the displayed code before closing this window.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }));
         });
     }
@@ -186,12 +186,12 @@ internal sealed class ProvisioningAdminForm : Form
     {
         var port = SelectedPort(); if (port is null) return;
         var canonical = ProvisioningCode.Normalize(_setupCode.Text);
-        if (canonical.Length != 16) { MessageBox.Show(this, "Enter a valid setup code to verify.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        if (canonical.Length != 16) { MessageBox.Show(this, "Enter a valid factory setup code to verify.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
         await RunAsync(async token =>
         {
             var matched = await _provisioner.VerifyProvisioningCredentialAsync(port, canonical, AppendLog, token);
             BeginInvoke(new Action(() => MessageBox.Show(this,
-                matched ? "The setup code matches this ESP32." : "The setup code does NOT match this ESP32.",
+                matched ? "The factory setup code matches this ESP32's current Device Password." : "The factory setup code does NOT match this ESP32's current Device Password.",
                 "Battery Monitor", MessageBoxButtons.OK, matched ? MessageBoxIcon.Information : MessageBoxIcon.Warning)));
         });
     }
@@ -218,7 +218,7 @@ internal sealed class ProvisioningAdminForm : Form
 
     private void SaveQr()
     {
-        if (_qrPng is null) { MessageBox.Show(this, "Read the device and enter/generate a setup code first.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        if (_qrPng is null) { MessageBox.Show(this, "Read the device and enter/generate a factory setup code first.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         using var dialog = new SaveFileDialog { Filter = "PNG image|*.png", FileName = string.IsNullOrWhiteSpace(_deviceId) ? "BatteryMonitor-Setup.png" : $"{_deviceId}-Setup-QR.png" };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         File.WriteAllBytes(dialog.FileName, _qrPng);
