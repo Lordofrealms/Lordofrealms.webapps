@@ -29,6 +29,9 @@ public sealed class MonitorEntry
     [JsonIgnore] public bool OfflineAlerted { get; set; }
     [JsonIgnore] public string LastAlertState { get; set; } = "";
     [JsonIgnore] public DateTime LastAlertUtc { get; set; } = DateTime.MinValue;
+    [JsonIgnore] public bool IsCandidate { get; set; }
+    [JsonIgnore] public bool IdentityFailure { get; set; }
+    [JsonIgnore] public string MonitoringTrustState { get; set; } = "Unpaired";
 
     [JsonIgnore]
     public string DisplayName => string.IsNullOrWhiteSpace(LocalName)
@@ -71,6 +74,8 @@ public sealed class DiscoveredDevice
     public string Ip { get; set; } = "";
     public int Port { get; set; } = 80;
     public string FirmwareVersion { get; set; } = "";
+    [JsonIgnore] public bool Authenticated { get; set; }
+    [JsonIgnore] public bool IdentityFailure { get; set; }
 }
 
 public static class BatteryPresets
