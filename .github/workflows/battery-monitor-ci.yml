@@ -178,6 +178,11 @@ jobs:
           dotnet restore battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj
           dotnet build battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release --no-restore
 
+      - name: Run P0-3 protocol self-test
+        shell: pwsh
+        run: |
+          dotnet run --project battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release --no-build -- --protocol-self-test
+
       - name: Publish self-contained win-x64
         shell: pwsh
         run: |
