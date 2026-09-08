@@ -26,7 +26,7 @@
 // BATMON1 FWEND
 // BATMON1 FWABORT
 // BATMON1 SET NAME <encoded-name>
-// BATMON1 SET BATTERY <lead_acid|lifepo4_4s> <lowV> <criticalV>
+// BATMON1 SET BATTERY <profile-id> <lowV> <criticalV>
 // BATMON1 SET SAMPLE <seconds>
 // BATMON1 SET CAL <factor> <offsetV>
 // BATMON1 SET WIFI <encoded-ssid> <encoded-password>
@@ -128,7 +128,7 @@ static void processSerialProvisioningCommand(String line) {
     String reply = "STATUS ";
     reply += deviceId + " ";
     reply += percentEncode(deviceName) + " ";
-    reply += batteryType + " ";
+    reply += percentEncode(batteryType) + " ";
     reply += String(lowVoltage, 3) + " ";
     reply += String(criticalVoltage, 3) + " ";
     reply += String(sampleIntervalSec) + " ";
@@ -146,8 +146,6 @@ static void processSerialProvisioningCommand(String line) {
   if (command == "MONITORKEY") {
     String keyHex = trustedUsbMonitoringIdentityKeyHex();
     if (keyHex.length() != 64) { serialErr("MONITORKEY_UNAVAILABLE"); return; }
-    // This response is intentionally secret. Host software must redact it from
-    // UI/log output and immediately protect it using the OS credential store.
     serialOk("MONITORKEY " + keyHex);
     keyHex = "";
     return;
@@ -237,12 +235,13 @@ static void processSerialProvisioningCommand(String line) {
   }
 
   if (setting == "BATTERY") {
-    String type = nextToken(remaining);
+    String type = percentDecode(nextToken(remaining));
+    type.trim();
     float low = nextToken(remaining).toFloat();
     float critical = nextToken(remaining).toFloat();
-    if ((type != "lead_acid" && type != "lifepo4_4s") || critical < 6.0f || critical > 20.0f || low <= critical || low > 20.0f) { serialErr("INVALID_BATTERY"); return; }
+    if (!isValidBatteryProfileId(type) || critical < 6.0f || critical > 20.0f || low <= critical || low > 20.0f) { serialErr("INVALID_BATTERY"); return; }
     batteryType = type; lowVoltage = low; criticalVoltage = critical; saveDeviceSettings();
-    serialOk("BATTERY " + batteryType + " " + String(lowVoltage, 3) + " " + String(criticalVoltage, 3)); return;
+    serialOk("BATTERY " + percentEncode(batteryType) + " " + String(lowVoltage, 3) + " " + String(criticalVoltage, 3)); return;
   }
 
   if (setting == "SAMPLE") {
@@ -278,10 +277,6 @@ static void processSerialProvisioningCommand(String line) {
     if (!setDevicePasswordFlexible(username, devicePassword, error)) { serialErr(error); return; }
     provisioningVerifyFailures = 0; provisioningVerifyBlockedUntilMs = 0;
 
-    // First-time trusted-USB initialization commonly happens before any home
-    // Wi-Fi has been configured. Once the Device Password exists, immediately
-    // expose the protected WPA2 + Security-2 setup network so the user can
-    // continue provisioning without a reboot. Never create an open AP.
     bool startProtectedSetup = wifiSsid.length() == 0 && !fallbackApActive;
     serialOk("PROVCRED " + percentEncode(username) + " " + apSsid);
     if (startProtectedSetup) {
@@ -295,8 +290,6 @@ static void processSerialProvisioningCommand(String line) {
 }
 
 void serviceSerialProvisioning() {
-  // During a firmware chunk the byte stream is opaque binary, not line data.
-  // Consume exactly the agreed length before parsing any further commands.
   if (firmwareUpdateRawBytesPending()) {
     serviceSignedFirmwareRawSerial();
     return;
