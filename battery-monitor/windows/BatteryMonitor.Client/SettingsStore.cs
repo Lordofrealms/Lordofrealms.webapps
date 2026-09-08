@@ -29,8 +29,11 @@ public sealed class SettingsStore
 
     public void Save(IEnumerable<MonitorEntry> devices)
     {
+        // P0-3: unauthenticated discovery candidates are intentionally transient.
+        // Only explicitly paired/previously saved monitors belong in devices.json.
+        var persistent = devices.Where(d => !d.IsCandidate).ToList();
         var temp = _path + ".tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(devices, _jsonOptions));
+        File.WriteAllText(temp, JsonSerializer.Serialize(persistent, _jsonOptions));
         File.Move(temp, _path, true);
     }
 }
