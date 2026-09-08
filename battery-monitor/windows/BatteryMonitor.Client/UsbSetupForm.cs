@@ -27,6 +27,7 @@ internal sealed class UsbSetupForm : Form
     public UsbSetupForm()
     {
         Text = "Battery Monitor - USB Setup";
+        Icon = AppIcon.Current;
         Width = 700;
         Height = 690;
         MinimumSize = new Size(620, 600);
@@ -41,7 +42,6 @@ internal sealed class UsbSetupForm : Form
         _batteryType.Items.Add(new Choice("12 V Lead Acid", "lead_acid"));
         _batteryType.Items.Add(new Choice("4S LiFePO4", "lifepo4_4s"));
         _batteryType.SelectedIndex = 0;
-        _batteryType.SelectedIndexChanged += (_, _) => ApplyPreset();
         _sample.Value = 10;
         _calFactor.Value = 1.0m;
         ApplyPreset();
@@ -95,7 +95,12 @@ internal sealed class UsbSetupForm : Form
         };
         root.Controls.Add(wifiNote, 1, 6);
 
-        AddRow(root, 7, "Battery type", _batteryType);
+        var batteryPanel = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
+        _batteryType.Width = 170;
+        batteryPanel.Controls.Add(_batteryType);
+        batteryPanel.Controls.Add(MakeButton("Apply Chemistry Defaults", (_, _) => ApplyPreset()));
+        AddRow(root, 7, "Battery type", batteryPanel);
+
         var thresholds = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
         thresholds.Controls.Add(new Label { Text = "Low", AutoSize = true, Margin = new Padding(3, 8, 3, 3) });
         _low.Width = 90; thresholds.Controls.Add(_low);
