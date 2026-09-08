@@ -17,7 +17,7 @@ internal sealed class AdvancedToolsForm : Form
 
         root.Controls.Add(new Label
         {
-            Text = "Advanced tools can rotate device setup credentials or perform a destructive factory firmware flash. Ordinary USB configuration is available from the main window without entering this area.",
+            Text = "Advanced tools can rotate device setup credentials or perform a signed first install on a blank, unencrypted ESP32. The first-install image is not a recovery image after Flash Encryption has activated. Ordinary USB configuration is available from the main window without entering this area.",
             AutoSize = true,
             MaximumSize = new Size(420, 0)
         });
@@ -26,7 +26,7 @@ internal sealed class AdvancedToolsForm : Form
         provisioning.Click += (_, _) => { using var f = new ProvisioningAdminForm(); f.ShowDialog(this); };
         root.Controls.Add(provisioning);
 
-        var firmware = new Button { Text = "Firmware Flash / Recovery...", AutoSize = true, Anchor = AnchorStyles.Left };
+        var firmware = new Button { Text = "Blank ESP32 First Install...", AutoSize = true, Anchor = AnchorStyles.Left };
         firmware.Click += (_, _) => { using var f = new FirmwareFlashForm(); f.ShowDialog(this); };
         root.Controls.Add(firmware);
 
