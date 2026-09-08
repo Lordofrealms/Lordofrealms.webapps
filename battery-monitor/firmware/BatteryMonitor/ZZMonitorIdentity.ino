@@ -34,7 +34,7 @@ static String monitorBase64Encode(const uint8_t* data, size_t len) {
 }
 
 static bool validMonitorNonce(const String& nonce) {
-  if (nonce.length() != 32) return false; // 128-bit client nonce, lower/upper hex accepted.
+  if (nonce.length() != 32) return false;
   uint8_t decoded[16];
   return parseManagementHex(nonce, decoded, sizeof(decoded));
 }
@@ -69,8 +69,6 @@ bool loadOrCreateMonitoringIdentity() {
     return monitoringIdentityReady;
   }
   if (len != 0) {
-    // A malformed existing identity is not silently replaced. That would make a
-    // corrupted NVS record look like an intentional factory identity reset.
     idPrefs.end();
     memset(monitoringIdentityKey, 0, sizeof(monitoringIdentityKey));
     monitoringIdentityReady = false;
@@ -85,16 +83,6 @@ bool loadOrCreateMonitoringIdentity() {
   return monitoringIdentityReady;
 }
 
-static bool deriveMonitorKeyWrapKey(MgmtSession* session, uint8_t out[32]) {
-  if (!session) return false;
-  uint8_t managementKey[32];
-  if (!getManagementKey(managementKey)) return false;
-  String message = String("BATMON-MONITOR-KEY-WRAP-V1|") + session->token + "|" + session->csrf;
-  bool ok = managementHmac(managementKey, message, out);
-  memset(managementKey, 0, sizeof(managementKey));
-  return ok;
-}
-
 void handleMonitoringKeyExport() {
   if (!requireManagementWriteAuth()) return;
   MgmtSession* session = findManagementSession();
@@ -107,8 +95,17 @@ void handleMonitoringKeyExport() {
     return;
   }
 
+  uint8_t managementKey[32];
   uint8_t wrapKey[32];
-  if (!deriveMonitorKeyWrapKey(session, wrapKey)) {
+  if (!getManagementKey(managementKey)) {
+    server.send(500, "application/json", "{\"error\":\"management key unavailable\"}");
+    return;
+  }
+  String wrapMessage = String("BATMON-MONITOR-KEY-WRAP-V1|") + session->token + "|" + session->csrf;
+  bool wrapReady = managementHmac(managementKey, wrapMessage, wrapKey);
+  memset(managementKey, 0, sizeof(managementKey));
+  if (!wrapReady) {
+    memset(wrapKey, 0, sizeof(wrapKey));
     server.send(500, "application/json", "{\"error\":\"monitoring key wrap unavailable\"}");
     return;
   }
