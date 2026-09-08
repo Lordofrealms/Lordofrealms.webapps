@@ -6,135 +6,160 @@
 
 **FIRST resolve the LIVE `battery-monitor-dev` remote head. Do not assume any SHA below is still current.**
 
-## Current handoff checkpoint
+## 1. Current handoff checkpoint
 
-The ESP-IDF architecture was verified at:
+The ESP-IDF production-build migration is complete and fully validated.
 
-`931ff1fcf90c7dac828f0b7f3fd28f68deef04f8` — `Document sole ESP-IDF firmware architecture`
+Final green product-source SHA:
 
-This session then refreshed the authoritative project-state document in:
+`249c18028b97714df7a62cabbb64b0ad1b354d7f` — `Revalidate ESP-IDF release pin alignment`
 
-`e8b7d426e048ac6d452b05eecbc9ad6e68e27615` — `Refresh Battery Monitor state for ESP-IDF migration`
+Authoritative validation:
 
-The final live branch head will include this handoff refresh as a later commit. Resolve the branch live before reading or changing anything.
+- Workflow: `Battery Monitor Toolchain`
+- Run: **#129**
+- Run ID: **`34185344138`**
+- Result: **SUCCESS**
 
-## 1. Mission now
+Run #129 completed all normal branch Toolchain jobs successfully:
 
-Finish the build-system migration to the **single ESP-IDF production architecture**, get the authoritative ESP-IDF application build green, then clear all downstream safety/security/release gates.
+- canonical ESP-IDF firmware build;
+- Android provisioning APK build/package;
+- Windows exact-firmware download and toolchain verification;
+- pinned Security-2 provisioner helper build;
+- Windows client build;
+- **P0-3 protocol self-test**;
+- self-contained Windows publish/bundle/artifact upload.
 
-Do **not** create a parallel firmware implementation or restore PlatformIO as a second production build path.
+Normal Phase 6 feature/operations work may resume after resolving and reading the live branch state.
 
 ## 2. Canonical production architecture
 
-The sole production firmware build authority is:
+There is **one production firmware build architecture**:
 
-- **ESP-IDF v5.5.5**
-- `espressif/arduino-esp32` IDF component pinned to **3.3.7**
-- IDF target: **`esp32`** for the existing classic ESP32 / ESP32-WROOM-32 hardware
+- ESP-IDF **v5.5.5**
+- exact ESP-IDF commit `b774170ff46c393eeb5e495ea37936038d3f4f4f`
+- `espressif/arduino-esp32` managed component pinned to **3.3.7**
+- target **`esp32`** for classic ESP32 / ESP32-WROOM-32
 - project root: `battery-monitor/firmware/idf/`
 - application component: `battery-monitor/firmware/idf/main/`
-- entrypoint: `battery-monitor/firmware/idf/main/BatteryMonitorApp.cpp`
-- single runtime behavior body: `battery-monitor/firmware/BatteryMonitor/BatteryMonitor.ino`
-- shared config/include authority: `battery-monitor/firmware/include/`
+- wrapper/entrypoint: `battery-monitor/firmware/idf/main/BatteryMonitorApp.cpp`
+- sole runtime behavior implementation: existing `.ino` source under `battery-monitor/firmware/BatteryMonitor/`, headed by `BatteryMonitor.ino`
+- authoritative firmware build entrypoint: `battery-monitor/firmware/idf/build.sh`
 
-`BatteryMonitorApp.cpp` initializes Arduino as an ESP-IDF component and then invokes the existing `setup()` / `loop()` runtime body. This intentionally preserves one behavior implementation while ESP-IDF owns the build, component/framework resolution, SDK configuration, partitioning, and FreeRTOS runtime.
+`BatteryMonitorApp.cpp` is only a thin translation-unit wrapper. It initializes Arduino under ESP-IDF, supplies required forward declarations, directly includes the established `.ino` tabs, and invokes the existing `setup()` / `loop()` implementation.
 
-`battery-monitor/hardware/firmware/...` is fixture/interop/reference material only; it is not the production firmware source tree.
+**Do not create a second production firmware implementation.**  
+**Do not restore PlatformIO as an alternate production build path.**
 
-## 3. What changed immediately before handoff
+The current tree contains no PlatformIO production path and no duplicate firmware runtime.
 
-- ESP-IDF became the sole documented production build architecture.
-- CI now reaches a mandatory canonical ESP-IDF application build.
-- The old `PROJECT_STATE_LATEST.md` / `PROJECT_HANDOFF_LATEST.md` still described the pre-migration PlatformIO authority and were stale.
-- This handoff session replaced that stale state with the current ESP-IDF migration authority.
-- Existing runtime/business/security behavior remains in the shared `.ino` so the migration does not fork behavior.
+## 3. Migration failure and resolution
 
-## 4. Current CI blocker
+The original authoritative failing migration run was Toolchain #124 / run ID `34181484415`.
 
-At architecture commit:
+The first concrete compiler diagnostic was:
 
-`931ff1fcf90c7dac828f0b7f3fd28f68deef04f8`
+`SecureProvisioning.ino:199: percentEncode was not declared in this scope`
 
-`Battery Monitor Toolchain`:
+The root cause was loss of Arduino IDE sketch-preprocessor auto-generated prototypes when the same `.ino` tabs were compiled directly as C++ under ESP-IDF.
 
-- run **#124**
-- run ID **`34181484415`**
-- result: **FAILED**
-- failure step: **`Run ESP-IDF application build`**
+The fix was intentionally narrow: required cross-tab forward declarations were added to `BatteryMonitorApp.cpp`. No runtime behavior was duplicated or rewritten.
 
-The earlier ground-truth/setup portions reached before that step succeeded. The workflow stopped at the mandatory ESP-IDF application build, so later validation/safety/security/release gates were skipped for that run.
+A second concrete migration issue was then found: Arduino-ESP32 had drifted to **3.3.11** in the managed-component/release metadata despite the architecture requiring **3.3.7**. The live component manifest, IDF authority documentation, and signed-release provenance are now aligned to **3.3.7**.
 
-The connected GitHub job-log read did **not** return the concrete compiler diagnostic during this session. Therefore no root-cause theory is authoritative yet. **Do not guess.** The next session should retrieve the current job log and fix the first concrete build error shown.
+The first fully green post-fix Toolchain was #128 / `34184628946`. Run #129 is the final migration authority because it revalidated the corrected release-pin alignment head.
 
-## 5. Last known green pre-migration reference
+## 4. Frozen runtime/security requirements
 
-The last documented green product-source checkpoint before the build-authority migration was:
-
-`83c678127671f8c570c488c63f878a57fcafdacf`
-
-with:
-
-- `Battery Monitor Toolchain` run **#107**
-- run ID **`34177651347`**
-- result: **SUCCESS**
-
-Use this only as a behavioral/security reference. It is **not** permission to restore PlatformIO as production build authority.
-
-## 6. Requirements that remain frozen
-
-The build migration must preserve established runtime and P0 security/resilience behavior. Do not weaken or bypass:
+Do not weaken or bypass the established Battery Monitor behavior, including:
 
 - relay safety/fail-safe behavior;
 - voltage/current/operating-state freshness checks;
-- OTA availability checks and fail-closed update behavior;
-- signed OTA/release-policy enforcement and rollback protections;
+- OTA availability checking and fail-closed update behavior;
+- signed update/release-policy enforcement and rollback protection;
 - WebUI and SerialUI administrator security/recovery;
 - lockout/human-challenge behavior;
-- audit persistence/export behavior;
-- release provenance, ledger, rollback policy, toolchain preflight, and ground-truth checks.
+- audit persistence/export;
+- release provenance and production signature verification;
+- existing rollback/release-policy/toolchain/ground-truth expectations where implemented.
 
-Do not weaken CI merely to get a green badge.
+The migration is complete specifically because these controls remained in the single existing runtime rather than being forked into a second implementation.
 
-## 7. Read these first at the LIVE branch head
+## 5. Manual signed-release workflow
 
-Read in this order:
+`.github/workflows/battery-monitor-signed-release.yml` is intentionally a **manual `workflow_dispatch` production-release gate**, not an ordinary branch-push CI job.
 
-1. `battery-monitor/AGENTS.md`
-2. `battery-monitor/PROJECT_HANDOFF_LATEST.md`
-3. `battery-monitor/PROJECT_STATE_LATEST.md`
-4. `battery-monitor/firmware/README.md`
-5. `battery-monitor/firmware/idf/README.md`
-6. `.github/workflows/battery-monitor-ci.yml`
+No production release was requested as part of this migration closeout, so this workflow was **not dispatched just to satisfy migration CI**. Do not claim otherwise in future state.
+
+Its current definition was audited during closeout and remains fail-closed. It uses the same `firmware/idf/build.sh` authority and enforces:
+
+- exact source-SHA validation;
+- production signing-key fingerprint validation;
+- RSA-3072-PSS-SHA256 signatures;
+- independent signature verification;
+- tampered-image rejection;
+- wrong-key rejection;
+- production Windows verifier validation/tamper rejection;
+- signed-release provenance recording Arduino-ESP32 **3.3.7**.
+
+For an actual production release, dispatch this workflow with the exact intended source SHA and version and require its gated signing environment to pass.
+
+## 6. Last pre-migration reference
+
+Behavioral/security reference only:
+
+`83c678127671f8c570c488c63f878a57fcafdacf`
+
+- Toolchain run **#107**
+- Run ID `34177651347`
+- Result **SUCCESS**
+
+Do not restore its old build-system assumptions. Current production authority is ESP-IDF only.
+
+## 7. Read first in the next session
+
+At the exact **live** `battery-monitor-dev` SHA, read:
+
+1. `battery-monitor/PROJECT_HANDOFF_LATEST.md`
+2. `battery-monitor/PROJECT_STATE_LATEST.md`
+3. `battery-monitor/firmware/idf/README.md`
+4. `.github/workflows/battery-monitor-ci.yml`
+5. `.github/workflows/battery-monitor-signed-release.yml` when release/security work is relevant
+6. `battery-monitor/firmware/idf/main/idf_component.yml`
 7. `battery-monitor/firmware/idf/main/BatteryMonitorApp.cpp`
 8. `battery-monitor/firmware/BatteryMonitor/BatteryMonitor.ino`
 
-Then inspect the latest `Battery Monitor Toolchain` workflow run and its ESP-IDF build job logs.
+Then resolve the latest applicable Battery Monitor workflow run for the live head before changing production source.
 
-## 8. Exact next-session work order
+The earlier handoff named `battery-monitor/AGENTS.md` and `battery-monitor/firmware/README.md`; those paths were verified absent in the live Git tree during migration closeout. Do not silently substitute default-branch/stale copies. The previously named `battery-monitor/firmware/include/` path likewise is not a tracked directory in the current tree.
 
-1. Resolve the **live** `battery-monitor-dev` branch head and confirm no later work superseded this handoff.
-2. Read the files above at that exact ref.
-3. Resolve the latest CI run for the live head.
-4. Obtain the actual diagnostic from `Run ESP-IDF application build`.
-5. Fix the **first concrete build error** in the canonical ESP-IDF/shared-production-source architecture only.
-6. Push and rerun until the canonical ESP-IDF application build passes.
-7. Continue through every downstream safety/security/release gate that had been skipped.
-8. Fix genuine downstream failures without bypassing or weakening the gates.
-9. When everything is green, update `PROJECT_STATE_LATEST.md` and this handoff with the final green SHA/run.
-10. Only then resume normal Phase 6 feature/operations work.
+## 8. Next work order
 
-## 9. Migration completion criteria
+The migration blocker is closed. Resume normal **Phase 6 feature/operations work** from the live branch.
 
-Do not call the migration complete until:
+When doing so:
 
-- canonical ESP-IDF v5.5.5 application build is green in CI;
-- the intended Arduino IDF component remains pinned to 3.3.7;
-- all applicable later safety/security/release gates actually run and pass;
-- no production build depends on PlatformIO;
-- no second firmware runtime implementation exists;
-- existing runtime/security behavior has not been weakened;
-- authoritative state/handoff docs cite the final green commit and workflow run.
+1. resolve the live remote head first;
+2. preserve the single ESP-IDF/Arduino-component runtime architecture;
+3. keep Arduino-ESP32 pinned to 3.3.7 unless an explicit, separately validated architecture decision changes it;
+4. keep existing safety/security behavior fail-closed;
+5. run the applicable Toolchain after production-source changes;
+6. use the manual signed-release workflow only for an actual production release;
+7. treat Secure Boot, Flash Encryption, and NVS Encryption as deliberate future security changes, not incidental migration cleanup.
+
+## 9. Completion record
+
+ESP-IDF migration completion criteria are satisfied at product-source SHA `249c18028b97714df7a62cabbb64b0ad1b354d7f` with Toolchain run #129 / `34185344138`:
+
+- ESP-IDF 5.5.5 canonical build: green;
+- Arduino-ESP32 3.3.7 pin: confirmed;
+- normal applicable downstream Toolchain jobs/gates including P0-3: green;
+- PlatformIO production dependency: absent;
+- second runtime implementation: absent;
+- migration runtime/security weakening: none introduced by the build fixes;
+- authoritative state/handoff: updated to cite this final green checkpoint.
 
 ## 10. Remote/local warning
 
-This handoff verifies the **GitHub remote branch**, not any developer's local clone. Before working locally, `git fetch` and compare the local checkout to the live remote head.
+This handoff is based on the **GitHub remote branch**. A local checkout must be fetched and compared to the live remote head before further work.
