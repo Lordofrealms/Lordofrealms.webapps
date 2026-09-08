@@ -55,7 +55,19 @@ public sealed class DiscoveryService : IDisposable
                 var json = Encoding.UTF8.GetString(result.Buffer);
                 var device = JsonSerializer.Deserialize<DiscoveredDevice>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                 if (device is null || device.Protocol != "BATMON_DISCOVERY_V1" || string.IsNullOrWhiteSpace(device.DeviceId)) continue;
-                if (string.IsNullOrWhiteSpace(device.Ip)) device.Ip = result.RemoteEndPoint.Address.ToString();
+
+                // P0-3 hardening: a discovery payload is not allowed to choose
+                // what host the Windows client will poll. Always bind the
+                // address to the actual UDP packet source. The payload IP is
+                // informational/untrusted metadata only and is overwritten.
+                if (result.RemoteEndPoint.Address.AddressFamily != AddressFamily.InterNetwork) continue;
+                device.Ip = result.RemoteEndPoint.Address.ToString();
+
+                // Keep the current protocol port constrained to an ordinary
+                // TCP port. A malicious discovery packet must not turn the
+                // monitor client into an arbitrary-port request primitive.
+                if (device.Port < 1 || device.Port > 65535) continue;
+
                 DeviceDiscovered?.Invoke(device);
             }
             catch (OperationCanceledException) { break; }
