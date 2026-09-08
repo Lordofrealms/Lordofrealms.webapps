@@ -18,6 +18,7 @@
 // BATMON1 PING
 // BATMON1 STATUS
 // BATMON1 PROVSTATUS
+// BATMON1 RADIOSTATUS
 // BATMON1 MONITORKEY                 (trusted physical USB only; secret response)
 // BATMON1 VERIFYPROVCRED <encoded-device-password>
 // BATMON1 FWCAPS
@@ -29,6 +30,7 @@
 // BATMON1 SET BATTERY <profile-id> <lowV> <criticalV>
 // BATMON1 SET SAMPLE <seconds>
 // BATMON1 SET CAL <factor> <offsetV>
+// BATMON1 SET RADIO <sleep:0|1> <tx-quarter-dbm>
 // BATMON1 SET WIFI <encoded-ssid> <encoded-password>
 // BATMON1 SET PROVCRED <encoded-username> <encoded-device-password>
 // BATMON1 CLEARWIFI
@@ -142,6 +144,7 @@ static void processSerialProvisioningCommand(String line) {
   }
 
   if (command == "PROVSTATUS") { serialOk("PROVSTATUS " + provisioningIdentitySummary()); return; }
+  if (command == "RADIOSTATUS") { serialOk(wifiRadioSettingsSummary()); return; }
 
   if (command == "MONITORKEY") {
     String keyHex = trustedUsbMonitoringIdentityKeyHex();
@@ -258,13 +261,36 @@ static void processSerialProvisioningCommand(String line) {
     serialOk("CAL " + String(calibrationFactor, 6) + " " + String(calibrationOffset, 4)); return;
   }
 
+  if (setting == "RADIO") {
+    String sleepToken = nextToken(remaining);
+    String txToken = nextToken(remaining);
+    remaining.trim();
+    if ((sleepToken != "0" && sleepToken != "1") || txToken.length() == 0 || remaining.length() != 0) {
+      serialErr("RADIO_INVALID_ARGUMENTS");
+      return;
+    }
+    char* end = nullptr;
+    long txQuarterDbm = strtol(txToken.c_str(), &end, 10);
+    if (!end || *end != '\0') { serialErr("RADIO_INVALID_TX_POWER"); return; }
+    String error;
+    if (!setWifiRadioSettings(sleepToken == "1", (int)txQuarterDbm, error)) {
+      serialErr(error);
+      return;
+    }
+    serialOk(wifiRadioSettingsSummary());
+    return;
+  }
+
   if (setting == "WIFI") {
     String ssid = percentDecode(nextToken(remaining));
     String password = percentDecode(nextToken(remaining));
     if (ssid.length() < 1 || ssid.length() > 32 || password.length() > 63) { serialErr("INVALID_WIFI"); return; }
     saveWifiSettings(ssid, password);
     if (!secureProvisioningActive) {
-      WiFi.mode(WIFI_STA); WiFi.setHostname(hostName.c_str()); WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
+      WiFi.mode(WIFI_STA);
+      applyWifiRadioSettings();
+      WiFi.setHostname(hostName.c_str());
+      WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
       wifiDisconnectedSinceMs = millis(); nextReconnectAttemptMs = millis() + RETRY_INTERVAL_MS;
     }
     serialOk("WIFI " + percentEncode(wifiSsid)); return;

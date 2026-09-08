@@ -25,6 +25,7 @@ bool initializeFirmwareReleasePolicy(String& errorOut);
 bool commitRunningFirmwareReleaseFloor(String& errorOut);
 esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition);
 
+#include "../../BatteryMonitor/WifiRadioSettings.ino"
 #include "../../BatteryMonitor/BatteryMonitor.ino"
 #include "../../BatteryMonitor/WebServerTask.ino"
 #include "../../BatteryMonitor/SecureProvisioning.ino"
@@ -38,6 +39,7 @@ esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition)
 #include "../../BatteryMonitor/FirmwareUpdate.ino"
 #undef esp_ota_set_boot_partition
 
+#include "../../BatteryMonitor/WifiFirmwareUpdate.ino"
 #include "../../BatteryMonitor/SerialProvisioning.ino"
 #include "../../BatteryMonitor/YManagementAuthPrototypes.ino"
 #include "../../BatteryMonitor/ZManagementAuth.ino"

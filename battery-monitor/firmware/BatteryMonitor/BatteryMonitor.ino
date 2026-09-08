@@ -5,10 +5,11 @@
 // add authenticated monitoring identity without duplicating the large embedded
 // browser UI, protected Wi-Fi fallback can recover a monitor when infrastructure
 // Wi-Fi is unavailable, signed USB/LAN OTA can run through the application after
-// Flash Encryption is active, a newly selected signed OTA image must survive a
-// local health probation before the ESP-IDF bootloader permanently accepts it,
-// and the highest accepted signed release sequence is retained in encrypted NVS
-// to block signed-image downgrades.
+// Flash Encryption is active, advanced Wi-Fi radio settings can be persisted in
+// encrypted NVS, a newly selected signed OTA image must survive a local health
+// probation before the ESP-IDF bootloader permanently accepts it, and the highest
+// accepted signed release sequence is retained in encrypted NVS to block signed-
+// image downgrades.
 
 #include <esp_ota_ops.h>
 
@@ -101,6 +102,7 @@ static void beginHomeWifiRetryAfterProvisioningStops(unsigned long now) {
   protectedFallbackHomeRetryPending = false;
   protectedFallbackHomeRetryAtMs = 0;
   WiFi.mode(WIFI_STA);
+  applyWifiRadioSettings();
   WiFi.setHostname(hostName.c_str());
   WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
   wifiDisconnectedSinceMs = now;
@@ -169,6 +171,7 @@ static void serviceWifiStateWithProtectedFallback() {
   if (wifiDisconnectedSinceMs == 0) {
     wifiDisconnectedSinceMs = now;
     WiFi.mode(WIFI_STA);
+    applyWifiRadioSettings();
     WiFi.setHostname(hostName.c_str());
     WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
     nextReconnectAttemptMs = now + RETRY_INTERVAL_MS;
@@ -195,6 +198,10 @@ void setup() {
   apSsid = String("BatteryMonitor-") + suffix;
 
   loadSettings();
+  loadWifiRadioSettings();
+  // setSleep() can cache the configured policy before Wi-Fi starts. TX power is
+  // applied again immediately after STA/AP startup below.
+  applyWifiRadioSettings();
 
   String releasePolicyError;
   bool releasePolicyReady = initializeFirmwareReleasePolicy(releasePolicyError);
@@ -217,6 +224,8 @@ void setup() {
   registerWifiFirmwareUpdateRoutes();
 
   bool connected = blockingInitialConnect();
+  if (!applyWifiRadioSettings())
+    Serial.println("WARNING: Could not fully apply configured Wi-Fi radio policy.");
   if (connected) {
     Serial.printf("Wi-Fi connected: %s\n", WiFi.localIP().toString().c_str());
     startNormalNetworkServices();
@@ -230,6 +239,7 @@ void setup() {
     Serial.println("No Wi-Fi and no Device Password credential. Secure provisioning is disabled until trusted USB initialization.");
   }
 
+  serviceWifiRadioSettings();
   dedicatedWebServerTaskReady = initializeDedicatedWebServerTask();
 
   Serial.printf("Device %s (%s), hostname %s.local\n", deviceId.c_str(), deviceName.c_str(), hostName.c_str());
@@ -247,6 +257,7 @@ void loop() {
   serviceSerialProvisioning();
   serviceFirmwareUpdateTimeout();
   serviceWifiFirmwareUpdate();
+  serviceWifiRadioSettings();
 
   if (firmwareUpdateInProgress()) {
     // If the dedicated HTTP task could not be created, service LAN OTA through
