@@ -7,6 +7,7 @@ internal sealed class UsbSetupForm : Form
 {
     private readonly UsbProvisioner _provisioner = new();
     private readonly DeviceCredentialStore _credentials = new();
+    private readonly BatteryProfileCatalog _profiles = BatteryProfileCatalog.Current;
     private readonly ComboBox _port = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly Label _passwordStatus = new() { AutoSize = true };
     private readonly TextBox _devicePassword = new() { UseSystemPasswordChar = true };
@@ -36,23 +37,21 @@ internal sealed class UsbSetupForm : Form
     {
         Text = "Battery Monitor - USB Setup";
         Icon = AppIcon.Current;
-        Width = 720;
-        Height = 830;
-        MinimumSize = new Size(640, 700);
+        Width = 760;
+        Height = 840;
+        MinimumSize = new Size(660, 710);
         StartPosition = FormStartPosition.CenterParent;
 
-        ConfigureNumeric(_low, 6, 20, 2, 0.01m);
-        ConfigureNumeric(_critical, 6, 20, 2, 0.01m);
+        ConfigureNumeric(_low, 1, 20, 2, 0.01m);
+        ConfigureNumeric(_critical, 1, 20, 2, 0.01m);
         ConfigureNumeric(_sample, 1, 3600, 0, 1);
         ConfigureNumeric(_calFactor, 0.5m, 1.5m, 6, 0.0001m);
         ConfigureNumeric(_calOffset, -5, 5, 4, 0.001m);
 
-        _batteryType.Items.Add(new Choice("12 V Lead Acid", "lead_acid"));
-        _batteryType.Items.Add(new Choice("4S LiFePO4", "lifepo4_4s"));
-        _batteryType.SelectedIndex = 0;
+        LoadBatteryProfiles();
         _sample.Value = 10;
         _calFactor.Value = 1.0m;
-        ApplyPreset();
+        ApplyProfileDefaults();
 
         _updateWifi.CheckedChanged += (_, _) => UpdateWifiEnabledState();
         _showDevicePassword.CheckedChanged += (_, _) =>
@@ -65,6 +64,39 @@ internal sealed class UsbSetupForm : Form
         UpdateWifiEnabledState();
         RefreshPorts();
         FormClosing += (_, _) => _operationCts?.Cancel();
+    }
+
+    private void LoadBatteryProfiles(string? selectId = null, double? currentLow = null, double? currentCritical = null)
+    {
+        _profiles.Reload();
+        _batteryType.Items.Clear();
+        foreach (var profile in _profiles.All) _batteryType.Items.Add(profile);
+
+        if (!string.IsNullOrWhiteSpace(selectId) && _profiles.Find(selectId) is null)
+        {
+            _batteryType.Items.Add(new BatteryProfile
+            {
+                Id = selectId,
+                Name = $"Unknown / Custom ({selectId})",
+                LowVoltage = currentLow ?? 12.20,
+                CriticalVoltage = currentCritical ?? 11.90,
+                BuiltIn = false
+            });
+        }
+
+        var selected = -1;
+        if (!string.IsNullOrWhiteSpace(selectId))
+        {
+            for (var i = 0; i < _batteryType.Items.Count; i++)
+            {
+                if (_batteryType.Items[i] is BatteryProfile p && p.Id.Equals(selectId, StringComparison.OrdinalIgnoreCase))
+                {
+                    selected = i;
+                    break;
+                }
+            }
+        }
+        _batteryType.SelectedIndex = selected >= 0 ? selected : (_batteryType.Items.Count > 0 ? 0 : -1);
     }
 
     private void BuildUi()
@@ -83,8 +115,8 @@ internal sealed class UsbSetupForm : Form
         var intro = new Label
         {
             AutoSize = true,
-            MaximumSize = new Size(660, 0),
-            Text = "Connect an already-flashed Battery Monitor by USB. Trusted USB is the normal setup/recovery path for the Device Password, device name, Wi-Fi, battery thresholds, sample interval, and calibration. Factory setup-code/QR manufacture and blank-device flashing remain under Advanced Tools."
+            MaximumSize = new Size(690, 0),
+            Text = "Connect an already-flashed Battery Monitor by USB. Trusted USB is the normal setup/recovery path for the Device Password, device name, Wi-Fi, battery profile/thresholds, sample interval, and calibration. Factory setup-code/QR manufacture and blank-device flashing remain under Advanced Tools."
         };
         root.Controls.Add(intro, 0, 0);
         root.SetColumnSpan(intro, 2);
@@ -114,16 +146,16 @@ internal sealed class UsbSetupForm : Form
         var wifiNote = new Label
         {
             AutoSize = true,
-            MaximumSize = new Size(460, 0),
+            MaximumSize = new Size(500, 0),
             Text = "The current SSID can be read, but the password is intentionally never returned. Leave 'Update home Wi-Fi credentials' unchecked to preserve the existing password."
         };
         root.Controls.Add(wifiNote, 1, 10);
 
         var batteryPanel = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
-        _batteryType.Width = 170;
+        _batteryType.Width = 220;
         batteryPanel.Controls.Add(_batteryType);
-        batteryPanel.Controls.Add(MakeButton("Apply Chemistry Defaults", (_, _) => ApplyPreset()));
-        AddRow(root, 11, "Battery type", batteryPanel);
+        batteryPanel.Controls.Add(MakeButton("Apply Profile Defaults", (_, _) => ApplyProfileDefaults()));
+        AddRow(root, 11, "Battery profile", batteryPanel);
 
         var thresholds = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
         thresholds.Controls.Add(new Label { Text = "Low", AutoSize = true, Margin = new Padding(3, 8, 3, 3) });
@@ -196,13 +228,14 @@ internal sealed class UsbSetupForm : Form
                 _wifiSsid.Text = status.WifiSsid;
                 _wifiPassword.Clear();
                 _updateWifi.Checked = false;
-                _batteryType.SelectedIndex = status.BatteryType == "lifepo4_4s" ? 1 : 0;
+                LoadBatteryProfiles(status.BatteryType, status.LowVoltage, status.CriticalVoltage);
                 _low.Value = Clamp((decimal)status.LowVoltage, _low);
                 _critical.Value = Clamp((decimal)status.CriticalVoltage, _critical);
                 _sample.Value = Clamp(status.SampleIntervalSec, _sample);
                 _calFactor.Value = Clamp((decimal)status.CalibrationFactor, _calFactor);
                 _calOffset.Value = Clamp((decimal)status.CalibrationOffset, _calOffset);
-                AppendLog($"Loaded {status.DeviceId}: {status.Voltage:0.00} V; calibration {status.CalibrationFactor:0.######} / {status.CalibrationOffset:+0.####;-0.####;0} V.");
+                var fw = string.IsNullOrWhiteSpace(status.FirmwareVersion) ? "unknown" : status.FirmwareVersion;
+                AppendLog($"Loaded {status.DeviceId}: FW {fw}; {status.Voltage:0.00} V; profile {status.BatteryType}; calibration {status.CalibrationFactor:0.######} / {status.CalibrationOffset:+0.####;-0.####;0} V.");
             }));
         });
     }
@@ -302,6 +335,11 @@ internal sealed class UsbSetupForm : Form
             MessageBox.Show(this, "Low warning voltage must be higher than the critical voltage.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return false;
         }
+        if (_batteryType.SelectedItem is not BatteryProfile selectedProfile || !BatteryProfileCatalog.IsValidProfileId(selectedProfile.Id))
+        {
+            MessageBox.Show(this, "Select a valid battery profile.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return false;
+        }
         if (_updateWifi.Checked)
         {
             if (string.IsNullOrWhiteSpace(_wifiSsid.Text) || _wifiSsid.Text.Trim().Length > 32)
@@ -322,7 +360,7 @@ internal sealed class UsbSetupForm : Form
             UpdateWifi = _updateWifi.Checked,
             WifiSsid = _wifiSsid.Text.Trim(),
             WifiPassword = _wifiPassword.Text,
-            BatteryType = (_batteryType.SelectedItem as Choice)?.Value ?? "lead_acid",
+            BatteryType = selectedProfile.Id,
             LowVoltage = (double)_low.Value,
             CriticalVoltage = (double)_critical.Value,
             SampleIntervalSec = (int)_sample.Value,
@@ -386,11 +424,11 @@ internal sealed class UsbSetupForm : Form
         return null;
     }
 
-    private void ApplyPreset()
+    private void ApplyProfileDefaults()
     {
-        var lifepo4 = (_batteryType.SelectedItem as Choice)?.Value == "lifepo4_4s";
-        _low.Value = lifepo4 ? 12.80m : 12.20m;
-        _critical.Value = lifepo4 ? 12.00m : 11.90m;
+        if (_batteryType.SelectedItem is not BatteryProfile profile) return;
+        _low.Value = Clamp((decimal)profile.LowVoltage, _low);
+        _critical.Value = Clamp((decimal)profile.CriticalVoltage, _critical);
     }
 
     private void AppendLog(string text)
@@ -412,6 +450,4 @@ internal sealed class UsbSetupForm : Form
 
     private static decimal Clamp(decimal value, NumericUpDown control) => Math.Max(control.Minimum, Math.Min(control.Maximum, value));
     private static int PortNumber(string p) => p.StartsWith("COM", StringComparison.OrdinalIgnoreCase) && int.TryParse(p.AsSpan(3), out var n) ? n : int.MaxValue;
-
-    private sealed record Choice(string Text, string Value) { public override string ToString() => Text; }
 }
