@@ -41,6 +41,8 @@ Validated CI artifacts from run #156:
 
 The artifact names retain the prototype-family `v0.1.0` label, but the authoritative ESP-IDF application version embedded by `version.txt` is `0.1.0.2`.
 
+The #156 Windows CI artifact was inspected after validation. It contains the self-contained Windows client, both unsigned CI firmware images, pinned Security-2 helper, and pinned esptool. Its `UNSIGNED_CI_BUILD.txt` explicitly states that these images are intentionally unsigned and that Windows first-install/update functions reject them. The CI artifact must not be substituted for a production-signed hardware-test package.
+
 After the product checkpoint, two workflow-history commits briefly changed and then restored `.github/workflows/battery-monitor-signed-release.yml`. The final restoration commit is `bb98096e9ddeca52b6246b5ecc4ee11a75eb335d`; its tree is identical to `9f833f8e...`. No production release was dispatched during that transient edit. Documentation commits after that point do not supersede `9f833f8e...` as the validated product-source checkpoint.
 
 ## B. Canonical production firmware architecture
@@ -135,7 +137,9 @@ Completed:
 - Python provisioning-helper dependencies pinned;
 - normal CI and manual signed-release Actions pinned to immutable commits;
 - firmware release RSA-PSS signing, tamper rejection, wrong-key rejection, and Windows verifier gates implemented;
-- Android application backup disabled.
+- Android application backup disabled;
+- `battery-monitor/SIGNED_RELEASE_OPERATOR_CHECKLIST_0_1_0_2.md` now records the exact protected signing procedure and hardware-use split;
+- `battery-monitor/HARDWARE_TEST_PLAN_0_1_0_2.md` now records the complete pre-Secure-Boot physical validation matrix.
 
 Still open:
 
@@ -164,6 +168,10 @@ Do not disable Android cleartext globally before that replacement protocol/trans
 
 ## K. Next hardware security gate
 
+Detailed procedure:
+
+`battery-monitor/HARDWARE_TEST_PLAN_0_1_0_2.md`
+
 Before enabling Secure Boot, validate real encrypted devices through at minimum:
 
 1. blank-device first install;
@@ -188,6 +196,10 @@ Important migration caveat: post-boot rollback support is a bootloader feature. 
 
 ## L. Manual signed-release workflow
 
+Exact operator checklist:
+
+`battery-monitor/SIGNED_RELEASE_OPERATOR_CHECKLIST_0_1_0_2.md`
+
 `.github/workflows/battery-monitor-signed-release.yml` remains a manual `workflow_dispatch` production release gate. Do not add a push trigger or bypass the `battery-monitor-production-signing` environment merely to create a signed artifact.
 
 For the next real production-signed hardware-test package, use:
@@ -197,7 +209,16 @@ For the next real production-signed hardware-test package, use:
 
 The workflow independently checks that the requested version matches authoritative `battery-monitor/firmware/idf/version.txt` and validates the production signing-key fingerprint before signing.
 
-The connected GitHub actions available in the current chat session do not expose `workflow_dispatch`, so the production signing run has not been launched from chat.
+Release-run history was checked explicitly using `event=workflow_dispatch`. The only signed-release run currently present on `battery-monitor-dev` is older run #1 / run ID `34239873501`, successful at SHA `f846e2c628b96e5a7ddccc8413701fa832864b3d`. It predates the validated `0.1.0.2` source and is not the `0.1.0.2` hardware-test package.
+
+The connected GitHub actions available in the current chat session do not expose `workflow_dispatch`, so the production `0.1.0.2` signing run has not been launched from chat.
+
+Expected successful `0.1.0.2` release artifacts are:
+
+- `Battery-Monitor-Signed-Firmware-0.1.0.2`;
+- `Battery-Monitor-Windows-Signed-0.1.0.2`.
+
+For an already-encrypted unit, use Windows `Firmware Update -> Update Firmware`. For a genuinely blank/un-encrypted ESP32, use `Advanced First Install -> First Install (Blank ESP32)`. Never use the blank first-install function as recovery after Flash Encryption is active.
 
 ## M. Frozen expectations
 
@@ -209,22 +230,26 @@ At the exact live branch head, read:
 
 1. `battery-monitor/PROJECT_HANDOFF_LATEST.md`
 2. `battery-monitor/PROJECT_STATE_LATEST.md`
-3. `battery-monitor/firmware/README.md`
-4. `battery-monitor/firmware/idf/README.md`
-5. `battery-monitor/firmware/idf/build.sh`
-6. `battery-monitor/firmware/idf/version.txt`
-7. `battery-monitor/firmware/idf/sdkconfig.defaults`
-8. `battery-monitor/firmware/idf/partitions.csv`
-9. `battery-monitor/firmware/BatteryMonitor/BatteryMonitor.ino`
-10. `battery-monitor/firmware/BatteryMonitor/SerialProvisioning.ino`
-11. `battery-monitor/firmware/BatteryMonitor/FirmwareUpdate.ino`
-12. `battery-monitor/firmware/BatteryMonitor/FirmwareReleasePolicy.ino`
-13. `battery-monitor/windows/BatteryMonitor.Client/AdminSecurity.cs`
-14. `battery-monitor/windows/BatteryMonitor.Client/UsbSetupForm.cs`
-15. `.github/workflows/battery-monitor-ci.yml`
-16. `.github/workflows/battery-monitor-signed-release.yml`
+3. `battery-monitor/SIGNED_RELEASE_OPERATOR_CHECKLIST_0_1_0_2.md`
+4. `battery-monitor/HARDWARE_TEST_PLAN_0_1_0_2.md`
+5. `battery-monitor/firmware/README.md`
+6. `battery-monitor/firmware/idf/README.md`
+7. `battery-monitor/firmware/idf/build.sh`
+8. `battery-monitor/firmware/idf/version.txt`
+9. `battery-monitor/firmware/idf/sdkconfig.defaults`
+10. `battery-monitor/firmware/idf/partitions.csv`
+11. `battery-monitor/firmware/BatteryMonitor/BatteryMonitor.ino`
+12. `battery-monitor/firmware/BatteryMonitor/SerialProvisioning.ino`
+13. `battery-monitor/firmware/BatteryMonitor/FirmwareUpdate.ino`
+14. `battery-monitor/firmware/BatteryMonitor/FirmwareReleasePolicy.ino`
+15. `battery-monitor/windows/BatteryMonitor.Client/AdminSecurity.cs`
+16. `battery-monitor/windows/BatteryMonitor.Client/UsbSetupForm.cs`
+17. `battery-monitor/windows/BatteryMonitor.Client/FirmwareUpdateForm.cs`
+18. `battery-monitor/windows/BatteryMonitor.Client/FirmwareFlashForm.cs`
+19. `.github/workflows/battery-monitor-ci.yml`
+20. `.github/workflows/battery-monitor-signed-release.yml`
 
-Then resolve the latest applicable `Battery Monitor Toolchain` run before changing production source.
+Then resolve the latest applicable `Battery Monitor Toolchain` run and signed-release run history before changing production source.
 
 ## O. Remote/local warning
 
