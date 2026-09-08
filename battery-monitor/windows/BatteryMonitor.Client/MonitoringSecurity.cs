@@ -102,6 +102,28 @@ internal sealed class MonitoringIdentityStore
 
 internal static class MonitoringProtocol
 {
+    // Deterministic vector makes accidental changes to byte framing/domain
+    // separation fail immediately when this protocol helper is first used.
+    static MonitoringProtocol()
+    {
+        var key = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
+        var payload = Encoding.UTF8.GetBytes("{\"apiVersion\":1,\"deviceId\":\"BM-A1B2C3\",\"port\":80}");
+        var expected = Convert.FromHexString("d58e947ba6d9192a3276b385e7f87805d20048d1d24980c0806fbb6be47894c7");
+        var actual = ComputeHmac("BATMON-DISCOVERY-V2", "00112233445566778899aabbccddeeff", payload, key);
+        try
+        {
+            if (!CryptographicOperations.FixedTimeEquals(expected, actual))
+                throw new InvalidOperationException("Battery Monitor P0-3 protocol self-test failed.");
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(key);
+            CryptographicOperations.ZeroMemory(payload);
+            CryptographicOperations.ZeroMemory(expected);
+            CryptographicOperations.ZeroMemory(actual);
+        }
+    }
+
     public static byte[] ComputeHmac(string domain, string nonce, ReadOnlySpan<byte> payload, ReadOnlySpan<byte> key)
     {
         if (key.Length != 32) throw new ArgumentException("Monitoring Identity Key must be 32 bytes.", nameof(key));
