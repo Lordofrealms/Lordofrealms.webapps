@@ -228,8 +228,16 @@ static bool loadDeviceCredentialBlob() {
 }
 
 bool loadDeviceCredentialIdentity() {
-  if (loadDeviceCredentialBlob()) return true;
-  return loadProvisioningIdentity(); // Backward compatibility with pre-P0-2 units.
+  // Once a v2 credential blob exists it is authoritative. If it is damaged,
+  // fail closed rather than reviving the pre-P0-2 credential fields.
+  Preferences secPrefs;
+  bool v2Present = false;
+  if (secPrefs.begin(PROV_NAMESPACE, true)) {
+    v2Present = secPrefs.getBytesLength(DEVICE_CRED_BLOB_KEY) > 0;
+    secPrefs.end();
+  }
+  if (v2Present) return loadDeviceCredentialBlob();
+  return loadProvisioningIdentity(); // Migration path for units not yet on v2.
 }
 
 bool verifyDevicePasswordFlexible(const String& candidate) {
@@ -273,6 +281,15 @@ static bool writeDeviceCredentialBlob(const String& username,
     return false;
   }
   size_t written = secPrefs.putBytes(DEVICE_CRED_BLOB_KEY, blob, total);
+  if (written == total) {
+    // The v2 blob is now authoritative. Retire the legacy split credential
+    // fields so the original printed code cannot remain a dormant fallback.
+    secPrefs.remove("user");
+    secPrefs.remove("apkey");
+    secPrefs.remove("codehash");
+    secPrefs.remove("salt");
+    secPrefs.remove("verifier");
+  }
   secPrefs.end();
   free(blob);
   if (written != total) {
