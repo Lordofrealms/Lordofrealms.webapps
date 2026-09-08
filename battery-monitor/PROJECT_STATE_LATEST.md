@@ -5,7 +5,7 @@
 **Branch:** `battery-monitor-dev`  
 **Prototype family:** `0.1.0`  
 **Authoritative firmware version / software release sequence:** `0.1.0.2` / `2`  
-**Production signature status:** pending protected manual signed-release workflow
+**Production signature status:** **VERIFIED — signed hardware-test release exists; physical validation pending**
 
 ## A. Resolve live state first
 
@@ -15,7 +15,7 @@ Latest fully validated **product/security source**:
 
 `d1d6c0ed782116d58f925543ae599939c0ec0191` — `Invalidate factory QR on code or port changes`
 
-Authoritative validation:
+Authoritative normal-CI validation:
 
 - Workflow: `Battery Monitor Toolchain`
 - Run: **#167**
@@ -45,19 +45,61 @@ Run #167 artifacts:
 - Android: `Battery-Monitor-Setup-Android-v0.1.0`, artifact ID `10070801187`, digest `bf9f6eb606f4043cd5b32bc9a171fe674b5881d7567048ffec9569c6b737d129`;
 - Windows: `Battery-Monitor-Windows-CI-UNSIGNED-v0.1.0`, artifact ID `10071096083`, digest `4c8ad2a07af51a7fe3d78e6135a848b4fad3128851d3a9fea92975e16c9b187a`.
 
-Authoritative application image SHA-256:
+Normal-CI application image SHA-256:
 
 `6be7c689ac1ef00446a7ed8c612d359f153150567d097ee77aa87320a4b44004`
 
-Authoritative merged blank-device image SHA-256:
+Normal-CI merged blank-device image SHA-256:
 
 `4b0bd958b15a605a195b9aff2fd49bcbc28e51193b2ada462452daaafe9b3d5b`
 
-The Windows bundle contains exactly those same two firmware images.
+The normal-CI Windows bundle contains exactly those same two unsigned firmware images. These normal-CI artifacts are intentionally **unsigned** and must not be substituted for the signed hardware-test release.
 
-These normal-CI artifacts are intentionally **unsigned** and are not the production signed hardware-test package.
+## C. Production signed release — VERIFIED
 
-## C. Canonical production firmware architecture
+Protected manual release:
+
+- Workflow: `Battery Monitor Signed Firmware Release`
+- Run: **#2**
+- Run ID: **`34267079480`**
+- Event: `workflow_dispatch`
+- Conclusion: **SUCCESS**
+- Signed source SHA: `d1d6c0ed782116d58f925543ae599939c0ec0191`
+- Version: `0.1.0.2`
+- Software release sequence: `2`
+- Signature algorithm: `RSA-3072-PSS-SHA256`
+
+Signed firmware artifact:
+
+- name: `Battery-Monitor-Signed-Firmware-0.1.0.2`
+- artifact ID: `10072544011`
+- artifact/ZIP SHA-256: `b302b2be4e2097974aac122e92efbd2ba8489d943ad7b6885e28af97416cd13f`
+- application image SHA-256: `9e3649ed58d1b3524ce8ed0fa85adc1abe46d32a2240503e836982f4815c690e`
+- application signature SHA-256: `aa87e978fab2ab4a3b1ddc93a72d11a3eea1bfdde6e195b242c2f7d154e359ba`
+- merged first-install image SHA-256: `0a964fd57bc055ab88c31accc8d4162462e865bc4f3e63d22198aa26435affd1`
+- merged first-install signature SHA-256: `2550dfd3bf8c8096148eee7fbabc4dddc744076efe4fd2d21017ac2759a415a0`
+
+Signed Windows artifact:
+
+- name: `Battery-Monitor-Windows-Signed-0.1.0.2`
+- artifact ID: `10072631425`
+- artifact/ZIP SHA-256: `42fba1869e933e9e4bd4fdaa3801333f5426f11639848a007e7003c8ae95ffd6`
+- `BatteryMonitor.Client.exe` SHA-256: `280a0d6f39250dbc3cafb4eea4756e4dea5f3d05047ee4ad172e4691f04afb06`
+- bundled signed images/signatures and release manifest match the signed firmware artifact byte-for-byte.
+
+`SIGNED_RELEASE.txt` records the exact validated product SHA, `0.1.0.2`, release sequence 2, `SIGNED_USB_OTA_V1`, and the frozen production-key fingerprint.
+
+Independent post-download OpenSSL verification was also performed using the public key embedded in the exact validated firmware source:
+
+- derived SPKI SHA-256: `69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e` — exact match;
+- application RSA-PSS signature: `Verified OK`;
+- merged-image RSA-PSS signature: `Verified OK`.
+
+Full package evidence is authoritative in:
+
+`battery-monitor/HARDWARE_TEST_ASSET_RECORD_0_1_0_2.md`
+
+## D. Canonical production firmware architecture
 
 There is one production firmware architecture:
 
@@ -74,7 +116,7 @@ There is one production firmware architecture:
 
 Do not restore PlatformIO, Arduino-ESP32 3.3.7, or a second firmware runtime.
 
-## D. Device-at-rest security
+## E. Device-at-rest security
 
 Current production ESP-IDF configuration:
 
@@ -89,7 +131,7 @@ Current production ESP-IDF configuration:
 
 The 4 MiB merged image is for a blank/un-encrypted ESP32 first install only. It is not post-encryption recovery media.
 
-## E. Signed USB OTA and release authority
+## F. Signed USB OTA and release authority
 
 Post-encryption updates use `SIGNED_USB_OTA_V1` over trusted physical USB:
 
@@ -105,7 +147,7 @@ Production public-key SPKI SHA-256:
 
 Automatic application rollback is enabled. A newly selected candidate receives a 60-second health probation before being marked valid. The encrypted-NVS software release floor prevents equal/older signed releases from being selected after a newer release is accepted.
 
-## F. Device Password / provisioning authority
+## G. Device Password / provisioning authority
 
 The validated candidate implements one normal Device Password concept across trusted USB administration, LAN management, protected setup Wi-Fi, Security-2 provisioning, Windows, Android, and embedded WebUI.
 
@@ -126,7 +168,7 @@ Focused compatibility procedure:
 
 `battery-monitor/DEVICE_PASSWORD_COMPATIBILITY_TEST_0_1_0_2.md`
 
-## G. Runtime behavior retained
+## H. Runtime behavior retained
 
 The validated `0.1.0.2` source also retains:
 
@@ -137,50 +179,43 @@ The validated `0.1.0.2` source also retains:
 - embedded WebUI status polling is ~1 second independent of ADC sample cadence;
 - runtime version reporting comes from the ESP-IDF application descriptor;
 - USB Setup chemistry selection does not silently overwrite thresholds; defaults require `Apply Chemistry Defaults`;
+- calibration factor/offset are stored in NVS as `calf`/`calo` and persist through reboot, power loss, and normal application-mediated signed OTA; full erase/NVS destruction is not persistence-preserving;
 - Advanced Tools uses the preconfigured high-entropy gate with PBKDF2-SHA256 verification and escalating lockout; its plaintext credential is not stored in repository authority documents.
 
-## H. P0 security status
+## I. P0 security status
 
-- P0-1 secure provisioning: source/build resolved; hardware/adversarial matrix pending.
-- P0-2 administrator security/recovery: source/build resolved; hardware/adversarial matrix pending; active-LAN request-integrity hardening remains future work.
-- P0-3 monitoring identity/spoof resistance: source/build resolved; protocol self-test green; real-network adversarial matrix pending.
+- P0-1 secure provisioning: source/build/signed release resolved; hardware/adversarial matrix pending.
+- P0-2 administrator security/recovery: source/build/signed release resolved; hardware/adversarial matrix pending; active-LAN request-integrity hardening remains future work.
+- P0-3 monitoring identity/spoof resistance: source/build/signed release resolved; protocol self-test green; real-network adversarial matrix pending.
 
 Known residual risk: normal LAN management still uses HTTP on the local LAN, so an active on-path attacker may observe session/CSRF bearer material. Proposed future replacement remains `BATMON-MGMT-WRITE-V2`, implemented atomically across firmware, embedded WebUI, Windows, and Android.
 
-## I. Next production action
+## J. Current production action: physical hardware validation
 
-The next production-signed hardware-test package must be built by the existing protected manual workflow:
+Production signing is complete. Do not re-sign merely to begin testing.
 
-`Battery Monitor Signed Firmware Release`
+Use the verified signed artifacts recorded in `battery-monitor/HARDWARE_TEST_ASSET_RECORD_0_1_0_2.md`.
 
-Exact inputs:
+For an existing already-encrypted Battery Monitor:
 
-- `source_sha`: `d1d6c0ed782116d58f925543ae599939c0ec0191`
-- `version`: `0.1.0.2`
+- use `Battery-Monitor-Windows-Signed-0.1.0.2`;
+- use `Firmware Update -> Update Firmware`;
+- do not use the merged first-install image or direct plaintext esptool flashing.
 
-Do **not** sign a later documentation-only head as a substitute for that validated product SHA.
+For a genuinely blank, unencrypted ESP32:
 
-Exact operator procedure:
+- use `Advanced First Install -> First Install (Blank ESP32)` from the signed Windows package;
+- allow first encrypted boot to complete without power interruption.
 
-`battery-monitor/SIGNED_RELEASE_OPERATOR_CHECKLIST_0_1_0_2.md`
-
-The connected GitHub tool surface used from chat does not expose workflow dispatch, so the production signed `0.1.0.2` run has not been launched from chat.
-
-## J. Hardware gate before Secure Boot
-
-Use:
+Then execute:
 
 - `battery-monitor/HARDWARE_TEST_PLAN_0_1_0_2.md`
 - `battery-monitor/DEVICE_PASSWORD_COMPATIBILITY_TEST_0_1_0_2.md`
-- `battery-monitor/VALIDATED_CANDIDATE_0_1_0_2.md`
 
-Where older test documents still mention `9f833f8e...` / Toolchain #156, `VALIDATED_CANDIDATE_0_1_0_2.md` supersedes **only their source/run/artifact metadata**. Their substantive test requirements remain in force.
-
-Before enabling Secure Boot, validate at minimum blank first install, Release Flash Encryption activation, encrypted NVS persistence, Device Password/setup behavior, fallback Wi-Fi transition, signed USB OTA both directions, tampered/wrong-signature rejection, interrupted OTA, candidate rollback, signed downgrade rejection, hostile-network P0 checks, relay/freshness behavior, ADC sanity, and controlled power interruption.
+Do not enable Secure Boot until the complete physical encrypted-device validation matrix passes.
 
 ## K. Distribution work still open
 
-- production-sign `0.1.0.2` from the exact validated source;
 - real encrypted-device hardware matrix;
 - production Android APK signing/release packaging;
 - Windows Authenticode/code signing;
@@ -194,25 +229,26 @@ At the exact live branch head, read in this order:
 
 1. `battery-monitor/PROJECT_HANDOFF_LATEST.md`
 2. `battery-monitor/PROJECT_STATE_LATEST.md`
-3. `battery-monitor/VALIDATED_CANDIDATE_0_1_0_2.md`
-4. `battery-monitor/SIGNED_RELEASE_OPERATOR_CHECKLIST_0_1_0_2.md`
-5. `battery-monitor/HARDWARE_TEST_PLAN_0_1_0_2.md`
-6. `battery-monitor/DEVICE_PASSWORD_COMPATIBILITY_TEST_0_1_0_2.md`
-7. `battery-monitor/firmware/README.md`
-8. `battery-monitor/firmware/idf/README.md`
-9. `battery-monitor/firmware/idf/build.sh`
-10. `battery-monitor/firmware/idf/version.txt`
-11. `battery-monitor/firmware/idf/sdkconfig.defaults`
-12. `battery-monitor/firmware/idf/partitions.csv`
-13. `battery-monitor/firmware/BatteryMonitor/BatteryMonitor.ino`
-14. `battery-monitor/firmware/BatteryMonitor/SerialProvisioning.ino`
-15. `battery-monitor/firmware/BatteryMonitor/FirmwareUpdate.ino`
-16. `battery-monitor/firmware/BatteryMonitor/FirmwareReleasePolicy.ino`
-17. `battery-monitor/firmware/BatteryMonitor/ZManagementAuth.ino`
-18. `battery-monitor/windows/BatteryMonitor.Client/UsbSetupForm.cs`
-19. `battery-monitor/windows/BatteryMonitor.Client/ProvisioningAdminForm.cs`
-20. `.github/workflows/battery-monitor-ci.yml`
-21. `.github/workflows/battery-monitor-signed-release.yml`
+3. `battery-monitor/HARDWARE_TEST_ASSET_RECORD_0_1_0_2.md`
+4. `battery-monitor/VALIDATED_CANDIDATE_0_1_0_2.md`
+5. `battery-monitor/SIGNED_RELEASE_OPERATOR_CHECKLIST_0_1_0_2.md`
+6. `battery-monitor/HARDWARE_TEST_PLAN_0_1_0_2.md`
+7. `battery-monitor/DEVICE_PASSWORD_COMPATIBILITY_TEST_0_1_0_2.md`
+8. `battery-monitor/firmware/README.md`
+9. `battery-monitor/firmware/idf/README.md`
+10. `battery-monitor/firmware/idf/build.sh`
+11. `battery-monitor/firmware/idf/version.txt`
+12. `battery-monitor/firmware/idf/sdkconfig.defaults`
+13. `battery-monitor/firmware/idf/partitions.csv`
+14. `battery-monitor/firmware/BatteryMonitor/BatteryMonitor.ino`
+15. `battery-monitor/firmware/BatteryMonitor/SerialProvisioning.ino`
+16. `battery-monitor/firmware/BatteryMonitor/FirmwareUpdate.ino`
+17. `battery-monitor/firmware/BatteryMonitor/FirmwareReleasePolicy.ino`
+18. `battery-monitor/firmware/BatteryMonitor/ZManagementAuth.ino`
+19. `battery-monitor/windows/BatteryMonitor.Client/UsbSetupForm.cs`
+20. `battery-monitor/windows/BatteryMonitor.Client/ProvisioningAdminForm.cs`
+21. `.github/workflows/battery-monitor-ci.yml`
+22. `.github/workflows/battery-monitor-signed-release.yml`
 
 Then resolve the latest applicable normal toolchain and signed-release history before modifying product source.
 
