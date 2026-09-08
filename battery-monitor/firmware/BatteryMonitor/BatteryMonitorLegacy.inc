@@ -3,6 +3,7 @@
 #include <WiFiUdp.h>
 #include <ESPmDNS.h>
 #include <Preferences.h>
+#include <esp_app_desc.h>
 
 // Battery Monitor firmware v0.1.0
 // Target: ESP32-WROOM-32 / classic ESP32 dev boards
@@ -25,7 +26,9 @@ void handleDevicePasswordPost();
 void handleEnterSecureProvisioningPost();
 void serviceManagementAuth();
 
-static const char* FW_VERSION = "0.1.0";
+// Report the version embedded by the authoritative ESP-IDF build rather than
+// maintaining a second manually synchronized firmware-version literal.
+#define FW_VERSION (esp_app_get_description()->version)
 static const int API_VERSION = 1;
 static const uint8_t BATTERY_ADC_PIN = 34;
 static const uint8_t RESET_WIFI_PIN = 0;
