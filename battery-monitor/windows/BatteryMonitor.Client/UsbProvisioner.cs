@@ -31,34 +31,34 @@ internal sealed class UsbProvisioner
         }, cancellationToken);
     }
 
-    public async Task SetProvisioningCredentialAsync(string portName, string username, string setupCode, Action<string>? log = null, CancellationToken cancellationToken = default)
+    public async Task SetProvisioningCredentialAsync(string portName, string username, string devicePassword, Action<string>? log = null, CancellationToken cancellationToken = default)
     {
         await Task.Run(() =>
         {
             using var port = OpenPort(portName);
             WaitForFirmwareAfterOpen(port, log, cancellationToken);
             EnsureBatteryMonitor(port, log, cancellationToken);
-            ExpectOk(port, $"BATMON1 SET PROVCRED {Encode(username)} {Encode(setupCode)}", "PROVCRED", log, cancellationToken);
+            ExpectOk(port, $"BATMON1 SET PROVCRED {Encode(username)} {Encode(devicePassword)}", "PROVCRED", log, cancellationToken);
         }, cancellationToken);
     }
 
-    public async Task<bool> VerifyProvisioningCredentialAsync(string portName, string setupCode, Action<string>? log = null, CancellationToken cancellationToken = default)
+    public async Task<bool> VerifyProvisioningCredentialAsync(string portName, string devicePassword, Action<string>? log = null, CancellationToken cancellationToken = default)
     {
         return await Task.Run(() =>
         {
             using var port = OpenPort(portName);
             WaitForFirmwareAfterOpen(port, log, cancellationToken);
             EnsureBatteryMonitor(port, log, cancellationToken);
-            var reply = SendCommand(port, $"BATMON1 VERIFYPROVCRED {Encode(setupCode)}", log, cancellationToken, TimeSpan.FromSeconds(3));
+            var reply = SendCommand(port, $"BATMON1 VERIFYPROVCRED {Encode(devicePassword)}", log, cancellationToken, TimeSpan.FromSeconds(3));
             if (reply == "BATMON1 OK PROVCRED MATCH") return true;
             if (reply == "BATMON1 OK PROVCRED NO_MATCH") return false;
             if (reply.StartsWith("BATMON1 ERR PROVCRED_VERIFY_COOLDOWN ", StringComparison.Ordinal))
             {
                 var seconds = reply.Substring("BATMON1 ERR PROVCRED_VERIFY_COOLDOWN ".Length);
-                throw new InvalidOperationException($"Setup-code verification is temporarily rate limited. Try again in about {seconds} second(s).");
+                throw new InvalidOperationException($"Device Password verification is temporarily rate limited. Try again in about {seconds} second(s).");
             }
             if (reply == "BATMON1 ERR PROVCRED_UNSET")
-                throw new InvalidOperationException("This device does not have a provisioning setup code yet.");
+                throw new InvalidOperationException("This device does not have a Device Password yet.");
             throw new InvalidOperationException($"Unexpected verification response: {reply}");
         }, cancellationToken);
     }
@@ -91,8 +91,6 @@ internal sealed class UsbProvisioner
                 $"BATMON1 SET CAL {settings.CalibrationFactor.ToString("0.000000", CultureInfo.InvariantCulture)} {settings.CalibrationOffset.ToString("0.0000", CultureInfo.InvariantCulture)}",
                 "CAL", log, cancellationToken);
 
-            // Wi-Fi credentials are intentionally write-only. Do not replace a
-            // working password unless the user explicitly selected Update Wi-Fi.
             if (settings.UpdateWifi)
             {
                 if (string.IsNullOrWhiteSpace(settings.WifiSsid))
@@ -330,12 +328,17 @@ internal sealed class UsbProvisioner
         if (parts.Length < 8) throw new InvalidOperationException("Battery Monitor returned an incomplete USB status response.");
         return new UsbMonitorStatus
         {
-            DeviceId = parts[0], DeviceName = Decode(parts[1]), BatteryType = parts[2],
-            LowVoltage = ParseDouble(parts[3]), CriticalVoltage = ParseDouble(parts[4]),
+            DeviceId = parts[0],
+            DeviceName = Decode(parts[1]),
+            BatteryType = parts[2],
+            LowVoltage = ParseDouble(parts[3]),
+            CriticalVoltage = ParseDouble(parts[4]),
             SampleIntervalSec = int.TryParse(parts[5], NumberStyles.Integer, CultureInfo.InvariantCulture, out var sample) ? sample : 10,
-            WifiSsid = Decode(parts[6]), Voltage = ParseDouble(parts[7]),
+            WifiSsid = Decode(parts[6]),
+            Voltage = ParseDouble(parts[7]),
             CalibrationFactor = parts.Length >= 9 ? ParseDouble(parts[8]) : 1.0,
-            CalibrationOffset = parts.Length >= 10 ? ParseDouble(parts[9]) : 0.0
+            CalibrationOffset = parts.Length >= 10 ? ParseDouble(parts[9]) : 0.0,
+            FirmwareVersion = parts.Length >= 11 ? Decode(parts[10]) : ""
         };
     }
 
@@ -374,9 +377,9 @@ internal sealed class UsbProvisioner
         {
             var tail = command.Substring(provPrefix.Length);
             var firstSpace = tail.IndexOf(' ');
-            return firstSpace < 0 ? provPrefix + "<redacted>" : provPrefix + tail.Substring(0, firstSpace) + " <setup-code-redacted>";
+            return firstSpace < 0 ? provPrefix + "<redacted>" : provPrefix + tail.Substring(0, firstSpace) + " <device-password-redacted>";
         }
-        if (command.StartsWith("BATMON1 VERIFYPROVCRED ", StringComparison.Ordinal)) return "BATMON1 VERIFYPROVCRED <setup-code-redacted>";
+        if (command.StartsWith("BATMON1 VERIFYPROVCRED ", StringComparison.Ordinal)) return "BATMON1 VERIFYPROVCRED <device-password-redacted>";
         if (command.StartsWith("BATMON1 FWBEGIN ", StringComparison.Ordinal))
         {
             var parts = command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -396,6 +399,7 @@ internal sealed class UsbMonitorStatus
 {
     public string DeviceId { get; set; } = "";
     public string DeviceName { get; set; } = "";
+    public string FirmwareVersion { get; set; } = "";
     public string BatteryType { get; set; } = "lead_acid";
     public double LowVoltage { get; set; }
     public double CriticalVoltage { get; set; }
