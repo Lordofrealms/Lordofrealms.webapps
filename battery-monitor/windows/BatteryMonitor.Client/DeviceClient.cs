@@ -8,7 +8,10 @@ namespace BatteryMonitor.Client;
 
 public sealed class DeviceClient
 {
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(5) };
+    private readonly HttpClient _http = new(new HttpClientHandler { AllowAutoRedirect = false })
+    {
+        Timeout = TimeSpan.FromSeconds(5)
+    };
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     private static Uri BaseUri(MonitorEntry d) => new($"http://{d.Address}:{d.Port}/");
@@ -16,8 +19,19 @@ public sealed class DeviceClient
     public async Task<DeviceStatus> GetStatusAsync(MonitorEntry device, CancellationToken cancellationToken = default)
     {
         var uri = new Uri(BaseUri(device), "api/status");
-        var status = await _http.GetFromJsonAsync<DeviceStatus>(uri, cancellationToken)
+        using var response = await _http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Device status request failed with HTTP {(int)response.StatusCode}.");
+
+        var mediaType = response.Content.Headers.ContentType?.MediaType;
+        if (!string.Equals(mediaType, "application/json", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Device status response was not JSON.");
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        var status = await JsonSerializer.DeserializeAsync<DeviceStatus>(stream, JsonOptions, cancellationToken)
             ?? throw new InvalidOperationException("Device returned an empty status response.");
+        if (!string.Equals(status.DeviceId, device.DeviceId, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Status response came from a different Battery Monitor identity.");
         return status;
     }
 
