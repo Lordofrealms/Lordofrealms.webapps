@@ -76,7 +76,7 @@ internal sealed class ProvisioningAdminForm : Form
             AutoSize = true,
             MaximumSize = new Size(330, 0),
             Margin = new Padding(14, 8, 3, 3),
-            Text = "The QR contains the same factory code plus the derived WPA2 setup-network password and Espressif Security-2 metadata. Treat a saved/printed QR exactly like the printed initial Device Password."
+            Text = "The QR is created only after the factory code is verified on the currently read device. It contains that code plus the derived WPA2 setup-network password and Espressif Security-2 metadata. Treat a saved/printed QR exactly like the printed initial Device Password."
         };
         qrPanel.Controls.Add(qrNote);
         root.Controls.Add(qrPanel, 0, 6); root.SetColumnSpan(qrPanel, 2);
@@ -134,9 +134,7 @@ internal sealed class ProvisioningAdminForm : Form
                 // a new Device ID and saved as a QR label before it is written and
                 // verified on that device. Credentials are intentionally unreadable.
                 _setupCode.Clear();
-                _qrPng = null;
-                _qr.Image?.Dispose();
-                _qr.Image = null;
+                ClearQr();
 
                 _deviceId = status.DeviceId;
                 _deviceLabel.Text = $"{status.DeviceId} — {status.DeviceName}";
@@ -159,8 +157,8 @@ internal sealed class ProvisioningAdminForm : Form
     private void GenerateCode()
     {
         _setupCode.Text = ProvisioningCode.GenerateFormatted();
-        RebuildQr();
-        AppendLog("Generated a new 80-bit factory setup code in memory. It has not been written to the ESP32 yet.");
+        ClearQr();
+        AppendLog("Generated a new 80-bit factory setup code in memory. Write and verify it on the current device before a QR can be saved.");
     }
 
     private async Task WriteCredentialAsync()
@@ -184,7 +182,7 @@ internal sealed class ProvisioningAdminForm : Form
                 _username = identity.Username;
                 _identityLabel.Text = $"Configured and verified: {identity.Security}, {_setupSsid}, user {_username}";
                 RebuildQr();
-                MessageBox.Show(this, "Factory setup code written and verified. Save/print the QR or record the displayed code before closing this window.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(this, "Factory setup code written and verified. The QR now corresponds to this device; save/print it or record the displayed code before closing this window.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }));
         });
     }
@@ -194,12 +192,25 @@ internal sealed class ProvisioningAdminForm : Form
         var port = SelectedPort(); if (port is null) return;
         var canonical = ProvisioningCode.Normalize(_setupCode.Text);
         if (canonical.Length != 16) { MessageBox.Show(this, "Enter a valid factory setup code to verify.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        if (string.IsNullOrWhiteSpace(_deviceId)) { MessageBox.Show(this, "Read the connected device first so its identity is known.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
         await RunAsync(async token =>
         {
             var matched = await _provisioner.VerifyProvisioningCredentialAsync(port, canonical, AppendLog, token);
-            BeginInvoke(new Action(() => MessageBox.Show(this,
-                matched ? "The factory setup code matches this ESP32's current Device Password." : "The factory setup code does NOT match this ESP32's current Device Password.",
-                "Battery Monitor", MessageBoxButtons.OK, matched ? MessageBoxIcon.Information : MessageBoxIcon.Warning)));
+            BeginInvoke(new Action(() =>
+            {
+                if (matched)
+                {
+                    _setupCode.Text = ProvisioningCode.Format(canonical);
+                    RebuildQr();
+                }
+                else
+                {
+                    ClearQr();
+                }
+                MessageBox.Show(this,
+                    matched ? "The factory setup code matches this ESP32's current Device Password. The QR is now available for this verified device/code pair." : "The factory setup code does NOT match this ESP32's current Device Password.",
+                    "Battery Monitor", MessageBoxButtons.OK, matched ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+            }));
         });
     }
 
@@ -210,10 +221,16 @@ internal sealed class ProvisioningAdminForm : Form
         Clipboard.SetText(ProvisioningCode.Format(canonical));
     }
 
-    private void RebuildQr()
+    private void ClearQr()
     {
         _qrPng = null;
-        _qr.Image?.Dispose(); _qr.Image = null;
+        _qr.Image?.Dispose();
+        _qr.Image = null;
+    }
+
+    private void RebuildQr()
+    {
+        ClearQr();
         var canonical = ProvisioningCode.Normalize(_setupCode.Text);
         if (canonical.Length != 16 || string.IsNullOrWhiteSpace(_deviceId) || string.IsNullOrWhiteSpace(_setupSsid)) return;
         var payload = ProvisioningCode.BuildQrPayload(_deviceId, _setupSsid, _username, canonical);
@@ -225,7 +242,7 @@ internal sealed class ProvisioningAdminForm : Form
 
     private void SaveQr()
     {
-        if (_qrPng is null) { MessageBox.Show(this, "Read the device and enter/generate a factory setup code first.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        if (_qrPng is null) { MessageBox.Show(this, "Write and verify the factory setup code on the currently read device before saving a QR.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         using var dialog = new SaveFileDialog { Filter = "PNG image|*.png", FileName = string.IsNullOrWhiteSpace(_deviceId) ? "BatteryMonitor-Setup.png" : $"{_deviceId}-Setup-QR.png" };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         File.WriteAllBytes(dialog.FileName, _qrPng);
