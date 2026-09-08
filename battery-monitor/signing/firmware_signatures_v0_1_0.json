@@ -1,0 +1,23 @@
+{
+  "schema": "BATMON_FIRMWARE_SIGNATURES_V1",
+  "version": "0.1.0",
+  "firmwareSourceCheckpoint": "83c678127671f8c570c488c63f878a57fcafdacf",
+  "algorithm": "RSA-3072-PSS-SHA256",
+  "publicKeySpkiSha256": "69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e",
+  "files": [
+    {
+      "file": "BatteryMonitor.ino.bin",
+      "role": "application-update",
+      "flashOffset": "0x10000",
+      "sha256": "ac588ad8851bc34bb529e888ec8177cb309908abee291aa266bea80b0bf0d71f",
+      "signaturePath": "battery-monitor/signing/releases/v0.1.0/BatteryMonitor.ino.bin.sig"
+    },
+    {
+      "file": "BatteryMonitor.ino.merged.bin",
+      "role": "factory-recovery",
+      "flashOffset": "0x0",
+      "sha256": "b3eb54f5c3a6364e4135d4778e35fbebe143f6bbb5f0bcbebeaff8b7f582cc1d",
+      "signaturePath": "battery-monitor/signing/releases/v0.1.0/BatteryMonitor.ino.merged.bin.sig"
+    }
+  ]
+}
