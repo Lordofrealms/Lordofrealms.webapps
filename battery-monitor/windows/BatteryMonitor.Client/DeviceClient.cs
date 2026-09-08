@@ -35,6 +35,53 @@ public sealed class DeviceClient
         return status;
     }
 
+    public async Task<DeviceStatus> GetAuthenticatedStatusAsync(MonitorEntry device, byte[] monitoringIdentityKey, CancellationToken cancellationToken = default)
+    {
+        if (monitoringIdentityKey.Length != 32)
+            throw new MonitoringIdentityException("Stored Monitoring Identity Key has an invalid length.");
+
+        var nonceBytes = RandomNumberGenerator.GetBytes(16);
+        var nonce = Convert.ToHexString(nonceBytes).ToLowerInvariant();
+        using var response = await _http.GetAsync(new Uri(BaseUri(device), $"api/status-auth?nonce={nonce}"), HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Authenticated status request failed with HTTP {(int)response.StatusCode}.");
+        var text = await response.Content.ReadAsStringAsync(cancellationToken);
+        var envelope = JsonSerializer.Deserialize<AuthenticatedMonitorEnvelope>(text, JsonOptions)
+            ?? throw new MonitoringIdentityException("Device returned an invalid authenticated status envelope.");
+        if (!string.Equals(envelope.Protocol, "BATMON_STATUS_V1", StringComparison.Ordinal) ||
+            !string.Equals(envelope.Nonce, nonce, StringComparison.OrdinalIgnoreCase))
+            throw new MonitoringIdentityException("Authenticated status nonce/protocol did not match the request.");
+
+        byte[] payload;
+        byte[] suppliedMac;
+        try
+        {
+            payload = Convert.FromBase64String(envelope.Payload);
+            suppliedMac = Convert.FromHexString(envelope.Hmac);
+        }
+        catch (FormatException ex)
+        {
+            throw new MonitoringIdentityException("Authenticated status contained malformed cryptographic data: " + ex.Message);
+        }
+
+        try
+        {
+            if (!MonitoringProtocol.VerifyHmac("BATMON-STATUS-V1", nonce, payload, suppliedMac, monitoringIdentityKey))
+                throw new MonitoringIdentityException("Battery Monitor status authentication failed. Do not trust the reported voltage/state.");
+            var status = JsonSerializer.Deserialize<DeviceStatus>(payload, JsonOptions)
+                ?? throw new MonitoringIdentityException("Authenticated status payload was invalid.");
+            if (!string.Equals(status.DeviceId, device.DeviceId, StringComparison.OrdinalIgnoreCase))
+                throw new MonitoringIdentityException("Authenticated status payload belongs to a different Battery Monitor.");
+            return status;
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(payload);
+            CryptographicOperations.ZeroMemory(suppliedMac);
+            CryptographicOperations.ZeroMemory(nonceBytes);
+        }
+    }
+
     private async Task<ManagementSession> AuthenticateAsync(MonitorEntry device, string devicePassword, CancellationToken cancellationToken)
     {
         if (!DevicePasswordRules.TryValidate(devicePassword, out var error))
@@ -85,6 +132,68 @@ public sealed class DeviceClient
         request.Headers.Add("X-Batmon-Session", session.SessionToken);
         request.Headers.Add("X-Batmon-CSRF", session.CsrfToken);
         return await _http.SendAsync(request, cancellationToken);
+    }
+
+    public async Task<byte[]> PairMonitoringIdentityAsync(MonitorEntry device, string devicePassword, CancellationToken cancellationToken = default)
+    {
+        var session = await AuthenticateAsync(device, devicePassword, cancellationToken);
+        try
+        {
+            using var content = new StringContent(string.Empty);
+            using var response = await PostAuthorizedAsync(device, "api/monitor-key", content, session, cancellationToken);
+            var text = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException($"Monitor pairing failed: {text}");
+            var reply = JsonSerializer.Deserialize<MonitoringKeyReply>(text, JsonOptions)
+                ?? throw new MonitoringIdentityException("Device returned an invalid monitoring-key envelope.");
+            if (!reply.Ok || reply.Version != 1 || !string.Equals(reply.DeviceId, device.DeviceId, StringComparison.OrdinalIgnoreCase))
+                throw new MonitoringIdentityException("Monitoring-key envelope belongs to a different or unsupported device identity.");
+
+            byte[] iv;
+            byte[] cipher;
+            byte[] tag;
+            try
+            {
+                iv = Convert.FromHexString(reply.Iv);
+                cipher = Convert.FromHexString(reply.Ciphertext);
+                tag = Convert.FromHexString(reply.Tag);
+            }
+            catch (FormatException ex)
+            {
+                throw new MonitoringIdentityException("Monitoring-key envelope is malformed: " + ex.Message);
+            }
+            if (iv.Length != 12 || cipher.Length != 32 || tag.Length != 16)
+                throw new MonitoringIdentityException("Monitoring-key envelope has invalid cryptographic lengths.");
+
+            var wrapMessage = Encoding.UTF8.GetBytes($"BATMON-MONITOR-KEY-WRAP-V1|{session.SessionToken}|{session.CsrfToken}");
+            var wrapKey = HMACSHA256.HashData(session.ManagementKey, wrapMessage);
+            var aad = Encoding.UTF8.GetBytes($"BATMON-MONITOR-KEY-AAD-V1|{device.DeviceId}|{session.SessionToken}");
+            var key = new byte[32];
+            try
+            {
+                using var aes = new AesGcm(wrapKey, tag.Length);
+                aes.Decrypt(iv, cipher, tag, key, aad);
+                return key;
+            }
+            catch (CryptographicException ex)
+            {
+                CryptographicOperations.ZeroMemory(key);
+                throw new MonitoringIdentityException("Monitoring Identity Key authentication/decryption failed: " + ex.Message);
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(wrapKey);
+                CryptographicOperations.ZeroMemory(wrapMessage);
+                CryptographicOperations.ZeroMemory(aad);
+                CryptographicOperations.ZeroMemory(iv);
+                CryptographicOperations.ZeroMemory(cipher);
+                CryptographicOperations.ZeroMemory(tag);
+            }
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(session.ManagementKey);
+        }
     }
 
     public async Task<DeviceStatus> ApplyConfigAsync(MonitorEntry device, string devicePassword, CancellationToken cancellationToken = default)
@@ -172,8 +281,6 @@ public sealed class DeviceClient
         }
     }
 
-    // Backward-compatible method name retained for callers while the UI moves
-    // from "Reset Wi-Fi" to authenticated secure reprovisioning.
     public Task ResetWifiAsync(MonitorEntry device, string devicePassword, CancellationToken cancellationToken = default) =>
         EnterSecureProvisioningAsync(device, devicePassword, cancellationToken);
 }
