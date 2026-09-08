@@ -36,7 +36,7 @@ internal sealed class FirmwareUpdateForm : Form
         {
             AutoSize = true,
             MaximumSize = new Size(650, 0),
-            Text = "Normal firmware update. This verifies that the selected USB device is already running Battery Monitor, then writes only the application partition. Wi-Fi credentials, setup identity/code verifier, battery settings, and ADC calibration are preserved. Use Advanced > Factory Flash only for blank-board/recovery work or a future partition-layout migration."
+            Text = "Normal firmware update. This verifies that the selected USB device is already running Battery Monitor and verifies the bundled RSA-3072/PSS firmware signature before esptool is allowed to run, then writes only the application partition. Wi-Fi credentials, setup identity/code verifier, battery settings, monitoring identity, and ADC calibration are preserved. Use Advanced > Factory Flash only for blank-board/recovery work or a future partition-layout migration."
         };
         root.Controls.Add(intro, 0, 0); root.SetColumnSpan(intro, 2);
 
@@ -90,7 +90,8 @@ internal sealed class FirmwareUpdateForm : Form
     {
         var tool = _flasher.EsptoolPath is null ? "esptool MISSING" : "esptool bundled";
         var firmware = _flasher.UpdateFirmwarePath is null ? "update image MISSING" : "update image bundled";
-        _bundleStatus.Text = $"Bundle: {tool}; {firmware}.";
+        var signature = _flasher.UpdateSignaturePath is null ? "production signature MISSING" : "production signature bundled";
+        _bundleStatus.Text = $"Bundle: {tool}; {firmware}; {signature}.";
     }
 
     private async Task DetectAsync()
@@ -120,26 +121,26 @@ internal sealed class FirmwareUpdateForm : Form
     {
         var port = _port.SelectedItem?.ToString();
         if (string.IsNullOrWhiteSpace(port)) { MessageBox.Show(this, "Select a COM port first.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-        if (!_flasher.IsUpdateReady) { MessageBox.Show(this, "The installed package is missing the bundled update image or esptool.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        if (!_flasher.IsUpdateReady) { MessageBox.Show(this, "The installed package is missing esptool, the update image, or its required production signature. Unsigned firmware cannot be installed by this client.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
 
         await RunAsync(async token =>
         {
             AppendLog("Verifying Battery Monitor identity before update...");
             var status = await _provisioner.ReadStatusAsync(port, AppendLog, token);
             if (MessageBox.Show(this,
-                    $"Update Battery Monitor {status.DeviceId} ({status.DeviceName}) while preserving its settings?",
+                    $"Install the signed firmware update on Battery Monitor {status.DeviceId} ({status.DeviceName}) while preserving its settings?",
                     "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
             {
                 AppendLog("Firmware update cancelled by user.");
                 return;
             }
 
-            AppendLog($"Verified {status.DeviceId}; entering bootloader and writing application partition only...");
+            AppendLog($"Verified {status.DeviceId}; validating production firmware signature before bootloader access...");
             var result = await _flasher.UpdateFirmwareAsync(port, AppendLog, token);
             if (!result.Success) throw new InvalidOperationException("Firmware update failed. See the log for details.");
-            AppendLog("Firmware update completed successfully; NVS/settings partitions were not written.");
+            AppendLog("Signed firmware update completed successfully; NVS/settings partitions were not written.");
             MessageBox.Show(this,
-                "Firmware update completed. The monitor was reset and should return using its existing configuration.",
+                "Signed firmware update completed. The monitor was reset and should return using its existing configuration.",
                 "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
         });
     }
