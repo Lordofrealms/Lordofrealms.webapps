@@ -18,6 +18,14 @@ internal static class ClientEnhancements
             };
             toolbar.Controls.Add(usbSetup);
 
+            var usbTrust = new Button { Text = "USB Pair / Trust", AutoSize = true };
+            usbTrust.Click += (_, _) =>
+            {
+                using var dialog = new UsbMonitoringTrustForm();
+                dialog.ShowDialog(form);
+            };
+            toolbar.Controls.Add(usbTrust);
+
             var wirelessSetup = new Button { Text = "Wireless Setup", AutoSize = true };
             wirelessSetup.Click += (_, _) =>
             {
