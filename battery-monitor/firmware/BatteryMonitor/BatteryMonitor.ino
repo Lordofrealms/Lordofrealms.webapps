@@ -29,6 +29,7 @@ void unlockBatteryMonitorWebDomain();
 static const unsigned long OTA_ROLLBACK_PROBATION_MS = 60UL * 1000UL;
 static const unsigned long OTA_ROLLBACK_CONFIRM_RETRY_MS = 10UL * 1000UL;
 static const uint32_t OTA_ROLLBACK_MIN_LOOP_PASSES = 250;
+static const unsigned long PROTECTED_FALLBACK_CLIENT_RETRY_DEFERRAL_MS = 60UL * 1000UL;
 static bool otaRollbackPendingValidation = false;
 static bool otaRollbackHealthPrerequisitesReady = false;
 static unsigned long otaRollbackProbationStartedMs = 0;
@@ -36,6 +37,7 @@ static unsigned long otaRollbackNextConfirmAttemptMs = 0;
 static uint32_t otaRollbackLoopPasses = 0;
 static bool dedicatedWebServerTaskReady = false;
 static unsigned long protectedFallbackHomeRetryAtMs = 0;
+static bool protectedFallbackHomeRetryPending = false;
 
 static void initializeOtaRollbackHealth(bool monitoringReady,
                                         bool releasePolicyReady) {
@@ -92,17 +94,38 @@ static void serviceOtaRollbackHealth() {
   Serial.printf("WARNING: Could not mark OTA candidate valid (%s); keeping rollback armed.\n", esp_err_to_name(err));
 }
 
-static void beginHomeWifiRetry(unsigned long now) {
-  stopFallbackAp();
+static void beginHomeWifiRetryAfterProvisioningStops(unsigned long now) {
+  protectedFallbackHomeRetryPending = false;
+  protectedFallbackHomeRetryAtMs = 0;
   WiFi.mode(WIFI_STA);
   WiFi.setHostname(hostName.c_str());
   WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
   wifiDisconnectedSinceMs = now;
   nextReconnectAttemptMs = now + RETRY_INTERVAL_MS;
+  Serial.println("Protected setup AP stopped cleanly; retrying saved home Wi-Fi.");
+}
+
+static void requestProtectedFallbackHomeRetry(unsigned long now) {
+  // Do not tear down the protected setup network while a phone/PC is actively
+  // associated with it. Defer briefly and try again after the client leaves.
+  if (WiFi.softAPgetStationNum() > 0) {
+    protectedFallbackHomeRetryAtMs = now + PROTECTED_FALLBACK_CLIENT_RETRY_DEFERRAL_MS;
+    Serial.println("Protected setup client is active; deferring scheduled home Wi-Fi retry for 60 seconds.");
+    return;
+  }
+
+  // network_prov_mgr_stop_provisioning() completes asynchronously: the manager
+  // is deinitialized by our NETWORK_PROV_END handler. Keep fallbackApActive true
+  // until that event arrives, then start STA from the normal loop on the next
+  // pass instead of racing Wi-Fi mode changes against provisioning shutdown.
   protectedFallbackHomeRetryAtMs = 0;
+  protectedFallbackHomeRetryPending = true;
+  Serial.println("Protected setup AP stopping for scheduled home Wi-Fi retry.");
+  requestStopSecureProvisioning();
 }
 
 static void startProtectedFallbackWithRetry(unsigned long now) {
+  protectedFallbackHomeRetryPending = false;
   startFallbackAp();
   if (fallbackApActive && wifiSsid.length() > 0) {
     protectedFallbackHomeRetryAtMs = now + RETRY_INTERVAL_MS;
@@ -116,9 +139,15 @@ static void serviceWifiStateWithProtectedFallback() {
   if (fallbackApActive) {
     if (wifiSsid.length() > 0 && protectedFallbackHomeRetryAtMs != 0 &&
         (int32_t)(now - protectedFallbackHomeRetryAtMs) >= 0) {
-      Serial.println("Protected setup AP pausing for scheduled home Wi-Fi retry.");
-      beginHomeWifiRetry(now);
+      requestProtectedFallbackHomeRetry(now);
     }
+    return;
+  }
+
+  // A scheduled retry only starts after NETWORK_PROV_END has deinitialized the
+  // provisioning manager and cleared fallbackApActive.
+  if (protectedFallbackHomeRetryPending) {
+    beginHomeWifiRetryAfterProvisioningStops(now);
     return;
   }
 
@@ -137,6 +166,7 @@ static void serviceWifiStateWithProtectedFallback() {
     if (hasProvisioningIdentity() || loadDeviceCredentialIdentity()) {
       startFallbackAp();
       protectedFallbackHomeRetryAtMs = 0;
+      protectedFallbackHomeRetryPending = false;
     }
     return;
   }
