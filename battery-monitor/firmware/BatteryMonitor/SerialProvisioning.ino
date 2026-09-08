@@ -276,7 +276,18 @@ static void processSerialProvisioningCommand(String line) {
     String error;
     if (!setDevicePasswordFlexible(username, devicePassword, error)) { serialErr(error); return; }
     provisioningVerifyFailures = 0; provisioningVerifyBlockedUntilMs = 0;
-    serialOk("PROVCRED " + percentEncode(username) + " " + apSsid); return;
+
+    // First-time trusted-USB initialization commonly happens before any home
+    // Wi-Fi has been configured. Once the Device Password exists, immediately
+    // expose the protected WPA2 + Security-2 setup network so the user can
+    // continue provisioning without a reboot. Never create an open AP.
+    bool startProtectedSetup = wifiSsid.length() == 0 && !fallbackApActive;
+    serialOk("PROVCRED " + percentEncode(username) + " " + apSsid);
+    if (startProtectedSetup) {
+      Serial.println("Device Password initialized with no home Wi-Fi; starting protected setup AP.");
+      startFallbackAp();
+    }
+    return;
   }
 
   serialErr("UNKNOWN_SETTING");
