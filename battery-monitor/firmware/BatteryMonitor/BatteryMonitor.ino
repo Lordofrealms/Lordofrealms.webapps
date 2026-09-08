@@ -5,9 +5,10 @@
 // add authenticated monitoring identity without duplicating the large embedded
 // browser UI, configured devices require physical presence before entering
 // Wi-Fi recovery provisioning after a network outage, signed USB OTA can run
-// through the application after Flash Encryption is active, and a newly
-// selected signed OTA image must survive a local health probation before the
-// ESP-IDF bootloader permanently accepts it.
+// through the application after Flash Encryption is active, a newly selected
+// signed OTA image must survive a local health probation before the ESP-IDF
+// bootloader permanently accepts it, and the highest accepted signed release
+// sequence is retained in encrypted NVS to block signed-image downgrades.
 
 #include <esp_ota_ops.h>
 
@@ -30,7 +31,8 @@ static unsigned long otaRollbackProbationStartedMs = 0;
 static unsigned long otaRollbackNextConfirmAttemptMs = 0;
 static uint32_t otaRollbackLoopPasses = 0;
 
-static void initializeOtaRollbackHealth(bool monitoringReady) {
+static void initializeOtaRollbackHealth(bool monitoringReady,
+                                        bool releasePolicyReady) {
   const esp_partition_t* running = esp_ota_get_running_partition();
   if (running == nullptr) {
     Serial.println("WARNING: Could not resolve running OTA partition for rollback health state.");
@@ -42,17 +44,18 @@ static void initializeOtaRollbackHealth(bool monitoringReady) {
   if (stateErr != ESP_OK || state != ESP_OTA_IMG_PENDING_VERIFY) return;
 
   otaRollbackPendingValidation = true;
-  otaRollbackHealthPrerequisitesReady = monitoringReady;
+  otaRollbackHealthPrerequisitesReady = monitoringReady && releasePolicyReady;
   otaRollbackProbationStartedMs = millis();
   otaRollbackNextConfirmAttemptMs = otaRollbackProbationStartedMs + OTA_ROLLBACK_PROBATION_MS;
   otaRollbackLoopPasses = 0;
 
   Serial.println("OTA candidate is pending validation; starting 60-second local health probation.");
 
-  // P0-3 authenticated monitoring identity is a required security function.
-  // A candidate which cannot initialize it must not become the permanent image.
-  if (!monitoringReady) {
-    Serial.println("ERROR: OTA candidate cannot initialize Monitoring Identity Key; requesting rollback.");
+  // P0-3 authenticated monitoring identity and the signed-release floor are
+  // required security functions. A candidate which cannot initialize either
+  // must not become the permanent image.
+  if (!otaRollbackHealthPrerequisitesReady) {
+    Serial.println("ERROR: OTA candidate cannot initialize required security state; requesting rollback.");
     delay(50);
     esp_err_t rollbackErr = esp_ota_mark_app_invalid_rollback_and_reboot();
     Serial.printf("ERROR: OTA rollback request failed: %s\n", esp_err_to_name(rollbackErr));
@@ -71,8 +74,19 @@ static void serviceOtaRollbackHealth() {
 
   esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
   if (err == ESP_OK) {
+    // The candidate is now the valid boot image. Advance the encrypted-NVS
+    // software release floor immediately. Even if this persistence step fails,
+    // the currently running sequence itself remains part of the effective
+    // downgrade floor until a reboot, and setup retries floor repair next boot.
+    String floorError;
+    bool floorCommitted = commitRunningFirmwareReleaseFloor(floorError);
     otaRollbackPendingValidation = false;
-    Serial.println("OTA candidate health probation passed; image marked valid and rollback cancelled.");
+    if (floorCommitted) {
+      Serial.println("OTA candidate health probation passed; image marked valid and release floor advanced.");
+    } else {
+      Serial.printf("WARNING: OTA candidate marked valid but release-floor persistence needs repair (%s).\n",
+                    floorError.c_str());
+    }
     return;
   }
 
@@ -124,6 +138,13 @@ void setup() {
   apSsid = String("BatteryMonitor-") + suffix;
 
   loadSettings();
+
+  String releasePolicyError;
+  bool releasePolicyReady = initializeFirmwareReleasePolicy(releasePolicyError);
+  if (!releasePolicyReady) {
+    Serial.printf("ERROR: Firmware release policy unavailable: %s\n", releasePolicyError.c_str());
+  }
+
   bool provisioningReady = loadDeviceCredentialIdentity();
   bool monitoringReady = loadOrCreateMonitoringIdentity();
   if (!monitoringReady) {
@@ -157,7 +178,7 @@ void setup() {
   }
 
   Serial.printf("Device %s (%s), hostname %s.local\n", deviceId.c_str(), deviceName.c_str(), hostName.c_str());
-  initializeOtaRollbackHealth(monitoringReady);
+  initializeOtaRollbackHealth(monitoringReady, releasePolicyReady);
 }
 
 void loop() {
@@ -185,8 +206,8 @@ void loop() {
   if (millis() - lastSampleMs >= intervalMs) sampleBattery();
 
   // Wi-Fi is intentionally not a prerequisite. The candidate is accepted only
-  // after setup has completed, P0-3 identity exists, and the main loop has kept
-  // executing throughout the local probation window.
+  // after setup has completed, P0-3 identity exists, release policy is healthy,
+  // and the main loop has kept executing throughout the local probation window.
   serviceOtaRollbackHealth();
   delay(2);
 }
