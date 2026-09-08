@@ -3,7 +3,7 @@
 Battery Monitor has **one authoritative firmware architecture**:
 
 - ESP-IDF v5.5.5, exact commit `b774170ff46c393eeb5e495ea37936038d3f4f4f`;
-- Arduino-ESP32 3.3.11 as an ESP-IDF managed component;
+- Arduino-ESP32 3.3.7 as an ESP-IDF managed component;
 - target: classic ESP32 / ESP32-WROOM-32;
 - application behavior remains in `../BatteryMonitor/*.ino` as readable Arduino/C++ source;
 - `main/BatteryMonitorApp.cpp` is a thin translation-unit wrapper that compiles those same application files under ESP-IDF;
