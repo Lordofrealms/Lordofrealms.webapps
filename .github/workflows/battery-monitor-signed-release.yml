@@ -1,0 +1,292 @@
+name: Battery Monitor Signed Firmware Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Exact 40-character commit SHA to build and sign'
+        required: true
+        type: string
+      version:
+        description: 'Release version label (for artifact names only)'
+        required: true
+        default: '0.1.0'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  signed_firmware:
+    name: Build and sign ESP32 firmware
+    runs-on: ubuntu-latest
+    environment: battery-monitor-production-signing
+    env:
+      BATMON_FIRMWARE_SIGNING_KEY_B64: ${{ secrets.BATMON_FIRMWARE_SIGNING_KEY_B64 }}
+      BATMON_FIRMWARE_SIGNING_KEY_PASSWORD: ${{ secrets.BATMON_FIRMWARE_SIGNING_KEY_PASSWORD }}
+      EXPECTED_KEY_FINGERPRINT: 69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e
+    steps:
+      - name: Validate requested source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! '${{ inputs.source_sha }}' =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo 'source_sha must be an exact 40-character commit SHA.' >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+
+      - name: Install Arduino CLI 1.5.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://downloads.arduino.cc/arduino-cli/arduino-cli_1.5.0_Linux_64bit.tar.gz -o /tmp/arduino-cli.tgz
+          tar -xzf /tmp/arduino-cli.tgz -C /tmp
+          sudo install /tmp/arduino-cli /usr/local/bin/arduino-cli
+          arduino-cli version
+
+      - name: Install Espressif Arduino core 3.3.11
+        shell: bash
+        run: |
+          set -euo pipefail
+          arduino-cli config init --overwrite
+          arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core install esp32:esp32@3.3.11 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+
+      - name: Compile exact ESP32 firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/battery-monitor-signed-firmware
+          arduino-cli compile \
+            --fqbn esp32:esp32:esp32 \
+            --warnings all \
+            --output-dir /tmp/battery-monitor-signed-firmware \
+            battery-monitor/firmware/BatteryMonitor
+          test -f /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.bin
+          test -f /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.merged.bin
+
+      - name: Sign and independently verify firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$BATMON_FIRMWARE_SIGNING_KEY_B64" || { echo 'BATMON_FIRMWARE_SIGNING_KEY_B64 secret is not configured.' >&2; exit 1; }
+          test -n "$BATMON_FIRMWARE_SIGNING_KEY_PASSWORD" || { echo 'BATMON_FIRMWARE_SIGNING_KEY_PASSWORD secret is not configured.' >&2; exit 1; }
+
+          key=/tmp/batmon-firmware-signing-key.pem
+          trap 'rm -f "$key" /tmp/batmon-wrong-key.pem /tmp/batmon-wrong.sig /tmp/batmon-tampered.bin' EXIT
+          printf '%s' "$BATMON_FIRMWARE_SIGNING_KEY_B64" | base64 --decode > "$key"
+          chmod 600 "$key"
+
+          actual_fingerprint=$(openssl pkey \
+            -in "$key" \
+            -passin env:BATMON_FIRMWARE_SIGNING_KEY_PASSWORD \
+            -pubout -outform DER | sha256sum | awk '{print $1}')
+          if [[ "$actual_fingerprint" != "$EXPECTED_KEY_FINGERPRINT" ]]; then
+            echo "Signing key fingerprint mismatch: $actual_fingerprint" >&2
+            exit 1
+          fi
+
+          for image in BatteryMonitor.ino.bin BatteryMonitor.ino.merged.bin; do
+            file="/tmp/battery-monitor-signed-firmware/$image"
+            openssl dgst -sha256 \
+              -sign "$key" \
+              -passin env:BATMON_FIRMWARE_SIGNING_KEY_PASSWORD \
+              -sigopt rsa_padding_mode:pss \
+              -sigopt rsa_pss_saltlen:-1 \
+              -out "$file.sig" \
+              "$file"
+            test "$(wc -c < "$file.sig")" -eq 384
+            openssl dgst -sha256 \
+              -verify battery-monitor/signing/battery_monitor_secureboot_rsa3072_public.pem \
+              -signature "$file.sig" \
+              -sigopt rsa_padding_mode:pss \
+              -sigopt rsa_pss_saltlen:-1 \
+              "$file"
+          done
+
+          cp /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.bin /tmp/batmon-tampered.bin
+          python - <<'PY'
+          p='/tmp/batmon-tampered.bin'
+          data=bytearray(open(p,'rb').read())
+          data[len(data)//2] ^= 1
+          open(p,'wb').write(data)
+          PY
+          if openssl dgst -sha256 \
+              -verify battery-monitor/signing/battery_monitor_secureboot_rsa3072_public.pem \
+              -signature /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.bin.sig \
+              -sigopt rsa_padding_mode:pss \
+              -sigopt rsa_pss_saltlen:-1 \
+              /tmp/batmon-tampered.bin; then
+            echo 'Tampered firmware unexpectedly verified.' >&2
+            exit 1
+          fi
+
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out /tmp/batmon-wrong-key.pem >/dev/null 2>&1
+          openssl dgst -sha256 \
+            -sign /tmp/batmon-wrong-key.pem \
+            -sigopt rsa_padding_mode:pss \
+            -sigopt rsa_pss_saltlen:-1 \
+            -out /tmp/batmon-wrong.sig \
+            /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.bin
+          if openssl dgst -sha256 \
+              -verify battery-monitor/signing/battery_monitor_secureboot_rsa3072_public.pem \
+              -signature /tmp/batmon-wrong.sig \
+              -sigopt rsa_padding_mode:pss \
+              -sigopt rsa_pss_saltlen:-1 \
+              /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.bin; then
+            echo 'Firmware signed by a different key unexpectedly verified.' >&2
+            exit 1
+          fi
+
+          {
+            echo 'schema=BATMON_SIGNED_RELEASE_V1'
+            echo 'source_sha=${{ inputs.source_sha }}'
+            echo 'version=${{ inputs.version }}'
+            echo 'algorithm=RSA-3072-PSS-SHA256'
+            echo "public_key_spki_sha256=$EXPECTED_KEY_FINGERPRINT"
+            sha256sum /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.bin
+            sha256sum /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.merged.bin
+          } > /tmp/battery-monitor-signed-firmware/SIGNED_RELEASE.txt
+
+      - name: Upload signed firmware
+        uses: actions/upload-artifact@v7
+        with:
+          name: Battery-Monitor-Signed-Firmware-${{ inputs.version }}
+          path: /tmp/battery-monitor-signed-firmware
+
+  windows_signed:
+    name: Build Windows package with signed firmware
+    runs-on: windows-latest
+    needs: signed_firmware
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '8.0.x'
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Download exact signed firmware
+        uses: actions/download-artifact@v8
+        with:
+          name: Battery-Monitor-Signed-Firmware-${{ inputs.version }}
+          path: battery-monitor/windows/staging/firmware
+
+      - name: Download and verify Espressif esptool 5.3.1
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'esptool-v5.3.1-windows-amd64.zip'
+          Invoke-WebRequest -Uri 'https://github.com/espressif/esptool/releases/download/v5.3.1/esptool-v5.3.1-windows-amd64.zip' -OutFile $zip
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = '2b4a73c45db27426685896f64ce3e557f63a64f43cc100cb65c0cc3486af96d3'
+          if ($actual -ne $expected) { throw "esptool SHA256 mismatch: $actual" }
+          New-Item -ItemType Directory -Force -Path battery-monitor/windows/staging/esptool | Out-Null
+          Expand-Archive -Path $zip -DestinationPath battery-monitor/windows/staging/esptool -Force
+          $exe = Get-ChildItem battery-monitor/windows/staging/esptool -Filter esptool.exe -Recurse | Select-Object -First 1
+          if (-not $exe) { throw 'esptool.exe not found after extraction' }
+          & $exe.FullName version
+
+      - name: Build pinned Espressif Security 2 provisioner helper
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vendorCommit = '3ba4a43776a737054b43ead300ea0377787cad4a'
+          $idfCommit = 'fcae32885b0296b32044cb99ecbdc50d98dddb83'
+          $vendor = Join-Path $env:RUNNER_TEMP 'idf-extra-components'
+          New-Item -ItemType Directory -Force -Path $vendor | Out-Null
+          git -C $vendor init
+          git -C $vendor remote add origin https://github.com/espressif/idf-extra-components.git
+          git -C $vendor fetch --depth=1 origin $vendorCommit
+          git -C $vendor checkout --detach FETCH_HEAD
+          if ((git -C $vendor rev-parse HEAD).Trim() -ne $vendorCommit) { throw 'Espressif provisioner source commit mismatch' }
+          $idf = Join-Path $env:RUNNER_TEMP 'esp-idf'
+          New-Item -ItemType Directory -Force -Path $idf | Out-Null
+          git -C $idf init
+          git -C $idf remote add origin https://github.com/espressif/esp-idf.git
+          git -C $idf fetch --depth=1 origin $idfCommit
+          git -C $idf checkout --detach FETCH_HEAD
+          if ((git -C $idf rev-parse HEAD).Trim() -ne $idfCommit) { throw 'ESP-IDF source commit mismatch' }
+          python -m pip install --disable-pip-version-check pyinstaller==6.16.0 cryptography==46.0.3 protobuf==5.29.5 bleak==1.1.1
+          $provDir = Join-Path $vendor 'network_provisioning/tool/esp_prov'
+          $networkProto = Join-Path $vendor 'network_provisioning/python'
+          $idfProto = Join-Path $idf 'components/protocomm/python'
+          python -m PyInstaller --noconfirm --clean --onefile --name BatteryMonitorEspProv --paths $provDir --add-data "$idfProto;idf/components/protocomm/python" --add-data "$networkProto;python" battery-monitor/windows/esp_provision_helper.py
+          $helperDir = 'battery-monitor/windows/staging/esp-provisioner'
+          New-Item -ItemType Directory -Force -Path $helperDir | Out-Null
+          Copy-Item dist/BatteryMonitorEspProv.exe "$helperDir/BatteryMonitorEspProv.exe"
+          Copy-Item "$vendor/json_parser/LICENSE" "$helperDir/APACHE-2.0.txt"
+
+      - name: Build Windows client
+        shell: pwsh
+        run: |
+          dotnet restore battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj
+          dotnet build battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release --no-restore
+          dotnet run --project battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release --no-build -- --protocol-self-test
+
+      - name: Exercise production firmware verifier
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dll = (Get-ChildItem battery-monitor/windows/BatteryMonitor.Client/bin/Release -Filter BatteryMonitor.Client.dll -Recurse | Select-Object -First 1).FullName
+          if (-not $dll) { throw 'Built BatteryMonitor.Client.dll not found' }
+          $asm = [System.Reflection.Assembly]::LoadFrom($dll)
+          $type = $asm.GetType('BatteryMonitor.Client.FirmwareSignatureVerifier', $true)
+          $method = $type.GetMethod('VerifyOrThrow', [System.Reflection.BindingFlags]'Static,Public,NonPublic')
+          if (-not $method) { throw 'FirmwareSignatureVerifier.VerifyOrThrow not found' }
+
+          foreach ($name in @('BatteryMonitor.ino.bin','BatteryMonitor.ino.merged.bin')) {
+            $image = (Get-ChildItem battery-monitor/windows/staging/firmware -Filter $name -Recurse | Select-Object -First 1).FullName
+            $sig = "$image.sig"
+            if (-not (Test-Path $image) -or -not (Test-Path $sig)) { throw "Signed firmware pair missing for $name" }
+            try { $null = $method.Invoke($null, @($image, $sig)) }
+            catch { throw "Production verifier rejected signed $name`: $($_.Exception.InnerException?.Message ?? $_.Exception.Message)" }
+
+            $tampered = Join-Path $env:RUNNER_TEMP ($name + '.tampered')
+            [byte[]]$bytes = [IO.File]::ReadAllBytes($image)
+            $bytes[[int]($bytes.Length / 2)] = $bytes[[int]($bytes.Length / 2)] -bxor 1
+            [IO.File]::WriteAllBytes($tampered, $bytes)
+            $rejected = $false
+            try { $null = $method.Invoke($null, @($tampered, $sig)) }
+            catch { $rejected = $true }
+            if (-not $rejected) { throw "Production verifier accepted tampered $name" }
+            Remove-Item $tampered -Force
+          }
+
+      - name: Publish self-contained win-x64
+        shell: pwsh
+        run: |
+          dotnet publish battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o battery-monitor/windows/publish
+
+      - name: Bundle signed firmware, flash tool, and secure provisioner
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/firmware | Out-Null
+          New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/tools/esptool | Out-Null
+          New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/tools/esp-provisioner | Out-Null
+          foreach ($name in @('BatteryMonitor.ino.bin','BatteryMonitor.ino.merged.bin')) {
+            $image = Get-ChildItem battery-monitor/windows/staging/firmware -Filter $name -Recurse | Select-Object -First 1
+            if (-not $image) { throw "Missing $name" }
+            if (-not (Test-Path ($image.FullName + '.sig'))) { throw "Missing signature for $name" }
+            Copy-Item $image.FullName (Join-Path 'battery-monitor/windows/publish/firmware' $name)
+            Copy-Item ($image.FullName + '.sig') (Join-Path 'battery-monitor/windows/publish/firmware' ($name + '.sig'))
+          }
+          Copy-Item battery-monitor/windows/staging/firmware/SIGNED_RELEASE.txt battery-monitor/windows/publish/firmware/SIGNED_RELEASE.txt
+          Copy-Item battery-monitor/windows/staging/esptool/* battery-monitor/windows/publish/tools/esptool -Recurse -Force
+          Copy-Item battery-monitor/windows/staging/esp-provisioner/* battery-monitor/windows/publish/tools/esp-provisioner -Recurse -Force
+
+      - name: Upload signed Windows package
+        uses: actions/upload-artifact@v7
+        with:
+          name: Battery-Monitor-Windows-Signed-${{ inputs.version }}
+          path: battery-monitor/windows/publish
