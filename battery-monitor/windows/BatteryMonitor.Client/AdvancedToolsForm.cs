@@ -22,11 +22,11 @@ internal sealed class AdvancedToolsForm : Form
             MaximumSize = new Size(440, 0)
         });
 
-        var provisioning = new Button { Text = "Factory Setup Code / QR...", AutoSize = true, Anchor = AnchorStyles.Left };
+        var provisioning = new Button { Text = "Factory Setup Code / QR", AutoSize = true, Anchor = AnchorStyles.Left };
         provisioning.Click += (_, _) => { using var f = new ProvisioningAdminForm(); f.ShowDialog(this); };
         root.Controls.Add(provisioning);
 
-        var firmware = new Button { Text = "Blank ESP32 First Install...", AutoSize = true, Anchor = AnchorStyles.Left };
+        var firmware = new Button { Text = "Blank ESP32 First Install", AutoSize = true, Anchor = AnchorStyles.Left };
         firmware.Click += (_, _) => { using var f = new FirmwareFlashForm(); f.ShowDialog(this); };
         root.Controls.Add(firmware);
 
