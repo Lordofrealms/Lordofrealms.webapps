@@ -138,15 +138,47 @@ static bool validateDevicePasswordBytes(const String& password, String* errorOut
   return true;
 }
 
+static bool isLegacyInitialCodeCompatibilityChar(char c) {
+  if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
+  return (c >= '0' && c <= '9') ||
+         (c >= 'A' && c <= 'H') ||
+         (c >= 'J' && c <= 'K') ||
+         (c >= 'M' && c <= 'N') ||
+         (c >= 'P' && c <= 'T') ||
+         (c >= 'V' && c <= 'Z');
+}
+
+// Windows, Android, and the embedded WebUI preserve compatibility with the
+// historical printed setup-code form XXXX-XXXX-XXXX-XXXX by canonicalizing
+// only that exact restricted alphabet/punctuation pattern to its original
+// 16-character value. Keep arbitrary custom Device Passwords byte-for-byte
+// unchanged, even when they contain hyphens or resemble the old code loosely.
+static String devicePasswordCompatibilityValue(const String& password) {
+  if (password.length() != 19 || password[4] != '-' || password[9] != '-' || password[14] != '-') return password;
+
+  String canonical;
+  canonical.reserve(16);
+  for (size_t i = 0; i < password.length(); ++i) {
+    if (i == 4 || i == 9 || i == 14) continue;
+    char c = password[i];
+    if (!isLegacyInitialCodeCompatibilityChar(c)) return password;
+    if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
+    canonical += c;
+  }
+  return canonical.length() == 16 ? canonical : password;
+}
+
 static bool deriveFlexiblePasswordCheckHash(const String& password, uint8_t out[32]) {
-  if (!validateDevicePasswordBytes(password)) return false;
-  return sha256String(String("BATMON-CODECHECK-V1|") + deviceId + "|" + password, out);
+  String effective = devicePasswordCompatibilityValue(password);
+  if (!validateDevicePasswordBytes(effective)) return false;
+  return sha256String(String("BATMON-CODECHECK-V1|") + deviceId + "|" + effective, out);
 }
 
 static String deriveFlexibleSoftApPassword(const String& password) {
-  if (!validateDevicePasswordBytes(password)) return "";
+  String effective = devicePasswordCompatibilityValue(password);
+  if (!validateDevicePasswordBytes(effective)) return "";
   uint8_t digest[32];
-  if (!sha256String(String("BATMON-SOFTAP-V1|") + deviceId + "|" + password, digest)) return "";
+  if (!sha256String(String("BATMON-SOFTAP-V1|") + deviceId + "|" + effective, digest)) return "";
   static const char HEX_DIGITS[] = "0123456789ABCDEF";
   String result;
   result.reserve(32);
@@ -312,9 +344,12 @@ bool setDevicePasswordFlexible(const String& usernameValue, const String& passwo
   }
   if (!validateDevicePasswordBytes(password, &errorOut)) return false;
 
-  String apKey = deriveFlexibleSoftApPassword(password);
+  String effectivePassword = devicePasswordCompatibilityValue(password);
+  if (!validateDevicePasswordBytes(effectivePassword, &errorOut)) return false;
+
+  String apKey = deriveFlexibleSoftApPassword(effectivePassword);
   uint8_t checkHash[32];
-  if (apKey.length() < 8 || !deriveFlexiblePasswordCheckHash(password, checkHash)) {
+  if (apKey.length() < 8 || !deriveFlexiblePasswordCheckHash(effectivePassword, checkHash)) {
     errorOut = "CREDENTIAL_DERIVATION_FAILED";
     return false;
   }
@@ -324,10 +359,11 @@ bool setDevicePasswordFlexible(const String& usernameValue, const String& passwo
   int verifierLen = 0;
   esp_err_t err = esp_srp_gen_salt_verifier(
     username.c_str(), username.length(),
-    password.c_str(), password.length(),
+    effectivePassword.c_str(), effectivePassword.length(),
     &salt, (int)PROV_SALT_BYTES,
     &verifier, &verifierLen
   );
+  effectivePassword = "";
   if (err != ESP_OK || !salt || !verifier || verifierLen <= 0) {
     if (salt) free(salt);
     if (verifier) free(verifier);
