@@ -21,6 +21,7 @@
 bool loadOrCreateMonitoringIdentity();
 void registerMonitoringIdentityRoutes();
 void serviceAuthenticatedDiscovery();
+bool hasProvisioningIdentity();
 bool initializeDedicatedWebServerTask();
 bool lockBatteryMonitorWebDomain();
 void unlockBatteryMonitorWebDomain();
@@ -56,9 +57,6 @@ static void initializeOtaRollbackHealth(bool monitoringReady,
 
   Serial.println("OTA candidate is pending validation; starting 60-second local health probation.");
 
-  // P0-3 authenticated monitoring identity and the signed-release floor are
-  // required security functions. A candidate which cannot initialize either
-  // must not become the permanent image.
   if (!otaRollbackHealthPrerequisitesReady) {
     Serial.println("ERROR: OTA candidate cannot initialize required security state; requesting rollback.");
     delay(50);
@@ -69,7 +67,6 @@ static void initializeOtaRollbackHealth(bool monitoringReady,
 
 static void serviceOtaRollbackHealth() {
   if (!otaRollbackPendingValidation || !otaRollbackHealthPrerequisitesReady) return;
-
   if (otaRollbackLoopPasses < UINT32_MAX) otaRollbackLoopPasses++;
 
   unsigned long now = millis();
@@ -79,10 +76,6 @@ static void serviceOtaRollbackHealth() {
 
   esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
   if (err == ESP_OK) {
-    // The candidate is now the valid boot image. Advance the encrypted-NVS
-    // software release floor immediately. Even if this persistence step fails,
-    // the currently running sequence itself remains part of the effective
-    // downgrade floor until a reboot, and setup retries floor repair next boot.
     String floorError;
     bool floorCommitted = commitRunningFirmwareReleaseFloor(floorError);
     otaRollbackPendingValidation = false;
@@ -95,8 +88,6 @@ static void serviceOtaRollbackHealth() {
     return;
   }
 
-  // Leave the image pending rather than accepting it on an unexpected metadata
-  // or flash error. A reset while it remains pending will still fall back.
   otaRollbackNextConfirmAttemptMs = now + OTA_ROLLBACK_CONFIRM_RETRY_MS;
   Serial.printf("WARNING: Could not mark OTA candidate valid (%s); keeping rollback armed.\n", esp_err_to_name(err));
 }
@@ -123,9 +114,6 @@ static void serviceWifiStateWithProtectedFallback() {
   unsigned long now = millis();
 
   if (fallbackApActive) {
-    // If this is a recovery fallback for a previously configured home network,
-    // periodically leave the protected AP, retry STA for one normal connection
-    // window, and return to the protected AP if that retry also fails.
     if (wifiSsid.length() > 0 && protectedFallbackHomeRetryAtMs != 0 &&
         (int32_t)(now - protectedFallbackHomeRetryAtMs) >= 0) {
       Serial.println("Protected setup AP pausing for scheduled home Wi-Fi retry.");
@@ -145,11 +133,6 @@ static void serviceWifiStateWithProtectedFallback() {
 
   stopMdns();
 
-  // Once the Device Password exists, a unit with no configured home Wi-Fi must
-  // immediately expose the WPA2 + Security-2 setup AP. This also covers the
-  // important first-provisioning transition where the credential is written by
-  // trusted USB after boot; no reboot is required just to make setup wireless
-  // appear.
   if (wifiSsid.length() == 0) {
     if (hasProvisioningIdentity() || loadDeviceCredentialIdentity()) {
       startFallbackAp();
@@ -158,8 +141,6 @@ static void serviceWifiStateWithProtectedFallback() {
     return;
   }
 
-  // On a normal connected->disconnected transition, immediately begin a fresh
-  // STA attempt and give it CONNECT_ATTEMPT_MS before failing back.
   if (wifiDisconnectedSinceMs == 0) {
     wifiDisconnectedSinceMs = now;
     WiFi.mode(WIFI_STA);
@@ -207,8 +188,6 @@ void setup() {
   analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db);
   sampleBattery();
 
-  // Routes may be registered before WebServer::begin(); they remain installed
-  // when normal network services are started after Wi-Fi connects.
   registerMonitoringIdentityRoutes();
 
   bool connected = blockingInitialConnect();
@@ -217,12 +196,8 @@ void setup() {
     startNormalNetworkServices();
     nextReconnectAttemptMs = millis() + RETRY_INTERVAL_MS;
   } else if (wifiSsid.length() == 0 && provisioningReady) {
-    // First setup / explicitly cleared Wi-Fi is an intentional provisioning
-    // state, so the already WPA2 + Security-2 protected AP may start directly.
     startFallbackAp();
   } else if (wifiSsid.length() > 0 && provisioningReady) {
-    // blockingInitialConnect() already spent the full connection window. Do not
-    // make the user wait through another one before recovery becomes available.
     Serial.println("Saved Wi-Fi is unavailable; starting protected fallback setup AP.");
     startProtectedFallbackWithRetry(millis());
   } else {
@@ -236,14 +211,8 @@ void setup() {
 }
 
 void loop() {
-  // The dedicated WebUI task and this application loop share the Arduino
-  // WebServer object and configuration state. Serialize the application side so
-  // provisioning/OTA cannot stop networking while Core 0 is handling a request.
   bool domainLocked = !dedicatedWebServerTaskReady || lockBatteryMonitorWebDomain();
 
-  // Service USB explicitly instead of relying only on Arduino serialEvent().
-  // While an OTA transfer is active, suspend unrelated networking/sampling so
-  // the binary stream and flash writes have a small, deterministic surface.
   serviceSerialProvisioning();
   serviceFirmwareUpdateTimeout();
   if (firmwareUpdateInProgress()) {
@@ -253,7 +222,6 @@ void loop() {
   }
 
   if (!fallbackApActive) {
-    // Fail-safe fallback if the dedicated task could not be created.
     if (!dedicatedWebServerTaskReady && httpServerActive) server.handleClient();
     serviceAuthenticatedDiscovery();
     serviceWifiStateWithProtectedFallback();
@@ -267,9 +235,6 @@ void loop() {
   unsigned long intervalMs = sampleIntervalSec * 1000UL;
   if (millis() - lastSampleMs >= intervalMs) sampleBattery();
 
-  // Wi-Fi is intentionally not a prerequisite. The candidate is accepted only
-  // after setup has completed, P0-3 identity exists, release policy is healthy,
-  // and the main loop has kept executing throughout the local probation window.
   serviceOtaRollbackHealth();
 
   if (dedicatedWebServerTaskReady && domainLocked) unlockBatteryMonitorWebDomain();
