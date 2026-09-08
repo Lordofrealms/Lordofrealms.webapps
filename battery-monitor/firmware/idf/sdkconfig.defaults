@@ -13,10 +13,14 @@ CONFIG_ESPTOOLPY_FLASHFREQ_40M=y
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 
-# Preserve Battery Monitor's established flash offsets and OTA-style layout.
+# Flash layout. Release-mode Flash Encryption enlarges the classic ESP32
+# bootloader beyond the old 0x7000-byte allowance. Keep the application
+# authority fixed at app0 @ 0x10000 while moving the partition table to the
+# highest 4 KiB slot below it, leaving maximum bootloader growth room for the
+# later Secure Boot activation.
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
-CONFIG_PARTITION_TABLE_OFFSET=0x8000
+CONFIG_PARTITION_TABLE_OFFSET=0xF000
 
 # P1-1 device-at-rest protection is active in the one production build.
 # Release-mode Flash Encryption generates a unique device key on first boot and

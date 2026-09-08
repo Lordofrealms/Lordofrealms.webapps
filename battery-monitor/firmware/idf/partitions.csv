@@ -1,13 +1,13 @@
 # Battery Monitor 4 MB partition table.
-# Preserves the established application offset app0 @ 0x10000.
-# 4 KiB was reassigned from the prior NVS allocation to the required NVS key
-# partition; the default NVS partition remains 16 KiB, which is ample for the
-# Battery Monitor's small Preferences-backed configuration set.
+# Release-mode Flash Encryption grows the bootloader, so the partition table is
+# at 0xF000. app0 intentionally remains at the established 0x10000 authority.
+# Configuration/OTA metadata moved after the two application slots; neither OTA
+# app slot was reduced. SPIFFS gives up only 0x7000 bytes for those data regions.
 # Name,    Type, SubType, Offset,  Size, Flags
-nvs,       data, nvs,     0x9000,  0x4000,
-nvs_keys,  data, nvs_keys,0xd000,  0x1000, encrypted
-otadata,   data, ota,     0xe000,  0x2000,
 app0,      app,  ota_0,   0x10000, 0x140000,
 app1,      app,  ota_1,   0x150000,0x140000,
-spiffs,    data, spiffs,  0x290000,0x160000,
+nvs,       data, nvs,     0x290000,0x4000,
+nvs_keys,  data, nvs_keys,0x294000,0x1000, encrypted
+otadata,   data, ota,     0x295000,0x2000,
+spiffs,    data, spiffs,  0x297000,0x159000,
 coredump,  data, coredump,0x3F0000,0x10000,

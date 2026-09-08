@@ -38,9 +38,10 @@ for required in \
   'CONFIG_SECURE_FLASH_ENC_ENABLED=y' \
   'CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y' \
   'CONFIG_NVS_ENCRYPTION=y' \
-  'CONFIG_NVS_SEC_KEY_PROTECT_USING_FLASH_ENC=y'; do
+  'CONFIG_NVS_SEC_KEY_PROTECT_USING_FLASH_ENC=y' \
+  'CONFIG_PARTITION_TABLE_OFFSET=0xF000'; do
   if ! grep -qx "$required" sdkconfig; then
-    echo "Required production security setting missing from generated sdkconfig: $required" >&2
+    echo "Required production security/layout setting missing from generated sdkconfig: $required" >&2
     exit 3
   fi
 done
@@ -48,7 +49,7 @@ if grep -qx 'CONFIG_SECURE_BOOT=y' sdkconfig; then
   echo 'Secure Boot must remain disabled until the explicit post-test activation gate.' >&2
   exit 3
 fi
-if ! grep -Eq '^nvs_keys,[[:space:]]*data,[[:space:]]*nvs_keys,[[:space:]]*0xd000,[[:space:]]*0x1000,[[:space:]]*encrypted[[:space:]]*$' partitions.csv; then
+if ! grep -Eq '^nvs_keys,[[:space:]]*data,[[:space:]]*nvs_keys,[[:space:]]*0x294000,[[:space:]]*0x1000,[[:space:]]*encrypted[[:space:]]*$' partitions.csv; then
   echo 'Required encrypted 4 KiB nvs_keys partition is missing or moved.' >&2
   exit 3
 fi
@@ -100,13 +101,14 @@ esp_idf_commit=$EXPECTED_IDF_COMMIT
 arduino_esp32_component=3.3.7
 target=esp32
 flash_size=4MB
+partition_table_offset=0xF000
 application_flash_offset=0x10000
 application_sha256=$app_sha
 merged_sha256=$merged_sha
 secure_boot=disabled-pending-post-test-activation
 flash_encryption=enabled-release-mode
 nvs_encryption=enabled-flash-encryption-key-protection
-nvs_keys_partition=0xd000+0x1000-encrypted
+nvs_keys_partition=0x294000+0x1000-encrypted
 factory_image_scope=blank-unencrypted-device-first-install-only
 post_encryption_plaintext_uart_flash=disabled
 EOF

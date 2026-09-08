@@ -50,8 +50,21 @@ The one production configuration now enables:
 
 - **Flash Encryption:** enabled on boot in **Release mode**;
 - **NVS Encryption:** enabled for the default `nvs` partition using the Flash Encryption-backed XTS key scheme;
-- **NVS key partition:** `nvs_keys @ 0xd000`, 4 KiB, marked `encrypted`;
 - **Secure Boot:** intentionally disabled until the encrypted-hardware test program is complete.
+
+Release-mode Flash Encryption increases the classic ESP32 bootloader beyond the former `0x7000`-byte allowance. The authoritative layout therefore uses:
+
+- bootloader: `0x1000` through before the partition table;
+- partition table: **`0xF000`**;
+- `app0`: **`0x10000`**, unchanged;
+- `app1`: `0x150000`, unchanged;
+- `nvs`: `0x290000`, 16 KiB;
+- encrypted `nvs_keys`: **`0x294000`**, 4 KiB;
+- `otadata`: `0x295000`, 8 KiB;
+- SPIFFS: `0x297000` through `0x3EFFFF`;
+- coredump: `0x3F0000`, unchanged.
+
+The two OTA application slots retain their full previous size. Only SPIFFS gives up the small amount of space required for the relocated NVS/OTA metadata.
 
 On the first boot of a blank ESP32, ESP-IDF generates a unique Flash Encryption key in eFuse and encrypts protected flash regions in place. `nvs_flash_init()` generates the NVS XTS keys on-device when the `nvs_keys` partition is blank; the key partition itself is protected by Flash Encryption.
 
