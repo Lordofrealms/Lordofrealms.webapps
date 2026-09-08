@@ -113,6 +113,10 @@ Do not disable Android cleartext globally before that replacement is ready.
 
 ## 8. Real-device test gate before Secure Boot
 
+The detailed physical procedure is now maintained at:
+
+`battery-monitor/HARDWARE_TEST_PLAN_0_1_0_2.md`
+
 Before enabling Secure Boot, test at minimum:
 
 1. blank-device first install;
@@ -137,6 +141,10 @@ Rollback-capable bootloader behavior is installed with the current blank-device 
 
 ## 9. Manual production signing — next concrete action
 
+The exact operator procedure is now maintained at:
+
+`battery-monitor/SIGNED_RELEASE_OPERATOR_CHECKLIST_0_1_0_2.md`
+
 `.github/workflows/battery-monitor-signed-release.yml` remains manual `workflow_dispatch` and uses the `battery-monitor-production-signing` environment. Do not add a push trigger, bypass environment protection, or move the private key into repository content.
 
 For the next signed hardware-test package, dispatch with:
@@ -146,9 +154,13 @@ For the next signed hardware-test package, dispatch with:
 
 The workflow validates the exact source SHA/version, authoritative `version.txt`, production signing-key fingerprint, RSA-PSS signatures, tamper rejection, wrong-key rejection, and Windows production verifier before creating signed artifacts.
 
+Current release-run history check: the only `workflow_dispatch` run found on `battery-monitor-dev` is the older successful signed-release run #1 / run `34239873501` at SHA `f846e2c628b96e5a7ddccc8413701fa832864b3d`. It predates validated `0.1.0.2` product source and must not be used as the `0.1.0.2` hardware-test release.
+
 The currently connected GitHub tool surface in chat does not expose `workflow_dispatch`; therefore the signed `0.1.0.2` package has **not** been created from this chat session.
 
-For an already-encrypted hardware unit, use the resulting **signed application USB OTA package**. Do not use Blank ESP32 First Install and do not use plaintext direct UART flashing as recovery.
+For an already-encrypted hardware unit, use the resulting **signed application USB OTA package** through Windows `Firmware Update -> Update Firmware`. Do not use `Advanced First Install -> First Install (Blank ESP32)` and do not use plaintext direct UART flashing as recovery.
+
+For a genuinely blank, unencrypted ESP32, `Advanced First Install -> First Install (Blank ESP32)` is the supported initial-install path after the signed package exists.
 
 ## 10. Distribution/security work still open
 
@@ -170,22 +182,26 @@ At the exact live remote SHA, read in this order:
 
 1. `battery-monitor/PROJECT_HANDOFF_LATEST.md`
 2. `battery-monitor/PROJECT_STATE_LATEST.md`
-3. `battery-monitor/firmware/README.md`
-4. `battery-monitor/firmware/idf/README.md`
-5. `battery-monitor/firmware/idf/build.sh`
-6. `battery-monitor/firmware/idf/version.txt`
-7. `battery-monitor/firmware/idf/sdkconfig.defaults`
-8. `battery-monitor/firmware/idf/partitions.csv`
-9. `battery-monitor/firmware/BatteryMonitor/BatteryMonitor.ino`
-10. `battery-monitor/firmware/BatteryMonitor/SerialProvisioning.ino`
-11. `battery-monitor/firmware/BatteryMonitor/FirmwareUpdate.ino`
-12. `battery-monitor/firmware/BatteryMonitor/FirmwareReleasePolicy.ino`
-13. `battery-monitor/windows/BatteryMonitor.Client/AdminSecurity.cs`
-14. `battery-monitor/windows/BatteryMonitor.Client/UsbSetupForm.cs`
-15. `.github/workflows/battery-monitor-ci.yml`
-16. `.github/workflows/battery-monitor-signed-release.yml`
+3. `battery-monitor/SIGNED_RELEASE_OPERATOR_CHECKLIST_0_1_0_2.md`
+4. `battery-monitor/HARDWARE_TEST_PLAN_0_1_0_2.md`
+5. `battery-monitor/firmware/README.md`
+6. `battery-monitor/firmware/idf/README.md`
+7. `battery-monitor/firmware/idf/build.sh`
+8. `battery-monitor/firmware/idf/version.txt`
+9. `battery-monitor/firmware/idf/sdkconfig.defaults`
+10. `battery-monitor/firmware/idf/partitions.csv`
+11. `battery-monitor/firmware/BatteryMonitor/BatteryMonitor.ino`
+12. `battery-monitor/firmware/BatteryMonitor/SerialProvisioning.ino`
+13. `battery-monitor/firmware/BatteryMonitor/FirmwareUpdate.ino`
+14. `battery-monitor/firmware/BatteryMonitor/FirmwareReleasePolicy.ino`
+15. `battery-monitor/windows/BatteryMonitor.Client/AdminSecurity.cs`
+16. `battery-monitor/windows/BatteryMonitor.Client/UsbSetupForm.cs`
+17. `battery-monitor/windows/BatteryMonitor.Client/FirmwareUpdateForm.cs`
+18. `battery-monitor/windows/BatteryMonitor.Client/FirmwareFlashForm.cs`
+19. `.github/workflows/battery-monitor-ci.yml`
+20. `.github/workflows/battery-monitor-signed-release.yml`
 
-Then resolve the latest applicable `Battery Monitor Toolchain` run before modifying production source.
+Then resolve the latest applicable `Battery Monitor Toolchain` run and signed-release run history before modifying production source.
 
 ## 13. Remote/local warning
 
