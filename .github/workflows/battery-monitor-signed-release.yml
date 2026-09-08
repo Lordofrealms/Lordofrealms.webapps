@@ -40,35 +40,31 @@ jobs:
           ref: ${{ inputs.source_sha }}
           persist-credentials: false
 
-      - name: Install Arduino CLI 1.5.0
+      - name: Install pinned ESP-IDF 5.5.5
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsSL https://downloads.arduino.cc/arduino-cli/arduino-cli_1.5.0_Linux_64bit.tar.gz -o /tmp/arduino-cli.tgz
-          tar -xzf /tmp/arduino-cli.tgz -C /tmp
-          sudo install /tmp/arduino-cli /usr/local/bin/arduino-cli
-          arduino-cli version
+          idf="$RUNNER_TEMP/esp-idf"
+          commit='b774170ff46c393eeb5e495ea37936038d3f4f4f'
+          mkdir -p "$idf"
+          git -C "$idf" init
+          git -C "$idf" remote add origin https://github.com/espressif/esp-idf.git
+          git -C "$idf" fetch --depth=1 origin "$commit"
+          git -C "$idf" checkout --detach FETCH_HEAD
+          test "$(git -C "$idf" rev-parse HEAD)" = "$commit"
+          git -C "$idf" submodule update --init --recursive --depth=1
+          "$idf/install.sh" esp32
+          echo "IDF_PATH=$idf" >> "$GITHUB_ENV"
 
-      - name: Install Espressif Arduino core 3.3.11
+      - name: Build exact authoritative firmware
         shell: bash
         run: |
           set -euo pipefail
-          arduino-cli config init --overwrite
-          arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
-          arduino-cli core install esp32:esp32@3.3.11 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
-
-      - name: Compile exact ESP32 firmware
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/battery-monitor-signed-firmware
-          arduino-cli compile \
-            --fqbn esp32:esp32:esp32 \
-            --warnings all \
-            --output-dir /tmp/battery-monitor-signed-firmware \
-            battery-monitor/firmware/BatteryMonitor
+          . "$IDF_PATH/export.sh"
+          bash battery-monitor/firmware/idf/build.sh /tmp/battery-monitor-signed-firmware
           test -f /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.bin
           test -f /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.merged.bin
+          test "$(stat -c %s /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.merged.bin)" -eq 4194304
 
       - name: Sign and independently verify firmware
         shell: bash
@@ -147,6 +143,10 @@ jobs:
             echo 'schema=BATMON_SIGNED_RELEASE_V1'
             echo 'source_sha=${{ inputs.source_sha }}'
             echo 'version=${{ inputs.version }}'
+            echo 'architecture=ESP-IDF+Arduino-component'
+            echo 'esp_idf_version=5.5.5'
+            echo 'esp_idf_commit=b774170ff46c393eeb5e495ea37936038d3f4f4f'
+            echo 'arduino_esp32_component=3.3.11'
             echo 'algorithm=RSA-3072-PSS-SHA256'
             echo "public_key_spki_sha256=$EXPECTED_KEY_FINGERPRINT"
             sha256sum /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.bin
