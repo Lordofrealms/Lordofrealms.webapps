@@ -111,9 +111,9 @@ internal sealed class BatteryProfileCatalog
             throw new InvalidOperationException("Profile ID must be 1-31 characters using only letters, numbers, underscore, dash, or period.");
         if (string.IsNullOrWhiteSpace(profile.Name) || profile.Name.Trim().Length > 64)
             throw new InvalidOperationException("Profile name must be 1-64 characters.");
-        if (profile.CriticalVoltage < 1.0 || profile.CriticalVoltage > 20.0 ||
+        if (profile.CriticalVoltage < 6.0 || profile.CriticalVoltage > 20.0 ||
             profile.LowVoltage <= profile.CriticalVoltage || profile.LowVoltage > 20.0)
-            throw new InvalidOperationException("Profile voltage thresholds are invalid. Low must be above Critical and both must be within 1-20 V.");
+            throw new InvalidOperationException("Profile voltage thresholds are invalid. Low must be above Critical and both must be within 6-20 V.");
     }
 
     private List<BatteryProfile> LoadPackagedDefaults()
