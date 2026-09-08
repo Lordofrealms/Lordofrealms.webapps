@@ -1,0 +1,65 @@
+name: Battery Monitor Encryption Build Diagnostic
+
+on:
+  push:
+    branches: [battery-monitor-dev]
+    paths:
+      - 'battery-monitor/firmware/**'
+      - '.github/workflows/battery-monitor-encryption-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    name: Capture authoritative ESP-IDF build output
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install pinned ESP-IDF 5.5.5
+        shell: bash
+        run: |
+          set -euo pipefail
+          idf="$RUNNER_TEMP/esp-idf"
+          commit='b774170ff46c393eeb5e495ea37936038d3f4f4f'
+          mkdir -p "$idf"
+          git -C "$idf" init
+          git -C "$idf" remote add origin https://github.com/espressif/esp-idf.git
+          git -C "$idf" fetch --depth=1 origin "$commit"
+          git -C "$idf" checkout --detach FETCH_HEAD
+          test "$(git -C "$idf" rev-parse HEAD)" = "$commit"
+          git -C "$idf" submodule update --init --recursive --depth=1
+          "$idf/install.sh" esp32
+          echo "IDF_PATH=$idf" >> "$GITHUB_ENV"
+
+      - name: Capture authoritative build
+        shell: bash
+        run: |
+          set -uo pipefail
+          . "$IDF_PATH/export.sh"
+          set +e
+          bash battery-monitor/firmware/idf/build.sh /tmp/battery-monitor-firmware 2>&1 | tee /tmp/battery-monitor-build.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$rc" > /tmp/battery-monitor-build.rc
+          exit 0
+
+      - name: Upload build diagnostic
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: battery-monitor-encryption-build-diagnostic
+          path: |
+            /tmp/battery-monitor-build.log
+            /tmp/battery-monitor-build.rc
+
+      - name: Preserve authoritative failure
+        shell: bash
+        run: |
+          rc="$(cat /tmp/battery-monitor-build.rc)"
+          if [[ "$rc" != 0 ]]; then
+            echo "Authoritative Battery Monitor build failed with exit code $rc." >&2
+            exit "$rc"
+          fi
