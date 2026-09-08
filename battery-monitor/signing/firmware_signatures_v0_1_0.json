@@ -6,16 +6,20 @@
   "publicKeySpkiSha256": "69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e",
   "signatureStorage": "Detached production signatures are release artifacts, not source-repository files. The controlled signed-release workflow emits each firmware image with a same-name .sig sidecar.",
   "releaseWorkflow": ".github/workflows/battery-monitor-signed-release.yml",
+  "currentPolicy": {
+    "applicationUpdate": "BatteryMonitor.ino.bin is the signed plaintext application payload for SIGNED_USB_OTA_V1. Windows verifies it before trusted-USB transfer and the running ESP32 independently verifies it before selecting the inactive OTA partition.",
+    "mergedImage": "Current ESP-IDF release-mode Flash Encryption builds treat BatteryMonitor.ino.merged.bin as blank-device first-install only. It is not a post-encryption recovery image and must not be written as plaintext to an already encrypted unit."
+  },
   "baselineFiles": [
     {
       "file": "BatteryMonitor.ino.bin",
-      "role": "application-update",
+      "role": "historical-application-update-baseline",
       "flashOffset": "0x10000",
       "sha256": "ac588ad8851bc34bb529e888ec8177cb309908abee291aa266bea80b0bf0d71f"
     },
     {
       "file": "BatteryMonitor.ino.merged.bin",
-      "role": "factory-recovery",
+      "role": "historical-factory-recovery-pre-encryption-baseline",
       "flashOffset": "0x0",
       "sha256": "b3eb54f5c3a6364e4135d4778e35fbebe143f6bbb5f0bcbebeaff8b7f582cc1d"
     }
