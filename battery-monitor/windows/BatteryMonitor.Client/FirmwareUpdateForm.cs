@@ -8,6 +8,7 @@ internal sealed class FirmwareUpdateForm : Form
     private readonly UsbProvisioner _provisioner = new();
     private readonly ComboBox _port = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly Label _bundleStatus = new() { AutoSize = true };
+    private readonly Label _versionStatus = new() { AutoSize = true };
     private readonly TextBox _log = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical };
     private readonly List<Button> _buttons = new();
     private CancellationTokenSource? _cts;
@@ -15,9 +16,10 @@ internal sealed class FirmwareUpdateForm : Form
     public FirmwareUpdateForm()
     {
         Text = "Battery Monitor - Firmware Update";
-        Width = 700;
-        Height = 540;
-        MinimumSize = new Size(620, 470);
+        Icon = AppIcon.Current;
+        Width = 720;
+        Height = 570;
+        MinimumSize = new Size(640, 500);
         StartPosition = FormStartPosition.CenterParent;
         BuildUi();
         RefreshPorts();
@@ -27,7 +29,7 @@ internal sealed class FirmwareUpdateForm : Form
 
     private void BuildUi()
     {
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14), ColumnCount = 2, RowCount = 6 };
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14), ColumnCount = 2, RowCount = 7 };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170));
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         Controls.Add(root);
@@ -35,8 +37,8 @@ internal sealed class FirmwareUpdateForm : Form
         var intro = new Label
         {
             AutoSize = true,
-            MaximumSize = new Size(650, 0),
-            Text = "Battery Monitor uses release-mode Flash Encryption. Normal updates are sent over USB to the running monitor, not written by the ESP32 ROM bootloader. Windows verifies the production RSA-3072/PSS signature first; the monitor then streams the image into its inactive OTA slot, verifies the same signature on-device, and only then selects that encrypted partition for the next boot. Existing settings/NVS are not overwritten."
+            MaximumSize = new Size(670, 0),
+            Text = "Battery Monitor uses release-mode Flash Encryption. Signed application updates are sent to the running monitor, which writes the inactive OTA slot, verifies the production signature on-device, and only then selects that encrypted partition for the next boot. Existing settings/NVS are not overwritten."
         };
         root.Controls.Add(intro, 0, 0); root.SetColumnSpan(intro, 2);
 
@@ -48,12 +50,14 @@ internal sealed class FirmwareUpdateForm : Form
         AddRow(root, 1, "USB serial port", ports);
 
         root.Controls.Add(_bundleStatus, 1, 2);
+        root.Controls.Add(_versionStatus, 1, 3);
         var update = MakeButton("Update Firmware", async (_, _) => await UpdateAsync());
-        root.Controls.Add(update, 1, 3);
+        root.Controls.Add(update, 1, 4);
 
         _log.Dock = DockStyle.Fill;
         _log.Font = new Font(FontFamily.GenericMonospace, 9f);
-        root.Controls.Add(_log, 0, 4); root.SetColumnSpan(_log, 2);
+        root.Controls.Add(_log, 0, 5); root.SetColumnSpan(_log, 2);
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -62,7 +66,7 @@ internal sealed class FirmwareUpdateForm : Form
 
         var close = new Button { Text = "Close", AutoSize = true, Anchor = AnchorStyles.Right };
         close.Click += (_, _) => Close();
-        root.Controls.Add(close, 1, 5);
+        root.Controls.Add(close, 1, 6);
     }
 
     private Button MakeButton(string text, EventHandler handler)
@@ -91,7 +95,16 @@ internal sealed class FirmwareUpdateForm : Form
         var firmware = _flasher.UpdateFirmwarePath is null ? "update image MISSING" : "update image bundled";
         var signature = _flasher.UpdateSignaturePath is null ? "production signature MISSING" : "production signature bundled";
         var transport = _flasher.ApplicationMediatedUpdateSupported ? "signed USB OTA enabled" : "signed USB OTA unavailable";
-        _bundleStatus.Text = $"Bundle: {firmware}; {signature}; {transport}.";
+        var version = string.IsNullOrWhiteSpace(_flasher.UpdateVersion) ? "unknown" : _flasher.UpdateVersion;
+        _bundleStatus.Text = $"Package firmware: {version} | {firmware}; {signature}; {transport}.";
+        _versionStatus.Text = $"Installed firmware: not detected | Package firmware: {version}";
+    }
+
+    private void ShowVersionStatus(UsbMonitorStatus status)
+    {
+        var installed = string.IsNullOrWhiteSpace(status.FirmwareVersion) ? "unknown" : status.FirmwareVersion;
+        var available = string.IsNullOrWhiteSpace(_flasher.UpdateVersion) ? "unknown" : _flasher.UpdateVersion;
+        _versionStatus.Text = $"Installed firmware: {installed} | Package firmware: {available} | {FirmwareVersionInfo.ComparisonLabel(status.FirmwareVersion, _flasher.UpdateVersion)}";
     }
 
     private async Task DetectAsync()
@@ -107,7 +120,8 @@ internal sealed class FirmwareUpdateForm : Form
                 {
                     var status = await _provisioner.ReadStatusAsync(candidate, AppendLog, token);
                     _port.SelectedItem = candidate;
-                    AppendLog($"Battery Monitor {status.DeviceId} detected on {candidate} ({status.Voltage:0.00} V).");
+                    ShowVersionStatus(status);
+                    AppendLog($"Battery Monitor {status.DeviceId} detected on {candidate}: FW {status.FirmwareVersion}, {status.Voltage:0.00} V.");
                     return;
                 }
                 catch (OperationCanceledException) { throw; }
@@ -127,8 +141,12 @@ internal sealed class FirmwareUpdateForm : Form
         {
             AppendLog("Verifying Battery Monitor identity before update...");
             var status = await _provisioner.ReadStatusAsync(port, AppendLog, token);
+            ShowVersionStatus(status);
+            var installed = string.IsNullOrWhiteSpace(status.FirmwareVersion) ? "unknown" : status.FirmwareVersion;
+            var available = string.IsNullOrWhiteSpace(_flasher.UpdateVersion) ? "unknown" : _flasher.UpdateVersion;
+            var comparison = FirmwareVersionInfo.ComparisonLabel(status.FirmwareVersion, _flasher.UpdateVersion);
             if (MessageBox.Show(this,
-                    $"Install the signed firmware update on Battery Monitor {status.DeviceId} ({status.DeviceName}) while preserving its encrypted settings? Keep USB power connected until the update finishes.",
+                    $"Install signed firmware {available} on Battery Monitor {status.DeviceId} ({status.DeviceName})?\n\nInstalled: {installed}\nPackage: {available}\nStatus: {comparison}\n\nExisting encrypted settings will be preserved. Keep USB power connected until the update finishes.",
                     "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
             {
                 AppendLog("Firmware update cancelled by user.");
@@ -138,9 +156,10 @@ internal sealed class FirmwareUpdateForm : Form
             AppendLog($"Verified {status.DeviceId}; validating production firmware signature before transfer...");
             var result = await _flasher.UpdateFirmwareAsync(port, AppendLog, token);
             if (!result.Success) throw new InvalidOperationException(result.Output);
+            _versionStatus.Text = $"Installed firmware after reboot: {result.Output} | Package firmware: {available}";
             AppendLog($"Signed firmware update completed successfully (image {result.Output}); NVS/settings partitions were not written.");
             MessageBox.Show(this,
-                "Signed firmware update completed. The monitor verified the image on-device, selected the encrypted OTA partition, and restarted using its existing configuration.",
+                $"Signed firmware update completed. The monitor verified firmware {result.Output} on-device, selected the encrypted OTA partition, and restarted using its existing configuration.",
                 "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
         });
     }
