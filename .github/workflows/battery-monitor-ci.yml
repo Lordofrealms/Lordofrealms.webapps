@@ -198,7 +198,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/tools/esp-provisioner | Out-Null
           $merged = Get-ChildItem battery-monitor/windows/staging/firmware -Filter 'BatteryMonitor.ino.merged.bin' -Recurse | Select-Object -First 1
           $app = Get-ChildItem battery-monitor/windows/staging/firmware -Filter 'BatteryMonitor.ino.bin' -Recurse | Select-Object -First 1
-          if (-not $merged) { throw 'Merged Battery Monitor factory firmware was not downloaded from firmware job' }
+          if (-not $merged) { throw 'Merged Battery Monitor blank-device first-install firmware was not downloaded from firmware job' }
           if (-not $app) { throw 'Battery Monitor application update image was not downloaded from firmware job' }
           Copy-Item $merged.FullName battery-monitor/windows/publish/firmware/BatteryMonitor.ino.merged.bin
           Copy-Item $app.FullName battery-monitor/windows/publish/firmware/BatteryMonitor.ino.bin
@@ -208,8 +208,8 @@ jobs:
           This is the same authoritative ESP-IDF + Arduino-component firmware
           architecture used by signed releases. These particular CI images are
           intentionally unsigned, so the Windows client's firmware update and
-          factory/recovery functions reject them. The gated signed-release
-          workflow signs the same build outputs for flash-capable packages.
+          blank-device first-install functions reject them. The gated signed-
+          release workflow signs the same build outputs for release packages.
           "@ | Set-Content battery-monitor/windows/publish/firmware/UNSIGNED_CI_BUILD.txt
           Copy-Item battery-monitor/windows/staging/esptool/* battery-monitor/windows/publish/tools/esptool -Recurse -Force
           Copy-Item battery-monitor/windows/staging/esp-provisioner/* battery-monitor/windows/publish/tools/esp-provisioner -Recurse -Force
