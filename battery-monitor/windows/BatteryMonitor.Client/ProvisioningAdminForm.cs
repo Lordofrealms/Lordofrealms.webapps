@@ -28,6 +28,8 @@ internal sealed class ProvisioningAdminForm : Form
         MinimumSize = new Size(680, 660);
         StartPosition = FormStartPosition.CenterParent;
         BuildUi();
+        _setupCode.TextChanged += (_, _) => ClearQr();
+        _port.SelectedIndexChanged += (_, _) => InvalidateReadDevice();
         RefreshPorts();
         FormClosing += (_, _) => _cts?.Cancel();
     }
@@ -76,7 +78,7 @@ internal sealed class ProvisioningAdminForm : Form
             AutoSize = true,
             MaximumSize = new Size(330, 0),
             Margin = new Padding(14, 8, 3, 3),
-            Text = "The QR is created only after the factory code is verified on the currently read device. It contains that code plus the derived WPA2 setup-network password and Espressif Security-2 metadata. Treat a saved/printed QR exactly like the printed initial Device Password."
+            Text = "The QR is created only after the factory code is verified on the currently read device. Editing the code or changing the selected COM port invalidates it. Treat a saved/printed QR exactly like the printed initial Device Password."
         };
         qrPanel.Controls.Add(qrNote);
         root.Controls.Add(qrPanel, 0, 6); root.SetColumnSpan(qrPanel, 2);
@@ -121,6 +123,17 @@ internal sealed class ProvisioningAdminForm : Form
         AppendLog(ports.Length == 0 ? "No COM ports found." : $"Found {ports.Length} COM port(s).");
     }
 
+    private void InvalidateReadDevice()
+    {
+        _deviceId = "";
+        _setupSsid = "";
+        _username = "batmon";
+        _deviceLabel.Text = "Read the selected device.";
+        _identityLabel.Text = "Device identity not loaded.";
+        _setupCode.Clear();
+        ClearQr();
+    }
+
     private async Task ReadDeviceAsync()
     {
         var port = SelectedPort(); if (port is null) return;
@@ -157,7 +170,6 @@ internal sealed class ProvisioningAdminForm : Form
     private void GenerateCode()
     {
         _setupCode.Text = ProvisioningCode.GenerateFormatted();
-        ClearQr();
         AppendLog("Generated a new 80-bit factory setup code in memory. Write and verify it on the current device before a QR can be saved.");
     }
 
