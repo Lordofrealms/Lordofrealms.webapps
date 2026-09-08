@@ -65,11 +65,19 @@ final class DevicePasswordStore {
     }
 
     void forget(String deviceId) {
-        prefs.edit().remove(keyName(deviceId)).apply();
+        try {
+            prefs.edit().remove(keyName(deviceId)).apply();
+        } catch (Exception ignored) {
+            // A credential-store failure must not crash the management UI.
+        }
     }
 
     boolean has(String deviceId) {
-        return prefs.contains(keyName(deviceId));
+        try {
+            return prefs.contains(keyName(deviceId));
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private static String keyName(String deviceId) throws Exception {
