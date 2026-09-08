@@ -24,10 +24,10 @@ Install ESP-IDF v5.5.5 at the exact pinned commit, activate its environment, the
 bash battery-monitor/firmware/idf/build.sh
 ```
 
-The build script verifies the exact ESP-IDF commit and the production security configuration before accepting the build. It produces the established Battery Monitor artifact names:
+The build script verifies the exact ESP-IDF commit and production security configuration before accepting the build. It also fails closed if the RSA public key embedded in the ESP32 signed-update implementation differs from the repository production public key. It produces the established Battery Monitor artifact names:
 
-- `BatteryMonitor.ino.bin` — plaintext application image; application authority remains `app0 @ 0x10000`;
-- `BatteryMonitor.ino.merged.bin` — deterministic 4 MiB **first-install** image for a blank, unencrypted ESP32;
+- `BatteryMonitor.ino.bin` — plaintext application image; application authority remains `app0 @ 0x10000`; this is the signed payload used for normal post-encryption application updates;
+- `BatteryMonitor.ino.merged.bin` — deterministic 4 MiB **first-install** image for a blank, unencrypted ESP32 only;
 - build/partition/toolchain/security authority metadata.
 
 ## Arduino IDE
@@ -40,9 +40,10 @@ Ordinary CI and the signed-release workflow call the **same `build.sh`** and the
 
 - ordinary CI leaves the resulting images unsigned for build validation;
 - the gated signed-release workflow signs those same build outputs with the production RSA-3072 authority and bundles the detached signatures with Windows;
-- signed-release provenance must record the same Arduino-ESP32 **3.3.7** component pin used by the authoritative ESP-IDF build.
+- signed-release provenance must record the same Arduino-ESP32 **3.3.7** component pin used by the authoritative ESP-IDF build;
+- `BUILD_AUTHORITY.txt` records `SIGNED_USB_OTA_V1`, the RSA-3072-PSS-SHA256 trust-root fingerprint, and that the merged image is blank-device first-install only.
 
-Unsigned CI output is not a second firmware architecture. Production Windows tooling still requires the release signatures where applicable.
+Unsigned CI output is not a second firmware architecture. Production Windows tooling requires detached release signatures before it will transfer an application update.
 
 ## Active device-at-rest security
 
@@ -68,12 +69,24 @@ The two OTA application slots retain their full previous size. Only SPIFFS gives
 
 On the first boot of a blank ESP32, ESP-IDF generates a unique Flash Encryption key in eFuse and encrypts protected flash regions in place. `nvs_flash_init()` generates the NVS XTS keys on-device when the `nvs_keys` partition is blank; the key partition itself is protected by Flash Encryption.
 
+## Signed post-encryption update path
+
+Normal firmware updates after the first encrypted boot use **`SIGNED_USB_OTA_V1`**:
+
+1. Windows verifies the detached production RSA-3072-PSS-SHA256 signature before transfer.
+2. The plaintext application image is streamed over trusted physical USB to the running Battery Monitor in bounded binary chunks.
+3. The ESP32 writes the inactive OTA application partition with `esp_ota_write()`; ESP-IDF transparently performs device-specific Flash Encryption on the write.
+4. The ESP32 independently hashes the received plaintext image and verifies the same production signature using its compiled public trust root.
+5. Only after hash/signature/image validation succeeds does firmware call `esp_ota_set_boot_partition()`.
+
+A transfer timeout, interrupted transfer, bad hash, bad signature, malformed image, wrong application image, OTA write failure, or boot-selection failure does not intentionally replace the currently running boot partition. This keeps the update channel fail-closed even before Secure Boot is activated.
+
 ### Important flashing consequence
 
 Release-mode Flash Encryption permanently disables the ROM bootloader's flash encryption/decryption operations. Therefore:
 
 - the merged image is a **first-install image only** for a blank/un-encrypted device;
 - after first encrypted boot, do **not** use plaintext `esptool write-flash` for the application or a merged recovery image;
-- normal plaintext application updates must be accepted by the running application through an OTA/app-mediated writer, which transparently encrypts writes to the OTA application partition;
-- the Windows client must fail closed rather than attempt its previous direct `write-flash 0x10000` update on an encrypted unit;
+- Windows normal update uses the running application's signed USB OTA writer instead of direct `write-flash 0x10000`;
+- the Windows factory/first-install path deliberately does not use `--force`, so esptool's encrypted-device protection remains a final guard against accidental plaintext overwrite;
 - Secure Boot remains a separate later activation step after this encrypted-device update/recovery behavior has been exercised thoroughly on hardware.
