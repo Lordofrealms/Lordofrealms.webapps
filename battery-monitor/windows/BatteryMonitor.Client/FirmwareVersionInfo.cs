@@ -24,11 +24,15 @@ internal static class FirmwareVersionInfo
 
     private static bool TryParse(string? value, out Version version)
     {
-        version = new Version();
+        version = new Version(0, 0);
         if (string.IsNullOrWhiteSpace(value)) return false;
         var cleaned = value.Trim();
-        var separator = cleaned.IndexOfAny(['-', '+']);
+        var dash = cleaned.IndexOf('-');
+        var plus = cleaned.IndexOf('+');
+        var separator = dash < 0 ? plus : plus < 0 ? dash : Math.Min(dash, plus);
         if (separator >= 0) cleaned = cleaned[..separator];
-        return Version.TryParse(cleaned, out version!);
+        if (!Version.TryParse(cleaned, out var parsed) || parsed is null) return false;
+        version = parsed;
+        return true;
     }
 }
