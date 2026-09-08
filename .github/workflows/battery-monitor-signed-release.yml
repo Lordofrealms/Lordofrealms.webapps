@@ -8,9 +8,9 @@ on:
         required: true
         type: string
       version:
-        description: 'Release version label (for artifact names only)'
+        description: 'Exact firmware version from battery-monitor/firmware/idf/version.txt'
         required: true
-        default: '0.1.0'
+        default: '0.1.0.1'
         type: string
 
 permissions:
@@ -40,6 +40,29 @@ jobs:
           ref: ${{ inputs.source_sha }}
           persist-credentials: false
 
+      - name: Validate authoritative release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version_file='battery-monitor/firmware/idf/version.txt'
+          test -f "$version_file" || { echo 'Authoritative firmware version.txt is missing.' >&2; exit 1; }
+          source_version="$(tr -d '\r\n' < "$version_file")"
+          if [[ "$source_version" != '${{ inputs.version }}' ]]; then
+            echo "Requested release version '${{ inputs.version }}' does not match authoritative source version '$source_version'." >&2
+            exit 1
+          fi
+          if [[ ! "$source_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)\.([1-9][0-9]*)$ ]]; then
+            echo "Authoritative version must be major.minor.patch.release_sequence: $source_version" >&2
+            exit 1
+          fi
+          release_sequence="${BASH_REMATCH[4]}"
+          if (( release_sequence > 4294967295 )); then
+            echo "Release sequence exceeds uint32 range: $release_sequence" >&2
+            exit 1
+          fi
+          echo "BATMON_RELEASE_VERSION=$source_version" >> "$GITHUB_ENV"
+          echo "BATMON_RELEASE_SEQUENCE=$release_sequence" >> "$GITHUB_ENV"
+
       - name: Install pinned ESP-IDF 5.5.5
         shell: bash
         run: |
@@ -64,7 +87,15 @@ jobs:
           bash battery-monitor/firmware/idf/build.sh /tmp/battery-monitor-signed-firmware
           test -f /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.bin
           test -f /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.merged.bin
+          test -f /tmp/battery-monitor-signed-firmware/version.txt
+          test -f /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
           test "$(stat -c %s /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.merged.bin)" -eq 4194304
+          test "$(tr -d '\r\n' < /tmp/battery-monitor-signed-firmware/version.txt)" = "$BATMON_RELEASE_VERSION"
+          grep -qx "app_version=$BATMON_RELEASE_VERSION" /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
+          grep -qx "software_release_sequence=$BATMON_RELEASE_SEQUENCE" /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
+          grep -qx 'software_signed_release_floor=encrypted-nvs-strictly-newer' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
+          grep -qx 'post_boot_ota_rollback=enabled' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
+          grep -qx 'hardware_efuse_app_anti_rollback=disabled-pending-secure-boot-production-efuse-gate' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
 
       - name: Sign and independently verify firmware
         shell: bash
@@ -142,7 +173,12 @@ jobs:
           {
             echo 'schema=BATMON_SIGNED_RELEASE_V1'
             echo 'source_sha=${{ inputs.source_sha }}'
-            echo 'version=${{ inputs.version }}'
+            echo "version=$BATMON_RELEASE_VERSION"
+            echo "software_release_sequence=$BATMON_RELEASE_SEQUENCE"
+            echo 'software_signed_release_floor=encrypted-nvs-strictly-newer'
+            echo 'post_boot_ota_rollback=enabled'
+            echo 'hardware_efuse_app_anti_rollback=disabled-pending-secure-boot-production-efuse-gate'
+            echo 'signed_usb_ota=SIGNED_USB_OTA_V1'
             echo 'architecture=ESP-IDF+Arduino-component'
             echo 'esp_idf_version=5.5.5'
             echo 'esp_idf_commit=b774170ff46c393eeb5e495ea37936038d3f4f4f'

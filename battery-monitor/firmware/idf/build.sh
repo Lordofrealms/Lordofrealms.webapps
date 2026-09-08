@@ -16,12 +16,29 @@ EXPECTED_FW_KEY_FINGERPRINT="69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca6
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT_DIR="${1:-$PROJECT_DIR/out}"
 COMPONENT_MANIFEST="$PROJECT_DIR/main/idf_component.yml"
+VERSION_FILE="$PROJECT_DIR/version.txt"
 SIGNING_PUBLIC_KEY="$PROJECT_DIR/../../signing/battery_monitor_secureboot_rsa3072_public.pem"
 FIRMWARE_UPDATE_SOURCE="$PROJECT_DIR/../BatteryMonitor/FirmwareUpdate.ino"
+FIRMWARE_RELEASE_POLICY_SOURCE="$PROJECT_DIR/../BatteryMonitor/FirmwareReleasePolicy.ino"
 
 if [[ -z "${IDF_PATH:-}" ]]; then
   echo "IDF_PATH is not set. Install/activate ESP-IDF v5.5.5 first." >&2
   exit 2
+fi
+
+if [[ ! -f "$VERSION_FILE" ]]; then
+  echo 'Battery Monitor authoritative version.txt is missing.' >&2
+  exit 3
+fi
+APP_VERSION="$(tr -d '\r\n' < "$VERSION_FILE")"
+if [[ ! "$APP_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)\.([1-9][0-9]*)$ ]]; then
+  echo "Battery Monitor app version must be major.minor.patch.release_sequence with a positive monotonic release sequence: $APP_VERSION" >&2
+  exit 3
+fi
+APP_RELEASE_SEQUENCE="${BASH_REMATCH[4]}"
+if (( APP_RELEASE_SEQUENCE > 4294967295 )); then
+  echo "Battery Monitor software release sequence exceeds uint32 range: $APP_RELEASE_SEQUENCE" >&2
+  exit 3
 fi
 
 actual_idf_commit="$(git -C "$IDF_PATH" rev-parse HEAD 2>/dev/null || true)"
@@ -42,12 +59,15 @@ if [[ ! -f "$COMPONENT_MANIFEST" ]] ||
   exit 3
 fi
 
-# Fail closed if the firmware's embedded signed-update trust root drifts from
-# the repository production public key. The Windows verifier is independently
-# exercised by the signed-release workflow; this check brings the ESP32 trust
-# root under ordinary firmware CI as well.
-if [[ ! -f "$SIGNING_PUBLIC_KEY" || ! -f "$FIRMWARE_UPDATE_SOURCE" ]]; then
-  echo 'Firmware update trust-root authority file is missing.' >&2
+# Fail closed if the firmware's embedded signed-update trust root or software
+# release-floor implementation disappears from the one production source tree.
+if [[ ! -f "$SIGNING_PUBLIC_KEY" || ! -f "$FIRMWARE_UPDATE_SOURCE" || ! -f "$FIRMWARE_RELEASE_POLICY_SOURCE" ]]; then
+  echo 'Firmware update/release-policy authority file is missing.' >&2
+  exit 3
+fi
+if ! grep -Fq 'BATMON_RELEASE_FLOOR_KEY = "fwseq"' "$FIRMWARE_RELEASE_POLICY_SOURCE" ||
+   ! grep -Fq 'candidateSequence <= effectiveFloor' "$FIRMWARE_RELEASE_POLICY_SOURCE"; then
+  echo 'Monotonic encrypted-NVS signed-release floor implementation is missing or changed unexpectedly.' >&2
   exit 3
 fi
 
@@ -111,7 +131,7 @@ for required in \
   fi
 done
 if grep -qx 'CONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=y' sdkconfig; then
-  echo 'Irreversible eFuse application anti-rollback must remain disabled until an explicit release-version policy is approved.' >&2
+  echo 'Irreversible eFuse application anti-rollback must remain disabled until the later Secure Boot / production eFuse gate.' >&2
   exit 3
 fi
 if grep -qx 'CONFIG_SECURE_BOOT=y' sdkconfig; then
@@ -132,6 +152,18 @@ fi
 # mediated OTA payload. It must not be written directly by the UART ROM
 # bootloader once release-mode Flash Encryption is active.
 cp build/BatteryMonitor.bin "$OUT_DIR/BatteryMonitor.ino.bin"
+
+# Confirm the authoritative numeric version is actually embedded in the
+# application image which will be signed. This prevents version.txt/provenance
+# from drifting away from the descriptor used by the on-device downgrade gate.
+python - "$OUT_DIR/BatteryMonitor.ino.bin" "$APP_VERSION" <<'PY'
+from pathlib import Path
+import sys
+image = Path(sys.argv[1]).read_bytes()
+version = sys.argv[2].encode("ascii") + b"\x00"
+if version not in image:
+    raise SystemExit(f"Authoritative app version {sys.argv[2]} was not embedded in BatteryMonitor.ino.bin")
+PY
 
 # Create a complete 4 MiB first-install image. ESP-IDF merge-bin supplies
 # bootloader, partition table, OTA data and application at their configured
@@ -154,6 +186,7 @@ PY
 
 cp sdkconfig "$OUT_DIR/sdkconfig"
 cp partitions.csv "$OUT_DIR/partitions.csv"
+cp version.txt "$OUT_DIR/version.txt"
 cp build/partition_table/partition-table.bin "$OUT_DIR/partition-table.bin"
 cp build/bootloader/bootloader.bin "$OUT_DIR/bootloader.bin"
 if [[ -f build/flasher_args.json ]]; then cp build/flasher_args.json "$OUT_DIR/flasher_args.json"; fi
@@ -171,6 +204,11 @@ arduino_esp32_component_source=upstream-git
 arduino_esp32_commit=$ARDUINO_ESP32_COMMIT
 arduino_esp32_webserver_hardening=upstream-pr-12794-merged
 target=esp32
+app_version=$APP_VERSION
+software_release_sequence=$APP_RELEASE_SEQUENCE
+software_signed_release_floor=encrypted-nvs-strictly-newer
+software_release_floor_namespace=batmon
+software_release_floor_key=fwseq
 flash_size=4MB
 partition_table_offset=0xF000
 application_flash_offset=0x10000
@@ -188,8 +226,8 @@ factory_image_scope=blank-unencrypted-device-first-install-only
 post_encryption_plaintext_uart_flash=disabled
 post_encryption_update_path=signed-application-mediated-ota
 post_boot_ota_rollback=enabled
-ota_candidate_health_probation=60s-local-monitoring-identity-and-main-loop
-hardware_efuse_app_anti_rollback=disabled-pending-explicit-release-version-policy
+ota_candidate_health_probation=60s-local-monitoring-identity-release-policy-and-main-loop
+hardware_efuse_app_anti_rollback=disabled-pending-secure-boot-production-efuse-gate
 EOF
 
 ls -lh "$OUT_DIR"
