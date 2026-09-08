@@ -56,8 +56,8 @@ public sealed class DeviceConfigForm : Form
         _batteryType.DropDownStyle = ComboBoxStyle.DropDownList;
         LoadBatteryProfiles(_device.BatteryType, _device.LowVoltage, _device.CriticalVoltage);
 
-        ConfigureNumeric(_low, 1, 20, 2, 0.01m);
-        ConfigureNumeric(_critical, 1, 20, 2, 0.01m);
+        ConfigureNumeric(_low, 6, 20, 2, 0.01m);
+        ConfigureNumeric(_critical, 6, 20, 2, 0.01m);
         ConfigureNumeric(_sample, 1, 3600, 0, 1);
         ConfigureNumeric(_poll, 2, 3600, 0, 1);
         ConfigureNumeric(_offlineTimeoutValue, 1, 86400, 0, 1);
