@@ -102,9 +102,18 @@ internal sealed class MonitoringIdentityStore
 
 internal static class MonitoringProtocol
 {
-    // Deterministic vector makes accidental changes to byte framing/domain
-    // separation fail immediately when this protocol helper is first used.
+    // Deterministic vectors make accidental changes to byte framing, domain
+    // separation, wrap-key derivation, or AES-GCM AAD fail when CI executes
+    // --protocol-self-test. These constants are independent test-vector data.
     static MonitoringProtocol()
+    {
+        RunHmacVector();
+        RunMonitorKeyWrapVector();
+    }
+
+    public static void RunSelfTest() { }
+
+    private static void RunHmacVector()
     {
         var key = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
         var payload = Encoding.UTF8.GetBytes("{\"apiVersion\":1,\"deviceId\":\"BM-A1B2C3\",\"port\":80}");
@@ -113,7 +122,7 @@ internal static class MonitoringProtocol
         try
         {
             if (!CryptographicOperations.FixedTimeEquals(expected, actual))
-                throw new InvalidOperationException("Battery Monitor P0-3 protocol self-test failed.");
+                throw new InvalidOperationException("Battery Monitor P0-3 HMAC protocol self-test failed.");
         }
         finally
         {
@@ -124,10 +133,46 @@ internal static class MonitoringProtocol
         }
     }
 
-    // Calling this explicitly is useful in CI: entering the type runs the
-    // deterministic static-constructor vector above. The method itself is
-    // deliberately empty so there is only one authoritative vector check.
-    public static void RunSelfTest() { }
+    private static void RunMonitorKeyWrapVector()
+    {
+        const string deviceId = "BM-A1B2C3";
+        const string session = "0123456789abcdef0123456789abcdef0123456789abcdef";
+        const string csrf = "00112233445566778899aabbccddeeff";
+        var managementKey = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
+        var expectedWrapKey = Convert.FromHexString("249576993dbd9bf49c647491f47f193eda8c09d5f57b0240bb380262078d3f36");
+        var wrapKey = DeriveMonitorKeyWrapKey(managementKey, session, csrf);
+        var iv = Convert.FromHexString("000102030405060708090a0b");
+        var ciphertext = Convert.FromHexString("2acc241bb6257611833f87a09e0c73767889280f4934ab590d9f6c961a9fa971");
+        var tag = Convert.FromHexString("cde1c72073723fd4439f2ffe813c59e9");
+        var expectedPlaintext = Convert.FromHexString("a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf");
+        var plaintext = new byte[32];
+        var aad = BuildMonitorKeyAad(deviceId, session);
+        try
+        {
+            if (!CryptographicOperations.FixedTimeEquals(expectedWrapKey, wrapKey))
+                throw new InvalidOperationException("Battery Monitor P0-3 monitoring-key wrap derivation self-test failed.");
+            using var aes = new AesGcm(wrapKey, tag.Length);
+            aes.Decrypt(iv, ciphertext, tag, plaintext, aad);
+            if (!CryptographicOperations.FixedTimeEquals(expectedPlaintext, plaintext))
+                throw new InvalidOperationException("Battery Monitor P0-3 monitoring-key AES-GCM self-test failed.");
+        }
+        catch (CryptographicException ex)
+        {
+            throw new InvalidOperationException("Battery Monitor P0-3 monitoring-key AES-GCM self-test failed.", ex);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(managementKey);
+            CryptographicOperations.ZeroMemory(expectedWrapKey);
+            CryptographicOperations.ZeroMemory(wrapKey);
+            CryptographicOperations.ZeroMemory(iv);
+            CryptographicOperations.ZeroMemory(ciphertext);
+            CryptographicOperations.ZeroMemory(tag);
+            CryptographicOperations.ZeroMemory(expectedPlaintext);
+            CryptographicOperations.ZeroMemory(plaintext);
+            CryptographicOperations.ZeroMemory(aad);
+        }
+    }
 
     public static byte[] ComputeHmac(string domain, string nonce, ReadOnlySpan<byte> payload, ReadOnlySpan<byte> key)
     {
@@ -147,6 +192,17 @@ internal static class MonitoringProtocol
         try { return CryptographicOperations.FixedTimeEquals(expected, suppliedMac); }
         finally { CryptographicOperations.ZeroMemory(expected); }
     }
+
+    public static byte[] DeriveMonitorKeyWrapKey(ReadOnlySpan<byte> managementKey, string sessionToken, string csrfToken)
+    {
+        if (managementKey.Length != 32) throw new ArgumentException("Management key must be 32 bytes.", nameof(managementKey));
+        var message = Encoding.UTF8.GetBytes($"BATMON-MONITOR-KEY-WRAP-V1|{sessionToken}|{csrfToken}");
+        try { return HMACSHA256.HashData(managementKey, message); }
+        finally { CryptographicOperations.ZeroMemory(message); }
+    }
+
+    public static byte[] BuildMonitorKeyAad(string deviceId, string sessionToken) =>
+        Encoding.UTF8.GetBytes($"BATMON-MONITOR-KEY-AAD-V1|{deviceId}|{sessionToken}");
 }
 
 internal sealed class AuthenticatedMonitorEnvelope
