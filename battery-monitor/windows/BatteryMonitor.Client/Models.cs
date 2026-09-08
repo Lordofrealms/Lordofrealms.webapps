@@ -68,6 +68,7 @@ public sealed class MonitorEntry
     public string Hostname { get; set; } = "";
     public string Address { get; set; } = "";
     public int Port { get; set; } = 80;
+    public string FirmwareVersion { get; set; } = "";
     public string BatteryType { get; set; } = "lead_acid";
     public double LowVoltage { get; set; } = 12.20;
     public double CriticalVoltage { get; set; } = 11.90;
@@ -76,6 +77,7 @@ public sealed class MonitorEntry
     public int SampleIntervalSec { get; set; } = 10;
     public int PollIntervalSec { get; set; } = 10;
     public int OfflineTimeoutSec { get; set; } = 300;
+    public DateTime? AlertsSnoozedUntilUtc { get; set; }
 
     public AlertProfile LowAlert { get; set; } = AlertProfile.LowDefault();
     public AlertProfile CriticalAlert { get; set; } = AlertProfile.CriticalDefault();
@@ -102,10 +104,15 @@ public sealed class MonitorEntry
         ? (string.IsNullOrWhiteSpace(DeviceName) ? DeviceId : DeviceName)
         : LocalName;
 
+    public bool AlertsAreSnoozed(DateTime utcNow) =>
+        AlertsSnoozedUntilUtc.HasValue && AlertsSnoozedUntilUtc.Value > utcNow;
+
     public void NormalizeLocalSettings()
     {
         if (OfflineTimeoutSec <= 0) OfflineTimeoutSec = 300;
         if (PollIntervalSec < 2) PollIntervalSec = 10;
+        if (AlertsSnoozedUntilUtc.HasValue && AlertsSnoozedUntilUtc.Value <= DateTime.UtcNow)
+            AlertsSnoozedUntilUtc = null;
         LowAlert ??= AlertProfile.LowDefault();
         CriticalAlert ??= AlertProfile.CriticalDefault();
         OfflineAlert ??= AlertProfile.OfflineDefault();
