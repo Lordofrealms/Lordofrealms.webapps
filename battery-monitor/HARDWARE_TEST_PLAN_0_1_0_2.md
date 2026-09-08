@@ -2,16 +2,17 @@
 
 **Release under test:** `0.1.0.2`  
 **Software release sequence:** `2`  
-**Validated product-source SHA:** `9f833f8e6ebd596b6f8b7906b478858492d116cf`  
-**Normal CI authority:** Battery Monitor Toolchain #156 / run `34257017954` — SUCCESS  
+**Validated product-source SHA:** `d1d6c0ed782116d58f925543ae599939c0ec0191`  
+**Normal CI authority:** Battery Monitor Toolchain #167 / run `34263129626` — SUCCESS  
+**Signed release authority:** Battery Monitor Signed Firmware Release #2 / run `34267079480` — SUCCESS  
 **Secure Boot:** OFF for this test gate  
-**Production signed package:** must be produced by the existing manual signed-release workflow before signed-OTA tests
+**Production signed package:** VERIFIED and recorded in `HARDWARE_TEST_ASSET_RECORD_0_1_0_2.md`
 
 ## 1. Purpose
 
 This plan is the physical validation gate before Battery Monitor may enable Secure Boot or irreversible eFuse application anti-rollback.
 
-The test must validate the current Release Flash Encryption + NVS Encryption + signed USB OTA architecture on real classic ESP32 / ESP32-WROOM-32 hardware without weakening the existing recovery, monitoring, relay safety, or provisioning behavior.
+The test validates Release Flash Encryption + NVS Encryption + signed USB OTA on real classic ESP32 / ESP32-WROOM-32 hardware without weakening recovery, monitoring, relay safety, or provisioning behavior.
 
 Do not enable Secure Boot while executing this plan.
 
@@ -29,7 +30,7 @@ Record the exact values used for each run:
 - Windows package artifact SHA-256;
 - test router/AP SSID used for normal Wi-Fi;
 - a deliberately unavailable/incorrect saved Wi-Fi condition for fallback testing;
-- stable 12 V-class test source or battery simulator for ADC/threshold tests;
+- stable 12 V-class source or battery simulator for ADC/threshold tests;
 - multimeter/reference voltage reading;
 - second LAN device for hostile-network/spoof tests where required.
 
@@ -40,301 +41,321 @@ Do not write the plaintext Advanced Tools credential, Device Password, Wi-Fi pas
 Before touching hardware:
 
 - [ ] Confirm live `battery-monitor-dev` state and read `PROJECT_HANDOFF_LATEST.md` and `PROJECT_STATE_LATEST.md`.
-- [ ] Confirm the product source being tested is exactly `9f833f8e6ebd596b6f8b7906b478858492d116cf`.
+- [ ] Confirm product source is exactly `d1d6c0ed782116d58f925543ae599939c0ec0191`.
 - [ ] Confirm `battery-monitor/firmware/idf/version.txt` is `0.1.0.2`.
-- [ ] Confirm Toolchain #156 succeeded for firmware, Android, and Windows.
-- [ ] Confirm production signed-release workflow was dispatched with `source_sha=9f833f8e6ebd596b6f8b7906b478858492d116cf` and `version=0.1.0.2`.
-- [ ] Confirm signed-release workflow is fully green before using its output.
-- [ ] Confirm the signed application payload and detached signature are paired from the same signed-release artifact.
-- [ ] Confirm the production trust-root fingerprint is `69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e`.
+- [ ] Confirm Toolchain #167 / run `34263129626` succeeded for firmware, Android, and Windows.
+- [ ] Confirm signed-release #2 / run `34267079480` succeeded.
+- [ ] Confirm signed firmware artifact ID is `10072544011` and ZIP SHA-256 is `b302b2be4e2097974aac122e92efbd2ba8489d943ad7b6885e28af97416cd13f`.
+- [ ] Confirm signed Windows artifact ID is `10072631425` and ZIP SHA-256 is `42fba1869e933e9e4bd4fdaa3801333f5426f11639848a007e7003c8ae95ffd6`.
+- [ ] Confirm application image SHA-256 is `9e3649ed58d1b3524ce8ed0fa85adc1abe46d32a2240503e836982f4815c690e`.
+- [ ] Confirm application signature SHA-256 is `aa87e978fab2ab4a3b1ddc93a72d11a3eea1bfdde6e195b242c2f7d154e359ba`.
+- [ ] Confirm production trust-root SPKI SHA-256 is `69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e`.
+- [ ] Confirm `HARDWARE_TEST_ASSET_RECORD_0_1_0_2.md` reports independent application and merged-image RSA-PSS verification `Verified OK`.
 
-**Pass condition:** no package/source/version ambiguity exists before flashing.
+**Pass condition:** no package/source/version/signature ambiguity exists before flashing.
 
 ## 4. Blank-device first-install path
 
 Use this section only on a blank/un-encrypted ESP32.
 
-The 4 MiB merged image is a first-install image only.
-
-- [ ] Connect blank unit by physical USB/UART.
-- [ ] Flash the exact `BatteryMonitor.ino.merged.bin` generated from the validated source/release package using the supported first-install path.
-- [ ] Do not use a post-encryption `--force` bypass.
-- [ ] Power-cycle the unit.
+- [ ] Use the signed Windows package.
+- [ ] Select `Advanced First Install -> First Install (Blank ESP32)`.
+- [ ] Confirm the tool validates the production signature before flashing.
+- [ ] Flash the signed `BatteryMonitor.ino.merged.bin` first-install image.
+- [ ] Do not use `--force` or any post-encryption bypass.
+- [ ] Keep power stable through the complete first boot.
 - [ ] Capture first-boot serial output.
 - [ ] Confirm Release Flash Encryption initializes successfully.
-- [ ] Confirm the device reboots as expected during encryption activation.
+- [ ] Confirm any expected encryption reboot completes.
 - [ ] Confirm the device subsequently boots normally.
-- [ ] Confirm NVS initialization succeeds.
-- [ ] Confirm application version reported over trusted USB is `0.1.0.2`.
+- [ ] Confirm encrypted NVS initializes successfully.
+- [ ] Confirm application version over trusted USB is `0.1.0.2`.
 
 **Pass condition:** blank device becomes an encrypted, bootable Battery Monitor without manual security bypasses.
 
 ## 5. Flash Encryption / direct-UART protection
 
-After the unit has completed encrypted first boot:
+After encrypted first boot:
 
-- [ ] Reboot normally several times and verify normal boot remains reliable.
-- [ ] Confirm the device is operating with Flash Encryption active in Release mode.
+- [ ] Reboot normally several times and verify reliable boot.
+- [ ] Confirm Flash Encryption is active in Release mode.
 - [ ] Attempt the normal plaintext direct-UART application-flash path without security-bypass flags.
-- [ ] Verify that path is not accepted as the supported post-encryption recovery/update mechanism.
-- [ ] Do not use `--force` or any action intended to defeat encrypted-device protections.
+- [ ] Verify that path is not accepted as the supported post-encryption update/recovery mechanism.
+- [ ] Do not use `--force`.
 
-**Pass condition:** post-encryption update authority remains the running application's signed USB OTA path, not plaintext direct flashing.
+**Pass condition:** post-encryption update authority remains application-mediated signed USB OTA.
 
 ## 6. First Device Password -> protected setup AP transition
 
-Start with a unit that has no saved home Wi-Fi and no Device Password identity.
+Start with no saved home Wi-Fi and no Device Password identity.
 
-- [ ] Boot unit.
-- [ ] Confirm no open setup AP is created before trusted USB initialization.
-- [ ] Use the trusted USB setup path to create the initial Device Password.
-- [ ] Confirm USB reports success.
-- [ ] Without rebooting the monitor, scan Wi-Fi from a phone/PC.
+- [ ] Boot the unit.
+- [ ] Confirm no open setup AP exists before trusted USB initialization.
+- [ ] Use Windows `USB Setup` to create an initial normal Device Password.
+- [ ] Confirm USB reports success and verifies the same password.
+- [ ] Without rebooting, scan Wi-Fi from a phone/PC.
 - [ ] Confirm `BatteryMonitor-<suffix>` appears promptly.
-- [ ] Confirm the setup AP is WPA2-protected; no open Battery Monitor AP should exist.
+- [ ] Confirm the setup AP is WPA2-protected.
+- [ ] Confirm no open Battery Monitor AP exists.
 - [ ] Complete Espressif Security-2 provisioning using the same Device Password.
-- [ ] Confirm the unit receives/uses home Wi-Fi credentials.
+- [ ] Confirm home Wi-Fi credentials are accepted.
 - [ ] Confirm setup AP closes after successful provisioning.
-- [ ] Confirm normal monitoring services become available on home Wi-Fi.
+- [ ] Confirm normal monitoring services appear on home Wi-Fi.
 
-**Pass condition:** initial Device Password creation immediately enables protected Security-2 setup without reboot and without exposing an open AP.
+**Pass condition:** first Device Password creation immediately enables protected setup without reboot or open AP exposure.
 
-## 7. Device Password and provisioning-secret persistence
+## 7. Device Password / provisioning persistence
 
-- [ ] Reboot unit after successful setup.
-- [ ] Verify Device Password still authenticates management access.
+- [ ] Reboot after successful setup.
+- [ ] Verify Device Password still authenticates management.
 - [ ] Verify Wi-Fi credentials persist.
+- [ ] Verify calibration factor/offset persist.
 - [ ] Power-cycle during otherwise idle operation and re-check persistence.
-- [ ] Use the supported Wi-Fi reprovisioning path and verify the Device Password remains unchanged.
-- [ ] Confirm Monitoring Identity pairing remains valid through ordinary Wi-Fi reprovisioning.
+- [ ] Use supported Wi-Fi reprovisioning and verify Device Password remains unchanged.
+- [ ] Confirm Monitoring Identity pairing remains valid through ordinary reprovisioning.
 
-**Pass condition:** encrypted NVS survives reboot/power cycle and supported recovery paths preserve the correct security identities.
+**Pass condition:** encrypted NVS survives reboot/power cycle and supported recovery preserves the intended identities/settings.
 
 ## 8. Saved-Wi-Fi failure -> protected fallback
 
-With valid saved Wi-Fi credentials present:
+With valid saved Wi-Fi credentials:
 
-- [ ] Make the saved home Wi-Fi unavailable.
-- [ ] Reboot the monitor or otherwise force loss of infrastructure Wi-Fi.
-- [ ] Verify the monitor attempts normal STA connection first.
-- [ ] Verify that after the connection window fails, the protected `BatteryMonitor-<suffix>` setup AP appears.
-- [ ] Verify fallback AP remains WPA2 + Security-2 protected.
-- [ ] Verify there is no open AP fallback.
+- [ ] Make home Wi-Fi unavailable.
+- [ ] Reboot or force infrastructure loss.
+- [ ] Verify normal STA connection is attempted first.
+- [ ] Verify protected `BatteryMonitor-<suffix>` setup AP appears after the connection window fails.
+- [ ] Verify fallback remains WPA2 + Security-2 protected.
+- [ ] Verify no open AP fallback exists.
 
-**Pass condition:** normal STA is preferred, then protected fallback appears when infrastructure Wi-Fi cannot be reached.
+**Pass condition:** normal STA is preferred, then protected fallback appears.
 
-## 9. Scheduled fallback retry and active-client deferral
+## 9. Scheduled fallback retry / active-client deferral
 
-This specifically validates the 0.1.0.2 fallback-transition hardening.
+### 9.1 No setup client associated
 
-### 9.1 No client associated
-
-- [ ] Leave saved home Wi-Fi unavailable and leave no client associated to the setup AP.
+- [ ] Leave saved home Wi-Fi unavailable and no client associated to setup AP.
 - [ ] Observe the scheduled ~10-minute retry.
-- [ ] Verify provisioning shuts down cleanly before the firmware switches to STA retry mode.
-- [ ] Verify the monitor gets a normal connection attempt window.
-- [ ] If home Wi-Fi is still unavailable, verify the protected setup AP returns.
+- [ ] Verify provisioning shuts down cleanly before STA retry.
+- [ ] Verify a normal home-Wi-Fi connection window occurs.
+- [ ] If home Wi-Fi is still unavailable, verify protected setup returns.
 - [ ] Restore home Wi-Fi before a later retry.
-- [ ] Verify a scheduled retry reconnects to home Wi-Fi and normal services resume.
+- [ ] Verify a scheduled retry reconnects and normal services resume.
 
 ### 9.2 Setup client actively associated
 
-- [ ] Again make home Wi-Fi unavailable and enter protected fallback.
-- [ ] Associate a phone/PC with the protected setup AP before the scheduled retry time.
-- [ ] Keep the client associated through the retry deadline.
+- [ ] Enter protected fallback again.
+- [ ] Associate a phone/PC before the scheduled retry.
+- [ ] Keep it associated through the retry deadline.
 - [ ] Verify the monitor does not tear down the setup AP at that deadline.
-- [ ] Verify retry is deferred approximately 60 seconds while a setup client remains associated.
+- [ ] Verify retry is deferred approximately 60 seconds while the setup client remains associated.
 - [ ] Disconnect the setup client.
-- [ ] Verify a subsequent retry can proceed normally.
+- [ ] Verify a subsequent retry proceeds normally.
 
-**Pass condition:** scheduled retry recovers infrastructure Wi-Fi without racing provisioning shutdown and without interrupting an actively associated setup client.
+**Pass condition:** infrastructure recovery does not race provisioning shutdown or interrupt an active setup client.
 
-## 10. Normal monitoring and WebUI cadence
+## 10. Normal monitoring / WebUI cadence
 
-With the monitor connected to home Wi-Fi:
+- [ ] Open embedded WebUI on home Wi-Fi.
+- [ ] Verify firmware version `0.1.0.2`.
+- [ ] Verify status refreshes at ~1-second intervals.
+- [ ] Set ADC sample interval to a slower value such as 10 seconds.
+- [ ] Verify page polling remains ~1 second while ADC measurement age/value follows configured sampling cadence.
+- [ ] Verify read-only status remains available while management settings are locked.
+- [ ] Authenticate with Device Password and verify privileged changes work.
+- [ ] Lock the WebUI and verify privileged writes are again blocked.
 
-- [ ] Open embedded WebUI.
-- [ ] Verify displayed firmware version is `0.1.0.2`.
-- [ ] Verify status refreshes at approximately 1-second intervals.
-- [ ] Set ADC sample interval to a slower value, such as 10 seconds.
-- [ ] Verify the page continues polling at ~1 second while measurement age/value changes according to ADC sampling cadence rather than forcing 1-second ADC sampling.
-- [ ] Verify read-only battery status remains available while management settings are locked.
-- [ ] Authenticate settings using the Device Password and verify privileged changes work.
-- [ ] Lock the WebUI and confirm privileged changes are no longer permitted.
+**Pass condition:** UI responsiveness is independent of ADC sampling and management protection remains intact.
 
-**Pass condition:** UI responsiveness is independent from ADC sample cadence and management protection remains intact.
+## 11. ADC calibration / persistence
 
-## 11. USB Setup battery-threshold behavior
+At several stable voltages spanning the actual expected battery range, preferably including approximately 10–11 V and 14–15 V:
 
-- [ ] Open Windows USB Setup and read current monitor settings.
+- [ ] Record reference multimeter voltage.
+- [ ] Record raw ADC value/millivolts.
+- [ ] Record Battery Monitor reported voltage before calibration.
+- [ ] Calculate/apply calibration factor and offset.
+- [ ] Read back settings and verify they were saved.
+- [ ] Reboot and verify calibration persists.
+- [ ] Power-cycle and verify calibration persists.
+- [ ] After a normal signed application OTA, verify calibration persists.
+- [ ] Verify measurement stability is adequate for configured thresholds.
+- [ ] Verify 1-second WebUI polling does not materially disturb ADC stability.
+
+Calibration is stored in NVS (`calf` / `calo`). Normal reboot, power loss, and application-mediated signed OTA should preserve it. Full-chip erase/NVS destruction is not expected to preserve it.
+
+**Pass condition:** calibration is accurate enough over the real battery range and persists across supported lifecycle operations.
+
+## 12. USB Setup battery-threshold behavior
+
+- [ ] Read current settings in Windows USB Setup.
 - [ ] Change battery chemistry selection only.
-- [ ] Verify Low/Critical voltage fields do not silently change.
+- [ ] Verify Low/Critical fields do not silently change.
 - [ ] Press `Apply Chemistry Defaults`.
-- [ ] Verify defaults now change explicitly to the selected chemistry's values.
+- [ ] Verify defaults then change explicitly.
 - [ ] Save and read back settings.
-- [ ] Verify values on the device match the explicitly chosen thresholds.
 
 **Pass condition:** chemistry selection alone never overwrites user thresholds.
 
-## 12. Advanced Tools gate
+## 13. Advanced Tools / factory credential gate
 
 - [ ] Launch Advanced Tools.
-- [ ] Verify the application asks for the preconfigured Advanced Tools password rather than offering first-run password creation.
-- [ ] Verify an incorrect password is rejected.
-- [ ] Verify repeated failures eventually trigger escalating temporary lockout.
+- [ ] Verify it asks for the preconfigured Advanced Tools password rather than first-run password creation.
+- [ ] Verify incorrect password rejection.
+- [ ] Verify repeated failures trigger escalating temporary lockout.
 - [ ] After lockout expires, verify the correct out-of-band credential succeeds.
-- [ ] Search application UI/log output and confirm the plaintext Advanced Tools credential is not displayed or logged.
+- [ ] Verify plaintext Advanced Tools credential is not displayed or logged.
+- [ ] In Factory Setup Code / QR, read a device.
+- [ ] Generate a code and confirm no QR can be saved before verification.
+- [ ] Write and verify the code; confirm QR becomes available only then.
+- [ ] Edit the code and confirm QR authority clears.
+- [ ] Change COM port and confirm loaded device/code/QR authority clears.
+- [ ] Swap boards on the same port before Write/Verify and confirm Device ID re-check fails closed.
 
-**Pass condition:** developer-controlled Advanced Tools authentication is enforced without plaintext credential storage/exposure.
+**Pass condition:** developer/factory controls are gated and printed QR authority is tied to a verified physical device/code pair.
 
-## 13. Signed USB OTA — slot A -> slot B
+## 14. Device Password compatibility matrix
 
-Use an already encrypted unit running an earlier valid signed release where practical.
+Execute `DEVICE_PASSWORD_COMPATIBILITY_TEST_0_1_0_2.md`, including:
 
-- [ ] Connect physical USB.
-- [ ] Use the Windows signed firmware-update path with `BatteryMonitor.ino.bin` + matching `.sig` from the production signed `0.1.0.2` package.
+- [ ] normal arbitrary password;
+- [ ] exact historical formatted factory-code shape;
+- [ ] lowercase historical formatted input;
+- [ ] near-match containing excluded legacy characters that must remain literal;
+- [ ] Windows Security-2 provisioning;
+- [ ] Android Security-2 provisioning;
+- [ ] USB verification;
+- [ ] LAN/WebUI management authentication.
+
+**Pass condition:** firmware, Windows, Android, and WebUI agree on the narrow legacy compatibility boundary.
+
+## 15. Signed USB OTA — application path
+
+For an already-encrypted unit, use the signed Windows package and `Firmware Update -> Update Firmware`.
+
 - [ ] Confirm Windows validates the production signature before transfer.
-- [ ] Confirm device accepts `FWBEGIN` only for a valid image/signature/release sequence.
+- [ ] Confirm `FWBEGIN` accepts only valid image/signature/release material.
 - [ ] Confirm bounded chunk transfer completes.
-- [ ] Confirm ESP32 independently verifies hash, application identity, release sequence, and RSA-PSS signature.
-- [ ] Confirm candidate is selected for next boot.
-- [ ] Confirm device boots the new slot.
-- [ ] Confirm application version reports `0.1.0.2`.
-- [ ] Leave unit healthy through the 60-second probation.
+- [ ] Confirm ESP32 independently verifies hash, identity, release sequence, and RSA-PSS signature.
+- [ ] Confirm candidate is selected only after complete validation.
+- [ ] Confirm device boots the new slot and reports `0.1.0.2`.
+- [ ] Keep power stable through the 60-second probation.
 - [ ] Confirm candidate is marked valid.
+- [ ] Confirm Device Password, Wi-Fi, Monitoring Identity, calibration, thresholds, and other NVS settings remain intact.
 - [ ] Confirm encrypted-NVS release floor advances to sequence 2.
 
-**Pass condition:** signed application OTA succeeds without plaintext direct flashing and survives probation.
+**Pass condition:** signed application OTA succeeds without direct plaintext flashing and preserves expected NVS state.
 
-## 14. Signed USB OTA — reverse slot direction
+## 16. OTA reverse-slot direction
 
-Repeat a later valid signed update using the opposite inactive slot when an appropriate newer test-signed sequence exists.
+Use a legitimately newer signed test release if/when needed; do not reduce sequence numbers just to force this test.
 
-- [ ] Confirm update writes the opposite OTA slot.
-- [ ] Confirm signature/release checks are identical.
+- [ ] Confirm update writes the opposite inactive OTA slot.
+- [ ] Confirm signature/release checks remain identical.
 - [ ] Confirm boot/probation succeeds.
 
 **Pass condition:** both OTA directions function under Flash Encryption.
 
-Do not reduce the software release sequence merely to force this test; use a legitimately newer signed test release if needed.
+## 17. Tampered / wrong-signature rejection
 
-## 15. Tampered/wrong-signature rejection
+### Windows-side
 
-### Windows-side rejection
-
-- [ ] Modify one byte of a copy of the signed application image and keep the original signature.
+- [ ] Modify one byte of a copy of the signed application image while keeping original signature.
 - [ ] Verify Windows refuses it before transfer.
-- [ ] Pair the correct image with a signature from a different key/image.
-- [ ] Verify Windows refuses it.
+- [ ] Pair correct image with a wrong signature and verify refusal.
 
-### Device-side rejection
+### Device-side
 
-Using a controlled test mechanism that still exercises the firmware verifier:
+Using a controlled test mechanism that still exercises firmware verification:
 
 - [ ] Present a tampered image/signature combination.
 - [ ] Verify ESP32 refuses boot selection.
 - [ ] Present a wrong-key signature.
 - [ ] Verify ESP32 refuses boot selection.
-- [ ] Verify currently running application remains intact.
+- [ ] Verify currently running valid application remains intact.
 
-**Pass condition:** both host and device independently reject invalid release material.
+**Pass condition:** host and device independently reject invalid release material.
 
-## 16. Interrupted/timeout OTA
+## 18. Interrupted / timeout OTA
 
 At separate controlled points:
 
-- [ ] Interrupt transfer early.
-- [ ] Interrupt transfer mid-image.
-- [ ] Allow firmware-update timeout to expire.
-- [ ] Power-cycle before `FWEND` on a test where doing so is safe.
-- [ ] After each interruption, verify old valid application remains bootable/current.
-- [ ] Verify partial inactive-slot contents are never selected as boot target.
+- [ ] interrupt early transfer;
+- [ ] interrupt mid-image;
+- [ ] allow firmware-update timeout;
+- [ ] power-cycle before `FWEND` where safe;
+- [ ] after each case verify old valid application remains bootable/current;
+- [ ] verify partial inactive-slot data is never selected.
 
-**Pass condition:** incomplete update cannot replace the currently valid application.
+**Pass condition:** incomplete update cannot replace the valid application.
 
-## 17. Rollback probation failure
+## 19. Rollback probation failure
 
-Use a deliberately controlled candidate that can fail the health gate without disabling security checks.
+Use a deliberately controlled validly signed test candidate that can fail health validation.
 
-- [ ] Install a validly signed test candidate.
+- [ ] Install candidate.
 - [ ] Cause reset/watchdog/power loss before 60-second validation completes.
-- [ ] Verify ESP-IDF rollback returns to the previous valid slot as expected.
-- [ ] Verify old application is functional afterward.
-- [ ] Verify failed candidate is not silently marked valid.
+- [ ] Verify ESP-IDF rollback returns to previous valid slot.
+- [ ] Verify previous application is functional afterward.
+- [ ] Verify failed candidate was not silently marked valid.
 
 **Pass condition:** post-boot probation provides real rollback protection.
 
-## 18. Signed software downgrade rejection
+## 20. Signed software downgrade rejection
 
-Requires an older legitimately signed Battery Monitor image with a release sequence below the stored floor.
+Requires an older legitimately signed Battery Monitor image below the stored release floor.
 
-- [ ] First establish encrypted-NVS release floor at sequence 2 or later.
-- [ ] Attempt signed USB OTA using an older legitimately signed sequence.
+- [ ] Establish release floor at sequence 2 or later.
+- [ ] Attempt signed USB OTA using an older legitimate signed sequence.
 - [ ] Verify firmware rejects it before boot selection.
-- [ ] Verify current valid application remains active.
+- [ ] Verify current valid app remains active.
 - [ ] Reboot and confirm release floor persists.
 
-**Pass condition:** signed-but-old firmware is rejected even though its RSA signature is legitimate.
+**Pass condition:** signed-but-old firmware is rejected.
 
-## 19. Monitoring Identity / spoof resistance
+## 21. Monitoring Identity / spoof resistance
 
-- [ ] Pair the legitimate monitor through the supported trusted process.
+- [ ] Pair legitimate monitor through supported trusted process.
 - [ ] Confirm authenticated discovery/status succeeds.
-- [ ] Introduce a device/service that mimics Battery Monitor discovery fields but does not possess the Monitoring Identity Key.
-- [ ] Verify Windows/authorized client does not accept it as the paired monitor.
+- [ ] Introduce a device/service mimicking Battery Monitor discovery without Monitoring Identity Key.
+- [ ] Verify client does not accept it as paired monitor.
 - [ ] Replay stale authenticated data where feasible.
 - [ ] Verify freshness/replay handling rejects stale material.
-- [ ] Confirm legitimate monitor still works after hostile test traffic.
+- [ ] Confirm legitimate monitor still works afterward.
 
-**Pass condition:** unauthenticated LAN impersonation does not become a trusted monitor.
+**Pass condition:** unauthenticated LAN impersonation does not become trusted.
 
-## 20. LAN-management hostile tests
+## 22. LAN-management hostile tests
 
-The current residual design limitation is known: HTTP management bearer values are not end-to-end protected from an active on-path attacker. Do not mark that known limitation as fixed by this test.
+Known residual limitation: HTTP management bearer values are not end-to-end protected from an active on-path LAN attacker. Do not mark that known limitation fixed by this test.
 
-Validate all protections that do exist:
+Validate protections that do exist:
 
-- [ ] bad Device Password proof is rejected;
-- [ ] challenge replay is rejected;
-- [ ] expired challenge is rejected;
-- [ ] expired management session is rejected;
-- [ ] source-IP/session mismatch is rejected;
-- [ ] missing/incorrect CSRF token is rejected for privileged write;
-- [ ] repeated failed authentication triggers rate limiting/lockout;
-- [ ] password rotation remains protected by the current encrypted session-derived mechanism;
-- [ ] Monitoring Identity Key export remains protected and is not logged in plaintext.
+- [ ] bad Device Password proof rejected;
+- [ ] challenge replay rejected;
+- [ ] expired challenge rejected;
+- [ ] expired management session rejected;
+- [ ] source-IP/session mismatch rejected;
+- [ ] missing/incorrect CSRF rejected for privileged write;
+- [ ] repeated failed authentication rate-limited/locked out;
+- [ ] password rotation protected by current encrypted session-derived mechanism;
+- [ ] Monitoring Identity Key export protected and not logged in plaintext.
 
-Record the active-on-path residual risk separately for future `BATMON-MGMT-WRITE-V2` work.
+Record active-on-path residual risk for future `BATMON-MGMT-WRITE-V2` work.
 
-## 21. Relay/freshness/fail-safe regression
-
-Do not let security testing obscure the primary device safety behavior.
+## 23. Relay / freshness / fail-safe regression
 
 - [ ] Verify relay default/fail-safe state at boot.
-- [ ] Verify relay behavior for normal battery state.
+- [ ] Verify normal battery-state behavior.
 - [ ] Verify low-voltage behavior.
 - [ ] Verify critical-voltage behavior.
-- [ ] Verify stale/invalid sensor data forces the intended safe behavior.
-- [ ] Verify communication/network loss does not create an unsafe relay state.
+- [ ] Verify stale/invalid sensor data forces intended safe behavior.
+- [ ] Verify communication/network loss does not create unsafe relay state.
 - [ ] Verify reboot/power interruption returns to safe behavior.
 - [ ] Verify configuration persistence does not bypass freshness checks.
 
-**Pass condition:** security and networking changes have not weakened battery/relay safety behavior.
+**Pass condition:** security/networking changes have not weakened battery/relay safety.
 
-## 22. ADC calibration / measurement sanity
-
-At several stable input voltages within the expected operating range:
-
-- [ ] Record reference multimeter voltage.
-- [ ] Record raw ADC value/millivolts.
-- [ ] Record Battery Monitor reported voltage.
-- [ ] Verify calibration factor/offset persistence.
-- [ ] Verify measurement remains stable enough for configured thresholds.
-- [ ] Verify the 1-second WebUI poll does not materially disturb ADC stability.
-
-Record error in volts and percent for each point.
-
-## 23. Power interruption matrix
+## 24. Power interruption matrix
 
 Repeat controlled power interruption during:
 
@@ -348,33 +369,29 @@ Repeat controlled power interruption during:
 
 For every case record whether the device returns to the correct safe/valid state.
 
-## 24. Final acceptance record
+## 25. Final acceptance record
 
-Do not enable Secure Boot until every required item is either PASS or has an explicitly accepted blocker.
+Do not enable Secure Boot until every required item is PASS or has an explicitly accepted blocker.
 
 Record:
 
 - hardware unit(s) tested;
-- signed-release workflow run ID;
-- exact source SHA;
-- exact application version;
-- first-install image SHA-256;
-- application image SHA-256;
-- Windows package SHA-256;
+- signed-release run ID `34267079480`;
+- exact source SHA `d1d6c0ed782116d58f925543ae599939c0ec0191`;
+- application version `0.1.0.2`;
+- signed first-install image SHA-256;
+- signed application image SHA-256;
+- signed Windows package SHA-256;
 - test date;
+- tester;
 - each section PASS / FAIL / BLOCKED;
-- links to logs/photos/serial captures if retained;
-- all defects discovered and their fixing commit SHAs;
-- final re-validation CI run after any product-source fix.
+- links/references to retained logs/photos/serial captures;
+- any deviations or accepted blockers.
 
-### Secure Boot gate
+Final decision:
 
-Secure Boot/eFuse production policy may be considered only when:
+- [ ] **PASS — eligible to proceed to Secure Boot/eFuse production-gate design and validation**
+- [ ] **FAIL — do not enable Secure Boot; correct defects and repeat affected/full validation as appropriate**
+- [ ] **BLOCKED — do not enable Secure Boot until blocker is resolved or explicitly dispositioned**
 
-- required hardware sections above pass;
-- signed OTA and rollback are demonstrated on real encrypted hardware;
-- downgrade protection is demonstrated;
-- recovery behavior is understood and accepted;
-- no unresolved defect could brick production units or weaken relay/battery safety;
-- the exact post-test product source is re-run through the complete Battery Monitor Toolchain;
-- a new authoritative state/handoff explicitly marks the hardware gate complete.
+Any product-source fix after this signed release requires a new complete normal toolchain validation and a new signed release before hardware authority can move to that source.
