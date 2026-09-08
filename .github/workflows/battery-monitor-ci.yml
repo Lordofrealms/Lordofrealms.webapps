@@ -58,10 +58,10 @@ jobs:
           test -f /tmp/battery-monitor-firmware/BatteryMonitor.ino.merged.bin
           ls -lh /tmp/battery-monitor-firmware
 
-      - name: Upload firmware binaries
+      - name: Upload unsigned development firmware binaries
         uses: actions/upload-artifact@v7
         with:
-          name: battery-monitor-esp32-v0.1.0
+          name: battery-monitor-esp32-DEV-UNSIGNED-v0.1.0
           path: /tmp/battery-monitor-firmware
 
   windows:
@@ -79,10 +79,10 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Download exact firmware built by firmware job
+      - name: Download exact unsigned development firmware built by firmware job
         uses: actions/download-artifact@v8
         with:
-          name: battery-monitor-esp32-v0.1.0
+          name: battery-monitor-esp32-DEV-UNSIGNED-v0.1.0
           path: battery-monitor/windows/staging/firmware
 
       - name: Download and verify Espressif esptool 5.3.1
@@ -163,9 +163,6 @@ jobs:
           source license: Apache-2.0
           "@ | Set-Content "$helperDir/PINNED-SOURCE.txt"
 
-          # Smoke-test the actual standalone executable. A deliberately invalid
-          # protocol should reach our wrapper and return a structured failure,
-          # proving the bundled Espressif protobuf/runtime imports succeeded.
           $helperOutput = '{"protocol":"INVALID"}' | & "$helperDir/BatteryMonitorEspProv.exe"
           $helperExit = $LASTEXITCODE
           if ($helperExit -ne 1) { throw "Provisioning helper smoke test returned unexpected exit code $helperExit" }
@@ -195,7 +192,7 @@ jobs:
             -p:DebugType=None `
             -o battery-monitor/windows/publish
 
-      - name: Bundle firmware, flash tool, and secure provisioner
+      - name: Bundle unsigned development firmware and tools
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/firmware | Out-Null
@@ -207,6 +204,16 @@ jobs:
           if (-not $app) { throw 'Battery Monitor application update image was not downloaded from firmware job' }
           Copy-Item $merged.FullName battery-monitor/windows/publish/firmware/BatteryMonitor.ino.merged.bin
           Copy-Item $app.FullName battery-monitor/windows/publish/firmware/BatteryMonitor.ino.bin
+          @"
+          BATTERY MONITOR DEVELOPMENT BUILD - UNSIGNED FIRMWARE
+
+          The firmware images in this ordinary CI artifact are intentionally unsigned.
+          The Battery Monitor Windows client requires a valid RSA-3072/PSS production
+          signature before either Firmware Update or Factory Flash / Recovery can run.
+          Therefore firmware flashing is intentionally unavailable in this development
+          package. Use the environment-gated Battery Monitor Signed Firmware Release
+          workflow to create a flash-capable production package.
+          "@ | Set-Content battery-monitor/windows/publish/firmware/UNSIGNED_DEVELOPMENT_BUILD.txt
           Copy-Item battery-monitor/windows/staging/esptool/* battery-monitor/windows/publish/tools/esptool -Recurse -Force
           Copy-Item battery-monitor/windows/staging/esp-provisioner/* battery-monitor/windows/publish/tools/esp-provisioner -Recurse -Force
           $tool = Get-ChildItem battery-monitor/windows/publish/tools/esptool -Filter esptool.exe -Recurse | Select-Object -First 1
@@ -217,10 +224,10 @@ jobs:
           Get-FileHash battery-monitor/windows/publish/firmware/BatteryMonitor.ino.merged.bin -Algorithm SHA256
           Get-FileHash $provisioner.FullName -Algorithm SHA256
 
-      - name: Upload Windows client
+      - name: Upload unsigned development Windows client
         uses: actions/upload-artifact@v7
         with:
-          name: Battery-Monitor-Windows-v0.1.0
+          name: Battery-Monitor-Windows-DEV-UNSIGNED-v0.1.0
           path: battery-monitor/windows/publish
 
   android:
