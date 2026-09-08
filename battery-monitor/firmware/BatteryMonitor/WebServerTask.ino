@@ -11,12 +11,17 @@
 // handleClient(). The domain mutex therefore serializes HTTP servicing against
 // normal-network lifecycle transitions, secure provisioning, USB configuration,
 // ADC/config snapshots and OTA transitions performed by the main loop.
+//
+// USB OTA intentionally quiesces HTTP. Authenticated LAN OTA is different: its
+// subsequent chunk/finalize requests arrive through this same WebServer, so HTTP
+// servicing must stay alive while the OTA core is owned by the LAN transport.
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
 
 bool firmwareUpdateInProgress();
+bool firmwareUpdateIsLanTransport();
 
 static SemaphoreHandle_t batteryMonitorWebDomainMutex = nullptr;
 static TaskHandle_t batteryMonitorWebTaskHandle = nullptr;
@@ -30,13 +35,17 @@ void unlockBatteryMonitorWebDomain() {
   if (batteryMonitorWebDomainMutex != nullptr) xSemaphoreGive(batteryMonitorWebDomainMutex);
 }
 
+static bool batteryMonitorWebMayServe() {
+  return !firmwareUpdateInProgress() || firmwareUpdateIsLanTransport();
+}
+
 static void batteryMonitorWebTask(void*) {
   for (;;) {
-    if (httpServerActive && !fallbackApActive && !firmwareUpdateInProgress()) {
+    if (httpServerActive && !fallbackApActive && batteryMonitorWebMayServe()) {
       if (xSemaphoreTake(batteryMonitorWebDomainMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
         // Re-check after taking the mutex because the main loop may have changed
         // network/OTA state while this task was waiting.
-        if (httpServerActive && !fallbackApActive && !firmwareUpdateInProgress()) {
+        if (httpServerActive && !fallbackApActive && batteryMonitorWebMayServe()) {
           server.handleClient();
         }
         xSemaphoreGive(batteryMonitorWebDomainMutex);
