@@ -3,7 +3,10 @@
 Battery Monitor has **one authoritative firmware architecture**:
 
 - ESP-IDF v5.5.5, exact commit `b774170ff46c393eeb5e495ea37936038d3f4f4f`;
-- Arduino-ESP32 3.3.7 as an ESP-IDF managed component;
+- Arduino-ESP32 from immutable upstream Git commit `5cdf8975ae8d9e35888b724b01a444d22406424e`;
+  - this commit is exactly two commits after Arduino-ESP32 3.3.11;
+  - it contains Espressif's merged WebServer hardening PR #12794;
+  - 3.3.11 is the stable base release and is based on ESP-IDF 5.5.5;
 - target: classic ESP32 / ESP32-WROOM-32;
 - application behavior remains in `../BatteryMonitor/*.ino` as readable Arduino/C++ source;
 - `main/BatteryMonitorApp.cpp` is a thin translation-unit wrapper that compiles those same application files under ESP-IDF;
@@ -11,9 +14,19 @@ Battery Monitor has **one authoritative firmware architecture**:
 
 There is no separate Arduino-CLI firmware authority and no separate development firmware codebase.
 
+## Why the Arduino component is pinned to an upstream commit
+
+Battery Monitor briefly used Arduino-ESP32 3.3.7 as the managed-component authority during the ESP-IDF migration. That pin is retired for security reasons.
+
+Upstream security advisory GHSA-8cmm-3887-r32j identifies Arduino-ESP32 versions through 3.3.7 as affected by a critical WebServer multipart-boundary stack overflow, patched in 3.3.8. The Battery Monitor uses synchronous `WebServer`, and multipart request parsing happens before an application route handler can enforce Battery Monitor authentication, so application authentication is not a sufficient mitigation for that parser defect.
+
+The latest stable Arduino-ESP32 release is 3.3.11, which already contains the 3.3.8 security fixes and is based on ESP-IDF 5.5.5. Upstream PR #12794 subsequently hardened WebServer request parsing against slow/incomplete headers and additional malformed-request/DoS cases. The exact merge commit `5cdf8975ae8d9e35888b724b01a444d22406424e` is only two commits ahead of the 3.3.11 tag, so Battery Monitor pins that immutable upstream commit rather than following a floating branch or maintaining a local fork.
+
+`build.sh` verifies that `main/idf_component.yml` still points to this exact Git commit before it accepts a firmware build.
+
 ## Why this architecture exists
 
-The application is intentionally still easy to inspect as familiar Arduino code, while ESP-IDF owns the official build and exposes the low-level security configuration that Arduino IDE/Boards Manager precompiled libraries cannot control. This is required for Battery Monitor's Flash Encryption, NVS Encryption, signed-release policy and eventual Secure Boot activation.
+The application is intentionally still easy to inspect as familiar Arduino code, while ESP-IDF owns the official build and exposes the low-level security configuration required for Flash Encryption, NVS Encryption, signed-update policy and eventual Secure Boot activation.
 
 ## Local official build
 
@@ -24,7 +37,7 @@ Install ESP-IDF v5.5.5 at the exact pinned commit, activate its environment, the
 bash battery-monitor/firmware/idf/build.sh
 ```
 
-The build script verifies the exact ESP-IDF commit and production security configuration before accepting the build. It also fails closed if the RSA public key embedded in the ESP32 signed-update implementation differs from the repository production public key. It produces the established Battery Monitor artifact names:
+The build script verifies the exact ESP-IDF commit, exact Arduino-ESP32 upstream source pin, production security configuration, and firmware update trust root before accepting the build. It produces the established Battery Monitor artifact names:
 
 - `BatteryMonitor.ino.bin` — plaintext application image; application authority remains `app0 @ 0x10000`; this is the signed payload used for normal post-encryption application updates;
 - `BatteryMonitor.ino.merged.bin` — deterministic 4 MiB **first-install** image for a blank, unencrypted ESP32 only;
@@ -40,14 +53,14 @@ Ordinary CI and the signed-release workflow call the **same `build.sh`** and the
 
 - ordinary CI leaves the resulting images unsigned for build validation;
 - the gated signed-release workflow signs those same build outputs with the production RSA-3072 authority and bundles the detached signatures with Windows;
-- signed-release provenance must record the same Arduino-ESP32 **3.3.7** component pin used by the authoritative ESP-IDF build;
-- `BUILD_AUTHORITY.txt` records `SIGNED_USB_OTA_V1`, the RSA-3072-PSS-SHA256 trust-root fingerprint, and that the merged image is blank-device first-install only.
+- signed-release provenance must record Arduino-ESP32 base release **3.3.11** and exact upstream commit `5cdf8975ae8d9e35888b724b01a444d22406424e`;
+- `BUILD_AUTHORITY.txt` records the immutable Arduino source pin, upstream WebServer hardening, `SIGNED_USB_OTA_V1`, the RSA-3072-PSS-SHA256 trust-root fingerprint, and that the merged image is blank-device first-install only.
 
 Unsigned CI output is not a second firmware architecture. Production Windows tooling requires detached release signatures before it will transfer an application update.
 
 ## Active device-at-rest security
 
-The one production configuration now enables:
+The one production configuration enables:
 
 - **Flash Encryption:** enabled on boot in **Release mode**;
 - **NVS Encryption:** enabled for the default `nvs` partition using the Flash Encryption-backed XTS key scheme;

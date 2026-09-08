@@ -10,9 +10,12 @@ set -euo pipefail
 # no separate Arduino-CLI firmware build and no separate dev/prod firmware tree.
 
 EXPECTED_IDF_COMMIT="b774170ff46c393eeb5e495ea37936038d3f4f4f" # ESP-IDF v5.5.5
+ARDUINO_ESP32_BASE_RELEASE="3.3.11"
+ARDUINO_ESP32_COMMIT="5cdf8975ae8d9e35888b724b01a444d22406424e" # 3.3.11 + merged upstream WebServer hardening PR #12794
 EXPECTED_FW_KEY_FINGERPRINT="69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT_DIR="${1:-$PROJECT_DIR/out}"
+COMPONENT_MANIFEST="$PROJECT_DIR/main/idf_component.yml"
 SIGNING_PUBLIC_KEY="$PROJECT_DIR/../../signing/battery_monitor_secureboot_rsa3072_public.pem"
 FIRMWARE_UPDATE_SOURCE="$PROJECT_DIR/../BatteryMonitor/FirmwareUpdate.ino"
 
@@ -26,6 +29,17 @@ if [[ "$actual_idf_commit" != "$EXPECTED_IDF_COMMIT" ]]; then
   echo "Battery Monitor requires exact ESP-IDF commit $EXPECTED_IDF_COMMIT (v5.5.5)." >&2
   echo "Current IDF_PATH resolves to: ${actual_idf_commit:-not-a-git-checkout}" >&2
   exit 2
+fi
+
+# Arduino-ESP32 is pinned to an immutable upstream Git commit: exactly two
+# commits after the 3.3.11 release, containing Espressif's merged WebServer
+# hardening. Do not silently fall back to the vulnerable 3.3.7 registry pin or
+# to a floating branch/tag.
+if [[ ! -f "$COMPONENT_MANIFEST" ]] ||
+   ! grep -Fq 'git: https://github.com/espressif/arduino-esp32.git' "$COMPONENT_MANIFEST" ||
+   ! grep -Fq "version: \"$ARDUINO_ESP32_COMMIT\"" "$COMPONENT_MANIFEST"; then
+  echo "Arduino-ESP32 component authority must remain exact upstream commit $ARDUINO_ESP32_COMMIT." >&2
+  exit 3
 fi
 
 # Fail closed if the firmware's embedded signed-update trust root drifts from
@@ -148,7 +162,10 @@ schema=BATMON_IDF_BUILD_V1
 architecture=ESP-IDF+Arduino-component
 esp_idf_version=5.5.5
 esp_idf_commit=$EXPECTED_IDF_COMMIT
-arduino_esp32_component=3.3.7
+arduino_esp32_base_release=$ARDUINO_ESP32_BASE_RELEASE
+arduino_esp32_component_source=upstream-git
+arduino_esp32_commit=$ARDUINO_ESP32_COMMIT
+arduino_esp32_webserver_hardening=upstream-pr-12794-merged
 target=esp32
 flash_size=4MB
 partition_table_offset=0xF000
