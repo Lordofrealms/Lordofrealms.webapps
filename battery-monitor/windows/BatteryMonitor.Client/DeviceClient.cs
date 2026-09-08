@@ -165,9 +165,8 @@ public sealed class DeviceClient
             if (iv.Length != 12 || cipher.Length != 32 || tag.Length != 16)
                 throw new MonitoringIdentityException("Monitoring-key envelope has invalid cryptographic lengths.");
 
-            var wrapMessage = Encoding.UTF8.GetBytes($"BATMON-MONITOR-KEY-WRAP-V1|{session.SessionToken}|{session.CsrfToken}");
-            var wrapKey = HMACSHA256.HashData(session.ManagementKey, wrapMessage);
-            var aad = Encoding.UTF8.GetBytes($"BATMON-MONITOR-KEY-AAD-V1|{device.DeviceId}|{session.SessionToken}");
+            var wrapKey = MonitoringProtocol.DeriveMonitorKeyWrapKey(session.ManagementKey, session.SessionToken, session.CsrfToken);
+            var aad = MonitoringProtocol.BuildMonitorKeyAad(device.DeviceId, session.SessionToken);
             var key = new byte[32];
             try
             {
@@ -183,7 +182,6 @@ public sealed class DeviceClient
             finally
             {
                 CryptographicOperations.ZeroMemory(wrapKey);
-                CryptographicOperations.ZeroMemory(wrapMessage);
                 CryptographicOperations.ZeroMemory(aad);
                 CryptographicOperations.ZeroMemory(iv);
                 CryptographicOperations.ZeroMemory(cipher);
