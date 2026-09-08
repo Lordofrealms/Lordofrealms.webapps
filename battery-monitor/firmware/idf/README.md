@@ -39,7 +39,8 @@ The files under `battery-monitor/firmware/BatteryMonitor/` remain ordinary Ardui
 Ordinary CI and the signed-release workflow call the **same `build.sh`** and therefore the same compiler/configuration architecture.
 
 - ordinary CI leaves the resulting images unsigned for build validation;
-- the gated signed-release workflow signs those same build outputs with the production RSA-3072 authority and bundles the detached signatures with Windows.
+- the gated signed-release workflow signs those same build outputs with the production RSA-3072 authority and bundles the detached signatures with Windows;
+- signed-release provenance must record the same Arduino-ESP32 **3.3.7** component pin used by the authoritative ESP-IDF build.
 
 Unsigned CI output is not a second firmware architecture. The Windows flasher deliberately refuses it because production signatures are absent.
 
