@@ -13,31 +13,37 @@ public sealed class HelpForm : Form
 @"Battery Monitor first-unit setup
 
 1. Connect the ESP32 by USB.
-2. For this tested ESP32 board, enter download mode by holding EN, plugging in USB while EN remains held, waiting about 5 seconds, then releasing EN.
-3. Use Tools > Advanced Tools > Blank ESP32 First Install only on a blank, unencrypted device.
-4. After first boot, initialize the Device Password/setup credential over trusted USB.
-5. Configure the monitor and home Wi-Fi.
+2. For a genuinely blank, unencrypted ESP32 only, use Tools > Advanced Tools > Blank ESP32 First Install with a production-signed first-install package. Do not use that path after Flash Encryption has activated.
+3. Open Tools > USB Setup and click Read Current.
+4. Enter and confirm the normal Device Password, then choose Set / Rotate Device Password. Trusted USB can initialize or recover this password without reading an old password back.
+5. Configure the monitor name, battery settings, calibration, and home Wi-Fi as needed. If no home Wi-Fi is saved when the Device Password is first initialized, the protected BatteryMonitor setup network becomes available immediately for secure wireless provisioning.
 6. Pair/Trust the monitor on this Windows account.
 7. Connect the battery divider to GPIO34 and calibrate against a multimeter.
+
+The historical 16-character Factory Setup Code / QR tool under Advanced Tools is for manufacturing/printed initial credentials. It is not required for a normal arbitrary Device Password.
 
 After Flash Encryption activates, do not use the blank-device first-install path on that unit again. Normal firmware updates use the signed application-mediated USB OTA path."),
 
         ("Device Password",
 @"The Device Password is the per-monitor administrator credential.
 
-The initial provisioning/setup code becomes the first Device Password. It is separate from:
+A factory/manufacturing workflow may initialize the historical 16-character printed setup code as the first Device Password, but normal trusted USB setup can initialize or rotate the Device Password to an arbitrary value allowed by the device rules. The Device Password is separate from:
 • the Windows Advanced Tools password;
 • the monitor's 256-bit Monitoring Identity Key;
 • the home Wi-Fi password.
 
-The Device Password authenticates management operations and secure Wi-Fi recovery. A remembered Device Password is protected for the current Windows account with DPAPI."),
+The Device Password authenticates management operations and secure Wi-Fi recovery. A remembered Device Password is protected for the current Windows account with DPAPI and is never read back from the ESP32.
+
+Changing the Device Password invalidates the old password immediately after the complete new credential set is committed. Other PCs/phones that saved the old password must be updated."),
 
         ("Wi-Fi and Recovery",
 @"Normal operation prefers the configured home Wi-Fi.
 
 If home Wi-Fi is unavailable, current firmware can expose the protected BatteryMonitor-XXXXXX setup network after the connection attempt fails. The setup network remains WPA2 protected and uses Espressif Security 2 provisioning; it is not an open fallback network.
 
-While in protected fallback, the monitor periodically retries the saved home Wi-Fi. You can also deliberately start secure setup from Change Wi-Fi or the documented physical recovery gesture."),
+While in protected fallback, the monitor periodically retries the saved home Wi-Fi. A currently associated setup client is not intentionally disconnected for that scheduled retry. You can also deliberately start secure setup from Change Wi-Fi or the documented physical recovery gesture.
+
+Trusted USB remains a recovery path for both home Wi-Fi and the Device Password."),
 
         ("Voltage Wiring and Calibration",
 @"Voltage input authority
@@ -76,7 +82,13 @@ A new image has a local health probation before it is permanently accepted. Olde
 • Confirm Windows shows the expected COM port.
 • Close other serial monitors.
 • Try a known data-capable USB cable.
-• Use the tested download-mode sequence: hold EN, plug USB in, keep holding about 5 seconds, release EN.
+• For a genuinely blank board that must enter download mode, use the tested sequence: hold EN, plug USB in, keep holding about 5 seconds, release EN.
+
+Device Password not initialized:
+• Connect by trusted USB.
+• Open Tools > USB Setup and click Read Current.
+• Enter and confirm a Device Password, then choose Set / Rotate Device Password.
+• The password itself is never read back from the ESP32; USB can verify a password by proof/check value instead.
 
 Setup network not visible:
 • The Device Password must already be initialized.
