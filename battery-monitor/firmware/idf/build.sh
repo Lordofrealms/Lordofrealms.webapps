@@ -10,8 +10,11 @@ set -euo pipefail
 # no separate Arduino-CLI firmware build and no separate dev/prod firmware tree.
 
 EXPECTED_IDF_COMMIT="b774170ff46c393eeb5e495ea37936038d3f4f4f" # ESP-IDF v5.5.5
+EXPECTED_FW_KEY_FINGERPRINT="69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT_DIR="${1:-$PROJECT_DIR/out}"
+SIGNING_PUBLIC_KEY="$PROJECT_DIR/../../signing/battery_monitor_secureboot_rsa3072_public.pem"
+FIRMWARE_UPDATE_SOURCE="$PROJECT_DIR/../BatteryMonitor/FirmwareUpdate.ino"
 
 if [[ -z "${IDF_PATH:-}" ]]; then
   echo "IDF_PATH is not set. Install/activate ESP-IDF v5.5.5 first." >&2
@@ -23,6 +26,53 @@ if [[ "$actual_idf_commit" != "$EXPECTED_IDF_COMMIT" ]]; then
   echo "Battery Monitor requires exact ESP-IDF commit $EXPECTED_IDF_COMMIT (v5.5.5)." >&2
   echo "Current IDF_PATH resolves to: ${actual_idf_commit:-not-a-git-checkout}" >&2
   exit 2
+fi
+
+# Fail closed if the firmware's embedded signed-update trust root drifts from
+# the repository production public key. The Windows verifier is independently
+# exercised by the signed-release workflow; this check brings the ESP32 trust
+# root under ordinary firmware CI as well.
+if [[ ! -f "$SIGNING_PUBLIC_KEY" || ! -f "$FIRMWARE_UPDATE_SOURCE" ]]; then
+  echo 'Firmware update trust-root authority file is missing.' >&2
+  exit 3
+fi
+
+repo_key_fingerprint="$(openssl pkey -pubin -in "$SIGNING_PUBLIC_KEY" -outform DER 2>/dev/null | sha256sum | awk '{print $1}')"
+if [[ "$repo_key_fingerprint" != "$EXPECTED_FW_KEY_FINGERPRINT" ]]; then
+  echo "Repository firmware public-key fingerprint mismatch: $repo_key_fingerprint" >&2
+  exit 3
+fi
+
+embedded_key_file="$(mktemp)"
+trap 'rm -f "$embedded_key_file"' EXIT
+python - "$FIRMWARE_UPDATE_SOURCE" "$embedded_key_file" <<'PY'
+from pathlib import Path
+import ast
+import re
+import sys
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+match = re.search(
+    r"static\s+const\s+char\s+BATMON_FW_PUBLIC_KEY_PEM\[\]\s*=\s*(.*?);",
+    source,
+    re.S,
+)
+if not match:
+    raise SystemExit("Could not locate BATMON_FW_PUBLIC_KEY_PEM in FirmwareUpdate.ino")
+parts = re.findall(r'"(?:\\.|[^"\\])*"', match.group(1))
+if not parts:
+    raise SystemExit("BATMON_FW_PUBLIC_KEY_PEM contains no C string fragments")
+pem = "".join(ast.literal_eval(part) for part in parts)
+if not pem.startswith("-----BEGIN PUBLIC KEY-----\n") or not pem.endswith("-----END PUBLIC KEY-----\n"):
+    raise SystemExit("BATMON_FW_PUBLIC_KEY_PEM is not a complete PEM public key")
+Path(sys.argv[2]).write_text(pem, encoding="ascii")
+PY
+embedded_key_fingerprint="$(openssl pkey -pubin -in "$embedded_key_file" -outform DER 2>/dev/null | sha256sum | awk '{print $1}')"
+rm -f "$embedded_key_file"
+trap - EXIT
+if [[ "$embedded_key_fingerprint" != "$repo_key_fingerprint" ]]; then
+  echo "Firmware embedded OTA key fingerprint mismatch: $embedded_key_fingerprint (repository: $repo_key_fingerprint)" >&2
+  exit 3
 fi
 
 rm -rf "$PROJECT_DIR/build" "$PROJECT_DIR/sdkconfig" "$OUT_DIR"
@@ -60,9 +110,9 @@ fi
 
 # Keep the established Windows/update artifact names even though ESP-IDF is now
 # the sole compiler. The plaintext application image is suitable for first-time
-# factory flashing before encryption activates and for an application-mediated
-# OTA writer after activation; it must not be written directly by the UART ROM
-# bootloader once release-mode Flash Encryption is active.
+# factory flashing before encryption activates and for the signed application-
+# mediated OTA writer after activation; it must not be written directly by the
+# UART ROM bootloader once release-mode Flash Encryption is active.
 cp build/BatteryMonitor.bin "$OUT_DIR/BatteryMonitor.ino.bin"
 
 # Create a complete 4 MiB first-install image. ESP-IDF merge-bin supplies
@@ -109,8 +159,13 @@ secure_boot=disabled-pending-post-test-activation
 flash_encryption=enabled-release-mode
 nvs_encryption=enabled-flash-encryption-key-protection
 nvs_keys_partition=0x294000+0x1000-encrypted
+signed_usb_ota=SIGNED_USB_OTA_V1
+firmware_update_signature_algorithm=RSA-3072-PSS-SHA256
+firmware_update_public_key_spki_sha256=$repo_key_fingerprint
+firmware_update_transport=trusted-physical-usb-application-mediated
 factory_image_scope=blank-unencrypted-device-first-install-only
 post_encryption_plaintext_uart_flash=disabled
+post_encryption_update_path=signed-application-mediated-ota
 EOF
 
 ls -lh "$OUT_DIR"
