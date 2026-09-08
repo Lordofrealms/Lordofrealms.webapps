@@ -180,6 +180,7 @@ static String authenticatedDiscoveryPayload() {
   payload += "\"deviceId\":\"" + jsonEscape(deviceId) + "\",";
   payload += "\"name\":\"" + jsonEscape(deviceName) + "\",";
   payload += "\"hostname\":\"" + jsonEscape(hostName) + "\",";
+  payload += "\"ip\":\"" + localIpString() + "\",";
   payload += "\"port\":" + String(HTTP_PORT) + ",";
   payload += "\"firmwareVersion\":\"" + String(FW_VERSION) + "\"}";
   return payload;
