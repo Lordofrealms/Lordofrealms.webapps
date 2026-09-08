@@ -12,6 +12,7 @@
 // BATMON1 PING
 // BATMON1 STATUS
 // BATMON1 PROVSTATUS
+// BATMON1 MONITORKEY                 (trusted physical USB only; secret response)
 // BATMON1 VERIFYPROVCRED <encoded-device-password>
 // BATMON1 SET NAME <encoded-name>
 // BATMON1 SET BATTERY <lead_acid|lifepo4_4s> <lowV> <criticalV>
@@ -129,6 +130,16 @@ static void processSerialProvisioningCommand(String line) {
   }
 
   if (command == "PROVSTATUS") { serialOk("PROVSTATUS " + provisioningIdentitySummary()); return; }
+
+  if (command == "MONITORKEY") {
+    String keyHex = trustedUsbMonitoringIdentityKeyHex();
+    if (keyHex.length() != 64) { serialErr("MONITORKEY_UNAVAILABLE"); return; }
+    // This response is intentionally secret. Host software must redact it from
+    // UI/log output and immediately protect it using the OS credential store.
+    serialOk("MONITORKEY " + keyHex);
+    keyHex = "";
+    return;
+  }
 
   if (command == "VERIFYPROVCRED") {
     unsigned long remainingMs = provisioningVerifyCooldownRemainingMs();
