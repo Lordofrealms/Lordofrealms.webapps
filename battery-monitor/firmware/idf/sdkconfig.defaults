@@ -37,6 +37,14 @@ CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y
 CONFIG_NVS_ENCRYPTION=y
 CONFIG_NVS_SEC_KEY_PROTECT_USING_FLASH_ENC=y
 
+# A newly selected signed OTA image gets one probationary boot. If it resets,
+# loses power, or is explicitly rejected before the application confirms local
+# health, the bootloader returns to the previously valid OTA slot. This is
+# recoverability from a bad signed release; irreversible eFuse anti-downgrade is
+# a separate policy and intentionally remains disabled.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+# CONFIG_BOOTLOADER_APP_ANTI_ROLLBACK is not set
+
 # Secure Boot remains intentionally disabled until the encrypted-hardware test
 # program is complete. Flash/NVS encryption and Secure Boot are separate gates.
 # This is one build architecture, not a separate dev/prod firmware tree.

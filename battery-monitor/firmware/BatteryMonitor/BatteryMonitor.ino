@@ -4,8 +4,12 @@
 // BatteryMonitorLegacy.inc. Only setup/loop are overridden here so P0-3 can
 // add authenticated monitoring identity without duplicating the large embedded
 // browser UI, configured devices require physical presence before entering
-// Wi-Fi recovery provisioning after a network outage, and signed USB OTA can
-// run through the application after Flash Encryption is active.
+// Wi-Fi recovery provisioning after a network outage, signed USB OTA can run
+// through the application after Flash Encryption is active, and a newly
+// selected signed OTA image must survive a local health probation before the
+// ESP-IDF bootloader permanently accepts it.
+
+#include <esp_ota_ops.h>
 
 #define setup batteryMonitorLegacySetup
 #define loop batteryMonitorLegacyLoop
@@ -16,6 +20,67 @@
 bool loadOrCreateMonitoringIdentity();
 void registerMonitoringIdentityRoutes();
 void serviceAuthenticatedDiscovery();
+
+static const unsigned long OTA_ROLLBACK_PROBATION_MS = 60UL * 1000UL;
+static const unsigned long OTA_ROLLBACK_CONFIRM_RETRY_MS = 10UL * 1000UL;
+static const uint32_t OTA_ROLLBACK_MIN_LOOP_PASSES = 250;
+static bool otaRollbackPendingValidation = false;
+static bool otaRollbackHealthPrerequisitesReady = false;
+static unsigned long otaRollbackProbationStartedMs = 0;
+static unsigned long otaRollbackNextConfirmAttemptMs = 0;
+static uint32_t otaRollbackLoopPasses = 0;
+
+static void initializeOtaRollbackHealth(bool monitoringReady) {
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  if (running == nullptr) {
+    Serial.println("WARNING: Could not resolve running OTA partition for rollback health state.");
+    return;
+  }
+
+  esp_ota_img_states_t state = ESP_OTA_IMG_UNDEFINED;
+  esp_err_t stateErr = esp_ota_get_state_partition(running, &state);
+  if (stateErr != ESP_OK || state != ESP_OTA_IMG_PENDING_VERIFY) return;
+
+  otaRollbackPendingValidation = true;
+  otaRollbackHealthPrerequisitesReady = monitoringReady;
+  otaRollbackProbationStartedMs = millis();
+  otaRollbackNextConfirmAttemptMs = otaRollbackProbationStartedMs + OTA_ROLLBACK_PROBATION_MS;
+  otaRollbackLoopPasses = 0;
+
+  Serial.println("OTA candidate is pending validation; starting 60-second local health probation.");
+
+  // P0-3 authenticated monitoring identity is a required security function.
+  // A candidate which cannot initialize it must not become the permanent image.
+  if (!monitoringReady) {
+    Serial.println("ERROR: OTA candidate cannot initialize Monitoring Identity Key; requesting rollback.");
+    delay(50);
+    esp_err_t rollbackErr = esp_ota_mark_app_invalid_rollback_and_reboot();
+    Serial.printf("ERROR: OTA rollback request failed: %s\n", esp_err_to_name(rollbackErr));
+  }
+}
+
+static void serviceOtaRollbackHealth() {
+  if (!otaRollbackPendingValidation || !otaRollbackHealthPrerequisitesReady) return;
+
+  if (otaRollbackLoopPasses < UINT32_MAX) otaRollbackLoopPasses++;
+
+  unsigned long now = millis();
+  if ((unsigned long)(now - otaRollbackProbationStartedMs) < OTA_ROLLBACK_PROBATION_MS) return;
+  if (otaRollbackLoopPasses < OTA_ROLLBACK_MIN_LOOP_PASSES) return;
+  if ((int32_t)(now - otaRollbackNextConfirmAttemptMs) < 0) return;
+
+  esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+  if (err == ESP_OK) {
+    otaRollbackPendingValidation = false;
+    Serial.println("OTA candidate health probation passed; image marked valid and rollback cancelled.");
+    return;
+  }
+
+  // Leave the image pending rather than accepting it on an unexpected metadata
+  // or flash error. A reset while it remains pending will still fall back.
+  otaRollbackNextConfirmAttemptMs = now + OTA_ROLLBACK_CONFIRM_RETRY_MS;
+  Serial.printf("WARNING: Could not mark OTA candidate valid (%s); keeping rollback armed.\n", esp_err_to_name(err));
+}
 
 static void serviceWifiStatePhysicalRecoveryOnly() {
   if (fallbackApActive) return;
@@ -92,6 +157,7 @@ void setup() {
   }
 
   Serial.printf("Device %s (%s), hostname %s.local\n", deviceId.c_str(), deviceName.c_str(), hostName.c_str());
+  initializeOtaRollbackHealth(monitoringReady);
 }
 
 void loop() {
@@ -117,5 +183,10 @@ void loop() {
 
   unsigned long intervalMs = sampleIntervalSec * 1000UL;
   if (millis() - lastSampleMs >= intervalMs) sampleBattery();
+
+  // Wi-Fi is intentionally not a prerequisite. The candidate is accepted only
+  // after setup has completed, P0-3 identity exists, and the main loop has kept
+  // executing throughout the local probation window.
+  serviceOtaRollbackHealth();
   delay(2);
 }

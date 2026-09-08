@@ -97,18 +97,23 @@ idf.py set-target esp32
 idf.py build
 
 # Fail closed if the generated configuration ever drifts from the production
-# device-at-rest security authority.
+# device-at-rest and OTA recoverability authority.
 for required in \
   'CONFIG_SECURE_FLASH_ENC_ENABLED=y' \
   'CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y' \
   'CONFIG_NVS_ENCRYPTION=y' \
   'CONFIG_NVS_SEC_KEY_PROTECT_USING_FLASH_ENC=y' \
+  'CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y' \
   'CONFIG_PARTITION_TABLE_OFFSET=0xF000'; do
   if ! grep -qx "$required" sdkconfig; then
     echo "Required production security/layout setting missing from generated sdkconfig: $required" >&2
     exit 3
   fi
 done
+if grep -qx 'CONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=y' sdkconfig; then
+  echo 'Irreversible eFuse application anti-rollback must remain disabled until an explicit release-version policy is approved.' >&2
+  exit 3
+fi
 if grep -qx 'CONFIG_SECURE_BOOT=y' sdkconfig; then
   echo 'Secure Boot must remain disabled until the explicit post-test activation gate.' >&2
   exit 3
@@ -123,10 +128,9 @@ if ! grep -Eq '^app0,[[:space:]]*app,[[:space:]]*ota_0,[[:space:]]*0x10000,' par
 fi
 
 # Keep the established Windows/update artifact names even though ESP-IDF is now
-# the sole compiler. The plaintext application image is suitable for first-time
-# factory flashing before encryption activates and for the signed application-
-# mediated OTA writer after activation; it must not be written directly by the
-# UART ROM bootloader once release-mode Flash Encryption is active.
+# the sole compiler. The plaintext application image is the signed application-
+# mediated OTA payload. It must not be written directly by the UART ROM
+# bootloader once release-mode Flash Encryption is active.
 cp build/BatteryMonitor.bin "$OUT_DIR/BatteryMonitor.ino.bin"
 
 # Create a complete 4 MiB first-install image. ESP-IDF merge-bin supplies
@@ -183,6 +187,9 @@ firmware_update_transport=trusted-physical-usb-application-mediated
 factory_image_scope=blank-unencrypted-device-first-install-only
 post_encryption_plaintext_uart_flash=disabled
 post_encryption_update_path=signed-application-mediated-ota
+post_boot_ota_rollback=enabled
+ota_candidate_health_probation=60s-local-monitoring-identity-and-main-loop
+hardware_efuse_app_anti_rollback=disabled-pending-explicit-release-version-policy
 EOF
 
 ls -lh "$OUT_DIR"
