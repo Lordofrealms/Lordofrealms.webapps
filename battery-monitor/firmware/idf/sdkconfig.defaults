@@ -1,0 +1,29 @@
+# Battery Monitor authoritative ESP-IDF configuration.
+# Target is set explicitly to esp32 by CI/idf.py.
+
+# Arduino-ESP32 component requirements / behavior.
+CONFIG_AUTOSTART_ARDUINO=y
+CONFIG_FREERTOS_HZ=1000
+
+# Match the existing ESP32-WROOM-32 hardware assumptions.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_40M=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
+# Preserve Battery Monitor's established flash offsets and OTA-style layout.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
+
+# SECURITY ACTIVATION NOTE
+#
+# Secure Boot is intentionally NOT enabled yet.
+# Flash Encryption / NVS Encryption are also not enabled in this migration
+# commit because enabling release-mode encryption changes real-device flash
+# and eFuse behavior. P1-1 will activate those settings deliberately after the
+# single ESP-IDF architecture is proven build-clean.
+#
+# This is one build architecture, not a separate dev/prod firmware tree.
