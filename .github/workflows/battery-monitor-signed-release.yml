@@ -10,7 +10,7 @@ on:
       version:
         description: 'Exact firmware version from battery-monitor/firmware/idf/version.txt'
         required: true
-        default: '0.1.0.2'
+        default: '0.1.0.1'
         type: string
 
 permissions:
@@ -55,32 +55,13 @@ jobs:
             echo "Authoritative version must be major.minor.patch.release_sequence: $source_version" >&2
             exit 1
           fi
-          release_seq="${BASH_REMATCH[4]}"
+          release_sequence="${BASH_REMATCH[4]}"
+          if (( release_sequence > 4294967295 )); then
+            echo "Release sequence exceeds uint32 range: $release_sequence" >&2
+            exit 1
+          fi
           echo "BATMON_RELEASE_VERSION=$source_version" >> "$GITHUB_ENV"
-          echo "BATMON_RELEASE_SEQ=$release_seq" >> "$GITHUB_ENV"
-
-      - name: Validate production signing key is configured
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "$BATMON_FIRMWARE_SIGNING_KEY_B64" || -z "$BATMON_FIRMWARE_SIGNING_KEY_PASSWORD" ]]; then
-            echo 'Production firmware signing secrets are not configured.' >&2
-            exit 1
-          fi
-          printf '%s' "$BATMON_FIRMWARE_SIGNING_KEY_B64" | base64 -d > "$RUNNER_TEMP/battery-monitor-production-key.pem"
-          chmod 600 "$RUNNER_TEMP/battery-monitor-production-key.pem"
-
-      - name: Validate production signing key fingerprint
-        shell: bash
-        run: |
-          set -euo pipefail
-          pubder="$RUNNER_TEMP/battery-monitor-production-key.spki.der"
-          openssl pkey -in "$RUNNER_TEMP/battery-monitor-production-key.pem" -passin env:BATMON_FIRMWARE_SIGNING_KEY_PASSWORD -pubout -outform DER -out "$pubder"
-          actual="$(sha256sum "$pubder" | awk '{print $1}')"
-          if [[ "$actual" != "$EXPECTED_KEY_FINGERPRINT" ]]; then
-            echo "Production signing key fingerprint mismatch: $actual" >&2
-            exit 1
-          fi
+          echo "BATMON_RELEASE_SEQUENCE=$release_sequence" >> "$GITHUB_ENV"
 
       - name: Install pinned ESP-IDF 5.5.5
         shell: bash
@@ -98,95 +79,126 @@ jobs:
           "$idf/install.sh" esp32
           echo "IDF_PATH=$idf" >> "$GITHUB_ENV"
 
-      - name: Build authoritative firmware
+      - name: Build exact authoritative firmware
         shell: bash
         run: |
           set -euo pipefail
           . "$IDF_PATH/export.sh"
-          bash battery-monitor/firmware/idf/build.sh "$RUNNER_TEMP/battery-monitor-firmware"
+          bash battery-monitor/firmware/idf/build.sh /tmp/battery-monitor-signed-firmware
+          test -f /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.bin
+          test -f /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.merged.bin
+          test -f /tmp/battery-monitor-signed-firmware/version.txt
+          test -f /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
+          test "$(stat -c %s /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.merged.bin)" -eq 4194304
+          test "$(tr -d '\r\n' < /tmp/battery-monitor-signed-firmware/version.txt)" = "$BATMON_RELEASE_VERSION"
+          grep -qx "app_version=$BATMON_RELEASE_VERSION" /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
+          grep -qx "software_release_sequence=$BATMON_RELEASE_SEQUENCE" /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
+          grep -qx 'software_signed_release_floor=encrypted-nvs-strictly-newer' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
+          grep -qx 'post_boot_ota_rollback=enabled' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
+          grep -qx 'hardware_efuse_app_anti_rollback=disabled-pending-secure-boot-production-efuse-gate' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
 
-      - name: Validate embedded application version
+      - name: Sign and independently verify firmware
         shell: bash
         run: |
           set -euo pipefail
-          . "$IDF_PATH/export.sh"
-          image="$RUNNER_TEMP/battery-monitor-firmware/BatteryMonitor.ino.bin"
-          info="$(python "$IDF_PATH/components/esptool_py/esptool/esptool.py" image_info "$image")"
-          printf '%s\n' "$info"
-          embedded="$(printf '%s\n' "$info" | sed -nE 's/.*App version:[[:space:]]*([^[:space:]]+).*/\1/p' | head -n1)"
-          if [[ "$embedded" != "$BATMON_RELEASE_VERSION" ]]; then
-            echo "Built application version '$embedded' does not match '$BATMON_RELEASE_VERSION'." >&2
+          test -n "$BATMON_FIRMWARE_SIGNING_KEY_B64" || { echo 'BATMON_FIRMWARE_SIGNING_KEY_B64 secret is not configured.' >&2; exit 1; }
+          test -n "$BATMON_FIRMWARE_SIGNING_KEY_PASSWORD" || { echo 'BATMON_FIRMWARE_SIGNING_KEY_PASSWORD secret is not configured.' >&2; exit 1; }
+
+          key=/tmp/batmon-firmware-signing-key.pem
+          trap 'rm -f "$key" /tmp/batmon-wrong-key.pem /tmp/batmon-wrong.sig /tmp/batmon-tampered.bin' EXIT
+          printf '%s' "$BATMON_FIRMWARE_SIGNING_KEY_B64" | base64 --decode > "$key"
+          chmod 600 "$key"
+
+          actual_fingerprint=$(openssl pkey \
+            -in "$key" \
+            -passin env:BATMON_FIRMWARE_SIGNING_KEY_PASSWORD \
+            -pubout -outform DER | sha256sum | awk '{print $1}')
+          if [[ "$actual_fingerprint" != "$EXPECTED_KEY_FINGERPRINT" ]]; then
+            echo "Signing key fingerprint mismatch: $actual_fingerprint" >&2
             exit 1
           fi
 
-      - name: Sign release firmware
-        shell: bash
-        run: |
-          set -euo pipefail
-          fw="$RUNNER_TEMP/battery-monitor-firmware"
-          out="$RUNNER_TEMP/battery-monitor-signed"
-          mkdir -p "$out"
-          cp -a "$fw/." "$out/"
-
-          key="$RUNNER_TEMP/battery-monitor-production-key.pem"
           for image in BatteryMonitor.ino.bin BatteryMonitor.ino.merged.bin; do
-            openssl dgst -sha256 -sign "$key" -passin env:BATMON_FIRMWARE_SIGNING_KEY_PASSWORD \
-              -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:digest \
-              -out "$out/${image}.sig" "$out/$image"
-            sha256sum "$out/$image" > "$out/${image}.sha256"
+            file="/tmp/battery-monitor-signed-firmware/$image"
+            openssl dgst -sha256 \
+              -sign "$key" \
+              -passin env:BATMON_FIRMWARE_SIGNING_KEY_PASSWORD \
+              -sigopt rsa_padding_mode:pss \
+              -sigopt rsa_pss_saltlen:-1 \
+              -out "$file.sig" \
+              "$file"
+            test "$(wc -c < "$file.sig")" -eq 384
+            openssl dgst -sha256 \
+              -verify battery-monitor/signing/battery_monitor_secureboot_rsa3072_public.pem \
+              -signature "$file.sig" \
+              -sigopt rsa_padding_mode:pss \
+              -sigopt rsa_pss_saltlen:-1 \
+              "$file"
           done
 
-          printf '%s\n' \
-            "Battery Monitor signed firmware release" \
-            "version=$BATMON_RELEASE_VERSION" \
-            "software_release_sequence=$BATMON_RELEASE_SEQ" \
-            "source_sha=${{ inputs.source_sha }}" \
-            "signature_algorithm=RSA-3072-PSS-SHA256" \
-            "production_spki_sha256=$EXPECTED_KEY_FINGERPRINT" \
-            "application_update=BatteryMonitor.ino.bin + BatteryMonitor.ino.bin.sig" \
-            "blank_first_install_only=BatteryMonitor.ino.merged.bin + BatteryMonitor.ino.merged.bin.sig" \
-            "warning=Do not use merged plaintext first-install image as post-encryption recovery." \
-            > "$out/RELEASE.txt"
-
-      - name: Verify signatures and rejection gates
-        shell: bash
-        run: |
-          set -euo pipefail
-          out="$RUNNER_TEMP/battery-monitor-signed"
-          pub="$RUNNER_TEMP/battery-monitor-production-key.pub.pem"
-          openssl pkey -in "$RUNNER_TEMP/battery-monitor-production-key.pem" -passin env:BATMON_FIRMWARE_SIGNING_KEY_PASSWORD -pubout -out "$pub"
-
-          for image in BatteryMonitor.ino.bin BatteryMonitor.ino.merged.bin; do
-            openssl dgst -sha256 -verify "$pub" -signature "$out/${image}.sig" \
-              -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:digest \
-              "$out/$image"
-
-            cp "$out/$image" "$RUNNER_TEMP/tampered.bin"
-            printf '\x00' | dd of="$RUNNER_TEMP/tampered.bin" bs=1 seek=128 count=1 conv=notrunc status=none
-            if openssl dgst -sha256 -verify "$pub" -signature "$out/${image}.sig" \
-              -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:digest \
-              "$RUNNER_TEMP/tampered.bin"; then
-              echo 'Tampered firmware unexpectedly verified.' >&2
-              exit 1
-            fi
-          done
-
-          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$RUNNER_TEMP/wrong-key.pem" >/dev/null 2>&1
-          openssl pkey -in "$RUNNER_TEMP/wrong-key.pem" -pubout -out "$RUNNER_TEMP/wrong-key.pub.pem"
-          if openssl dgst -sha256 -verify "$RUNNER_TEMP/wrong-key.pub.pem" -signature "$out/BatteryMonitor.ino.bin.sig" \
-            -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:digest \
-            "$out/BatteryMonitor.ino.bin"; then
-            echo 'Wrong-key signature verification unexpectedly succeeded.' >&2
+          cp /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.bin /tmp/batmon-tampered.bin
+          python - <<'PY'
+          p='/tmp/batmon-tampered.bin'
+          data=bytearray(open(p,'rb').read())
+          data[len(data)//2] ^= 1
+          open(p,'wb').write(data)
+          PY
+          if openssl dgst -sha256 \
+              -verify battery-monitor/signing/battery_monitor_secureboot_rsa3072_public.pem \
+              -signature /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.bin.sig \
+              -sigopt rsa_padding_mode:pss \
+              -sigopt rsa_pss_saltlen:-1 \
+              /tmp/batmon-tampered.bin; then
+            echo 'Tampered firmware unexpectedly verified.' >&2
             exit 1
           fi
 
-      - name: Upload signed firmware artifact
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out /tmp/batmon-wrong-key.pem >/dev/null 2>&1
+          openssl dgst -sha256 \
+            -sign /tmp/batmon-wrong-key.pem \
+            -sigopt rsa_padding_mode:pss \
+            -sigopt rsa_pss_saltlen:-1 \
+            -out /tmp/batmon-wrong.sig \
+            /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.bin
+          if openssl dgst -sha256 \
+              -verify battery-monitor/signing/battery_monitor_secureboot_rsa3072_public.pem \
+              -signature /tmp/batmon-wrong.sig \
+              -sigopt rsa_padding_mode:pss \
+              -sigopt rsa_pss_saltlen:-1 \
+              /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.bin; then
+            echo 'Firmware signed by a different key unexpectedly verified.' >&2
+            exit 1
+          fi
+
+          {
+            echo 'schema=BATMON_SIGNED_RELEASE_V1'
+            echo 'source_sha=${{ inputs.source_sha }}'
+            echo "version=$BATMON_RELEASE_VERSION"
+            echo "software_release_sequence=$BATMON_RELEASE_SEQUENCE"
+            echo 'software_signed_release_floor=encrypted-nvs-strictly-newer'
+            echo 'post_boot_ota_rollback=enabled'
+            echo 'hardware_efuse_app_anti_rollback=disabled-pending-secure-boot-production-efuse-gate'
+            echo 'signed_usb_ota=SIGNED_USB_OTA_V1'
+            echo 'architecture=ESP-IDF+Arduino-component'
+            echo 'esp_idf_version=5.5.5'
+            echo 'esp_idf_commit=b774170ff46c393eeb5e495ea37936038d3f4f4f'
+            echo 'arduino_esp32_base_release=3.3.11'
+            echo 'arduino_esp32_component_source=upstream-git'
+            echo 'arduino_esp32_commit=5cdf8975ae8d9e35888b724b01a444d22406424e'
+            echo 'arduino_esp32_webserver_hardening=upstream-pr-12794-merged'
+            echo 'algorithm=RSA-3072-PSS-SHA256'
+            echo "public_key_spki_sha256=$EXPECTED_KEY_FINGERPRINT"
+            sha256sum /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.bin
+            sha256sum /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.merged.bin
+          } > /tmp/battery-monitor-signed-firmware/SIGNED_RELEASE.txt
+
+      - name: Upload signed firmware
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Battery-Monitor-Signed-Firmware-${{ inputs.version }}
-          path: ${{ runner.temp }}/battery-monitor-signed
+          path: /tmp/battery-monitor-signed-firmware
 
-  windows_release:
+  windows_signed:
     name: Build Windows package with signed firmware
     runs-on: windows-latest
     needs: signed_firmware
@@ -196,68 +208,124 @@ jobs:
           ref: ${{ inputs.source_sha }}
           persist-credentials: false
 
-      - name: Download signed firmware artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: '8.0.x'
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+
+      - name: Download exact signed firmware
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: Battery-Monitor-Signed-Firmware-${{ inputs.version }}
-          path: ${{ runner.temp }}/battery-monitor-signed
+          path: battery-monitor/windows/staging/firmware
 
-      - name: Validate firmware metadata
+      - name: Download and verify Espressif esptool 5.3.1
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'esptool-v5.3.1-windows-amd64.zip'
+          Invoke-WebRequest -Uri 'https://github.com/espressif/esptool/releases/download/v5.3.1/esptool-v5.3.1-windows-amd64.zip' -OutFile $zip
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = '2b4a73c45db27426685896f64ce3e557f63a64f43cc100cb65c0cc3486af96d3'
+          if ($actual -ne $expected) { throw "esptool SHA256 mismatch: $actual" }
+          New-Item -ItemType Directory -Force -Path battery-monitor/windows/staging/esptool | Out-Null
+          Expand-Archive -Path $zip -DestinationPath battery-monitor/windows/staging/esptool -Force
+          $exe = Get-ChildItem battery-monitor/windows/staging/esptool -Filter esptool.exe -Recurse | Select-Object -First 1
+          if (-not $exe) { throw 'esptool.exe not found after extraction' }
+          & $exe.FullName version
+
+      - name: Build pinned Espressif Security 2 provisioner helper
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $release = Join-Path $env:RUNNER_TEMP 'battery-monitor-signed\RELEASE.txt'
-          if (-not (Test-Path $release)) { throw 'Signed firmware RELEASE.txt is missing.' }
-          $text = Get-Content $release -Raw
-          if ($text -notmatch "version=${{ inputs.version }}") { throw 'Signed firmware version metadata mismatch.' }
-          if ($text -notmatch "source_sha=${{ inputs.source_sha }}") { throw 'Signed firmware source SHA metadata mismatch.' }
-          if ($text -notmatch 'signature_algorithm=RSA-3072-PSS-SHA256') { throw 'Signed firmware algorithm metadata mismatch.' }
-          if ($text -notmatch 'production_spki_sha256=69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e') { throw 'Signed firmware trust-root metadata mismatch.' }
+          $vendorCommit = '3ba4a43776a737054b43ead300ea0377787cad4a'
+          $idfCommit = 'fcae32885b0296b32044cb99ecbdc50d98dddb83'
+          $vendor = Join-Path $env:RUNNER_TEMP 'idf-extra-components'
+          New-Item -ItemType Directory -Force -Path $vendor | Out-Null
+          git -C $vendor init
+          git -C $vendor remote add origin https://github.com/espressif/idf-extra-components.git
+          git -C $vendor fetch --depth=1 origin $vendorCommit
+          git -C $vendor checkout --detach FETCH_HEAD
+          if ((git -C $vendor rev-parse HEAD).Trim() -ne $vendorCommit) { throw 'Espressif provisioner source commit mismatch' }
+          $idf = Join-Path $env:RUNNER_TEMP 'esp-idf'
+          New-Item -ItemType Directory -Force -Path $idf | Out-Null
+          git -C $idf init
+          git -C $idf remote add origin https://github.com/espressif/esp-idf.git
+          git -C $idf fetch --depth=1 origin $idfCommit
+          git -C $idf checkout --detach FETCH_HEAD
+          if ((git -C $idf rev-parse HEAD).Trim() -ne $idfCommit) { throw 'ESP-IDF source commit mismatch' }
+          python -m pip install --disable-pip-version-check pyinstaller==6.16.0 cryptography==46.0.3 protobuf==5.29.5 bleak==1.1.1
+          $provDir = Join-Path $vendor 'network_provisioning/tool/esp_prov'
+          $networkProto = Join-Path $vendor 'network_provisioning/python'
+          $idfProto = Join-Path $idf 'components/protocomm/python'
+          python -m PyInstaller --noconfirm --clean --onefile --name BatteryMonitorEspProv --paths $provDir --add-data "$idfProto;idf/components/protocomm/python" --add-data "$networkProto;python" battery-monitor/windows/esp_provision_helper.py
+          $helperDir = 'battery-monitor/windows/staging/esp-provisioner'
+          New-Item -ItemType Directory -Force -Path $helperDir | Out-Null
+          Copy-Item dist/BatteryMonitorEspProv.exe "$helperDir/BatteryMonitorEspProv.exe"
+          Copy-Item "$vendor/json_parser/LICENSE" "$helperDir/APACHE-2.0.txt"
 
-      - name: Stage signed firmware for Windows package
+      - name: Build Windows client
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          $target = Join-Path $PWD 'battery-monitor\windows\BatteryMonitor.Client\Firmware'
-          New-Item -ItemType Directory -Force -Path $target | Out-Null
-          Copy-Item (Join-Path $env:RUNNER_TEMP 'battery-monitor-signed\BatteryMonitor.ino.bin') $target -Force
-          Copy-Item (Join-Path $env:RUNNER_TEMP 'battery-monitor-signed\BatteryMonitor.ino.bin.sig') $target -Force
-          Copy-Item (Join-Path $env:RUNNER_TEMP 'battery-monitor-signed\BatteryMonitor.ino.bin.sha256') $target -Force
-          Copy-Item (Join-Path $env:RUNNER_TEMP 'battery-monitor-signed\RELEASE.txt') $target -Force
-
-      - name: Build self-contained Windows package
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
           dotnet restore battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj
-          dotnet publish battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o "$env:RUNNER_TEMP\battery-monitor-windows"
+          dotnet build battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release --no-restore
+          dotnet run --project battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release --no-build -- --protocol-self-test
 
-          $bundle = Join-Path $env:RUNNER_TEMP 'Battery-Monitor-Windows'
-          New-Item -ItemType Directory -Force -Path $bundle | Out-Null
-          Copy-Item "$env:RUNNER_TEMP\battery-monitor-windows\*" $bundle -Recurse -Force
-          Copy-Item 'battery-monitor/windows/README.md' $bundle -Force
-          Copy-Item 'battery-monitor/docs/QUICK_START.md' $bundle -Force
-          Copy-Item 'battery-monitor/docs/TESTING_GUIDE.md' $bundle -Force
-          Copy-Item 'battery-monitor/docs/INSTALLATION_MIGRATION.md' $bundle -Force
-          Copy-Item (Join-Path $env:RUNNER_TEMP 'battery-monitor-signed') (Join-Path $bundle 'Firmware') -Recurse -Force
-
-      - name: Verify staged signed application firmware
+      - name: Exercise production firmware verifier
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $image = Join-Path $env:RUNNER_TEMP 'Battery-Monitor-Windows\Firmware\BatteryMonitor.ino.bin'
-          $sig = Join-Path $env:RUNNER_TEMP 'Battery-Monitor-Windows\Firmware\BatteryMonitor.ino.bin.sig'
-          dotnet run --project battery-monitor/windows/BatteryMonitor.FirmwareVerifier/BatteryMonitor.FirmwareVerifier.csproj --configuration Release -- "$image" "$sig"
+          $dll = (Get-ChildItem battery-monitor/windows/BatteryMonitor.Client/bin/Release -Filter BatteryMonitor.Client.dll -Recurse | Select-Object -First 1).FullName
+          if (-not $dll) { throw 'Built BatteryMonitor.Client.dll not found' }
+          $asm = [System.Reflection.Assembly]::LoadFrom($dll)
+          $type = $asm.GetType('BatteryMonitor.Client.FirmwareSignatureVerifier', $true)
+          $method = $type.GetMethod('VerifyOrThrow', [System.Reflection.BindingFlags]'Static,Public,NonPublic')
+          if (-not $method) { throw 'FirmwareSignatureVerifier.VerifyOrThrow not found' }
 
-          $tampered = Join-Path $env:RUNNER_TEMP 'tampered-windows.bin'
-          Copy-Item $image $tampered -Force
-          $bytes = [IO.File]::ReadAllBytes($tampered)
-          $bytes[128] = $bytes[128] -bxor 0x01
-          [IO.File]::WriteAllBytes($tampered, $bytes)
-          dotnet run --project battery-monitor/windows/BatteryMonitor.FirmwareVerifier/BatteryMonitor.FirmwareVerifier.csproj --configuration Release -- --expect-fail "$tampered" "$sig"
+          foreach ($name in @('BatteryMonitor.ino.bin','BatteryMonitor.ino.merged.bin')) {
+            $image = (Get-ChildItem battery-monitor/windows/staging/firmware -Filter $name -Recurse | Select-Object -First 1).FullName
+            $sig = "$image.sig"
+            if (-not (Test-Path $image) -or -not (Test-Path $sig)) { throw "Signed firmware pair missing for $name" }
+            try { $null = $method.Invoke($null, @($image, $sig)) }
+            catch { throw "Production verifier rejected signed $name`: $($_.Exception.InnerException?.Message ?? $_.Exception.Message)" }
 
-      - name: Upload Windows signed-release package
+            $tampered = Join-Path $env:RUNNER_TEMP ($name + '.tampered')
+            [byte[]]$bytes = [IO.File]::ReadAllBytes($image)
+            $bytes[[int]($bytes.Length / 2)] = $bytes[[int]($bytes.Length / 2)] -bxor 1
+            [IO.File]::WriteAllBytes($tampered, $bytes)
+            $rejected = $false
+            try { $null = $method.Invoke($null, @($tampered, $sig)) }
+            catch { $rejected = $true }
+            if (-not $rejected) { throw "Production verifier accepted tampered $name" }
+            Remove-Item $tampered -Force
+          }
+
+      - name: Publish self-contained win-x64
+        shell: pwsh
+        run: |
+          dotnet publish battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o battery-monitor/windows/publish
+
+      - name: Bundle signed firmware, flash tool, and secure provisioner
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/firmware | Out-Null
+          New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/tools/esptool | Out-Null
+          New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/tools/esp-provisioner | Out-Null
+          foreach ($name in @('BatteryMonitor.ino.bin','BatteryMonitor.ino.merged.bin')) {
+            $image = Get-ChildItem battery-monitor/windows/staging/firmware -Filter $name -Recurse | Select-Object -First 1
+            if (-not $image) { throw "Missing $name" }
+            if (-not (Test-Path ($image.FullName + '.sig'))) { throw "Missing signature for $name" }
+            Copy-Item $image.FullName (Join-Path 'battery-monitor/windows/publish/firmware' $name)
+            Copy-Item ($image.FullName + '.sig') (Join-Path 'battery-monitor/windows/publish/firmware' ($name + '.sig'))
+          }
+          Copy-Item battery-monitor/windows/staging/firmware/SIGNED_RELEASE.txt battery-monitor/windows/publish/firmware/SIGNED_RELEASE.txt
+          Copy-Item battery-monitor/windows/staging/esptool/* battery-monitor/windows/publish/tools/esptool -Recurse -Force
+          Copy-Item battery-monitor/windows/staging/esp-provisioner/* battery-monitor/windows/publish/tools/esp-provisioner -Recurse -Force
+
+      - name: Upload signed Windows package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Battery-Monitor-Windows-Signed-${{ inputs.version }}
-          path: ${{ runner.temp }}/Battery-Monitor-Windows
+          path: battery-monitor/windows/publish
