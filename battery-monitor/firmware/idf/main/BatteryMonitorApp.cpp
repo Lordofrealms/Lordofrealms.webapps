@@ -17,9 +17,13 @@ static String percentEncode(const String& value);
 String trustedUsbMonitoringIdentityKeyHex();
 bool verifyDevicePasswordFlexible(const String& candidate);
 bool setDevicePasswordFlexible(const String& usernameValue, const String& password, String& errorOut);
+void serviceSerialProvisioning();
+bool firmwareUpdateInProgress();
+void serviceFirmwareUpdateTimeout();
 
 #include "../../BatteryMonitor/BatteryMonitor.ino"
 #include "../../BatteryMonitor/SecureProvisioning.ino"
+#include "../../BatteryMonitor/FirmwareUpdate.ino"
 #include "../../BatteryMonitor/SerialProvisioning.ino"
 #include "../../BatteryMonitor/YManagementAuthPrototypes.ino"
 #include "../../BatteryMonitor/ZManagementAuth.ino"

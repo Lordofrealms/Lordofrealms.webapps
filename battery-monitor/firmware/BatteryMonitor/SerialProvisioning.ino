@@ -1,4 +1,4 @@
-// USB serial provisioning protocol for Battery Monitor.
+// USB serial provisioning and signed firmware-update protocol for Battery Monitor.
 //
 // Commands are one ASCII line at 115200 baud. Strings use URL/percent encoding.
 // Every machine-readable response begins with BATMON1 so host software can
@@ -9,11 +9,22 @@
 // (including weak ones by user choice); only protocol-safe length/control-char
 // validation is enforced by setDevicePasswordFlexible().
 //
+// Firmware updates use a line-framed control channel plus raw binary chunks.
+// FWBEGIN carries the image size, SHA-256, and detached production signature.
+// FWCHUNK enters raw receive mode for exactly N bytes and ACKs only after those
+// bytes have been written to the inactive OTA partition. FWEND verifies the
+// complete hash + RSA-PSS signature before selecting the partition for boot.
+//
 // BATMON1 PING
 // BATMON1 STATUS
 // BATMON1 PROVSTATUS
 // BATMON1 MONITORKEY                 (trusted physical USB only; secret response)
 // BATMON1 VERIFYPROVCRED <encoded-device-password>
+// BATMON1 FWCAPS
+// BATMON1 FWBEGIN <bytes> <sha256-hex> <signature-base64>
+// BATMON1 FWCHUNK <bytes>            (then exactly <bytes> raw binary bytes)
+// BATMON1 FWEND
+// BATMON1 FWABORT
 // BATMON1 SET NAME <encoded-name>
 // BATMON1 SET BATTERY <lead_acid|lifepo4_4s> <lowV> <criticalV>
 // BATMON1 SET SAMPLE <seconds>
@@ -157,6 +168,60 @@ static void processSerialProvisioningCommand(String line) {
     return;
   }
 
+  if (command == "FWCAPS") {
+    serialOk("FWCAPS " + firmwareUpdateCapabilitySummary());
+    return;
+  }
+
+  if (command == "FWBEGIN") {
+    String sizeToken = nextToken(remaining);
+    String sha256Hex = nextToken(remaining);
+    String signatureBase64 = remaining;
+    signatureBase64.trim();
+    String error;
+    if (!beginSignedFirmwareUpdate(sizeToken, sha256Hex, signatureBase64, error)) {
+      serialErr(error);
+      return;
+    }
+    serialOk(String("FWBEGIN READY ") + String(BATMON_FW_MAX_CHUNK));
+    return;
+  }
+
+  if (command == "FWCHUNK") {
+    char* end = nullptr;
+    unsigned long chunkSize = strtoul(remaining.c_str(), &end, 10);
+    if (!end || *end != '\0') { serialErr("FW_INVALID_CHUNK_SIZE"); return; }
+    String error;
+    if (!prepareSignedFirmwareChunk((size_t)chunkSize, error)) {
+      serialErr(error);
+      return;
+    }
+    serialOk(String("FWCHUNK READY ") + String(chunkSize));
+    return;
+  }
+
+  if (command == "FWEND") {
+    String version;
+    String error;
+    if (!finishSignedFirmwareUpdate(version, error)) {
+      serialErr(error);
+      return;
+    }
+    serialOk("FWEND VERIFIED " + version);
+    Serial.flush();
+    delay(200);
+    ESP.restart();
+    return;
+  }
+
+  if (command == "FWABORT") {
+    String result;
+    bool hadUpdate = abortSignedFirmwareUpdate(result);
+    if (hadUpdate) serialOk("FWABORT " + result);
+    else serialErr("FW_NO_ACTIVE_UPDATE");
+    return;
+  }
+
   if (command == "CLEARWIFI") { clearWifiSettings(); WiFi.disconnect(true, true); serialOk("CLEARWIFI"); return; }
   if (command == "CLEARPROVCRED") { clearProvisioningIdentity(); provisioningVerifyFailures = 0; provisioningVerifyBlockedUntilMs = 0; serialOk("CLEARPROVCRED"); return; }
   if (command == "REBOOT") { serialOk("REBOOTING"); Serial.flush(); delay(150); ESP.restart(); return; }
@@ -218,11 +283,27 @@ static void processSerialProvisioningCommand(String line) {
 }
 
 void serviceSerialProvisioning() {
+  // During a firmware chunk the byte stream is opaque binary, not line data.
+  // Consume exactly the agreed length before parsing any further commands.
+  if (firmwareUpdateRawBytesPending()) {
+    serviceSignedFirmwareRawSerial();
+    return;
+  }
+
   while (Serial.available() > 0) {
+    if (firmwareUpdateRawBytesPending()) {
+      serviceSignedFirmwareRawSerial();
+      return;
+    }
+
     char c = (char)Serial.read();
     if (c == '\r') continue;
     if (c == '\n') {
-      if (serialProvisioningLine.length() > 0) { processSerialProvisioningCommand(serialProvisioningLine); serialProvisioningLine = ""; }
+      if (serialProvisioningLine.length() > 0) {
+        processSerialProvisioningCommand(serialProvisioningLine);
+        serialProvisioningLine = "";
+      }
+      if (firmwareUpdateRawBytesPending()) return;
       continue;
     }
     if (serialProvisioningLine.length() >= 768) { serialProvisioningLine = ""; serialErr("LINE_TOO_LONG"); continue; }

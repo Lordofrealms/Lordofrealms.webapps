@@ -35,19 +35,19 @@ internal sealed class EspFlasher
         : null;
 
     // Release-mode Flash Encryption disables ROM-download encryption operations
-    // after first boot. A plaintext app image can therefore no longer be safely
-    // written directly to 0x10000 with esptool. Keep this explicit and fail
-    // closed until the application-mediated OTA writer owns normal updates.
+    // after first boot. Plaintext application updates therefore go through the
+    // running Battery Monitor's signed USB OTA writer, not esptool @ 0x10000.
     public bool DirectApplicationUpdateSupported => false;
+    public bool ApplicationMediatedUpdateSupported => true;
     public string DirectApplicationUpdateDisabledReason =>
-        "Direct USB/ROM firmware update is disabled because Battery Monitor uses release-mode Flash Encryption. Use the application-mediated OTA update path; plaintext esptool writes are not permitted after first encrypted boot.";
+        "Direct USB/ROM firmware update is disabled because Battery Monitor uses release-mode Flash Encryption. Normal updates are transferred over USB to the running application, which verifies the production signature and writes the inactive encrypted OTA partition.";
 
     // Backward-compatible alias used by older UI code while the updater/factory
     // split is being completed.
     public string? FirmwarePath => FactoryFirmwarePath;
 
     public bool IsFactoryReady => EsptoolPath is not null && FactoryFirmwarePath is not null && FactorySignaturePath is not null;
-    public bool IsUpdateReady => EsptoolPath is not null && UpdateFirmwarePath is not null && UpdateSignaturePath is not null;
+    public bool IsUpdateReady => UpdateFirmwarePath is not null && UpdateSignaturePath is not null;
     public bool IsReady => IsFactoryReady;
 
     public IReadOnlyList<string> GetSerialPorts()
@@ -76,21 +76,30 @@ internal sealed class EspFlasher
         return await RunEsptoolAsync(new[] { "--chip", "esp32", "--port", port, "chip-id" }, null, TimeSpan.FromSeconds(10), cancellationToken);
     }
 
-    public Task<(bool Success, string Output)> UpdateFirmwareAsync(
+    public async Task<(bool Success, string Output)> UpdateFirmwareAsync(
         string port,
         Action<string>? output,
         CancellationToken cancellationToken = default)
     {
-        _ = port;
-        _ = cancellationToken;
-        if (EsptoolPath is null) return Task.FromResult((false, "Bundled esptool.exe was not found."));
-        if (UpdateFirmwarePath is null) return Task.FromResult((false, "Bundled Battery Monitor application firmware image was not found."));
-        if (UpdateSignaturePath is null) return Task.FromResult((false, "Bundled Battery Monitor application firmware signature was not found. Flashing was blocked."));
+        if (UpdateFirmwarePath is null) return (false, "Bundled Battery Monitor application firmware image was not found.");
+        if (UpdateSignaturePath is null) return (false, "Bundled Battery Monitor application firmware signature was not found. Updating was blocked.");
         if (!VerifyFirmware(UpdateFirmwarePath, UpdateSignaturePath, output, out var verificationError))
-            return Task.FromResult((false, verificationError));
+            return (false, verificationError);
 
-        output?.Invoke(DirectApplicationUpdateDisabledReason);
-        return Task.FromResult((false, DirectApplicationUpdateDisabledReason));
+        try
+        {
+            output?.Invoke("Production signature passed Windows verification; handing the same signed image to the running Battery Monitor for on-device verification and encrypted OTA write...");
+            var updater = new UsbProvisioner();
+            var imageVersion = await updater.UpdateFirmwareAsync(port, UpdateFirmwarePath, UpdateSignaturePath, output, cancellationToken);
+            return (true, imageVersion);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) when (ex is FirmwareSignatureException or CryptographicException or IOException or UnauthorizedAccessException or InvalidOperationException or TimeoutException)
+        {
+            var message = "Firmware update failed: " + ex.Message;
+            output?.Invoke(message);
+            return (false, message);
+        }
     }
 
     public async Task<(bool Success, string Output)> FactoryFlashAsync(

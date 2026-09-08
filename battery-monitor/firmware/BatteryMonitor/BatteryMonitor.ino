@@ -3,8 +3,9 @@
 // The original v0.1.0 main sketch is retained verbatim in
 // BatteryMonitorLegacy.inc. Only setup/loop are overridden here so P0-3 can
 // add authenticated monitoring identity without duplicating the large embedded
-// browser UI, and so configured devices require physical presence before
-// entering Wi-Fi recovery provisioning after a network outage.
+// browser UI, configured devices require physical presence before entering
+// Wi-Fi recovery provisioning after a network outage, and signed USB OTA can
+// run through the application after Flash Encryption is active.
 
 #define setup batteryMonitorLegacySetup
 #define loop batteryMonitorLegacyLoop
@@ -94,6 +95,16 @@ void setup() {
 }
 
 void loop() {
+  // Service USB explicitly instead of relying only on Arduino serialEvent().
+  // While an OTA transfer is active, suspend unrelated networking/sampling so
+  // the binary stream and flash writes have a small, deterministic surface.
+  serviceSerialProvisioning();
+  serviceFirmwareUpdateTimeout();
+  if (firmwareUpdateInProgress()) {
+    delay(1);
+    return;
+  }
+
   if (!fallbackApActive) {
     if (httpServerActive) server.handleClient();
     serviceAuthenticatedDiscovery();

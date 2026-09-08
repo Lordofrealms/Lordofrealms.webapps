@@ -16,8 +16,8 @@ internal sealed class FirmwareUpdateForm : Form
     {
         Text = "Battery Monitor - Firmware Update";
         Width = 700;
-        Height = 520;
-        MinimumSize = new Size(620, 450);
+        Height = 540;
+        MinimumSize = new Size(620, 470);
         StartPosition = FormStartPosition.CenterParent;
         BuildUi();
         RefreshPorts();
@@ -36,7 +36,7 @@ internal sealed class FirmwareUpdateForm : Form
         {
             AutoSize = true,
             MaximumSize = new Size(650, 0),
-            Text = "Battery Monitor now uses release-mode Flash Encryption. After first encrypted boot, the ESP32 ROM bootloader cannot accept a plaintext application update at 0x10000. The previous direct USB/esptool update path is therefore intentionally fail-closed. Normal updates must move through the application-mediated OTA writer so flash writes are encrypted on-device."
+            Text = "Battery Monitor uses release-mode Flash Encryption. Normal updates are sent over USB to the running monitor, not written by the ESP32 ROM bootloader. Windows verifies the production RSA-3072/PSS signature first; the monitor then streams the image into its inactive OTA slot, verifies the same signature on-device, and only then selects that encrypted partition for the next boot. Existing settings/NVS are not overwritten."
         };
         root.Controls.Add(intro, 0, 0); root.SetColumnSpan(intro, 2);
 
@@ -88,11 +88,10 @@ internal sealed class FirmwareUpdateForm : Form
 
     private void UpdateBundleStatus()
     {
-        var tool = _flasher.EsptoolPath is null ? "esptool MISSING" : "esptool bundled";
         var firmware = _flasher.UpdateFirmwarePath is null ? "update image MISSING" : "update image bundled";
         var signature = _flasher.UpdateSignaturePath is null ? "production signature MISSING" : "production signature bundled";
-        var transport = _flasher.DirectApplicationUpdateSupported ? "direct update available" : "direct UART update disabled by Flash Encryption";
-        _bundleStatus.Text = $"Bundle: {tool}; {firmware}; {signature}; {transport}.";
+        var transport = _flasher.ApplicationMediatedUpdateSupported ? "signed USB OTA enabled" : "signed USB OTA unavailable";
+        _bundleStatus.Text = $"Bundle: {firmware}; {signature}; {transport}.";
     }
 
     private async Task DetectAsync()
@@ -120,39 +119,28 @@ internal sealed class FirmwareUpdateForm : Form
 
     private async Task UpdateAsync()
     {
-        if (!_flasher.DirectApplicationUpdateSupported)
-        {
-            AppendLog(_flasher.DirectApplicationUpdateDisabledReason);
-            MessageBox.Show(this,
-                _flasher.DirectApplicationUpdateDisabledReason,
-                "Battery Monitor - Encrypted Firmware Update",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
-            return;
-        }
-
         var port = _port.SelectedItem?.ToString();
         if (string.IsNullOrWhiteSpace(port)) { MessageBox.Show(this, "Select a COM port first.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-        if (!_flasher.IsUpdateReady) { MessageBox.Show(this, "The installed package is missing esptool, the update image, or its required production signature. Unsigned firmware cannot be installed by this client.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        if (!_flasher.IsUpdateReady) { MessageBox.Show(this, "The installed package is missing the application update image or its required production signature. Unsigned firmware cannot be installed by this client.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
 
         await RunAsync(async token =>
         {
             AppendLog("Verifying Battery Monitor identity before update...");
             var status = await _provisioner.ReadStatusAsync(port, AppendLog, token);
             if (MessageBox.Show(this,
-                    $"Install the signed firmware update on Battery Monitor {status.DeviceId} ({status.DeviceName}) while preserving its settings?",
+                    $"Install the signed firmware update on Battery Monitor {status.DeviceId} ({status.DeviceName}) while preserving its encrypted settings? Keep USB power connected until the update finishes.",
                     "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
             {
                 AppendLog("Firmware update cancelled by user.");
                 return;
             }
 
-            AppendLog($"Verified {status.DeviceId}; validating production firmware signature before update...");
+            AppendLog($"Verified {status.DeviceId}; validating production firmware signature before transfer...");
             var result = await _flasher.UpdateFirmwareAsync(port, AppendLog, token);
-            if (!result.Success) throw new InvalidOperationException("Firmware update failed. See the log for details.");
-            AppendLog("Signed firmware update completed successfully; NVS/settings partitions were not written.");
+            if (!result.Success) throw new InvalidOperationException(result.Output);
+            AppendLog($"Signed firmware update completed successfully (image {result.Output}); NVS/settings partitions were not written.");
             MessageBox.Show(this,
-                "Signed firmware update completed. The monitor was reset and should return using its existing configuration.",
+                "Signed firmware update completed. The monitor verified the image on-device, selected the encrypted OTA partition, and restarted using its existing configuration.",
                 "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
         });
     }

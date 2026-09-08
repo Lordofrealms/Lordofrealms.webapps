@@ -1,11 +1,13 @@
 using System.Globalization;
 using System.IO.Ports;
+using System.Security.Cryptography;
 
 namespace BatteryMonitor.Client;
 
 internal sealed class UsbProvisioner
 {
     private const int BaudRate = 115200;
+    private const int HostFirmwareChunkLimit = 4096;
 
     public async Task<UsbMonitorStatus> ReadStatusAsync(string portName, Action<string>? log = null, CancellationToken cancellationToken = default)
     {
@@ -107,6 +109,131 @@ internal sealed class UsbProvisioner
         }, cancellationToken);
     }
 
+    public async Task<string> UpdateFirmwareAsync(
+        string portName,
+        string firmwarePath,
+        string signaturePath,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
+    {
+        return await Task.Run(() =>
+        {
+            FirmwareSignatureVerifier.VerifyOrThrow(firmwarePath, signaturePath);
+
+            var firmwareInfo = new FileInfo(firmwarePath);
+            if (!firmwareInfo.Exists || firmwareInfo.Length < 1024)
+                throw new InvalidOperationException("Firmware application image is missing or too small.");
+
+            byte[] signature = File.ReadAllBytes(signaturePath);
+            byte[] digest;
+            using (var firmwareForHash = new FileStream(firmwarePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                digest = SHA256.HashData(firmwareForHash);
+
+            SerialPort? port = null;
+            bool updateStarted = false;
+            bool rawChunkInFlight = false;
+            try
+            {
+                port = OpenPort(portName);
+                WaitForFirmwareAfterOpen(port, log, cancellationToken);
+                EnsureBatteryMonitor(port, log, cancellationToken);
+
+                var caps = SendCommand(port, "BATMON1 FWCAPS", log, cancellationToken, TimeSpan.FromSeconds(3));
+                const string capsPrefix = "BATMON1 OK FWCAPS SIGNED_USB_OTA_V1 ";
+                if (!caps.StartsWith(capsPrefix, StringComparison.Ordinal))
+                    throw new InvalidOperationException("This Battery Monitor firmware does not support signed application-mediated USB OTA. Use the one-time first-install/encryption migration procedure for older units.");
+
+                var capParts = caps.Substring(capsPrefix.Length).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (capParts.Length < 2 || !int.TryParse(capParts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var deviceChunkMax) || deviceChunkMax < 256)
+                    throw new InvalidOperationException("Battery Monitor returned invalid firmware-update capabilities.");
+                if (!string.Equals(capParts[1], FirmwareSignatureVerifier.Algorithm, StringComparison.Ordinal))
+                    throw new InvalidOperationException($"Battery Monitor requires unsupported firmware signature algorithm '{capParts[1]}'.");
+
+                var chunkSize = Math.Min(HostFirmwareChunkLimit, deviceChunkMax);
+                var digestHex = Convert.ToHexString(digest).ToLowerInvariant();
+                var signatureBase64 = Convert.ToBase64String(signature);
+                log?.Invoke($"Starting signed application OTA: {firmwareInfo.Length:N0} bytes, SHA-256 {digestHex}.");
+                var begin = SendCommand(
+                    port,
+                    $"BATMON1 FWBEGIN {firmwareInfo.Length.ToString(CultureInfo.InvariantCulture)} {digestHex} {signatureBase64}",
+                    log,
+                    cancellationToken,
+                    TimeSpan.FromSeconds(30));
+                if (begin != $"BATMON1 OK FWBEGIN READY {deviceChunkMax}")
+                    ThrowProtocolError("firmware-update start", begin);
+                updateStarted = true;
+
+                using var firmware = new FileStream(firmwarePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                var buffer = new byte[chunkSize];
+                long sent = 0;
+                var nextProgress = 5;
+                try
+                {
+                    while (sent < firmwareInfo.Length)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        var wanted = (int)Math.Min(buffer.Length, firmwareInfo.Length - sent);
+                        var count = 0;
+                        while (count < wanted)
+                        {
+                            var read = firmware.Read(buffer, count, wanted - count);
+                            if (read <= 0) throw new EndOfStreamException("Firmware image ended before its declared size.");
+                            count += read;
+                        }
+
+                        var ready = SendCommand(port, $"BATMON1 FWCHUNK {count}", null, cancellationToken, TimeSpan.FromSeconds(5));
+                        if (ready != $"BATMON1 OK FWCHUNK READY {count}")
+                            ThrowProtocolError("firmware chunk preparation", ready);
+
+                        rawChunkInFlight = true;
+                        port.Write(buffer, 0, count);
+                        var expectedTotal = sent + count;
+                        var committed = ReadProtocolResponse(port, null, cancellationToken, TimeSpan.FromSeconds(10));
+                        rawChunkInFlight = false;
+                        if (committed != $"BATMON1 OK FWCHUNK {expectedTotal.ToString(CultureInfo.InvariantCulture)}")
+                            ThrowProtocolError("firmware chunk write", committed);
+
+                        sent = expectedTotal;
+                        var percent = (int)(sent * 100L / firmwareInfo.Length);
+                        if (percent >= nextProgress || sent == firmwareInfo.Length)
+                        {
+                            log?.Invoke($"Firmware transfer {percent}% ({sent:N0}/{firmwareInfo.Length:N0} bytes).");
+                            while (nextProgress <= percent) nextProgress += 5;
+                        }
+                    }
+                }
+                finally
+                {
+                    CryptographicOperations.ZeroMemory(buffer);
+                }
+
+                var finish = SendCommand(port, "BATMON1 FWEND", log, cancellationToken, TimeSpan.FromSeconds(30));
+                const string finishPrefix = "BATMON1 OK FWEND VERIFIED ";
+                if (!finish.StartsWith(finishPrefix, StringComparison.Ordinal))
+                    ThrowProtocolError("firmware verification/finalization", finish);
+                updateStarted = false;
+                var newImageVersion = finish.Substring(finishPrefix.Length).Trim();
+                log?.Invoke($"Device verified the production RSA-PSS signature and selected the encrypted OTA image for boot ({newImageVersion}).");
+                return newImageVersion;
+            }
+            catch
+            {
+                if (updateStarted && !rawChunkInFlight && port is { IsOpen: true })
+                {
+                    try { SendCommand(port, "BATMON1 FWABORT", null, CancellationToken.None, TimeSpan.FromSeconds(2), throwOnTimeout: false); }
+                    catch { }
+                }
+                throw;
+            }
+            finally
+            {
+                port?.Dispose();
+                CryptographicOperations.ZeroMemory(signature);
+                CryptographicOperations.ZeroMemory(digest);
+            }
+        }, cancellationToken);
+    }
+
     public async Task<bool> IsBatteryMonitorAsync(string portName, CancellationToken cancellationToken = default)
     {
         try { await ReadStatusAsync(portName, null, cancellationToken); return true; }
@@ -119,7 +246,7 @@ internal sealed class UsbProvisioner
         {
             NewLine = "\n",
             ReadTimeout = 250,
-            WriteTimeout = 1000,
+            WriteTimeout = 5000,
             DtrEnable = false,
             RtsEnable = false,
             Handshake = Handshake.None
@@ -164,7 +291,11 @@ internal sealed class UsbProvisioner
         cancellationToken.ThrowIfCancellationRequested();
         log?.Invoke($"> {Redact(command)}");
         port.Write(command + "\n");
+        return ReadProtocolResponse(port, log, cancellationToken, timeout, throwOnTimeout);
+    }
 
+    private static string ReadProtocolResponse(SerialPort port, Action<string>? log, CancellationToken cancellationToken, TimeSpan timeout, bool throwOnTimeout = true)
+    {
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
@@ -182,6 +313,13 @@ internal sealed class UsbProvisioner
 
         if (throwOnTimeout) throw new TimeoutException($"Timed out waiting for Battery Monitor response on {port.PortName}.");
         return "";
+    }
+
+    private static void ThrowProtocolError(string operation, string reply)
+    {
+        if (reply.StartsWith("BATMON1 ERR ", StringComparison.Ordinal))
+            throw new InvalidOperationException($"Battery Monitor rejected {operation}: {reply.Substring("BATMON1 ERR ".Length)}");
+        throw new InvalidOperationException($"Unexpected Battery Monitor response during {operation}: {reply}");
     }
 
     private static UsbMonitorStatus ParseStatus(string response)
@@ -239,6 +377,11 @@ internal sealed class UsbProvisioner
             return firstSpace < 0 ? provPrefix + "<redacted>" : provPrefix + tail.Substring(0, firstSpace) + " <setup-code-redacted>";
         }
         if (command.StartsWith("BATMON1 VERIFYPROVCRED ", StringComparison.Ordinal)) return "BATMON1 VERIFYPROVCRED <setup-code-redacted>";
+        if (command.StartsWith("BATMON1 FWBEGIN ", StringComparison.Ordinal))
+        {
+            var parts = command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length >= 4 ? $"BATMON1 FWBEGIN {parts[2]} {parts[3]} <signature>" : "BATMON1 FWBEGIN <metadata>";
+        }
         return command;
     }
 
