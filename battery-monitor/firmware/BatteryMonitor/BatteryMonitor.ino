@@ -3,12 +3,12 @@
 // The original v0.1.0 main sketch is retained verbatim in
 // BatteryMonitorLegacy.inc. Only setup/loop are overridden here so P0-3 can
 // add authenticated monitoring identity without duplicating the large embedded
-// browser UI, configured devices require physical presence before entering
-// Wi-Fi recovery provisioning after a network outage, signed USB OTA can run
-// through the application after Flash Encryption is active, a newly selected
-// signed OTA image must survive a local health probation before the ESP-IDF
-// bootloader permanently accepts it, and the highest accepted signed release
-// sequence is retained in encrypted NVS to block signed-image downgrades.
+// browser UI, protected Wi-Fi fallback can recover a monitor when infrastructure
+// Wi-Fi is unavailable, signed USB OTA can run through the application after
+// Flash Encryption is active, a newly selected signed OTA image must survive a
+// local health probation before the ESP-IDF bootloader permanently accepts it,
+// and the highest accepted signed release sequence is retained in encrypted NVS
+// to block signed-image downgrades.
 
 #include <esp_ota_ops.h>
 
@@ -21,6 +21,9 @@
 bool loadOrCreateMonitoringIdentity();
 void registerMonitoringIdentityRoutes();
 void serviceAuthenticatedDiscovery();
+bool initializeDedicatedWebServerTask();
+bool lockBatteryMonitorWebDomain();
+void unlockBatteryMonitorWebDomain();
 
 static const unsigned long OTA_ROLLBACK_PROBATION_MS = 60UL * 1000UL;
 static const unsigned long OTA_ROLLBACK_CONFIRM_RETRY_MS = 10UL * 1000UL;
@@ -30,6 +33,8 @@ static bool otaRollbackHealthPrerequisitesReady = false;
 static unsigned long otaRollbackProbationStartedMs = 0;
 static unsigned long otaRollbackNextConfirmAttemptMs = 0;
 static uint32_t otaRollbackLoopPasses = 0;
+static bool dedicatedWebServerTaskReady = false;
+static unsigned long protectedFallbackHomeRetryAtMs = 0;
 
 static void initializeOtaRollbackHealth(bool monitoringReady,
                                         bool releasePolicyReady) {
@@ -96,31 +101,77 @@ static void serviceOtaRollbackHealth() {
   Serial.printf("WARNING: Could not mark OTA candidate valid (%s); keeping rollback armed.\n", esp_err_to_name(err));
 }
 
-static void serviceWifiStatePhysicalRecoveryOnly() {
-  if (fallbackApActive) return;
+static void beginHomeWifiRetry(unsigned long now) {
+  stopFallbackAp();
+  WiFi.mode(WIFI_STA);
+  WiFi.setHostname(hostName.c_str());
+  WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
+  wifiDisconnectedSinceMs = now;
+  nextReconnectAttemptMs = now + RETRY_INTERVAL_MS;
+  protectedFallbackHomeRetryAtMs = 0;
+}
+
+static void startProtectedFallbackWithRetry(unsigned long now) {
+  startFallbackAp();
+  if (fallbackApActive && wifiSsid.length() > 0) {
+    protectedFallbackHomeRetryAtMs = now + RETRY_INTERVAL_MS;
+    Serial.printf("Protected setup AP will retry saved home Wi-Fi in %lu seconds.\n", RETRY_INTERVAL_MS / 1000UL);
+  }
+}
+
+static void serviceWifiStateWithProtectedFallback() {
+  unsigned long now = millis();
+
+  if (fallbackApActive) {
+    // If this is a recovery fallback for a previously configured home network,
+    // periodically leave the protected AP, retry STA for one normal connection
+    // window, and return to the protected AP if that retry also fails.
+    if (wifiSsid.length() > 0 && protectedFallbackHomeRetryAtMs != 0 &&
+        (int32_t)(now - protectedFallbackHomeRetryAtMs) >= 0) {
+      Serial.println("Protected setup AP pausing for scheduled home Wi-Fi retry.");
+      beginHomeWifiRetry(now);
+    }
+    return;
+  }
 
   bool connected = WiFi.status() == WL_CONNECTED;
-  unsigned long now = millis();
   if (connected) {
     wifiDisconnectedSinceMs = 0;
     nextReconnectAttemptMs = now + RETRY_INTERVAL_MS;
+    protectedFallbackHomeRetryAtMs = 0;
     startNormalNetworkServices();
     return;
   }
 
   stopMdns();
-  if (wifiDisconnectedSinceMs == 0) wifiDisconnectedSinceMs = now;
 
-  // A configured monitor must not expose even the protected provisioning AP
-  // merely because infrastructure Wi-Fi is unavailable. Keep retrying the
-  // saved network. The user can deliberately enter secure provisioning with
-  // the 5-second BOOT gesture or an authenticated Change Wi-Fi command while
-  // the device is still reachable.
-  if (wifiSsid.length() > 0 && (int32_t)(now - nextReconnectAttemptMs) >= 0) {
+  // Once the Device Password exists, a unit with no configured home Wi-Fi must
+  // immediately expose the WPA2 + Security-2 setup AP. This also covers the
+  // important first-provisioning transition where the credential is written by
+  // trusted USB after boot; no reboot is required just to make setup wireless
+  // appear.
+  if (wifiSsid.length() == 0) {
+    if (hasProvisioningIdentity() || loadDeviceCredentialIdentity()) {
+      startFallbackAp();
+      protectedFallbackHomeRetryAtMs = 0;
+    }
+    return;
+  }
+
+  // On a normal connected->disconnected transition, immediately begin a fresh
+  // STA attempt and give it CONNECT_ATTEMPT_MS before failing back.
+  if (wifiDisconnectedSinceMs == 0) {
+    wifiDisconnectedSinceMs = now;
     WiFi.mode(WIFI_STA);
     WiFi.setHostname(hostName.c_str());
     WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
     nextReconnectAttemptMs = now + RETRY_INTERVAL_MS;
+    return;
+  }
+
+  if ((unsigned long)(now - wifiDisconnectedSinceMs) >= CONNECT_ATTEMPT_MS) {
+    Serial.println("Home Wi-Fi unavailable after retry window; entering protected fallback setup AP.");
+    startProtectedFallbackWithRetry(now);
   }
 }
 
@@ -169,35 +220,46 @@ void setup() {
     // First setup / explicitly cleared Wi-Fi is an intentional provisioning
     // state, so the already WPA2 + Security-2 protected AP may start directly.
     startFallbackAp();
-  } else if (wifiSsid.length() > 0) {
-    nextReconnectAttemptMs = millis() + RETRY_INTERVAL_MS;
-    wifiDisconnectedSinceMs = millis();
-    Serial.println("Saved Wi-Fi is unavailable. Secure provisioning will NOT start automatically; hold BOOT for 5 seconds to change Wi-Fi.");
+  } else if (wifiSsid.length() > 0 && provisioningReady) {
+    // blockingInitialConnect() already spent the full connection window. Do not
+    // make the user wait through another one before recovery becomes available.
+    Serial.println("Saved Wi-Fi is unavailable; starting protected fallback setup AP.");
+    startProtectedFallbackWithRetry(millis());
   } else {
     Serial.println("No Wi-Fi and no Device Password credential. Secure provisioning is disabled until trusted USB initialization.");
   }
+
+  dedicatedWebServerTaskReady = initializeDedicatedWebServerTask();
 
   Serial.printf("Device %s (%s), hostname %s.local\n", deviceId.c_str(), deviceName.c_str(), hostName.c_str());
   initializeOtaRollbackHealth(monitoringReady, releasePolicyReady);
 }
 
 void loop() {
+  // The dedicated WebUI task and this application loop share the Arduino
+  // WebServer object and configuration state. Serialize the application side so
+  // provisioning/OTA cannot stop networking while Core 0 is handling a request.
+  bool domainLocked = !dedicatedWebServerTaskReady || lockBatteryMonitorWebDomain();
+
   // Service USB explicitly instead of relying only on Arduino serialEvent().
   // While an OTA transfer is active, suspend unrelated networking/sampling so
   // the binary stream and flash writes have a small, deterministic surface.
   serviceSerialProvisioning();
   serviceFirmwareUpdateTimeout();
   if (firmwareUpdateInProgress()) {
+    if (dedicatedWebServerTaskReady && domainLocked) unlockBatteryMonitorWebDomain();
     delay(1);
     return;
   }
 
   if (!fallbackApActive) {
-    if (httpServerActive) server.handleClient();
+    // Fail-safe fallback if the dedicated task could not be created.
+    if (!dedicatedWebServerTaskReady && httpServerActive) server.handleClient();
     serviceAuthenticatedDiscovery();
-    serviceWifiStatePhysicalRecoveryOnly();
+    serviceWifiStateWithProtectedFallback();
   } else {
-    serviceSecureProvisioning();
+    serviceWifiStateWithProtectedFallback();
+    if (fallbackApActive) serviceSecureProvisioning();
   }
   serviceResetButton();
   serviceManagementAuth();
@@ -209,5 +271,7 @@ void loop() {
   // after setup has completed, P0-3 identity exists, release policy is healthy,
   // and the main loop has kept executing throughout the local probation window.
   serviceOtaRollbackHealth();
+
+  if (dedicatedWebServerTaskReady && domainLocked) unlockBatteryMonitorWebDomain();
   delay(2);
 }
