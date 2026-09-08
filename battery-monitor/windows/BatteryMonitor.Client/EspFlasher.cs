@@ -26,6 +26,13 @@ internal sealed class EspFlasher
             ? Directory.EnumerateFiles(Path.Combine(_baseDirectory, "firmware"), "*.ino.bin", SearchOption.AllDirectories).FirstOrDefault(path => !path.EndsWith(".merged.bin", StringComparison.OrdinalIgnoreCase))
             : null);
 
+    public string? ReleaseMetadataPath => FindFirstExisting(
+        Path.Combine(_baseDirectory, "firmware", "RELEASE.txt"),
+        Path.Combine(_baseDirectory, "Firmware", "RELEASE.txt"));
+
+    public string? UpdateVersion => ReadReleaseValue("version");
+    public string? UpdateSourceSha => ReadReleaseValue("source_sha");
+
     public string? FactorySignaturePath => FactoryFirmwarePath is { } firmware
         ? FindFirstExisting(firmware + ".sig")
         : null;
@@ -138,6 +145,27 @@ internal sealed class EspFlasher
     // actual operation.
     public Task<(bool Success, string Output)> FlashAsync(string port, Action<string>? output, CancellationToken cancellationToken = default) =>
         FactoryFlashAsync(port, output, cancellationToken);
+
+    private string? ReadReleaseValue(string key)
+    {
+        try
+        {
+            var path = ReleaseMetadataPath;
+            if (path is null) return null;
+            foreach (var rawLine in File.ReadLines(path))
+            {
+                var line = rawLine.Trim();
+                if (line.Length == 0 || line.StartsWith('#')) continue;
+                var separator = line.IndexOf('=');
+                if (separator <= 0) continue;
+                if (!line[..separator].Trim().Equals(key, StringComparison.OrdinalIgnoreCase)) continue;
+                var value = line[(separator + 1)..].Trim();
+                return value.Length == 0 ? null : value;
+            }
+        }
+        catch { }
+        return null;
+    }
 
     private static bool VerifyFirmware(string firmwarePath, string signaturePath, Action<string>? output, out string error)
     {
