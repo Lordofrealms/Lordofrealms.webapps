@@ -1,188 +1,112 @@
-# Battery Monitor 0.1.0.2 — Signed Release Operator Checklist
+# Battery Monitor 0.1.0.2 — Signed Release Operator Record
 
-**Purpose:** produce the production-signed package needed for the encrypted-device hardware test gate without changing or bypassing the signing policy.
-
+**Status:** **COMPLETE / VERIFIED**  
 **Validated product source:** `d1d6c0ed782116d58f925543ae599939c0ec0191`  
 **Authoritative version:** `0.1.0.2`  
 **Software release sequence:** `2`  
-**Normal CI authority:** Battery Monitor Toolchain **#167** / run **`34263129626`** — **SUCCESS**
+**Normal CI authority:** Battery Monitor Toolchain **#167** / run **`34263129626`** — **SUCCESS**  
+**Signed release authority:** Battery Monitor Signed Firmware Release **#2** / run **`34267079480`** — **SUCCESS**
 
-Full candidate evidence:
+This file records the completed protected production-signing operation for the `0.1.0.2` hardware-test release. Do not dispatch another signing run merely to begin physical testing.
 
-`battery-monitor/VALIDATED_CANDIDATE_0_1_0_2.md`
+## 1. Exact signed source
 
-## 1. Sign the exact validated product SHA
-
-The live `battery-monitor-dev` branch may contain documentation-only commits after the validated product checkpoint.
-
-For this release, the signed-release workflow must build exactly:
+The signed build source was:
 
 `d1d6c0ed782116d58f925543ae599939c0ec0191`
 
-Do not substitute the later branch head merely because it is newer.
-
-## 2. Open the protected manual workflow
-
-In GitHub Actions select:
-
-`Battery Monitor Signed Firmware Release`
-
-The workflow is manual `workflow_dispatch` only and uses the protected `battery-monitor-production-signing` environment.
-
-Do not:
-
-- add a push trigger;
-- copy the production private key into repository files;
-- bypass environment approval/protection;
-- change the expected production public-key fingerprint merely to make a run pass;
-- sign a different source SHA as a substitute for the validated candidate.
-
-## 3. Enter these exact inputs
-
-`source_sha`
-
-`d1d6c0ed782116d58f925543ae599939c0ec0191`
-
-`version`
+Version:
 
 `0.1.0.2`
 
-The workflow UI currently has an older default version. Replace it explicitly with `0.1.0.2` before dispatching.
+The workflow was manually dispatched through the protected `battery-monitor-production-signing` environment. The later branch/documentation head was not substituted for the validated product source.
 
-The workflow independently checks `battery-monitor/firmware/idf/version.txt` at the requested source SHA.
+`SIGNED_RELEASE.txt` in the resulting artifact independently records:
 
-## 4. Required security gates
+- source SHA `d1d6c0ed782116d58f925543ae599939c0ec0191`;
+- version `0.1.0.2`;
+- software release sequence `2`;
+- `SIGNED_USB_OTA_V1`;
+- `RSA-3072-PSS-SHA256`;
+- production SPKI SHA-256 `69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e`.
 
-Do not use artifacts unless the entire signed-release workflow is green.
+## 2. Signed artifacts
 
-The signed firmware job must validate at least:
+### Firmware
 
-- exact 40-character source SHA;
-- authoritative source version `0.1.0.2`;
-- release sequence `2`;
-- authoritative ESP-IDF build path;
-- expected Flash/NVS encryption and rollback authorities;
-- production RSA-3072 private-key availability only through the protected environment;
-- production public-key SPKI SHA-256:
-  `69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e`;
-- RSA-PSS signatures for application and merged first-install images;
-- independent signature verification;
-- tampered-image rejection;
-- wrong-key rejection.
+`Battery-Monitor-Signed-Firmware-0.1.0.2`
 
-The Windows signed-package job must:
+- artifact ID `10072544011`
+- GitHub artifact digest / downloaded ZIP SHA-256:
+  `b302b2be4e2097974aac122e92efbd2ba8489d943ad7b6885e28af97416cd13f`
+- application image SHA-256:
+  `9e3649ed58d1b3524ce8ed0fa85adc1abe46d32a2240503e836982f4815c690e`
+- application signature SHA-256:
+  `aa87e978fab2ab4a3b1ddc93a72d11a3eea1bfdde6e195b242c2f7d154e359ba`
+- merged blank-first-install image SHA-256:
+  `0a964fd57bc055ab88c31accc8d4162462e865bc4f3e63d22198aa26435affd1`
+- merged signature SHA-256:
+  `2550dfd3bf8c8096148eee7fbabc4dddc744076efe4fd2d21017ac2759a415a0`
+- `SIGNED_RELEASE.txt` SHA-256:
+  `afbe64087ba02af43d70cbb74c8bdfa2ca54f929149c9105c97af931c83ab9f1`
 
-- consume the exact signed firmware artifact produced by the signed firmware job;
-- build Windows from the same requested source SHA;
-- use the pinned esptool package;
-- build the pinned Espressif Security-2 helper;
-- run the Windows build and protocol self-test;
-- exercise the Windows production firmware verifier against the signed images;
-- reject a deliberately tampered image;
-- bundle the signed firmware and tools into the final Windows package.
+### Windows
 
-## 5. Expected signed artifacts
+`Battery-Monitor-Windows-Signed-0.1.0.2`
 
-After a successful `0.1.0.2` run, expect:
+- artifact ID `10072631425`
+- GitHub artifact digest / downloaded ZIP SHA-256:
+  `42fba1869e933e9e4bd4fdaa3801333f5426f11639848a007e7003c8ae95ffd6`
+- `BatteryMonitor.Client.exe` SHA-256:
+  `280a0d6f39250dbc3cafb4eea4756e4dea5f3d05047ee4ad172e4691f04afb06`
 
-- `Battery-Monitor-Signed-Firmware-0.1.0.2`
-- `Battery-Monitor-Windows-Signed-0.1.0.2`
+The Windows bundle contains byte-for-byte identical signed application and merged images/signatures and the same release manifest as the signed firmware artifact.
 
-Do not substitute the normal-CI #167 artifacts. They are intentionally unsigned validation packages.
+## 3. Signature verification evidence
 
-Normal-CI reference only:
+The protected workflow completed its signature/tamper/wrong-key verification gates successfully.
 
-- firmware artifact ID `10070951566`;
-- Android artifact ID `10070801187`;
-- Windows artifact ID `10071096083`.
+A separate post-download verification was also performed using the public key embedded in the exact validated firmware source:
 
-## 6. Record release evidence before hardware use
+- independently derived SPKI SHA-256:
+  `69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e` — exact match;
+- `BatteryMonitor.ino.bin` RSA-PSS verification: `Verified OK`;
+- `BatteryMonitor.ino.merged.bin` RSA-PSS verification: `Verified OK`.
 
-Record, without recording secrets:
+Full evidence sheet:
 
-- signed-release workflow run ID and run number;
-- run attempt;
-- conclusion `success`;
-- requested `source_sha`;
-- requested `version`;
-- signed firmware artifact ID and digest;
-- signed Windows artifact ID and digest;
-- downloaded signed firmware ZIP SHA-256;
-- downloaded signed Windows ZIP SHA-256;
-- `BatteryMonitor.ino.bin` SHA-256;
-- `BatteryMonitor.ino.bin.sig` SHA-256;
-- `BatteryMonitor.ino.merged.bin` SHA-256;
-- `BatteryMonitor.ino.merged.bin.sig` SHA-256;
-- `SIGNED_RELEASE.txt` SHA-256 and its recorded source/version/fingerprint.
+`battery-monitor/HARDWARE_TEST_ASSET_RECORD_0_1_0_2.md`
 
-Never record the production private key, key password, Device Password, Advanced Tools plaintext credential, home Wi-Fi password, or Monitoring Identity Key.
+## 4. Correct hardware operation
 
-## 7. Correct Windows operation
+### Existing already-encrypted Battery Monitor
 
-### Existing encrypted Battery Monitor
-
-Use:
+Use the signed Windows package and:
 
 **Firmware Update -> Update Firmware**
 
-Expected path:
+The Windows client transfers the signed application image through the running firmware's application-mediated USB OTA path. Do not directly flash the plaintext application image with esptool.
 
-1. detect the running Battery Monitor over trusted physical USB;
-2. verify the bundled production signature before transfer;
-3. transfer the signed application image through signed USB OTA;
-4. ESP32 independently verifies image/signature/release sequence;
-5. firmware writes the inactive OTA slot through ESP-IDF, applying device Flash Encryption;
-6. existing encrypted NVS/settings are preserved;
-7. device reboots into the candidate for rollback probation.
+### Genuinely blank, unencrypted ESP32
 
-Do not directly write the plaintext application image with esptool.
-
-### Blank, unencrypted ESP32
-
-Use Advanced Tools:
+Use the signed Windows package and:
 
 **Advanced First Install -> First Install (Blank ESP32)**
 
-This is only for a genuinely blank/un-encrypted device. It verifies the production signature before writing the merged first-install image at `0x0`.
+The signed merged image is only for this blank-device first installation. Let the first encrypted boot complete without removing power.
 
-Allow first boot to complete without removing power so Release Flash Encryption and encrypted NVS can initialize.
+### Already-encrypted unit — prohibited
 
-### Already encrypted ESP32
+Do **not** use the merged first-install image as recovery after Flash Encryption is active. Do not use `--force` to defeat esptool encrypted-flash protection.
 
-Do **not** use the blank-device first-install function as recovery.
+## 5. Next gate
 
-Do not use `--force` to bypass encrypted-flash protection.
+Production signing is complete. The next gate is physical validation using:
 
-## 8. Immediate post-install/update checks
+- `battery-monitor/HARDWARE_TEST_PLAN_0_1_0_2.md`
+- `battery-monitor/DEVICE_PASSWORD_COMPATIBILITY_TEST_0_1_0_2.md`
+- `battery-monitor/HARDWARE_TEST_ASSET_RECORD_0_1_0_2.md`
 
-After the signed package is installed on the hardware-test unit:
+Secure Boot remains intentionally OFF until the real encrypted-device test matrix passes.
 
-- confirm firmware reports `0.1.0.2`;
-- keep power stable through the 60-second candidate probation;
-- confirm the candidate becomes valid rather than rolling back;
-- confirm Device Password behavior;
-- confirm Monitoring Identity pairing;
-- confirm encrypted NVS/settings persistence;
-- confirm home Wi-Fi or protected fallback behavior;
-- confirm WebUI reports `0.1.0.2` and refreshes at ~1 second;
-- confirm ADC sampling remains at its configured cadence;
-- continue with `HARDWARE_TEST_PLAN_0_1_0_2.md` and `DEVICE_PASSWORD_COMPATIBILITY_TEST_0_1_0_2.md`.
-
-Where the hardware plan still contains older #156 source/run metadata, use `VALIDATED_CANDIDATE_0_1_0_2.md` as the metadata authority while retaining the plan's substantive test steps.
-
-## 9. Stop conditions
-
-Stop hardware use of the release package if any of the following occurs:
-
-- signed-release workflow is not completely green;
-- source SHA differs from `d1d6c0ed782116d58f925543ae599939c0ec0191`;
-- version differs from `0.1.0.2`;
-- production key fingerprint differs from the frozen fingerprint;
-- signed image or signature is missing;
-- Windows package does not report bundled production signatures;
-- host verifier rejects the signed package;
-- ESP32 verifier rejects the package;
-- the monitor requires a plaintext direct-flash recovery bypass;
-- rollback/freshness/relay safety behaves unexpectedly.
-
-Do not work around a stop condition. Fix the source or release tooling, run the complete normal Battery Monitor Toolchain on the resulting product SHA, and create a new signed-release candidate from that exact validated SHA.
+Do not re-sign or modify product source to begin hardware testing. Any product-source change after this point requires a new complete normal toolchain validation and a new signed-release candidate.
