@@ -169,9 +169,16 @@ internal sealed class ProvisioningAdminForm : Form
         if (string.IsNullOrWhiteSpace(_deviceId)) { MessageBox.Show(this, "Read the connected device first so its identity is known.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
         if (MessageBox.Show(this, "Write this factory setup code to the connected device? If the device already has a Device Password, this replaces it and old saved passwords/labels/codes will stop working.", "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
 
+        var expectedDeviceId = _deviceId;
         await RunAsync(async token =>
         {
-            await _provisioner.SetProvisioningCredentialAsync(port, _username, canonical, AppendLog, token);
+            var status = await _provisioner.ReadStatusAsync(port, AppendLog, token);
+            if (!string.Equals(status.DeviceId, expectedDeviceId, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"The device on {port} changed from {expectedDeviceId} to {status.DeviceId}. Click Read Device before writing a factory credential.");
+
+            var currentIdentity = await _provisioner.ReadProvisioningIdentityAsync(port, AppendLog, token);
+            var username = currentIdentity.IsConfigured && !string.IsNullOrWhiteSpace(currentIdentity.Username) ? currentIdentity.Username : "batmon";
+            await _provisioner.SetProvisioningCredentialAsync(port, username, canonical, AppendLog, token);
             var matched = await _provisioner.VerifyProvisioningCredentialAsync(port, canonical, AppendLog, token);
             if (!matched) throw new InvalidOperationException("The ESP32 accepted the factory credential write but did not verify the same code afterward.");
             var identity = await _provisioner.ReadProvisioningIdentityAsync(port, AppendLog, token);
@@ -193,13 +200,22 @@ internal sealed class ProvisioningAdminForm : Form
         var canonical = ProvisioningCode.Normalize(_setupCode.Text);
         if (canonical.Length != 16) { MessageBox.Show(this, "Enter a valid factory setup code to verify.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
         if (string.IsNullOrWhiteSpace(_deviceId)) { MessageBox.Show(this, "Read the connected device first so its identity is known.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+
+        var expectedDeviceId = _deviceId;
         await RunAsync(async token =>
         {
+            var status = await _provisioner.ReadStatusAsync(port, AppendLog, token);
+            if (!string.Equals(status.DeviceId, expectedDeviceId, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"The device on {port} changed from {expectedDeviceId} to {status.DeviceId}. Click Read Device before verifying a factory credential.");
+
+            var identity = await _provisioner.ReadProvisioningIdentityAsync(port, AppendLog, token);
             var matched = await _provisioner.VerifyProvisioningCredentialAsync(port, canonical, AppendLog, token);
             BeginInvoke(new Action(() =>
             {
                 if (matched)
                 {
+                    _setupSsid = identity.SetupSsid;
+                    _username = identity.Username;
                     _setupCode.Text = ProvisioningCode.Format(canonical);
                     RebuildQr();
                 }
