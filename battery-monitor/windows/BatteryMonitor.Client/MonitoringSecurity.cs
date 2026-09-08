@@ -124,6 +124,11 @@ internal static class MonitoringProtocol
         }
     }
 
+    // Calling this explicitly is useful in CI: entering the type runs the
+    // deterministic static-constructor vector above. The method itself is
+    // deliberately empty so there is only one authoritative vector check.
+    public static void RunSelfTest() { }
+
     public static byte[] ComputeHmac(string domain, string nonce, ReadOnlySpan<byte> payload, ReadOnlySpan<byte> key)
     {
         if (key.Length != 32) throw new ArgumentException("Monitoring Identity Key must be 32 bytes.", nameof(key));
