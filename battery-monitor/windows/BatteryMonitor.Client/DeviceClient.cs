@@ -6,7 +6,7 @@ using System.Text.Json;
 
 namespace BatteryMonitor.Client;
 
-public sealed class DeviceClient
+public sealed partial class DeviceClient
 {
     private readonly HttpClient _http = new(new HttpClientHandler { AllowAutoRedirect = false })
     {
