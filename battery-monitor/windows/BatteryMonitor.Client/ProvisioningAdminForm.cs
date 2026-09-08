@@ -130,13 +130,21 @@ internal sealed class ProvisioningAdminForm : Form
             var identity = await _provisioner.ReadProvisioningIdentityAsync(port, AppendLog, token);
             BeginInvoke(new Action(() =>
             {
+                // A code shown for a previously read unit must never be rebound to
+                // a new Device ID and saved as a QR label before it is written and
+                // verified on that device. Credentials are intentionally unreadable.
+                _setupCode.Clear();
+                _qrPng = null;
+                _qr.Image?.Dispose();
+                _qr.Image = null;
+
                 _deviceId = status.DeviceId;
                 _deviceLabel.Text = $"{status.DeviceId} — {status.DeviceName}";
                 if (identity.IsConfigured)
                 {
                     _username = identity.Username;
                     _setupSsid = identity.SetupSsid;
-                    _identityLabel.Text = $"Configured: {identity.Security}, {_setupSsid}, user {_username}";
+                    _identityLabel.Text = $"Configured: {identity.Security}, {_setupSsid}, user {_username}. Current code/password cannot be read back.";
                 }
                 else
                 {
@@ -144,7 +152,6 @@ internal sealed class ProvisioningAdminForm : Form
                     _setupSsid = "BatteryMonitor-" + status.DeviceId.Replace("BM-", "", StringComparison.OrdinalIgnoreCase);
                     _identityLabel.Text = "Not initialized — generate and write a factory setup code, or use normal USB Setup for a flexible Device Password.";
                 }
-                RebuildQr();
             }));
         });
     }
