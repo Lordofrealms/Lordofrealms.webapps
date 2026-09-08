@@ -4,7 +4,7 @@
 // BatteryMonitorLegacy.inc. Only setup/loop are overridden here so P0-3 can
 // add authenticated monitoring identity without duplicating the large embedded
 // browser UI, protected Wi-Fi fallback can recover a monitor when infrastructure
-// Wi-Fi is unavailable, signed USB OTA can run through the application after
+// Wi-Fi is unavailable, signed USB/LAN OTA can run through the application after
 // Flash Encryption is active, a newly selected signed OTA image must survive a
 // local health probation before the ESP-IDF bootloader permanently accepts it,
 // and the highest accepted signed release sequence is retained in encrypted NVS
@@ -25,6 +25,9 @@ bool hasProvisioningIdentity();
 bool initializeDedicatedWebServerTask();
 bool lockBatteryMonitorWebDomain();
 void unlockBatteryMonitorWebDomain();
+void registerWifiFirmwareUpdateRoutes();
+void serviceWifiFirmwareUpdate();
+bool firmwareUpdateIsLanTransport();
 
 static const unsigned long OTA_ROLLBACK_PROBATION_MS = 60UL * 1000UL;
 static const unsigned long OTA_ROLLBACK_CONFIRM_RETRY_MS = 10UL * 1000UL;
@@ -106,18 +109,12 @@ static void beginHomeWifiRetryAfterProvisioningStops(unsigned long now) {
 }
 
 static void requestProtectedFallbackHomeRetry(unsigned long now) {
-  // Do not tear down the protected setup network while a phone/PC is actively
-  // associated with it. Defer briefly and try again after the client leaves.
   if (WiFi.softAPgetStationNum() > 0) {
     protectedFallbackHomeRetryAtMs = now + PROTECTED_FALLBACK_CLIENT_RETRY_DEFERRAL_MS;
     Serial.println("Protected setup client is active; deferring scheduled home Wi-Fi retry for 60 seconds.");
     return;
   }
 
-  // network_prov_mgr_stop_provisioning() completes asynchronously: the manager
-  // is deinitialized by our NETWORK_PROV_END handler. Keep fallbackApActive true
-  // until that event arrives, then start STA from the normal loop on the next
-  // pass instead of racing Wi-Fi mode changes against provisioning shutdown.
   protectedFallbackHomeRetryAtMs = 0;
   protectedFallbackHomeRetryPending = true;
   Serial.println("Protected setup AP stopping for scheduled home Wi-Fi retry.");
@@ -144,8 +141,6 @@ static void serviceWifiStateWithProtectedFallback() {
     return;
   }
 
-  // A scheduled retry only starts after NETWORK_PROV_END has deinitialized the
-  // provisioning manager and cleared fallbackApActive.
   if (protectedFallbackHomeRetryPending) {
     beginHomeWifiRetryAfterProvisioningStops(now);
     return;
@@ -219,6 +214,7 @@ void setup() {
   sampleBattery();
 
   registerMonitoringIdentityRoutes();
+  registerWifiFirmwareUpdateRoutes();
 
   bool connected = blockingInitialConnect();
   if (connected) {
@@ -241,11 +237,22 @@ void setup() {
 }
 
 void loop() {
-  bool domainLocked = !dedicatedWebServerTaskReady || lockBatteryMonitorWebDomain();
+  // During LAN OTA, leave the HTTP task uncontended so authenticated chunk
+  // requests can continue. Otherwise retain the shared WebServer-domain lock.
+  bool domainLocked = true;
+  if (dedicatedWebServerTaskReady) {
+    domainLocked = firmwareUpdateIsLanTransport() ? false : lockBatteryMonitorWebDomain();
+  }
 
   serviceSerialProvisioning();
   serviceFirmwareUpdateTimeout();
+  serviceWifiFirmwareUpdate();
+
   if (firmwareUpdateInProgress()) {
+    // If the dedicated HTTP task could not be created, service LAN OTA through
+    // the synchronous server here instead of deadlocking after FW begin.
+    if (firmwareUpdateIsLanTransport() && !dedicatedWebServerTaskReady && httpServerActive)
+      server.handleClient();
     if (dedicatedWebServerTaskReady && domainLocked) unlockBatteryMonitorWebDomain();
     delay(1);
     return;
