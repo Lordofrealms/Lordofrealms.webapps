@@ -2,15 +2,14 @@
 //
 // Release-mode Flash Encryption prevents the ROM downloader from safely writing
 // a plaintext application after encryption is active. The running application
-// therefore owns normal updates: Windows streams the plaintext signed app image
-// over trusted USB, esp_ota_write() writes the inactive OTA partition (and the
-// flash driver encrypts it on-device), and this code verifies the production
-// RSA-3072/PSS signature before selecting that partition for the next boot.
+// therefore owns normal updates. Both trusted USB and authenticated LAN OTA feed
+// this single verifier/writer so transport choice never changes signature, hash,
+// application-identity, release-floor, probation, or rollback policy.
 //
 // A bad signature, bad hash, malformed image, interrupted transfer, or write
 // error never changes the boot partition. Secure Boot remains a separate later
-// hardware gate; this verifier prevents the OTA path from becoming an unsigned
-// firmware bypass in the meantime.
+// hardware gate; this verifier prevents either OTA transport from becoming an
+// unsigned firmware bypass in the meantime.
 
 #include <esp_ota_ops.h>
 #include <mbedtls/base64.h>
@@ -20,6 +19,7 @@
 static const size_t BATMON_FW_SIGNATURE_BYTES = 384; // RSA-3072
 static const size_t BATMON_FW_SHA256_BYTES = 32;
 static const size_t BATMON_FW_MAX_CHUNK = 4096;
+static const size_t BATMON_FW_LAN_MAX_CHUNK = 2048;
 static const unsigned long BATMON_FW_TRANSFER_TIMEOUT_MS = 30000UL;
 
 // Production verification key. This is a public trust root, not a secret.
@@ -38,7 +38,14 @@ static const char BATMON_FW_PUBLIC_KEY_PEM[] =
   "JmnZvEvzUMCWlGTYOjYWIDjF+SBjo1wicB2VT21ihmRFAgMBAAE=\n"
   "-----END PUBLIC KEY-----\n";
 
+enum FirmwareUpdateTransport : uint8_t {
+  BATMON_FW_TRANSPORT_NONE = 0,
+  BATMON_FW_TRANSPORT_USB = 1,
+  BATMON_FW_TRANSPORT_LAN = 2
+};
+
 static bool firmwareUpdateActive = false;
+static FirmwareUpdateTransport firmwareUpdateTransport = BATMON_FW_TRANSPORT_NONE;
 static bool firmwareUpdateOtaHandleActive = false;
 static esp_ota_handle_t firmwareUpdateHandle = 0;
 static const esp_partition_t* firmwareUpdatePartition = nullptr;
@@ -84,9 +91,7 @@ static void firmwareUpdateClearSensitiveState() {
 }
 
 static void firmwareUpdateResetState(bool abortOta) {
-  if (abortOta && firmwareUpdateOtaHandleActive) {
-    esp_ota_abort(firmwareUpdateHandle);
-  }
+  if (abortOta && firmwareUpdateOtaHandleActive) esp_ota_abort(firmwareUpdateHandle);
   firmwareUpdateOtaHandleActive = false;
   firmwareUpdateHandle = 0;
   firmwareUpdatePartition = nullptr;
@@ -100,6 +105,7 @@ static void firmwareUpdateResetState(bool abortOta) {
     firmwareUpdateShaActive = false;
   }
   firmwareUpdateClearSensitiveState();
+  firmwareUpdateTransport = BATMON_FW_TRANSPORT_NONE;
   firmwareUpdateActive = false;
 }
 
@@ -137,23 +143,31 @@ static bool firmwareVerifyProductionSignature(const uint8_t digest[BATMON_FW_SHA
 }
 
 String firmwareUpdateCapabilitySummary() {
-  return String("SIGNED_USB_OTA_V1 ") + String(BATMON_FW_MAX_CHUNK) + " RSA-3072-PSS-SHA256";
+  return String("SIGNED_USB_OTA_V1 ") + String(BATMON_FW_MAX_CHUNK) +
+         " RSA-3072-PSS-SHA256 SIGNED_LAN_OTA_V1 " + String(BATMON_FW_LAN_MAX_CHUNK);
 }
 
-bool firmwareUpdateInProgress() {
-  return firmwareUpdateActive;
+bool firmwareUpdateInProgress() { return firmwareUpdateActive; }
+bool firmwareUpdateIsLanTransport() {
+  return firmwareUpdateActive && firmwareUpdateTransport == BATMON_FW_TRANSPORT_LAN;
 }
-
 bool firmwareUpdateRawBytesPending() {
-  return firmwareUpdateActive && firmwareUpdateRawRemaining > 0;
+  return firmwareUpdateActive && firmwareUpdateTransport == BATMON_FW_TRANSPORT_USB && firmwareUpdateRawRemaining > 0;
 }
+size_t firmwareUpdateBytesWritten() { return firmwareUpdateWritten; }
+size_t firmwareUpdateLanMaxChunk() { return BATMON_FW_LAN_MAX_CHUNK; }
 
-bool beginSignedFirmwareUpdate(const String& sizeToken,
-                               const String& expectedSha256Hex,
-                               const String& signatureBase64,
-                               String& errorOut) {
+static bool beginSignedFirmwareUpdateForTransport(const String& sizeToken,
+                                                  const String& expectedSha256Hex,
+                                                  const String& signatureBase64,
+                                                  FirmwareUpdateTransport transport,
+                                                  String& errorOut) {
   if (firmwareUpdateActive) {
     errorOut = "FW_UPDATE_ALREADY_ACTIVE";
+    return false;
+  }
+  if (transport != BATMON_FW_TRANSPORT_USB && transport != BATMON_FW_TRANSPORT_LAN) {
+    errorOut = "FW_INVALID_TRANSPORT";
     return false;
   }
 
@@ -164,9 +178,7 @@ bool beginSignedFirmwareUpdate(const String& sizeToken,
     return false;
   }
 
-  if (!firmwareParseHexExact(expectedSha256Hex,
-                             firmwareUpdateExpectedDigest,
-                             BATMON_FW_SHA256_BYTES)) {
+  if (!firmwareParseHexExact(expectedSha256Hex, firmwareUpdateExpectedDigest, BATMON_FW_SHA256_BYTES)) {
     firmwareUpdateClearSensitiveState();
     errorOut = "FW_INVALID_SHA256";
     return false;
@@ -217,22 +229,62 @@ bool beginSignedFirmwareUpdate(const String& sizeToken,
   firmwareUpdateChunkUsed = 0;
   firmwareUpdateRawRemaining = 0;
   firmwareUpdateLastActivityMs = millis();
+  firmwareUpdateTransport = transport;
   firmwareUpdateActive = true;
   errorOut = "";
   return true;
 }
 
-bool prepareSignedFirmwareChunk(size_t chunkSize, String& errorOut) {
+bool beginSignedFirmwareUpdate(const String& sizeToken,
+                               const String& expectedSha256Hex,
+                               const String& signatureBase64,
+                               String& errorOut) {
+  return beginSignedFirmwareUpdateForTransport(sizeToken, expectedSha256Hex, signatureBase64,
+                                                BATMON_FW_TRANSPORT_USB, errorOut);
+}
+
+bool beginSignedFirmwareUpdateLan(const String& sizeToken,
+                                  const String& expectedSha256Hex,
+                                  const String& signatureBase64,
+                                  String& errorOut) {
+  return beginSignedFirmwareUpdateForTransport(sizeToken, expectedSha256Hex, signatureBase64,
+                                                BATMON_FW_TRANSPORT_LAN, errorOut);
+}
+
+static bool firmwareWriteCommittedChunk(const uint8_t* data, size_t len, String& errorOut) {
   if (!firmwareUpdateActive || !firmwareUpdateOtaHandleActive) {
     errorOut = "FW_NO_ACTIVE_UPDATE";
+    return false;
+  }
+  if (data == nullptr || len < 1 || firmwareUpdateWritten + len > firmwareUpdateExpectedSize) {
+    errorOut = "FW_INVALID_CHUNK_SIZE";
+    return false;
+  }
+
+  esp_err_t err = esp_ota_write(firmwareUpdateHandle, data, len);
+  if (err == ESP_OK && mbedtls_sha256_update(&firmwareUpdateSha, data, len) != 0) err = ESP_FAIL;
+  if (err != ESP_OK) {
+    firmwareUpdateResetState(true);
+    errorOut = String("FW_WRITE_") + String((int)err);
+    return false;
+  }
+
+  firmwareUpdateWritten += len;
+  firmwareUpdateLastActivityMs = millis();
+  errorOut = "";
+  return true;
+}
+
+bool prepareSignedFirmwareChunk(size_t chunkSize, String& errorOut) {
+  if (!firmwareUpdateActive || firmwareUpdateTransport != BATMON_FW_TRANSPORT_USB || !firmwareUpdateOtaHandleActive) {
+    errorOut = firmwareUpdateActive ? "FW_TRANSPORT_MISMATCH" : "FW_NO_ACTIVE_UPDATE";
     return false;
   }
   if (firmwareUpdateRawRemaining != 0) {
     errorOut = "FW_CHUNK_ALREADY_PENDING";
     return false;
   }
-  if (chunkSize < 1 || chunkSize > BATMON_FW_MAX_CHUNK ||
-      firmwareUpdateWritten + chunkSize > firmwareUpdateExpectedSize) {
+  if (chunkSize < 1 || chunkSize > BATMON_FW_MAX_CHUNK || firmwareUpdateWritten + chunkSize > firmwareUpdateExpectedSize) {
     errorOut = "FW_INVALID_CHUNK_SIZE";
     return false;
   }
@@ -241,6 +293,28 @@ bool prepareSignedFirmwareChunk(size_t chunkSize, String& errorOut) {
   firmwareUpdateRawRemaining = chunkSize;
   firmwareUpdateLastActivityMs = millis();
   errorOut = "";
+  return true;
+}
+
+bool writeSignedFirmwareLanChunk(const uint8_t* data,
+                                 size_t chunkSize,
+                                 size_t expectedOffset,
+                                 size_t& totalWrittenOut,
+                                 String& errorOut) {
+  if (!firmwareUpdateActive || firmwareUpdateTransport != BATMON_FW_TRANSPORT_LAN || !firmwareUpdateOtaHandleActive) {
+    errorOut = firmwareUpdateActive ? "FW_TRANSPORT_MISMATCH" : "FW_NO_ACTIVE_UPDATE";
+    return false;
+  }
+  if (chunkSize < 1 || chunkSize > BATMON_FW_LAN_MAX_CHUNK) {
+    errorOut = "FW_INVALID_CHUNK_SIZE";
+    return false;
+  }
+  if (expectedOffset != firmwareUpdateWritten) {
+    errorOut = String("FW_OFFSET_MISMATCH_") + String((unsigned long)firmwareUpdateWritten);
+    return false;
+  }
+  if (!firmwareWriteCommittedChunk(data, chunkSize, errorOut)) return false;
+  totalWrittenOut = firmwareUpdateWritten;
   return true;
 }
 
@@ -258,29 +332,30 @@ void serviceSignedFirmwareRawSerial() {
   if (firmwareUpdateRawRemaining != 0) return;
 
   size_t completedChunk = firmwareUpdateChunkUsed;
-  esp_err_t err = esp_ota_write(firmwareUpdateHandle, firmwareUpdateChunk, completedChunk);
-  if (err == ESP_OK && mbedtls_sha256_update(&firmwareUpdateSha, firmwareUpdateChunk, completedChunk) != 0) {
-    err = ESP_FAIL;
-  }
+  String writeError;
+  bool ok = firmwareWriteCommittedChunk(firmwareUpdateChunk, completedChunk, writeError);
   memset(firmwareUpdateChunk, 0, completedChunk);
   firmwareUpdateChunkUsed = 0;
 
-  if (err != ESP_OK) {
-    firmwareUpdateResetState(true);
-    Serial.print("BATMON1 ERR FW_WRITE_");
-    Serial.println((int)err);
+  if (!ok) {
+    Serial.print("BATMON1 ERR ");
+    Serial.println(writeError);
     return;
   }
 
-  firmwareUpdateWritten += completedChunk;
-  firmwareUpdateLastActivityMs = millis();
   Serial.print("BATMON1 OK FWCHUNK ");
   Serial.println((unsigned long)firmwareUpdateWritten);
 }
 
-bool finishSignedFirmwareUpdate(String& resultOut, String& errorOut) {
+static bool finishSignedFirmwareUpdateForTransport(FirmwareUpdateTransport transport,
+                                                   String& resultOut,
+                                                   String& errorOut) {
   if (!firmwareUpdateActive || !firmwareUpdateOtaHandleActive) {
     errorOut = "FW_NO_ACTIVE_UPDATE";
+    return false;
+  }
+  if (firmwareUpdateTransport != transport) {
+    errorOut = "FW_TRANSPORT_MISMATCH";
     return false;
   }
   if (firmwareUpdateRawRemaining != 0) {
@@ -320,7 +395,7 @@ bool finishSignedFirmwareUpdate(String& resultOut, String& errorOut) {
 
   const esp_partition_t* completedPartition = firmwareUpdatePartition;
   esp_ota_handle_t completedHandle = firmwareUpdateHandle;
-  firmwareUpdateOtaHandleActive = false; // esp_ota_end always consumes the handle.
+  firmwareUpdateOtaHandleActive = false;
   firmwareUpdateHandle = 0;
   esp_err_t endErr = esp_ota_end(completedHandle);
   if (endErr != ESP_OK) {
@@ -350,9 +425,21 @@ bool finishSignedFirmwareUpdate(String& resultOut, String& errorOut) {
   return true;
 }
 
-bool abortSignedFirmwareUpdate(String& resultOut) {
+bool finishSignedFirmwareUpdate(String& resultOut, String& errorOut) {
+  return finishSignedFirmwareUpdateForTransport(BATMON_FW_TRANSPORT_USB, resultOut, errorOut);
+}
+
+bool finishSignedFirmwareUpdateLan(String& resultOut, String& errorOut) {
+  return finishSignedFirmwareUpdateForTransport(BATMON_FW_TRANSPORT_LAN, resultOut, errorOut);
+}
+
+static bool abortSignedFirmwareUpdateForTransport(FirmwareUpdateTransport transport, String& resultOut) {
   if (!firmwareUpdateActive) {
     resultOut = "NO_ACTIVE_UPDATE";
+    return false;
+  }
+  if (firmwareUpdateTransport != transport) {
+    resultOut = "TRANSPORT_MISMATCH";
     return false;
   }
   firmwareUpdateResetState(true);
@@ -360,9 +447,21 @@ bool abortSignedFirmwareUpdate(String& resultOut) {
   return true;
 }
 
+bool abortSignedFirmwareUpdate(String& resultOut) {
+  return abortSignedFirmwareUpdateForTransport(BATMON_FW_TRANSPORT_USB, resultOut);
+}
+
+bool abortSignedFirmwareUpdateLan(String& resultOut) {
+  return abortSignedFirmwareUpdateForTransport(BATMON_FW_TRANSPORT_LAN, resultOut);
+}
+
 void serviceFirmwareUpdateTimeout() {
   if (!firmwareUpdateActive || firmwareUpdateLastActivityMs == 0) return;
   if ((unsigned long)(millis() - firmwareUpdateLastActivityMs) < BATMON_FW_TRANSFER_TIMEOUT_MS) return;
+  FirmwareUpdateTransport timedOutTransport = firmwareUpdateTransport;
   firmwareUpdateResetState(true);
-  Serial.println("BATMON1 ERR FW_TRANSFER_TIMEOUT");
+  if (timedOutTransport == BATMON_FW_TRANSPORT_USB)
+    Serial.println("BATMON1 ERR FW_TRANSFER_TIMEOUT");
+  else if (timedOutTransport == BATMON_FW_TRANSPORT_LAN)
+    Serial.println("LAN firmware update timed out and was aborted.");
 }
