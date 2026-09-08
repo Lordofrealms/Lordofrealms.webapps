@@ -230,33 +230,25 @@ internal sealed class UsbSetupForm : Form
                 "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
             return;
 
+        if (MessageBox.Show(this,
+            "Set this monitor's Device Password over trusted USB? If a Device Password is already initialized, this rotates it immediately and the old password stops working on other PCs/phones.",
+            "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+            return;
+
+        var rememberPassword = _rememberDevicePassword.Checked;
         await RunOperationAsync(async token =>
         {
             var status = await _provisioner.ReadStatusAsync(port, AppendLog, token);
             var identity = await _provisioner.ReadProvisioningIdentityAsync(port, AppendLog, token);
             var username = identity.IsConfigured && !string.IsNullOrWhiteSpace(identity.Username) ? identity.Username : "batmon";
-            var action = identity.IsConfigured ? "rotate" : "initialize";
-
-            var confirmed = false;
-            BeginInvoke(new Action(() =>
-            {
-                var message = identity.IsConfigured
-                    ? "Rotate this monitor's Device Password? The old password will stop working immediately. Other PCs/phones that saved the old password must be updated."
-                    : "Initialize this monitor's Device Password over trusted USB?";
-                confirmed = MessageBox.Show(this, message, "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes;
-            }));
-
-            // Do not block the worker waiting on an asynchronous BeginInvoke result.
-            // Re-run the confirmation synchronously on the UI thread before entering this method instead.
-            if (!confirmed)
-                throw new OperationCanceledException();
+            var actionPast = identity.IsConfigured ? "rotated" : "initialized";
 
             await _provisioner.SetProvisioningCredentialAsync(port, username, password, AppendLog, token);
             var matched = await _provisioner.VerifyProvisioningCredentialAsync(port, password, AppendLog, token);
             if (!matched)
                 throw new InvalidOperationException("The ESP32 accepted the Device Password write but did not verify the same password afterward.");
 
-            if (_rememberDevicePassword.Checked) _credentials.Save(status.DeviceId, password);
+            if (rememberPassword) _credentials.Save(status.DeviceId, password);
             else _credentials.Forget(status.DeviceId);
 
             BeginInvoke(new Action(() =>
@@ -266,12 +258,12 @@ internal sealed class UsbSetupForm : Form
                 UpdatePasswordStatus(true);
                 _devicePassword.Clear();
                 _confirmDevicePassword.Clear();
-                AppendLog($"Device Password {action}d and verified for {status.DeviceId}.");
+                AppendLog($"Device Password {actionPast} and verified for {status.DeviceId}.");
                 var note = string.IsNullOrWhiteSpace(status.WifiSsid)
                     ? " The monitor has no saved home Wi-Fi, so its protected BatteryMonitor setup network should now be available immediately."
                     : "";
                 MessageBox.Show(this,
-                    $"Device Password {action}d and verified.{note}",
+                    $"Device Password {actionPast} and verified.{note}",
                     "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }));
         });
