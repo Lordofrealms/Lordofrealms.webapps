@@ -26,6 +26,7 @@ bool commitRunningFirmwareReleaseFloor(String& errorOut);
 esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition);
 
 #include "../../BatteryMonitor/BatteryMonitor.ino"
+#include "../../BatteryMonitor/WebServerTask.ino"
 #include "../../BatteryMonitor/SecureProvisioning.ino"
 #include "../../BatteryMonitor/FirmwareReleasePolicy.ino"
 
