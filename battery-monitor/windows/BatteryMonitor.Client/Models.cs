@@ -165,9 +165,17 @@ public sealed class DiscoveredDevice
 
 public static class BatteryPresets
 {
-    public static (double Low, double Critical) For(string batteryType) =>
-        batteryType == "lifepo4_4s" ? (12.80, 12.00) : (12.20, 11.90);
+    public static (double Low, double Critical) For(string batteryType)
+    {
+        var profile = BatteryProfileCatalog.Current.Find(batteryType);
+        return profile is null ? (12.20, 11.90) : (profile.LowVoltage, profile.CriticalVoltage);
+    }
 
-    public static string FriendlyName(string batteryType) =>
-        batteryType == "lifepo4_4s" ? "4S LiFePO4" : "12 V Lead Acid";
+    public static string FriendlyName(string batteryType)
+    {
+        var profile = BatteryProfileCatalog.Current.Find(batteryType);
+        return profile?.Name ?? (string.IsNullOrWhiteSpace(batteryType)
+            ? "Unknown / Custom"
+            : $"Unknown / Custom ({batteryType})");
+    }
 }
