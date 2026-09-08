@@ -6,7 +6,13 @@ namespace BatteryMonitor.Client;
 internal sealed class UsbSetupForm : Form
 {
     private readonly UsbProvisioner _provisioner = new();
+    private readonly DeviceCredentialStore _credentials = new();
     private readonly ComboBox _port = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly Label _passwordStatus = new() { AutoSize = true };
+    private readonly TextBox _devicePassword = new() { UseSystemPasswordChar = true };
+    private readonly TextBox _confirmDevicePassword = new() { UseSystemPasswordChar = true };
+    private readonly CheckBox _showDevicePassword = new() { Text = "Show Device Password", AutoSize = true };
+    private readonly CheckBox _rememberDevicePassword = new() { Text = "Remember on this Windows account", Checked = true, AutoSize = true };
     private readonly TextBox _deviceName = new();
     private readonly CheckBox _updateWifi = new() { Text = "Update home Wi-Fi credentials", AutoSize = true };
     private readonly TextBox _wifiSsid = new();
@@ -21,6 +27,8 @@ internal sealed class UsbSetupForm : Form
     private readonly TextBox _log = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical };
     private readonly List<Button> _operationButtons = new();
     private CancellationTokenSource? _operationCts;
+    private string _deviceId = "";
+    private string _provisioningUsername = "batmon";
 
     public bool ConfigurationCompleted { get; private set; }
 
@@ -28,9 +36,9 @@ internal sealed class UsbSetupForm : Form
     {
         Text = "Battery Monitor - USB Setup";
         Icon = AppIcon.Current;
-        Width = 700;
-        Height = 690;
-        MinimumSize = new Size(620, 600);
+        Width = 720;
+        Height = 830;
+        MinimumSize = new Size(640, 700);
         StartPosition = FormStartPosition.CenterParent;
 
         ConfigureNumeric(_low, 6, 20, 2, 0.01m);
@@ -47,6 +55,12 @@ internal sealed class UsbSetupForm : Form
         ApplyPreset();
 
         _updateWifi.CheckedChanged += (_, _) => UpdateWifiEnabledState();
+        _showDevicePassword.CheckedChanged += (_, _) =>
+        {
+            var hide = !_showDevicePassword.Checked;
+            _devicePassword.UseSystemPasswordChar = hide;
+            _confirmDevicePassword.UseSystemPasswordChar = hide;
+        };
         BuildUi();
         UpdateWifiEnabledState();
         RefreshPorts();
@@ -60,7 +74,7 @@ internal sealed class UsbSetupForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(12),
             ColumnCount = 2,
-            RowCount = 14
+            RowCount = 18
         };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190));
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -69,8 +83,8 @@ internal sealed class UsbSetupForm : Form
         var intro = new Label
         {
             AutoSize = true,
-            MaximumSize = new Size(640, 0),
-            Text = "Connect an already-flashed Battery Monitor by USB. This is the normal trusted setup path for device name, Wi-Fi, battery thresholds, sample interval, and calibration. Firmware flashing and provisioning-code manufacture are under Advanced Tools."
+            MaximumSize = new Size(660, 0),
+            Text = "Connect an already-flashed Battery Monitor by USB. Trusted USB is the normal setup/recovery path for the Device Password, device name, Wi-Fi, battery thresholds, sample interval, and calibration. Factory setup-code/QR manufacture and blank-device flashing remain under Advanced Tools."
         };
         root.Controls.Add(intro, 0, 0);
         root.SetColumnSpan(intro, 2);
@@ -82,58 +96,68 @@ internal sealed class UsbSetupForm : Form
         portPanel.Controls.AddRange(new Control[] { _port, refresh, read });
         AddRow(root, 1, "USB serial port", portPanel);
 
-        AddRow(root, 2, "Device name", _deviceName);
+        AddRow(root, 2, "Device Password", _passwordStatus);
+        AddRow(root, 3, "New Device Password", _devicePassword);
+        AddRow(root, 4, "Confirm password", _confirmDevicePassword);
 
-        root.Controls.Add(_updateWifi, 1, 3);
-        AddRow(root, 4, "Home Wi-Fi SSID", _wifiSsid);
-        AddRow(root, 5, "Home Wi-Fi password", _wifiPassword);
+        var passwordActions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
+        passwordActions.Controls.Add(_showDevicePassword);
+        passwordActions.Controls.Add(_rememberDevicePassword);
+        passwordActions.Controls.Add(MakeButton("Set / Rotate Device Password", async (_, _) => await SetDevicePasswordAsync()));
+        root.Controls.Add(passwordActions, 1, 5);
+
+        AddRow(root, 6, "Device name", _deviceName);
+
+        root.Controls.Add(_updateWifi, 1, 7);
+        AddRow(root, 8, "Home Wi-Fi SSID", _wifiSsid);
+        AddRow(root, 9, "Home Wi-Fi password", _wifiPassword);
         var wifiNote = new Label
         {
             AutoSize = true,
-            MaximumSize = new Size(440, 0),
+            MaximumSize = new Size(460, 0),
             Text = "The current SSID can be read, but the password is intentionally never returned. Leave 'Update home Wi-Fi credentials' unchecked to preserve the existing password."
         };
-        root.Controls.Add(wifiNote, 1, 6);
+        root.Controls.Add(wifiNote, 1, 10);
 
         var batteryPanel = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
         _batteryType.Width = 170;
         batteryPanel.Controls.Add(_batteryType);
         batteryPanel.Controls.Add(MakeButton("Apply Chemistry Defaults", (_, _) => ApplyPreset()));
-        AddRow(root, 7, "Battery type", batteryPanel);
+        AddRow(root, 11, "Battery type", batteryPanel);
 
         var thresholds = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
         thresholds.Controls.Add(new Label { Text = "Low", AutoSize = true, Margin = new Padding(3, 8, 3, 3) });
         _low.Width = 90; thresholds.Controls.Add(_low);
         thresholds.Controls.Add(new Label { Text = "Critical", AutoSize = true, Margin = new Padding(16, 8, 3, 3) });
         _critical.Width = 90; thresholds.Controls.Add(_critical);
-        AddRow(root, 8, "Voltage thresholds", thresholds);
+        AddRow(root, 12, "Voltage thresholds", thresholds);
 
-        AddRow(root, 9, "Sample interval (seconds)", _sample);
+        AddRow(root, 13, "Sample interval (seconds)", _sample);
         var calibration = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
         calibration.Controls.Add(new Label { Text = "Factor", AutoSize = true, Margin = new Padding(3, 8, 3, 3) });
         _calFactor.Width = 105; calibration.Controls.Add(_calFactor);
         calibration.Controls.Add(new Label { Text = "Offset V", AutoSize = true, Margin = new Padding(16, 8, 3, 3) });
         _calOffset.Width = 105; calibration.Controls.Add(_calOffset);
-        AddRow(root, 10, "ADC calibration", calibration);
+        AddRow(root, 14, "ADC calibration", calibration);
 
         var savePanel = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
         var save = MakeButton("Save to Device", async (_, _) => await ConfigureAsync());
         savePanel.Controls.Add(save);
         savePanel.Controls.Add(_reboot);
-        root.Controls.Add(savePanel, 0, 11);
+        root.Controls.Add(savePanel, 0, 15);
         root.SetColumnSpan(savePanel, 2);
 
         _log.Dock = DockStyle.Fill;
         _log.Font = new Font(FontFamily.GenericMonospace, 9f);
-        root.Controls.Add(_log, 0, 12);
+        root.Controls.Add(_log, 0, 16);
         root.SetColumnSpan(_log, 2);
 
-        for (var i = 0; i < 12; i++) root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        for (var i = 0; i < 16; i++) root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         var close = new Button { Text = "Close", AutoSize = true, Anchor = AnchorStyles.Right };
         close.Click += (_, _) => Close();
-        root.Controls.Add(close, 1, 13);
+        root.Controls.Add(close, 1, 17);
     }
 
     private Button MakeButton(string text, EventHandler handler)
@@ -162,8 +186,12 @@ internal sealed class UsbSetupForm : Form
         await RunOperationAsync(async token =>
         {
             var status = await _provisioner.ReadStatusAsync(port, AppendLog, token);
+            var identity = await _provisioner.ReadProvisioningIdentityAsync(port, AppendLog, token);
             BeginInvoke(new Action(() =>
             {
+                _deviceId = status.DeviceId;
+                _provisioningUsername = identity.IsConfigured && !string.IsNullOrWhiteSpace(identity.Username) ? identity.Username : "batmon";
+                UpdatePasswordStatus(identity.IsConfigured);
                 _deviceName.Text = status.DeviceName;
                 _wifiSsid.Text = status.WifiSsid;
                 _wifiPassword.Clear();
@@ -175,6 +203,76 @@ internal sealed class UsbSetupForm : Form
                 _calFactor.Value = Clamp((decimal)status.CalibrationFactor, _calFactor);
                 _calOffset.Value = Clamp((decimal)status.CalibrationOffset, _calOffset);
                 AppendLog($"Loaded {status.DeviceId}: {status.Voltage:0.00} V; calibration {status.CalibrationFactor:0.######} / {status.CalibrationOffset:+0.####;-0.####;0} V.");
+            }));
+        });
+    }
+
+    private async Task SetDevicePasswordAsync()
+    {
+        var port = SelectedPort();
+        if (port is null) return;
+
+        var password = _devicePassword.Text;
+        var confirmation = _confirmDevicePassword.Text;
+        if (!DevicePasswordRules.TryValidate(password, out var validationError))
+        {
+            MessageBox.Show(this, validationError, "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        if (!string.Equals(password, confirmation, StringComparison.Ordinal))
+        {
+            MessageBox.Show(this, "The Device Password and confirmation do not match.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        if (DevicePasswordRules.IsWeak(password, out var weakReason) &&
+            MessageBox.Show(this,
+                $"This Device Password is allowed, but it may be weak.\n\n{weakReason}\n\nUse it anyway?",
+                "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+            return;
+
+        await RunOperationAsync(async token =>
+        {
+            var status = await _provisioner.ReadStatusAsync(port, AppendLog, token);
+            var identity = await _provisioner.ReadProvisioningIdentityAsync(port, AppendLog, token);
+            var username = identity.IsConfigured && !string.IsNullOrWhiteSpace(identity.Username) ? identity.Username : "batmon";
+            var action = identity.IsConfigured ? "rotate" : "initialize";
+
+            var confirmed = false;
+            BeginInvoke(new Action(() =>
+            {
+                var message = identity.IsConfigured
+                    ? "Rotate this monitor's Device Password? The old password will stop working immediately. Other PCs/phones that saved the old password must be updated."
+                    : "Initialize this monitor's Device Password over trusted USB?";
+                confirmed = MessageBox.Show(this, message, "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes;
+            }));
+
+            // Do not block the worker waiting on an asynchronous BeginInvoke result.
+            // Re-run the confirmation synchronously on the UI thread before entering this method instead.
+            if (!confirmed)
+                throw new OperationCanceledException();
+
+            await _provisioner.SetProvisioningCredentialAsync(port, username, password, AppendLog, token);
+            var matched = await _provisioner.VerifyProvisioningCredentialAsync(port, password, AppendLog, token);
+            if (!matched)
+                throw new InvalidOperationException("The ESP32 accepted the Device Password write but did not verify the same password afterward.");
+
+            if (_rememberDevicePassword.Checked) _credentials.Save(status.DeviceId, password);
+            else _credentials.Forget(status.DeviceId);
+
+            BeginInvoke(new Action(() =>
+            {
+                _deviceId = status.DeviceId;
+                _provisioningUsername = username;
+                UpdatePasswordStatus(true);
+                _devicePassword.Clear();
+                _confirmDevicePassword.Clear();
+                AppendLog($"Device Password {action}d and verified for {status.DeviceId}.");
+                var note = string.IsNullOrWhiteSpace(status.WifiSsid)
+                    ? " The monitor has no saved home Wi-Fi, so its protected BatteryMonitor setup network should now be available immediately."
+                    : "";
+                MessageBox.Show(this,
+                    $"Device Password {action}d and verified.{note}",
+                    "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }));
         });
     }
@@ -248,6 +346,19 @@ internal sealed class UsbSetupForm : Form
         _wifiSsid.Enabled = _updateWifi.Checked;
         _wifiPassword.Enabled = _updateWifi.Checked;
         if (!_updateWifi.Checked) _wifiPassword.Clear();
+    }
+
+    private void UpdatePasswordStatus(bool configured)
+    {
+        if (string.IsNullOrWhiteSpace(_deviceId))
+        {
+            _passwordStatus.Text = "Read the connected monitor to see credential status.";
+            return;
+        }
+        var remembered = _credentials.Has(_deviceId) ? "; remembered on this PC" : "";
+        _passwordStatus.Text = configured
+            ? $"Initialized for {_deviceId}{remembered}. Password is never read back."
+            : $"Not initialized for {_deviceId}. Set a Device Password before wireless provisioning.";
     }
 
     private async Task RunOperationAsync(Func<CancellationToken, Task> operation)
