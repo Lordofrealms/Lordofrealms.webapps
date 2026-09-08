@@ -11,6 +11,7 @@ public sealed class MainForm : Form
     private readonly DeviceCredentialStore _credentials = new();
     private readonly MonitoringIdentityStore _monitoringIdentities = new();
     private readonly DeviceClient _deviceClient = new();
+    private readonly EspFlasher _flasher = new();
     private readonly DiscoveryService _discovery;
     private readonly List<MonitorEntry> _devices;
     private readonly HashSet<string> _pairing = new(StringComparer.OrdinalIgnoreCase);
@@ -18,11 +19,14 @@ public sealed class MainForm : Form
     private readonly Label _summary = new();
     private readonly NotifyIcon _tray = new();
     private readonly System.Windows.Forms.Timer _tick = new() { Interval = 1000 };
+    private readonly string _availableFirmwareVersion;
     private DateTime _lastDiscoveryUtc = DateTime.MinValue;
+    private AppIconState? _lastAppIconState;
     private bool _allowClose;
 
     public MainForm()
     {
+        _availableFirmwareVersion = _flasher.UpdateVersion ?? "";
         _devices = _settings.Load();
         foreach (var device in _devices)
         {
@@ -34,9 +38,9 @@ public sealed class MainForm : Form
 
         Text = "Battery Monitor";
         Icon = AppIcon.Current;
-        Width = 1220;
-        Height = 620;
-        MinimumSize = new Size(980, 480);
+        Width = 1450;
+        Height = 650;
+        MinimumSize = new Size(1100, 500);
         StartPosition = FormStartPosition.CenterScreen;
 
         BuildUi();
@@ -78,11 +82,13 @@ public sealed class MainForm : Form
         };
         var discover = new Button { Text = "Discover Now", AutoSize = true };
         var configure = new Button { Text = "Configure", AutoSize = true };
+        var snooze = new Button { Text = "Snooze Alerts", AutoSize = true };
         var openWeb = new Button { Text = "Open Web Page", AutoSize = true };
         discover.Click += async (_, _) => await DiscoverNowAsync();
         configure.Click += async (_, _) => await ConfigureSelectedAsync();
+        snooze.Click += (_, _) => SnoozeSelected();
         openWeb.Click += (_, _) => OpenSelectedWebPage();
-        quick.Controls.AddRange([discover, configure, openWeb]);
+        quick.Controls.AddRange([discover, configure, snooze, openWeb]);
         root.Controls.Add(quick, 0, 1);
 
         _grid.Dock = DockStyle.Fill;
@@ -97,6 +103,9 @@ public sealed class MainForm : Form
         _grid.Columns.Add("unit", "Unit Name");
         _grid.Columns.Add("voltage", "Voltage");
         _grid.Columns.Add("state", "State");
+        _grid.Columns.Add("firmware", "Firmware");
+        _grid.Columns.Add("fwStatus", "FW Status");
+        _grid.Columns.Add("alerts", "Alerts");
         _grid.Columns.Add("trust", "Trust");
         _grid.Columns.Add("type", "Battery");
         _grid.Columns.Add("address", "Address");
@@ -124,19 +133,20 @@ public sealed class MainForm : Form
         devices.DropDownItems.Add("&Discover Now", null, async (_, _) => await DiscoverNowAsync());
         devices.DropDownItems.Add(new ToolStripSeparator());
         devices.DropDownItems.Add("&Pair / Trust", null, async (_, _) => await PairSelectedAsync());
-        devices.DropDownItems.Add("&Configure...", null, async (_, _) => await ConfigureSelectedAsync());
-        devices.DropDownItems.Add("Change &Wi-Fi...", null, async (_, _) => await ChangeWifiSelectedAsync());
+        devices.DropDownItems.Add("&Configure", null, async (_, _) => await ConfigureSelectedAsync());
+        devices.DropDownItems.Add("Snooze &Alerts", null, (_, _) => SnoozeSelected());
+        devices.DropDownItems.Add("Change &Wi-Fi", null, async (_, _) => await ChangeWifiSelectedAsync());
         devices.DropDownItems.Add("&Open Web Page", null, (_, _) => OpenSelectedWebPage());
         devices.DropDownItems.Add(new ToolStripSeparator());
         devices.DropDownItems.Add("&Remove from PC", null, (_, _) => RemoveSelected());
 
         var tools = new ToolStripMenuItem("&Tools");
-        tools.DropDownItems.Add("&USB Setup...", null, (_, _) => OpenUsbSetup());
-        tools.DropDownItems.Add("USB Pair / &Trust...", null, (_, _) => OpenUsbTrust());
-        tools.DropDownItems.Add("&Wireless Setup...", null, (_, _) => OpenWirelessSetup());
-        tools.DropDownItems.Add("&Update Firmware...", null, (_, _) => OpenFirmwareUpdate());
+        tools.DropDownItems.Add("&USB Setup", null, (_, _) => OpenUsbSetup());
+        tools.DropDownItems.Add("USB Pair / &Trust", null, (_, _) => OpenUsbTrust());
+        tools.DropDownItems.Add("&Wireless Setup", null, (_, _) => OpenWirelessSetup());
+        tools.DropDownItems.Add("&Update Firmware", null, (_, _) => OpenFirmwareUpdate());
         tools.DropDownItems.Add(new ToolStripSeparator());
-        tools.DropDownItems.Add("&Advanced Tools...", null, (_, _) => OpenAdvancedTools());
+        tools.DropDownItems.Add("&Advanced Tools", null, (_, _) => OpenAdvancedTools());
         tools.DropDownItems.Add(new ToolStripSeparator());
 
         var startup = new ToolStripMenuItem("Start with &Windows")
@@ -161,12 +171,12 @@ public sealed class MainForm : Form
         tools.DropDownItems.Add(startup);
 
         var help = new ToolStripMenuItem("&Help");
-        help.DropDownItems.Add("&Getting Started...", null, (_, _) => OpenHelp("Getting Started"));
-        help.DropDownItems.Add("&Wi-Fi and Recovery...", null, (_, _) => OpenHelp("Wi-Fi"));
-        help.DropDownItems.Add("&Alerts...", null, (_, _) => OpenHelp("Alerts"));
-        help.DropDownItems.Add("&Troubleshooting...", null, (_, _) => OpenHelp("Troubleshooting"));
+        help.DropDownItems.Add("&Getting Started", null, (_, _) => OpenHelp("Getting Started"));
+        help.DropDownItems.Add("&Wi-Fi and Recovery", null, (_, _) => OpenHelp("Wi-Fi"));
+        help.DropDownItems.Add("&Alerts", null, (_, _) => OpenHelp("Alerts"));
+        help.DropDownItems.Add("&Troubleshooting", null, (_, _) => OpenHelp("Troubleshooting"));
         help.DropDownItems.Add(new ToolStripSeparator());
-        help.DropDownItems.Add("&About Battery Monitor...", null, (_, _) => OpenHelp("About"));
+        help.DropDownItems.Add("&About Battery Monitor", null, (_, _) => OpenHelp("About"));
 
         menu.Items.AddRange([file, devices, tools, help]);
         return menu;
@@ -227,6 +237,20 @@ public sealed class MainForm : Form
     private async void Tick(object? sender, EventArgs e)
     {
         var now = DateTime.UtcNow;
+        var snoozeExpired = false;
+        foreach (var device in _devices)
+        {
+            if (device.AlertsSnoozedUntilUtc.HasValue && device.AlertsSnoozedUntilUtc.Value <= now)
+            {
+                device.AlertsSnoozedUntilUtc = null;
+                device.LastAlertUtc = DateTime.MinValue;
+                device.LastOfflineAlertUtc = DateTime.MinValue;
+                device.OfflineAlerted = false;
+                snoozeExpired = true;
+            }
+        }
+        if (snoozeExpired) _settings.Save(_devices);
+
         if ((now - _lastDiscoveryUtc).TotalSeconds >= 30)
             await DiscoverNowAsync();
 
@@ -279,6 +303,7 @@ public sealed class MainForm : Form
                 Hostname = found.Hostname,
                 Address = found.Ip,
                 Port = found.Port,
+                FirmwareVersion = found.FirmwareVersion,
                 PollIntervalSec = 10,
                 OfflineTimeoutSec = 300,
                 IsCandidate = !found.Authenticated,
@@ -300,6 +325,7 @@ public sealed class MainForm : Form
             var changed = !string.Equals(device.Address, found.Ip, StringComparison.OrdinalIgnoreCase)
                 || device.Port != found.Port
                 || !string.Equals(device.Hostname, found.Hostname, StringComparison.OrdinalIgnoreCase)
+                || (!string.IsNullOrWhiteSpace(found.FirmwareVersion) && !string.Equals(device.FirmwareVersion, found.FirmwareVersion, StringComparison.Ordinal))
                 || (!string.IsNullOrWhiteSpace(found.Name) &&
                     !string.Equals(device.DeviceName, found.Name, StringComparison.Ordinal));
 
@@ -307,6 +333,7 @@ public sealed class MainForm : Form
             device.Port = found.Port;
             device.Hostname = found.Hostname;
             if (!string.IsNullOrWhiteSpace(found.Name)) device.DeviceName = found.Name;
+            if (!string.IsNullOrWhiteSpace(found.FirmwareVersion)) device.FirmwareVersion = found.FirmwareVersion;
 
             if (found.Authenticated)
             {
@@ -417,7 +444,8 @@ public sealed class MainForm : Form
 
     private void ApplyStatus(MonitorEntry device, DeviceStatus status)
     {
-        var wasOffline = device.OfflineAlerted || IsOffline(device, DateTime.UtcNow);
+        var now = DateTime.UtcNow;
+        var wasOffline = device.OfflineAlerted || IsOffline(device, now);
 
         device.FailureStartedUtc = null;
         device.OfflineAlerted = false;
@@ -427,10 +455,11 @@ public sealed class MainForm : Form
         device.Voltage = status.Voltage;
         device.State = status.State;
         device.Rssi = status.Rssi;
-        device.LastSeenUtc = DateTime.UtcNow;
+        device.LastSeenUtc = now;
 
         var persistentChanged = !string.Equals(device.DeviceName, status.Name, StringComparison.Ordinal)
             || !string.Equals(device.Hostname, status.Hostname, StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrWhiteSpace(status.FirmwareVersion) && !string.Equals(device.FirmwareVersion, status.FirmwareVersion, StringComparison.Ordinal))
             || !string.Equals(device.BatteryType, status.BatteryType, StringComparison.Ordinal)
             || Math.Abs(device.LowVoltage - status.LowVoltage) > 0.0001
             || Math.Abs(device.CriticalVoltage - status.CriticalVoltage) > 0.0001
@@ -440,6 +469,7 @@ public sealed class MainForm : Form
 
         device.DeviceName = status.Name;
         device.Hostname = status.Hostname;
+        if (!string.IsNullOrWhiteSpace(status.FirmwareVersion)) device.FirmwareVersion = status.FirmwareVersion;
         device.BatteryType = status.BatteryType;
         device.LowVoltage = status.LowVoltage;
         device.CriticalVoltage = status.CriticalVoltage;
@@ -449,7 +479,7 @@ public sealed class MainForm : Form
 
         if (persistentChanged) _settings.Save(_devices);
 
-        if (wasOffline && device.RecoveryAlert.Enabled)
+        if (wasOffline && device.RecoveryAlert.Enabled && !device.AlertsAreSnoozed(now))
         {
             AlertSoundPlayer.Play(device.RecoveryAlert);
             ShowBalloon("Battery Monitor Online",
@@ -493,6 +523,7 @@ public sealed class MainForm : Form
     private void EvaluateOfflineState(MonitorEntry device, DateTime now)
     {
         if (device.IdentityFailure || device.MonitoringTrustState != "Trusted" || !IsOffline(device, now)) return;
+        if (device.AlertsAreSnoozed(now)) return;
 
         var first = !device.OfflineAlerted;
         var profile = device.OfflineAlert;
@@ -529,6 +560,8 @@ public sealed class MainForm : Form
             device.LastAlertUtc = DateTime.MinValue;
             return;
         }
+
+        if (device.AlertsAreSnoozed(DateTime.UtcNow)) return;
 
         var profile = current == "critical" ? device.CriticalAlert : device.LowAlert;
         var changed = !string.Equals(current, device.LastAlertState, StringComparison.OrdinalIgnoreCase);
@@ -616,6 +649,22 @@ public sealed class MainForm : Form
             }
         }
 
+        RenderGrid();
+    }
+
+    private void SnoozeSelected()
+    {
+        var device = SelectedDevice();
+        if (device is null) return;
+
+        using var dialog = new AlertSnoozeForm(device.DisplayName, device.AlertsSnoozedUntilUtc);
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+        device.AlertsSnoozedUntilUtc = dialog.SnoozeUntilUtc;
+        device.LastAlertUtc = DateTime.MinValue;
+        device.LastOfflineAlertUtc = DateTime.MinValue;
+        device.OfflineAlerted = false;
+        if (!device.IsCandidate) _settings.Save(_devices);
         RenderGrid();
     }
 
@@ -721,6 +770,11 @@ public sealed class MainForm : Form
                         : unreachable
                             ? $"UNREACHABLE {FormatDuration((int)Math.Max(0, (now - device.FailureStartedUtc!.Value).TotalSeconds))}/{FormatDuration(device.OfflineTimeoutSec)}"
                             : device.State.ToUpperInvariant();
+            var installedFirmware = string.IsNullOrWhiteSpace(device.FirmwareVersion) ? "--" : device.FirmwareVersion;
+            var firmwareState = FirmwareVersionInfo.ComparisonLabel(device.FirmwareVersion, _availableFirmwareVersion);
+            var alertState = device.AlertsAreSnoozed(now)
+                ? $"Snoozed until {device.AlertsSnoozedUntilUtc!.Value.ToLocalTime():g}"
+                : "Active";
 
             var rowIndex = _grid.Rows.Add(
                 device.DisplayName,
@@ -729,6 +783,9 @@ public sealed class MainForm : Form
                     ? $"{device.Voltage:0.00} V"
                     : "--",
                 stateText,
+                installedFirmware,
+                firmwareState,
+                alertState,
                 device.IsCandidate ? "Unpaired candidate" : device.MonitoringTrustState,
                 BatteryPresets.FriendlyName(device.BatteryType),
                 device.Address,
@@ -745,7 +802,8 @@ public sealed class MainForm : Form
         var good = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure &&
                                        !d.FailureStartedUtc.HasValue && d.State == "good");
         var alert = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure &&
-                                        !d.FailureStartedUtc.HasValue && d.State is "low" or "critical");
+                                        d.State is "low" or "critical");
+        var snoozed = _devices.Count(d => d.AlertsAreSnoozed(now));
         var identityFailures = _devices.Count(d => d.IdentityFailure);
         var unpaired = _devices.Count(d => d.MonitoringTrustState != "Trusted" && !d.IdentityFailure);
         var offlineCount = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure &&
@@ -754,9 +812,38 @@ public sealed class MainForm : Form
                                                    d.FailureStartedUtc.HasValue && !IsOffline(d, now));
 
         _summary.Text =
-            $"{_devices.Count} visible | {trusted} trusted | {good} good | {alert} battery alert(s) | {unpaired} unpaired | {identityFailures} identity failure(s) | {unreachableCount} unreachable | {offlineCount} offline";
+            $"{_devices.Count} visible | {trusted} trusted | {good} good | {alert} battery alert(s) | {snoozed} snoozed | {unpaired} unpaired | {identityFailures} identity failure(s) | {unreachableCount} unreachable | {offlineCount} offline";
 
-        _tray.Text = _devices.Count == 0 ? "Battery Monitor" : $"Battery Monitor - {_devices.Count} device(s)";
+        var iconState = DetermineAppIconState();
+        if (_lastAppIconState != iconState)
+        {
+            var statusIcon = AppIcon.ForState(iconState);
+            Icon = statusIcon;
+            _tray.Icon = statusIcon;
+            _lastAppIconState = iconState;
+        }
+
+        var stateName = iconState.ToString();
+        _tray.Text = _devices.Count == 0
+            ? "Battery Monitor - Gray"
+            : $"Battery Monitor - {_devices.Count} device(s) - {stateName}";
+    }
+
+    private AppIconState DetermineAppIconState()
+    {
+        if (_devices.Any(d => string.Equals(d.State, "critical", StringComparison.OrdinalIgnoreCase)))
+            return AppIconState.Red;
+        if (_devices.Any(d => string.Equals(d.State, "low", StringComparison.OrdinalIgnoreCase)))
+            return AppIconState.Yellow;
+
+        if (_devices.Count == 0 || _devices.Any(d =>
+                d.IdentityFailure ||
+                d.MonitoringTrustState != "Trusted" ||
+                d.FailureStartedUtc.HasValue ||
+                !string.Equals(d.State, "good", StringComparison.OrdinalIgnoreCase)))
+            return AppIconState.Gray;
+
+        return AppIconState.Green;
     }
 
     private static string ToAge(DateTime utc)
