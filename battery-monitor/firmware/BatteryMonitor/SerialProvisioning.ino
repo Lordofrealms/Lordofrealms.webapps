@@ -135,7 +135,8 @@ static void processSerialProvisioningCommand(String line) {
     reply += percentEncode(wifiSsid) + " ";
     reply += String(batteryVoltage, 3) + " ";
     reply += String(calibrationFactor, 6) + " ";
-    reply += String(calibrationOffset, 4);
+    reply += String(calibrationOffset, 4) + " ";
+    reply += String(FW_VERSION);
     serialOk(reply);
     return;
   }
