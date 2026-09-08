@@ -1,8 +1,26 @@
 # Battery Monitor Project State
 
-Date: 2026-09-07
+Date: 2026-09-08
 Branch: `battery-monitor-dev`
 Version: V0.1.0 prototype
+
+## Current validated product-source checkpoint
+
+P0-2 source/build validated head:
+
+`ca7aa75af8b11b182558f48170778b9d2d94f042`
+
+Battery Monitor Toolchain:
+
+`34173594292` — run #85 — **SUCCESS**
+
+At that exact source head all three product jobs passed:
+
+- ESP32 Arduino firmware compile/image validation/artifact upload;
+- Android APK build/artifact upload;
+- Windows .NET 8 build, pinned Security-2 helper build/smoke test, self-contained publish, bundle, and artifact upload.
+
+The current branch may be ahead of that SHA for documentation-only commits. Re-resolve the live branch before doing more work.
 
 ## Hardware baseline
 
@@ -22,164 +40,180 @@ Version: V0.1.0 prototype
 - Presets are alarm defaults, not precise SOC estimates.
 - ADC calibration factor/offset are persistent and configurable.
 
-## Secure provisioning — P0-1 resolved at source/build level
+## P0-1 secure provisioning — source/build resolved
 
 Controlling resolution:
 
 `SECURITY_P0_1_SECURE_PROVISIONING_RESOLUTION_2026-09-07.md`
 
-Validated product-source head:
+Core posture:
 
-`e4fa7fd5af46224e0c96fca1fe8090ba29dcee44`
+- protected per-device WPA2 `BatteryMonitor-XXXXXX` setup network;
+- Espressif Unified Provisioning Security 2 using SRP6a + AES-GCM;
+- initial random 16-character / 80-bit per-device code;
+- QR is convenience only; manual entry works;
+- uninitialized units never expose an open provisioning AP;
+- old Android plaintext home-Wi-Fi provisioning path is retired;
+- Windows helper receives secrets over redirected stdin rather than command-line arguments.
 
-Battery Monitor Toolchain run:
+P0-1 still requires physical interoperability testing before field closure.
 
-`34167794017` — **SUCCESS**
+## P0-2 LAN authentication — source/build resolved, hardware validation pending
 
-All three jobs passed:
+Controlling implementation resolution:
 
-- ESP32 firmware compile/image validation/artifact upload;
-- Android Security-2 setup APK build/artifact upload;
-- Windows .NET build + pinned Espressif Security-2 helper build/smoke-test + self-contained package/artifact upload.
+`SECURITY_P0_2_LAN_AUTH_SOURCE_BUILD_RESOLUTION_2026-09-08.md`
 
-Provisioning design:
-
-- unique 16-character / 80-bit per-device setup code;
-- QR is convenience only; manual setup code works on Android and Windows;
-- temporary `BatteryMonitor-XXXXXX` SoftAP is WPA2 protected with a separately derived per-device key;
-- application-layer provisioning uses Espressif Unified Provisioning Security 2: SRP6a + AES-GCM;
-- ESP stores SRP salt/verifier, setup-code check hash, and derived SoftAP key; the root setup code is not exposed through a readback API;
-- USB can verify a suspected code as MATCH / NO_MATCH with escalating cooldowns;
-- an uninitialized device does not fall back to an open provisioning AP;
-- old Android plaintext `/api/wifi` provisioning is retired.
-
-Physical interoperability testing is still required before calling P0-1 field-validated.
-
-## P0-2 LAN authentication — approved design, implementation pending
-
-Controlling design authority:
+Original design authority:
 
 `SECURITY_P0_2_LAN_AUTH_DESIGN_2026-09-07.md`
 
-User-approved normal-management model:
+### Device Password authority
 
-- one user-facing **Device Password** per monitor for all non-factory administration;
-- initial random secure-provisioning setup code becomes the initial Device Password;
-- user may keep it or replace it with a new Device Password;
-- same user password authorizes secure provisioning/re-provisioning, LAN management, normal configuration, calibration/threshold changes, and normal Wi-Fi changes;
-- implementation derives separate domain-separated cryptographic keys/values for Security-2 provisioning, setup-SoftAP WPA2, LAN management, and USB password verification;
-- normal LAN state-changing operations require challenge/response authentication rather than transmitting the Device Password as a normal HTTP parameter;
-- intended LAN design uses fresh nonces/replay resistance and short-lived authenticated management sessions;
-- browser state-changing requests require CSRF hardening and must not use GET;
-- Windows may remember the Device Password using Windows-protected credential storage, never plaintext `devices.json`, logs, or command-line args;
-- Android may remember it using encrypted application storage backed by Android Keystore;
-- both apps provide **Forget Saved Password**, affecting only local storage;
-- Device Password rotation must atomically regenerate all derived credentials and invalidate the old password only after the replacement credential set is safely committed;
-- original printed factory/setup code is not a permanent backdoor after the user changes the Device Password.
+- One user-facing **Device Password** protects normal non-factory administration.
+- The original generated provisioning code is the initial Device Password.
+- User may keep it or replace it.
+- Custom passwords are exact and case-sensitive.
+- **Weak passwords are allowed by user choice.** Windows/Android warn and require explicit confirmation, but do not impose a strength floor.
+- Firmware hard-validates only: non-empty, <=128 UTF-8 bytes, and no control characters.
+- The original printed code is not intended to remain a backdoor after rotation.
 
-Wi-Fi change/recovery design:
+### LAN management
 
-- if the unit is reachable, authenticated **Change Wi-Fi** tells it to enter the existing Security-2 provisioning flow; the new home password is not sent through a second plaintext LAN API;
-- if the old LAN is unavailable, a physical provisioning-mode action re-enables the existing WPA2-protected `BatteryMonitor-XXXXXX` setup AP while preserving the Device Password;
-- Windows/Android then use the same saved/entered Device Password to Security-2 provision replacement Wi-Fi;
-- exact non-destructive button timing/gesture is still an implementation detail;
-- destructive factory/reset behavior remains separate.
+- Device Password is not sent as an ordinary LAN HTTP parameter.
+- Client obtains a fresh one-time 60-second challenge.
+- Client proves possession with HMAC-SHA-256 using a domain-separated management key.
+- Successful proof creates a random 15-minute management session plus CSRF token.
+- Sessions are source-IP bound and refreshed by authenticated writes.
+- Wrong authentication attempts receive escalating cooldowns.
+- Browser state-changing requests require both session and `X-Batmon-CSRF`; session cookie is `HttpOnly; SameSite=Strict`.
 
-Factory/recovery functions use separate factory/admin authority, not the normal Device Password.
+State-changing routes:
 
-P0-2 is **not yet closed**. Implementation and hardware tests must cover authenticated device-side management, Windows/Android secure credential storage, browser session/CSRF behavior if web configuration remains enabled, password rotation, Wi-Fi recovery, replay attempts, expired sessions, wrong password behavior, and removal/locking of old unauthenticated state-changing endpoints.
+- `POST /api/config` — authenticated;
+- `POST /api/password` — authenticated encrypted password rotation;
+- `POST /api/wifi/provisioning` — authenticated transition into Security-2 setup;
+- legacy `POST /api/reset-wifi` — authenticated alias for secure provisioning;
+- legacy plaintext `POST /api/wifi` — retired, HTTP 410.
+
+Read-only status/configuration remains unauthenticated pending the separate P0-3 identity/authenticity work.
+
+### Password rotation
+
+- Replacement password is encrypted client-side with AES-256-GCM under a session-derived wrapping key.
+- ESP regenerates Security-2 SRP salt/verifier, setup-AP key, password check material, and management authority.
+- Complete credential set is persisted in a versioned v2 NVS blob.
+- Successful rotation invalidates existing management sessions.
+- v2 credential presence is authoritative/fail-closed; corrupted v2 data does not fall back to old split credential fields.
+- After successful v2 commit, old split `user/apkey/codehash/salt/verifier` keys are retired.
+
+### Wi-Fi recovery
+
+- Reachable unit: authenticated **Change Wi-Fi** enters existing Security-2 provisioning.
+- Unreachable old LAN: 5-second BOOT hold enters secure provisioning without clearing Device Password or normal settings.
+- New home-Wi-Fi credentials continue to travel through Security 2, not a second plaintext LAN API.
+- Destructive factory/reset functions remain separate.
+
+### Security boundary not claimed by P0-2
+
+P0-2 authorizes writes and protects the Device Password from ordinary LAN parameter transmission. It does not make unauthenticated discovery/status trustworthy and it does not turn HTTP into authenticated TLS. P0-3 and later hostile-LAN/transport hardening remain separate.
 
 ## Windows client
 
 - .NET 8 WinForms tray app.
-- Multi-unit UDP discovery plus mDNS advertisement on devices.
+- Multi-unit UDP discovery plus mDNS device advertisements.
 - Stable device-ID tracking with DHCP address refresh.
 - Local alias plus independent on-unit name.
-- Configurable ESP sample interval and PC poll interval.
-- Offline detection is elapsed-time based, not retry-count based.
-- Default offline timeout: 5 minutes; editor supports seconds/minutes/hours.
-- Failed contact shows `UNREACHABLE elapsed/timeout`; offline alert occurs only after timeout expires.
-- Successful contact resets the timeout immediately and produces recovery notification if applicable.
+- Configurable ESP sample interval, PC poll interval, and elapsed offline timeout.
+- Default offline timeout: 5 minutes; supports seconds/minutes/hours.
+- `UNREACHABLE elapsed/timeout` during grace period; `OFFLINE` only after elapsed timeout expires.
+- Successful response resets contact-loss timer immediately.
 - Low/critical audible + tray alerts.
-- Configurable Start with Windows; `--startup` launches directly into tray.
+- Configurable Start with Windows; `--startup` launches directly to tray.
 
-### Windows setup paths
+### Windows P0-2 behavior
 
-- **USB Setup** is a normal/default configuration path.
-- USB can read/configure name, Wi-Fi, chemistry, thresholds, sample interval, and ADC calibration without reflashing.
-- Existing Wi-Fi password is not readable over USB, so normal configuration preserves Wi-Fi unless the user explicitly selects Update Wi-Fi credentials.
-- **Wireless Setup** accepts the same printed setup code/Device Password and performs Security-2 provisioning over the protected temporary SoftAP.
-- Root setup code/Device Password and home Wi-Fi password are passed to the pinned helper through redirected stdin, never command-line arguments.
-- Temporary Windows WLAN profiles are unique per attempt and removed in a `finally` path.
+- Authenticated configuration writes.
+- Authenticated **Change Wi-Fi**.
+- Device Password rotation.
+- Optional remembered Device Password stored separately using Windows DPAPI, not plaintext `devices.json`.
+- **Forget Saved Password** removes only the local remembered credential.
+- Weak-password warning is advisory with explicit override.
+
+### USB Setup
+
+Normal/default configuration path; not merged into firmware flashing.
+
+USB can configure:
+
+- unit name;
+- Wi-Fi when explicitly selected;
+- chemistry/thresholds;
+- sample interval;
+- ADC calibration;
+- Device Password verification/rotation.
+
+Existing Wi-Fi password is not read back; maintenance preserves Wi-Fi unless explicitly changed.
 
 ### Firmware functions
 
-- **Update Firmware** is a normal top-level feature.
-  - verifies the selected USB device is already running Battery Monitor firmware;
-  - writes only the application partition;
-  - preserves NVS/configuration/provisioning identity.
-- **Factory Flash / Recovery** remains in the regular app under Advanced for now, per user decision.
-  - destructive merged-image flash at `0x0`;
-  - wipes configuration/NVS/provisioning identity;
-  - admin password is only a UI/casual-use gate, not a cryptographic security boundary.
+- **Update Firmware** remains a normal top-level function and writes only the application partition, preserving NVS/settings/identity.
+- **Factory Flash / Recovery** remains under Advanced and is destructive.
+- Advanced admin password is a UI/casual-use gate only, not a cryptographic boundary.
 - Bundled Espressif esptool: v5.3.1.
-- CI verifies esptool Windows archive SHA-256: `2b4a73c45db27426685896f64ce3e557f63a64f43cc100cb65c0cc3486af96d3`.
+- CI-pinned official Windows archive SHA-256: `2b4a73c45db27426685896f64ce3e557f63a64f43cc100cb65c0cc3486af96d3`.
 
-## Android setup app
+## Android app
 
 - Native Java, minSdk 31, compile/target SDK 36.
-- QR scan or manual Device ID + setup code/Device Password.
-- Espressif Security 2 provisioning over WPA2 SoftAP.
-- Home Wi-Fi scan occurs through the ESP32 after secure-session establishment.
-- Android currently configures Wi-Fi only; authenticated normal management is part of pending P0-2 implementation.
-- App does not persist setup code or home Wi-Fi password in the current provisioning flow and clears those input fields after success.
-- Future remembered Device Password storage must use Android Keystore-backed encrypted storage per P0-2 authority.
+- QR or manual Device ID + Device Password secure Wi-Fi setup.
+- Espressif Security 2 over protected WPA2 SoftAP.
+- LAN management dialog supports authenticated settings, password rotation, and Change Wi-Fi.
+- Optional remembered Device Password is AES-GCM encrypted with key material held in Android Keystore.
+- **Forget Saved Device Password** removes only local remembered credential.
+- Weak-password warning is advisory with explicit override.
+- Home Wi-Fi password is not persistently stored by the app.
 
-## Firmware signing authority — staged, not yet enforced
+## Firmware signing — staged, not yet enforced
 
-- RSA-3072 firmware signing keypair generated for future signed-release enforcement.
-- Public key committed at:
-  `battery-monitor/signing/battery_monitor_secureboot_rsa3072_public.pem`
-- Public-key SHA-256 fingerprint (DER SPKI):
-  `69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e`
-- Encrypted private-key backup stored in ChatGPT Library under `/Battery Monitor Signing/`.
-- Private key is not in GitHub or the Windows/Android apps.
-- CI signing and Windows signature enforcement are **not yet active** because the signing credential still needs to be placed in a proper CI secret/signing environment.
-- Planned sequence: signed release artifact -> Windows verification -> later ESP32 Secure Boot v2 for production hardware.
-- Do not burn Secure Boot fuses on development devices yet.
+- RSA-3072 public key: `signing/battery_monitor_secureboot_rsa3072_public.pem`
+- DER-SPKI SHA-256 fingerprint: `69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e`
+- encrypted private-key backup is stored outside GitHub in ChatGPT Library under `/Battery Monitor Signing/`.
+- CI signing and Windows signature enforcement are not yet active.
+- Do not burn Secure Boot eFuses on development boards.
 
 ### Mandatory production Secure Boot checkpoint
 
-Before a production/release candidate is considered security-complete, **circle back to ESP32 Secure Boot v2**. This is an explicit production gate, not an optional cleanup item.
+Before a production/release candidate is considered security-complete:
 
-At that checkpoint:
-
-1. verify actual ESP32-WROOM-32 chip revision compatibility;
-2. prove signed firmware update/recovery on physical development hardware first;
-3. maintain at least two independent encrypted private-key backups, including one outside ChatGPT Library;
-4. document that loss of the signing private key after burning the Secure Boot trust eFuse can prevent future trusted firmware updates;
-5. decide and document whether/when Secure Boot eFuses are burned on production units.
-
-Host-side firmware signature checking is useful but is not a substitute for device-side Secure Boot enforcement.
+1. verify exact ESP32-WROOM-32 revision compatibility with intended Secure Boot v2 mode;
+2. prove signed update/recovery on physical development hardware;
+3. maintain at least two independent encrypted signing-key backups, at least one outside ChatGPT Library;
+4. document recovery consequences of signing-key loss;
+5. only then decide whether to burn production Secure Boot eFuses.
 
 ## Remaining security priorities
 
-1. **Implement P0-2** according to `SECURITY_P0_2_LAN_AUTH_DESIGN_2026-09-07.md`.
-2. **P0-3:** authenticate Windows discovery/status identity so a hostile LAN host cannot impersonate a monitor or falsify battery state.
+1. **P0-3:** authenticate discovery/status identity so hostile LAN devices cannot impersonate a monitor or falsify battery state.
+2. Complete P0-1/P0-2 real-hardware interoperability and adversarial validation.
 3. Physical security: NVS/Flash Encryption, Secure Boot, ROM-download policy for production mode.
-4. Move from Arduino-ESP32 3.3.11 or incorporate the upstream WebServer slow-header hardening.
+4. Move from Arduino-ESP32 3.3.11 or incorporate the upstream WebServer slow-header fix before hostile-LAN deployment.
 5. Finish firmware release signing/verification plumbing.
 6. Android release signing, Windows code signing, and CI supply-chain hardening.
+7. Revisit whether authenticated TLS/device certificates are appropriate for stronger LAN transport confidentiality/identity.
 
 ## Next physical validation
 
-1. Initialize a real ESP32 over USB with a Device Password/setup code and device configuration.
-2. Verify USB password MATCH / NO_MATCH behavior and cooldown.
-3. Verify Android QR provisioning and manual-password provisioning.
-4. Verify Windows wireless provisioning with the same Device Password.
-5. Verify wrong-password and wrong-home-password behavior and recovery/re-provisioning.
-6. Confirm Windows temporary WLAN profile cleanup after success and failure.
-7. After P0-2 implementation, test remembered-password behavior, password rotation, authenticated LAN management, replay/session expiry, browser CSRF behavior, and physical non-destructive Wi-Fi recovery.
-8. Verify LAN auto-discovery, normal monitoring, tray alerts, elapsed offline timeout, and Start with Windows.
-9. Compare ADC reading against a trusted multimeter at several input voltages and set calibration.
-10. Vehicle-test ADC jitter/Wi-Fi range before deciding whether to add the optional 0.1 µF P34-to-GND capacitor or further analog front-end protection.
+1. Initialize a real ESP32 over USB with a Device Password and normal configuration.
+2. Verify USB MATCH / NO_MATCH and cooldown behavior.
+3. Verify Android and Windows Security-2 provisioning with the same Device Password.
+4. Verify wrong Device Password and wrong home-Wi-Fi password behavior.
+5. Verify browser correct-password unlock, wrong password, CSRF rejection, logout, session expiry, and replay rejection.
+6. Rotate Device Password; verify new password works and old/original password fails over LAN, Security 2, and USB verification.
+7. Verify Windows DPAPI remember/forget across restart.
+8. Verify Android Keystore remember/forget across restart.
+9. Verify authenticated Change Wi-Fi and 5-second BOOT recovery provisioning.
+10. Power-cycle through normal credential persistence; fault-test interruption around password rotation.
+11. Verify monitoring/discovery/tray/offline/startup behavior.
+12. Calibrate ADC against a trusted multimeter at several voltages.
+13. Vehicle-test ADC jitter/Wi-Fi range and decide on optional ADC capacitor / automotive transient front end.
