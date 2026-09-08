@@ -25,12 +25,20 @@ internal sealed class EspFlasher
             ? Directory.EnumerateFiles(Path.Combine(_baseDirectory, "firmware"), "*.ino.bin", SearchOption.AllDirectories).FirstOrDefault(path => !path.EndsWith(".merged.bin", StringComparison.OrdinalIgnoreCase))
             : null);
 
+    public string? FactorySignaturePath => FactoryFirmwarePath is { } firmware
+        ? FindFirstExisting(firmware + ".sig")
+        : null;
+
+    public string? UpdateSignaturePath => UpdateFirmwarePath is { } firmware
+        ? FindFirstExisting(firmware + ".sig")
+        : null;
+
     // Backward-compatible alias used by older UI code while the updater/factory
     // split is being completed.
     public string? FirmwarePath => FactoryFirmwarePath;
 
-    public bool IsFactoryReady => EsptoolPath is not null && FactoryFirmwarePath is not null;
-    public bool IsUpdateReady => EsptoolPath is not null && UpdateFirmwarePath is not null;
+    public bool IsFactoryReady => EsptoolPath is not null && FactoryFirmwarePath is not null && FactorySignaturePath is not null;
+    public bool IsUpdateReady => EsptoolPath is not null && UpdateFirmwarePath is not null && UpdateSignaturePath is not null;
     public bool IsReady => IsFactoryReady;
 
     public IReadOnlyList<string> GetSerialPorts()
@@ -66,12 +74,15 @@ internal sealed class EspFlasher
     {
         if (EsptoolPath is null) return (false, "Bundled esptool.exe was not found.");
         if (UpdateFirmwarePath is null) return (false, "Bundled Battery Monitor application firmware image was not found.");
+        if (UpdateSignaturePath is null) return (false, "Bundled Battery Monitor application firmware signature was not found. Flashing was blocked.");
+        if (!VerifyFirmware(UpdateFirmwarePath, UpdateSignaturePath, output, out var verificationError))
+            return (false, verificationError);
 
         // Normal USB firmware update: update only the application partition at
         // the classic ESP32 Arduino default app offset. NVS, provisioning
         // identity, Wi-Fi credentials, calibration, and other settings remain
-        // untouched. CI builds every release with the same pinned board/FQBN;
-        // any future partition-layout migration must use factory/recovery flash.
+        // untouched. Signature verification above is mandatory and has no UI
+        // bypass in the distributed client.
         return await RunEsptoolAsync(
             new[]
             {
@@ -95,6 +106,9 @@ internal sealed class EspFlasher
     {
         if (EsptoolPath is null) return (false, "Bundled esptool.exe was not found.");
         if (FactoryFirmwarePath is null) return (false, "Bundled Battery Monitor merged factory firmware image was not found.");
+        if (FactorySignaturePath is null) return (false, "Bundled Battery Monitor factory firmware signature was not found. Flashing was blocked.");
+        if (!VerifyFirmware(FactoryFirmwarePath, FactorySignaturePath, output, out var verificationError))
+            return (false, verificationError);
 
         return await RunEsptoolAsync(
             new[]
@@ -113,8 +127,28 @@ internal sealed class EspFlasher
     }
 
     // Older callers are intentionally mapped to factory flash until removed.
+    // Signature enforcement still applies because FactoryFlashAsync owns the
+    // actual operation.
     public Task<(bool Success, string Output)> FlashAsync(string port, Action<string>? output, CancellationToken cancellationToken = default) =>
         FactoryFlashAsync(port, output, cancellationToken);
+
+    private static bool VerifyFirmware(string firmwarePath, string signaturePath, Action<string>? output, out string error)
+    {
+        try
+        {
+            output?.Invoke($"Verifying firmware signature ({FirmwareSignatureVerifier.Algorithm})...");
+            FirmwareSignatureVerifier.VerifyOrThrow(firmwarePath, signaturePath);
+            output?.Invoke($"Firmware signature verified. Trust key: {FirmwareSignatureVerifier.PublicKeySpkiSha256}");
+            error = string.Empty;
+            return true;
+        }
+        catch (Exception ex) when (ex is FirmwareSignatureException or CryptographicException or IOException or UnauthorizedAccessException)
+        {
+            error = "Firmware signature verification failed: " + ex.Message;
+            output?.Invoke(error);
+            return false;
+        }
+    }
 
     private async Task<(bool Success, string Output)> RunEsptoolAsync(
         IReadOnlyList<string> arguments,
