@@ -8,6 +8,16 @@
 
 #include <Arduino.h>
 
+// The Arduino sketch preprocessor normally synthesizes cross-tab function
+// prototypes before compiling .ino files. ESP-IDF compiles this wrapper as
+// ordinary C++, so declare only the helpers that are referenced before the tab
+// containing their implementation is included. Implementations remain solely
+// in the existing production .ino runtime.
+static String percentEncode(const String& value);
+String trustedUsbMonitoringIdentityKeyHex();
+bool verifyDevicePasswordFlexible(const String& candidate);
+bool setDevicePasswordFlexible(const String& usernameValue, const String& password, String& errorOut);
+
 #include "../../BatteryMonitor/BatteryMonitor.ino"
 #include "../../BatteryMonitor/SecureProvisioning.ino"
 #include "../../BatteryMonitor/SerialProvisioning.ino"
