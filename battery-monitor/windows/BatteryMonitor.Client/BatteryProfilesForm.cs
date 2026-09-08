@@ -89,7 +89,7 @@ internal sealed class BatteryProfilesForm : Form
 
     private static void ConfigureVoltage(NumericUpDown control)
     {
-        control.Minimum = 1;
+        control.Minimum = 6;
         control.Maximum = 20;
         control.DecimalPlaces = 2;
         control.Increment = 0.01m;
