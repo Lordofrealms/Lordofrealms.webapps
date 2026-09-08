@@ -35,7 +35,7 @@ internal sealed class FirmwareFlashForm : Form
         {
             AutoSize = true,
             MaximumSize = new Size(650, 0),
-            Text = "Advanced/recovery function. This writes the complete bundled factory image at 0x0 and clears existing ESP32 settings, including Wi-Fi, calibration, and provisioning identity. Use the normal Firmware Update function to preserve settings."
+            Text = "Advanced/recovery function. This verifies the bundled RSA-3072/PSS production signature before esptool is allowed to run, then writes the complete bundled factory image at 0x0 and clears existing ESP32 settings, including Wi-Fi, calibration, provisioning identity, and monitoring identity. Use the normal Firmware Update function to preserve settings."
         };
         root.Controls.Add(warning, 0, 0); root.SetColumnSpan(warning, 2);
 
@@ -89,7 +89,8 @@ internal sealed class FirmwareFlashForm : Form
     {
         var tool = _flasher.EsptoolPath is null ? "esptool MISSING" : "esptool bundled";
         var firmware = _flasher.FactoryFirmwarePath is null ? "factory image MISSING" : "factory image bundled";
-        _bundleStatus.Text = $"Bundle: {tool}; {firmware}.";
+        var signature = _flasher.FactorySignaturePath is null ? "production signature MISSING" : "production signature bundled";
+        _bundleStatus.Text = $"Bundle: {tool}; {firmware}; {signature}.";
     }
 
     private async Task DetectAsync()
@@ -115,19 +116,20 @@ internal sealed class FirmwareFlashForm : Form
     {
         var port = _port.SelectedItem?.ToString();
         if (string.IsNullOrWhiteSpace(port)) { MessageBox.Show(this, "Select a COM port first.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-        if (!_flasher.IsFactoryReady) { MessageBox.Show(this, "The installed package is missing the bundled esptool or factory image.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+        if (!_flasher.IsFactoryReady) { MessageBox.Show(this, "The installed package is missing esptool, the factory image, or its required production signature. Unsigned firmware cannot be installed by this client.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
 
         if (MessageBox.Show(this,
-            "This factory/recovery flash erases the monitor's current settings and provisioning identity. Continue?",
+            "This signed factory/recovery flash erases the monitor's current settings and security identities. Continue?",
             "Battery Monitor - Factory Flash", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
 
         await RunAsync(async token =>
         {
+            AppendLog("Validating production firmware signature before bootloader access...");
             var result = await _flasher.FactoryFlashAsync(port, AppendLog, token);
             if (!result.Success) throw new InvalidOperationException("ESP32 factory flash failed. See the log for details.");
-            AppendLog("Factory/recovery flash completed successfully.");
+            AppendLog("Signed factory/recovery flash completed successfully.");
             BeginInvoke(new Action(() => MessageBox.Show(this,
-                "Factory flash completed. The device must be configured and have a provisioning setup code initialized again.",
+                "Signed factory flash completed. The device must be configured and have its Device Password/provisioning identity and monitoring trust initialized again.",
                 "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information)));
         });
     }
