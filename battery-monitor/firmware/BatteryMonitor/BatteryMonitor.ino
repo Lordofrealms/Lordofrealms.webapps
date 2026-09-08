@@ -99,13 +99,34 @@ static void serviceOtaRollbackHealth() {
   Serial.printf("WARNING: Could not mark OTA candidate valid (%s); keeping rollback armed.\n", esp_err_to_name(err));
 }
 
-static void beginHomeWifiRetryAfterProvisioningStops(unsigned long now) {
-  protectedFallbackHomeRetryPending = false;
-  protectedFallbackHomeRetryAtMs = 0;
+static bool startSavedWifiConnection(bool waitForResult) {
+  if (wifiSsid.length() == 0) return false;
+
+  // Clear stale association state without erasing credentials. Battery Monitor
+  // keeps its authoritative SSID/password in encrypted `batmon` NVS and passes
+  // them explicitly to WiFi.begin() on every recovery attempt.
   WiFi.mode(WIFI_STA);
+  applyWifiRadioSettings();
+  WiFi.disconnect(false, false);
+  delay(25);
   applyWifiRadioSettings();
   WiFi.setHostname(hostName.c_str());
   WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
+
+  if (!waitForResult) return WiFi.status() == WL_CONNECTED;
+
+  unsigned long started = millis();
+  while (WiFi.status() != WL_CONNECTED &&
+         (unsigned long)(millis() - started) < CONNECT_ATTEMPT_MS) {
+    delay(200);
+  }
+  return WiFi.status() == WL_CONNECTED;
+}
+
+static void beginHomeWifiRetryAfterProvisioningStops(unsigned long now) {
+  protectedFallbackHomeRetryPending = false;
+  protectedFallbackHomeRetryAtMs = 0;
+  startSavedWifiConnection(false);
   wifiDisconnectedSinceMs = now;
   nextReconnectAttemptMs = now + RETRY_INTERVAL_MS;
   Serial.println("Protected setup AP stopped cleanly; retrying saved home Wi-Fi.");
@@ -172,10 +193,7 @@ static void serviceWifiStateWithProtectedFallback() {
 
   if (wifiDisconnectedSinceMs == 0) {
     wifiDisconnectedSinceMs = now;
-    WiFi.mode(WIFI_STA);
-    applyWifiRadioSettings();
-    WiFi.setHostname(hostName.c_str());
-    WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
+    startSavedWifiConnection(false);
     nextReconnectAttemptMs = now + RETRY_INTERVAL_MS;
     return;
   }
@@ -225,7 +243,7 @@ void setup() {
   registerMonitoringIdentityRoutes();
   registerWifiFirmwareUpdateRoutes();
 
-  bool connected = blockingInitialConnect();
+  bool connected = startSavedWifiConnection(true);
   if (!applyWifiRadioSettings())
     Serial.println("WARNING: Could not fully apply configured Wi-Fi radio policy.");
   if (connected) {
