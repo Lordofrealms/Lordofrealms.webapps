@@ -146,7 +146,10 @@ jobs:
             echo 'architecture=ESP-IDF+Arduino-component'
             echo 'esp_idf_version=5.5.5'
             echo 'esp_idf_commit=b774170ff46c393eeb5e495ea37936038d3f4f4f'
-            echo 'arduino_esp32_component=3.3.7'
+            echo 'arduino_esp32_base_release=3.3.11'
+            echo 'arduino_esp32_component_source=upstream-git'
+            echo 'arduino_esp32_commit=5cdf8975ae8d9e35888b724b01a444d22406424e'
+            echo 'arduino_esp32_webserver_hardening=upstream-pr-12794-merged'
             echo 'algorithm=RSA-3072-PSS-SHA256'
             echo "public_key_spki_sha256=$EXPECTED_KEY_FINGERPRINT"
             sha256sum /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.bin
