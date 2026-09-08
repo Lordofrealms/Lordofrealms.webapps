@@ -33,6 +33,7 @@ bool firmwareUpdateIsLanTransport();
 static const unsigned long OTA_ROLLBACK_PROBATION_MS = 60UL * 1000UL;
 static const unsigned long OTA_ROLLBACK_CONFIRM_RETRY_MS = 10UL * 1000UL;
 static const uint32_t OTA_ROLLBACK_MIN_LOOP_PASSES = 250;
+static const unsigned long PROTECTED_FALLBACK_RETRY_INTERVAL_MS = 60UL * 1000UL;
 static const unsigned long PROTECTED_FALLBACK_CLIENT_RETRY_DEFERRAL_MS = 60UL * 1000UL;
 static bool otaRollbackPendingValidation = false;
 static bool otaRollbackHealthPrerequisitesReady = false;
@@ -127,8 +128,9 @@ static void startProtectedFallbackWithRetry(unsigned long now) {
   protectedFallbackHomeRetryPending = false;
   startFallbackAp();
   if (fallbackApActive && wifiSsid.length() > 0) {
-    protectedFallbackHomeRetryAtMs = now + RETRY_INTERVAL_MS;
-    Serial.printf("Protected setup AP will retry saved home Wi-Fi in %lu seconds.\n", RETRY_INTERVAL_MS / 1000UL);
+    protectedFallbackHomeRetryAtMs = now + PROTECTED_FALLBACK_RETRY_INTERVAL_MS;
+    Serial.printf("Protected setup AP will retry saved home Wi-Fi in %lu seconds.\n",
+                  PROTECTED_FALLBACK_RETRY_INTERVAL_MS / 1000UL);
   }
 }
 
