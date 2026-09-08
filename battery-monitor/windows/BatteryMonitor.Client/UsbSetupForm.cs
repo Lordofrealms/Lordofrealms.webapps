@@ -42,8 +42,8 @@ internal sealed class UsbSetupForm : Form
         MinimumSize = new Size(660, 710);
         StartPosition = FormStartPosition.CenterParent;
 
-        ConfigureNumeric(_low, 1, 20, 2, 0.01m);
-        ConfigureNumeric(_critical, 1, 20, 2, 0.01m);
+        ConfigureNumeric(_low, 6, 20, 2, 0.01m);
+        ConfigureNumeric(_critical, 6, 20, 2, 0.01m);
         ConfigureNumeric(_sample, 1, 3600, 0, 1);
         ConfigureNumeric(_calFactor, 0.5m, 1.5m, 6, 0.0001m);
         ConfigureNumeric(_calOffset, -5, 5, 4, 0.001m);
