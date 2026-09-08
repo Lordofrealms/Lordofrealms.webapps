@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "profiles": [
+    {
+      "id": "lead_acid",
+      "name": "12 V Lead Acid",
+      "lowVoltage": 12.20,
+      "criticalVoltage": 11.90
+    },
+    {
+      "id": "lifepo4_4s",
+      "name": "4S LiFePO4",
+      "lowVoltage": 12.80,
+      "criticalVoltage": 12.00
+    }
+  ]
+}
