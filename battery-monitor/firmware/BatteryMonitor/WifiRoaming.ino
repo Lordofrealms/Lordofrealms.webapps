@@ -21,6 +21,7 @@ static const unsigned long BATMON_ROAM_WEAK_HOLD_MS = 15UL * 1000UL;
 static const unsigned long BATMON_ROAM_RESCAN_MS = 60UL * 1000UL;
 static const unsigned long BATMON_ROAM_COOLDOWN_MS = 60UL * 1000UL;
 static const unsigned long BATMON_ROAM_FOREIGN_SCAN_STALE_MS = 120UL * 1000UL;
+static const unsigned long BATMON_ROAM_RSSI_CHECK_MS = 1000UL;
 static const uint32_t BATMON_ROAM_SCAN_MAX_MS_PER_CHANNEL = 120;
 
 static bool batteryMonitorRoamScanActive = false;
@@ -28,6 +29,7 @@ static unsigned long batteryMonitorRoamWeakSinceMs = 0;
 static unsigned long batteryMonitorRoamNextScanAtMs = 0;
 static unsigned long batteryMonitorRoamCooldownUntilMs = 0;
 static unsigned long batteryMonitorForeignScanSeenMs = 0;
+static unsigned long batteryMonitorRoamNextRssiCheckMs = 0;
 
 static bool batteryMonitorBssidEqual(const uint8_t a[6], const uint8_t b[6]) {
   return memcmp(a, b, 6) == 0;
@@ -100,6 +102,8 @@ static void batteryMonitorFinishRoamScan() {
   }
   ignoredPassword = "";
 
+  // A direct RSSI read here occurs only once per completed roam scan. Normal
+  // weak-signal monitoring below uses the existing one-second cached snapshot.
   int currentRssi = WiFi.RSSI();
   uint8_t currentBssid[6] = {};
   WiFi.BSSID(currentBssid);
@@ -163,20 +167,24 @@ void serviceBatteryMonitorWifiRoaming() {
     return;
   }
 
-  if (fallbackApActive || WiFi.status() != WL_CONNECTED) {
-    cancelBatteryMonitorRoamingScan();
-    batteryMonitorRoamWeakSinceMs = 0;
-    batteryMonitorForeignScanSeenMs = 0;
-    return;
-  }
-
   if (batteryMonitorRoamScanActive) {
     batteryMonitorFinishRoamScan();
     return;
   }
 
   unsigned long now = millis();
-  int currentRssi = WiFi.RSSI();
+  if (batteryMonitorRoamNextRssiCheckMs != 0 &&
+      (int32_t)(now - batteryMonitorRoamNextRssiCheckMs) < 0) return;
+  batteryMonitorRoamNextRssiCheckMs = now + BATMON_ROAM_RSSI_CHECK_MS;
+
+  NetworkSnapshot network = {};
+  if (!copyNetworkSnapshot(network) || fallbackApActive || !network.wifiConnected) {
+    batteryMonitorRoamWeakSinceMs = 0;
+    batteryMonitorForeignScanSeenMs = 0;
+    return;
+  }
+
+  int currentRssi = network.rssi;
   if (currentRssi >= BATMON_ROAM_WEAK_RSSI_DBM) {
     batteryMonitorRoamWeakSinceMs = 0;
     batteryMonitorForeignScanSeenMs = 0;
