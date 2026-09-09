@@ -105,19 +105,24 @@ esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition)
 #include "../../BatteryMonitor/NativeHttpSynchronization.ino"
 #include "../../BatteryMonitor/TrustedUsbSecuritySynchronization.ino"
 
-// Serial provisioning is the trusted physical transport. Password replacement,
-// removal, and status reads are remapped through wrappers that quiesce native
-// HTTP where necessary. Password verification calls its explicit wrapper because
-// it also returns the distinct PROVCRED_UNSET state.
+// Serial provisioning is the trusted physical transport. Keep its protocol
+// implementation untouched, rename only its top-level byte-pump/event entry
+// points, then add a thin router that intercepts the diagnostic-only HTTPTRACE
+// commands and delegates every normal command to the existing parser.
 #define setDevicePasswordFlexible setDevicePasswordFlexibleTrustedUsb
 #define clearProvisioningIdentity clearProvisioningIdentityTrustedUsb
 #define provisioningIdentitySummary provisioningIdentitySummaryTrustedUsb
 #define sampleBattery sampleBatterySnapshot
+#define serviceSerialProvisioning serviceSerialProvisioningCore
+#define serialEvent serialEventCore
 #include "../../BatteryMonitor/SerialProvisioning.ino"
+#undef serialEvent
+#undef serviceSerialProvisioning
 #undef sampleBattery
 #undef provisioningIdentitySummary
 #undef clearProvisioningIdentity
 #undef setDevicePasswordFlexible
+#include "../../BatteryMonitor/HttpDiagnosticsSerialRouter.ino"
 
 // setup()/loop() are included last so the runtime sees every service primitive
 // above. The main task calls only the atomic deferred-control service; management
