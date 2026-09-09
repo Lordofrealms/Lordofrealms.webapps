@@ -46,9 +46,12 @@ static void recordBrowserResponseLatency(const char* route,
 
 static esp_err_t synchronizedNativeRootHandler(httpd_req_t* req) {
   NativeHttpRequestScope scope;
-  uint32_t startedUs = micros();
+  const bool trace = isHttpTraceEnabled();
+  const uint32_t sequence = trace ? nextHttpTraceSequence() : 0;
+  const uint32_t startedUs = micros();
   prepareBrowserResponse(req);
 
+  const uint32_t buildStart = trace ? micros() : 0;
   String page = buildIndexPage();
   // Live status must never depend on the settings/config endpoint. Populate
   // configuration only after successful management unlock; status starts as
@@ -58,32 +61,54 @@ static esp_err_t synchronizedNativeRootHandler(httpd_req_t* req) {
     "session=s.session;csrf=s.csrf;el('devicePassword').value='';el('settings').disabled=false;",
     "session=s.session;csrf=s.csrf;await loadConfig();el('devicePassword').value='';el('settings').disabled=false;"
   );
+  const uint32_t buildUs = trace ? (uint32_t)(micros() - buildStart) : 0;
 
+  const uint32_t sendStart = trace ? micros() : 0;
   esp_err_t result = nativeSend(req, 200, "text/html; charset=utf-8", page);
+  const uint32_t sendUs = trace ? (uint32_t)(micros() - sendStart) : 0;
+  if (trace) httpTraceLogSimple(sequence, "/", buildUs, sendUs,
+                                (uint32_t)(micros() - startedUs), (int)result);
   recordBrowserResponseLatency("/", startedUs, browserRootSlowResponses);
   return result;
 }
 
 static esp_err_t synchronizedNativeStatusHandler(httpd_req_t* req) {
   NativeHttpRequestScope scope;
-  uint32_t startedUs = micros();
+  const bool trace = isHttpTraceEnabled();
+  const uint32_t sequence = trace ? nextHttpTraceSequence() : 0;
+  const uint32_t startedUs = micros();
   prepareBrowserResponse(req);
-  // batterySnapshotStatusJson() reads the published BatterySnapshot and the
-  // published configuration snapshot; it never triggers ADC or NVS work.
-  String body = batterySnapshotStatusJson();
+
+  HttpStatusBuildTiming timing = {};
+  String body = batterySnapshotStatusJson(trace ? &timing : nullptr);
+
+  const uint32_t sendStart = trace ? micros() : 0;
   esp_err_t result = nativeSendJson(req, 200, body);
+  const uint32_t sendUs = trace ? (uint32_t)(micros() - sendStart) : 0;
+  if (trace) httpTraceLogStatus(sequence, timing, sendUs,
+                                (uint32_t)(micros() - startedUs), (int)result);
   recordBrowserResponseLatency("/api/status", startedUs, browserStatusSlowResponses);
   return result;
 }
 
 static esp_err_t synchronizedNativeConfigGetHandler(httpd_req_t* req) {
   NativeHttpRequestScope scope;
-  uint32_t startedUs = micros();
+  const bool trace = isHttpTraceEnabled();
+  const uint32_t sequence = trace ? nextHttpTraceSequence() : 0;
+  const uint32_t startedUs = micros();
   prepareBrowserResponse(req);
+
+  const uint32_t buildStart = trace ? micros() : 0;
   // configJson() is prebuilt when configuration is published. Reads do not wait
   // for NVS persistence and do not copy mutable authoritative globals.
   String body = configJson();
+  const uint32_t buildUs = trace ? (uint32_t)(micros() - buildStart) : 0;
+
+  const uint32_t sendStart = trace ? micros() : 0;
   esp_err_t result = nativeSendJson(req, 200, body);
+  const uint32_t sendUs = trace ? (uint32_t)(micros() - sendStart) : 0;
+  if (trace) httpTraceLogSimple(sequence, "/api/config", buildUs, sendUs,
+                                (uint32_t)(micros() - startedUs), (int)result);
   recordBrowserResponseLatency("/api/config", startedUs, browserConfigSlowResponses);
   return result;
 }
@@ -182,10 +207,6 @@ static bool replaceNativeHandler(const char* uri,
 }
 
 void stopNativeHttpServer() {
-  // httpd_stop() waits for the server task to terminate. Only after that task is
-  // gone do we touch its challenge/session arrays from the application task.
-  // This preserves single-task ownership while guaranteeing no authenticated
-  // session survives into a later server start/replacement interval.
   stopNativeHttpServerCore();
   invalidateManagementSessions();
 }
