@@ -114,7 +114,11 @@ void startFallbackAp() {
 }
 
 static bool startSavedWifiConnection(bool waitForResult) {
-  if (wifiSsid.length() == 0) return false;
+  // Copy credentials once and release the config mutex before touching the Wi-Fi
+  // stack or waiting. Network operations never hold configuration state locked.
+  String configuredSsid;
+  String configuredPassword;
+  if (!copyConfiguredWifi(configuredSsid, configuredPassword) || configuredSsid.length() == 0) return false;
 
   WiFi.mode(WIFI_STA);
   applyWifiRadioSettings();
@@ -122,7 +126,8 @@ static bool startSavedWifiConnection(bool waitForResult) {
   delay(25);
   applyWifiRadioSettings();
   WiFi.setHostname(hostName.c_str());
-  WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
+  WiFi.begin(configuredSsid.c_str(), configuredPassword.c_str());
+  configuredPassword = "";
 
   if (!waitForResult) return WiFi.status() == WL_CONNECTED;
   unsigned long started = millis();
@@ -136,7 +141,7 @@ static bool startSavedWifiConnection(bool waitForResult) {
 static void startProtectedFallbackWithRetry(unsigned long now) {
   protectedFallbackHomeRetryPending = false;
   startFallbackAp();
-  if (fallbackApActive && wifiSsid.length() > 0) {
+  if (fallbackApActive && hasConfiguredWifi()) {
     protectedFallbackHomeRetryAtMs = now + PROTECTED_FALLBACK_RETRY_INTERVAL_MS;
     Serial.printf("Protected setup AP will retry saved home Wi-Fi in %lu seconds.\n",
                   PROTECTED_FALLBACK_RETRY_INTERVAL_MS / 1000UL);
@@ -169,7 +174,9 @@ static void serviceWifiStateWithProtectedFallback() {
   unsigned long now = millis();
 
   if (fallbackApActive) {
-    if (wifiSsid.length() > 0 && protectedFallbackHomeRetryAtMs != 0 &&
+    // A nonzero retry deadline is created only when saved credentials exist, so
+    // this hot path does not need to touch String configuration state.
+    if (protectedFallbackHomeRetryAtMs != 0 &&
         (int32_t)(now - protectedFallbackHomeRetryAtMs) >= 0) {
       requestProtectedFallbackHomeRetry(now);
     }
@@ -191,7 +198,7 @@ static void serviceWifiStateWithProtectedFallback() {
 
   stopMdns();
 
-  if (wifiSsid.length() == 0) {
+  if (!hasConfiguredWifi()) {
     if (hasProvisioningIdentity() || loadDeviceCredentialIdentity()) {
       startProtectedFallbackWithRetry(now);
       protectedFallbackHomeRetryAtMs = 0;
@@ -243,6 +250,8 @@ void setup() {
   apSsid = String("BatteryMonitor-") + suffix;
 
   loadSettings();
+  if (!initializeDeviceConfigSynchronization())
+    Serial.println("ERROR: Configuration synchronization unavailable; network configuration access will fail closed.");
   loadWifiRadioSettings();
   applyWifiRadioSettings();
 
@@ -265,13 +274,14 @@ void setup() {
 
   bool connected = startSavedWifiConnection(true);
   applyWifiRadioSettings();
+  bool savedWifiConfigured = hasConfiguredWifi();
   if (connected) {
     Serial.printf("Wi-Fi connected: %s\n", WiFi.localIP().toString().c_str());
     startNativeNetworkServices();
     nextReconnectAttemptMs = millis() + RETRY_INTERVAL_MS;
-  } else if (wifiSsid.length() == 0 && provisioningReady) {
+  } else if (!savedWifiConfigured && provisioningReady) {
     startProtectedFallbackWithRetry(millis());
-  } else if (wifiSsid.length() > 0 && provisioningReady) {
+  } else if (savedWifiConfigured && provisioningReady) {
     Serial.println("Saved Wi-Fi is unavailable; starting protected fallback setup AP.");
     startProtectedFallbackWithRetry(millis());
   } else {
@@ -279,7 +289,12 @@ void setup() {
   }
 
   serviceWifiRadioSettings();
-  Serial.printf("Device %s (%s), hostname %s.local\n", deviceId.c_str(), deviceName.c_str(), hostName.c_str());
+  DeviceConfigState config = {};
+  if (copyDeviceConfigState(config)) {
+    Serial.printf("Device %s (%s), hostname %s.local\n", deviceId.c_str(), config.deviceName.c_str(), hostName.c_str());
+  } else {
+    Serial.printf("Device %s, hostname %s.local\n", deviceId.c_str(), hostName.c_str());
+  }
   initializeOtaRollbackHealth(monitoringReady, releasePolicyReady);
 }
 
@@ -299,7 +314,7 @@ void loop() {
   if (fallbackApActive) serviceSecureProvisioning();
   serviceResetButtonNative();
 
-  unsigned long intervalMs = sampleIntervalSec * 1000UL;
+  unsigned long intervalMs = synchronizedSampleIntervalSec() * 1000UL;
   if ((unsigned long)(millis() - lastSampleMs) >= intervalMs) sampleBatterySnapshot();
 
   serviceOtaRollbackHealth();
