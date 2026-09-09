@@ -1,257 +1,232 @@
 # Battery Monitor Project State — Authoritative Live State
 
-**Updated:** 2026-09-08 (America/Chicago)  
+**Updated:** 2026-09-08/09 (America/Chicago)  
 **Repository:** `Lordofrealms/Lordofrealms.webapps`  
 **Branch:** `battery-monitor-dev`  
-**Prototype family:** `0.1.0`  
-**Authoritative firmware version / software release sequence:** `0.1.0.2` / `2`  
-**Production signature status:** **VERIFIED — signed hardware-test release exists; physical validation pending**
+**Prototype family:** `0.1.0`
 
 ## A. Resolve live state first
 
-Always resolve the live `battery-monitor-dev` remote head before making changes. Documentation-only commits may be newer than the validated product source.
+Always resolve the live `battery-monitor-dev` remote head before modifying source. Documentation/test-tool commits may be newer than the exact product source that passed CI or was signed.
 
-Latest fully validated **product/security source**:
+### Latest normal-CI validated product source
 
-`d1d6c0ed782116d58f925543ae599939c0ec0191` — `Invalidate factory QR on code or port changes`
+`cb96191f8e3c8c99771b044e7a0b2260e5f56b2f` — `Make monitoring identity mutex initialization race-free`
 
-Authoritative normal-CI validation:
+- firmware version: `0.1.0.4`
+- software release sequence: `4`
+- workflow: `Battery Monitor Toolchain`
+- run: **#261**
+- run ID: **`34306473630`**
+- result: **SUCCESS**
 
-- Workflow: `Battery Monitor Toolchain`
-- Run: **#167**
-- Run ID: **`34263129626`**
-- Result: **SUCCESS**
+Exact evidence:
 
-Run #167 passed:
+`battery-monitor/VALIDATED_CANDIDATE_0_1_0_4.md`
 
-- authoritative ESP32 ESP-IDF firmware build;
-- Android provisioning APK build/package;
-- exact firmware-artifact handoff to Windows;
-- pinned esptool verification;
-- pinned Espressif Security-2 helper build/smoke test;
-- Windows .NET 8 client build;
-- P0-3/protocol self-test including Device Password compatibility vectors;
-- self-contained Windows publish/bundle/artifact upload.
+Run #261 passed authoritative ESP-IDF firmware, Android, exact firmware handoff to Windows, pinned esptool, pinned Espressif Security-2 helper, Windows .NET build, P0-3 protocol self-test, self-contained publish, bundle, and artifact upload.
 
-Exact candidate evidence is frozen in:
+### Current protected signed hardware release
 
-`battery-monitor/VALIDATED_CANDIDATE_0_1_0_2.md`
+The latest signed release already produced before the 0.1.0.4 responsiveness work is **0.1.0.3**:
 
-## B. Final normal-CI artifacts
+- workflow: `Battery Monitor Signed Firmware Release`
+- run: **#3**
+- run ID: **`34289366368`**
+- result: **SUCCESS**
+- exact signed source: `80c62dfe27b3b6f32fe8ce6fa2e30e79caea6b09`
+- version / release sequence: `0.1.0.3` / `3`
+- signed firmware artifact: `Battery-Monitor-Signed-Firmware-0.1.0.3`, ID `10080941336`, artifact digest `sha256:4ea8d004af478459632b46a094947a9b84600f378191a0cbd1592048aad3176f`
+- signed Windows artifact: `Battery-Monitor-Windows-Signed-0.1.0.3`, ID `10081008987`, artifact digest `sha256:b10981ba9d967ed18671d57ac5072123ac86df2168d6d9568589a5caa5e8ec69`
+- signed application image SHA-256: `3aeffa17c76158d28a10a6773556510b5e62cffe25ba5638eda2e274bf06aecc`
+- application signature SHA-256: `70aa68044a056005dd78bff3b2584696529d282725dd3b483308fb29bedc8315`
+- signed merged image SHA-256: `cfc1237388d5c11a988711e58219b08f7fae4d85a80a27822421562eb4677791`
+- merged signature SHA-256: `19ea86f176c0ab3d68cd9bb9a1cc4610a91559216b1345126171021fefa407fd`
 
-Run #167 artifacts:
+`SIGNED_RELEASE.txt` in that artifact independently identifies source `80c62dfe...`, version `0.1.0.3`, release sequence `3`, RSA-3072-PSS-SHA256, the pinned ESP-IDF/Arduino toolchain, and production trust-root fingerprint.
 
-- firmware: `battery-monitor-esp32-CI-UNSIGNED-v0.1.0`, artifact ID `10070951566`, digest `13480473e4a76fed49a15fb05bed70a6294ad1148cd91ee246c07c2c898690b5`;
-- Android: `Battery-Monitor-Setup-Android-v0.1.0`, artifact ID `10070801187`, digest `bf9f6eb606f4043cd5b32bc9a171fe674b5881d7567048ffec9569c6b737d129`;
-- Windows: `Battery-Monitor-Windows-CI-UNSIGNED-v0.1.0`, artifact ID `10071096083`, digest `4c8ad2a07af51a7fe3d78e6135a848b4fad3128851d3a9fea92975e16c9b187a`.
+0.1.0.3 is the hardware release on which issue #104's roughly 30-second intermittent WebUI/status stalls were observed.
 
-Normal-CI application image SHA-256:
+## B. 0.1.0.4 normal-CI artifact authority
 
-`6be7c689ac1ef00446a7ed8c612d359f153150567d097ee77aa87320a4b44004`
+Run #261 artifacts:
 
-Normal-CI merged blank-device image SHA-256:
+### Firmware
 
-`4b0bd958b15a605a195b9aff2fd49bcbc28e51193b2ada462452daaafe9b3d5b`
+- `battery-monitor-esp32-CI-UNSIGNED-v0.1.0`
+- artifact ID `10086957353`
+- digest `sha256:737522aed36567fe9466da8b0d9a1bf4130cdeca81e6ad1e156b90fe15019397`
+- application SHA-256 `d330f96c328882b237c9a0e1c19417ea10188943bb1893966ef4d181bad0a2bf`
+- merged-image SHA-256 `f76404d33def7b2a4bd0ad45000ab9f2c0320867fb0fa237819ddec63f4fea93`
 
-The normal-CI Windows bundle contains exactly those same two unsigned firmware images. These normal-CI artifacts are intentionally **unsigned** and must not be substituted for the signed hardware-test release.
+### Android
 
-## C. Production signed release — VERIFIED
+- `Battery-Monitor-Setup-Android-v0.1.0`
+- artifact ID `10086874559`
+- digest `sha256:f461633ef69746541cbd9327ae82e4591e37a2000a1c33f9a8db49f601d81bc8`
 
-Protected manual release:
+### Windows
 
-- Workflow: `Battery Monitor Signed Firmware Release`
-- Run: **#2**
-- Run ID: **`34267079480`**
-- Event: `workflow_dispatch`
-- Conclusion: **SUCCESS**
-- Signed source SHA: `d1d6c0ed782116d58f925543ae599939c0ec0191`
-- Version: `0.1.0.2`
-- Software release sequence: `2`
-- Signature algorithm: `RSA-3072-PSS-SHA256`
+- `Battery-Monitor-Windows-CI-UNSIGNED-v0.1.0`
+- artifact ID `10087014995`
+- digest `sha256:53bc9563d847659e4b2ded8207d1b016259c223fca37eea1973b956f61d1c2df`
+- `BatteryMonitor.Client.exe` SHA-256 `63da8c5dde0c74cb2f50477bf4794d3bd27e118482ed1922b9be7dd79d092af5`
 
-Signed firmware artifact:
+Independent extraction confirmed the Windows bundle contains the exact firmware-job application and merged images above.
 
-- name: `Battery-Monitor-Signed-Firmware-0.1.0.2`
-- artifact ID: `10072544011`
-- artifact/ZIP SHA-256: `b302b2be4e2097974aac122e92efbd2ba8489d943ad7b6885e28af97416cd13f`
-- application image SHA-256: `9e3649ed58d1b3524ce8ed0fa85adc1abe46d32a2240503e836982f4815c690e`
-- application signature SHA-256: `aa87e978fab2ab4a3b1ddc93a72d11a3eea1bfdde6e195b242c2f7d154e359ba`
-- merged first-install image SHA-256: `0a964fd57bc055ab88c31accc8d4162462e865bc4f3e63d22198aa26435affd1`
-- merged first-install signature SHA-256: `2550dfd3bf8c8096148eee7fbabc4dddc744076efe4fd2d21017ac2759a415a0`
+Normal-CI images are intentionally **unsigned**. Do not use them as a production/post-encryption OTA package.
 
-Signed Windows artifact:
+## C. Issue #104 — native HTTP responsiveness fix
 
-- name: `Battery-Monitor-Windows-Signed-0.1.0.2`
-- artifact ID: `10072631425`
-- artifact/ZIP SHA-256: `42fba1869e933e9e4bd4fdaa3801333f5426f11639848a007e7003c8ae95ffd6`
-- `BatteryMonitor.Client.exe` SHA-256: `280a0d6f39250dbc3cafb4eea4756e4dea5f3d05047ee4ad172e4691f04afb06`
-- bundled signed images/signatures and release manifest match the signed firmware artifact byte-for-byte.
+Open GitHub issue:
 
-`SIGNED_RELEASE.txt` records the exact validated product SHA, `0.1.0.2`, release sequence 2, `SIGNED_USB_OTA_V1`, and the frozen production-key fingerprint.
+`#104 Battery Monitor: WebUI intermittently stalls for tens of seconds`
 
-Independent post-download OpenSSL verification was also performed using the public key embedded in the exact validated firmware source:
+Root cause in 0.1.0.3 was not low CPU frequency. The ESP32 was already at 240 MHz. The important problems were the old synchronous Arduino WebServer model, main-loop/WebServer mutex coupling, long request waits, and overlapping browser status requests.
 
-- derived SPKI SHA-256: `69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e` — exact match;
-- application RSA-PSS signature: `Verified OK`;
-- merged-image RSA-PSS signature: `Verified OK`.
+0.1.0.4 changes:
 
-Full package evidence is authoritative in:
+- production Arduino `WebServer` dependency removed;
+- native ESP-IDF `esp_http_server` owns HTTP;
+- dedicated Core-0 HTTP task;
+- 10 client sessions, backlog 10, LRU purge, keepalive, 3-second socket receive/send waits;
+- `CONFIG_LWIP_MAX_SOCKETS=20` for HTTP plus networking headroom;
+- WebUI completion-based/single-flight polling;
+- `/api/runtime` CPU/heap/RSSI/request diagnostics;
+- coherent cached `BatterySnapshot` for all HTTP/monitoring reads;
+- ADC conversion/delays happen outside HTTP and synchronization locks;
+- configuration Strings/Preferences serialized across HTTP, USB, provisioning callbacks, discovery, and sampling;
+- hot-path configured-Wi-Fi presence and sampling interval atomically published;
+- discovery copies config once and does network/HMAC work after releasing config synchronization;
+- USB and LAN signed OTA serialized through one verifier/writer state;
+- secure-provisioning lifecycle atomically published across tasks;
+- Monitoring Identity first initialization uses race-free mutex publication and serialized NVS/key initialization;
+- trusted USB quiesces HTTP around credential operations that can replace shared credential material;
+- native HTTP stop terminates the HTTP task before invalidating management challenges/sessions;
+- native-HTTP CI guard prevents Arduino WebServer/obsolete modules from silently returning.
 
-`battery-monitor/HARDWARE_TEST_ASSET_RECORD_0_1_0_2.md`
+Windows monitoring was audited too:
 
-## D. Canonical production firmware architecture
+- one shared `HttpClient`;
+- 5-second timeout;
+- per-device `PollInProgress` guard;
+- the 1-second UI timer does not stack polls for the same monitor.
 
-There is one production firmware architecture:
+Normal CI is complete. **Hardware responsiveness validation is still required; issue #104 remains open.**
 
-- ESP-IDF **5.5.5**;
+Hardware authority:
+
+- `battery-monitor/HARDWARE_TEST_PLAN_0_1_0_4_HTTP_RESPONSIVENESS.md`
+- `battery-monitor/tools/Test-BatteryMonitorHttp.ps1`
+
+## D. Issue #103 — saved Wi-Fi recovery
+
+Open issue #103 retains the agreed recovery policy:
+
+- saved credentials remain authoritative;
+- boot attempts saved Wi-Fi for the normal connection window;
+- configured radio policy is applied before join attempts;
+- stale STA association state is cleared without erasing Battery Monitor's separately persisted credentials;
+- protected Security-2 setup is used when home Wi-Fi remains unavailable;
+- unattended fallback retries saved home Wi-Fi periodically;
+- an associated setup client defers retry rather than being interrupted;
+- successful retry restores normal HTTP, discovery, mDNS, monitoring, and radio policy.
+
+0.1.0.4 must exercise this during the hardware responsiveness test because reconnect transitions are a likely place for lifecycle regressions.
+
+## E. Issue #102 — signed LAN OTA
+
+Signed LAN OTA remains part of the source authority:
+
+- same OTA partitions and production RSA-3072-PSS-SHA256 trust root as signed USB OTA;
+- firmware independently verifies image hash, signature, app identity, and release sequence;
+- interrupted candidate transfer never selects an incomplete image;
+- LAN and trusted-USB OTA share synchronized verifier/writer state;
+- normal unsigned/generic HTTP BIN upload is not permitted.
+
+Hardware signed-LAN-OTA testing remains required.
+
+## F. Deferred management-auth review
+
+Issue #105 records a later review of offline-guess resistance / HTTP management confidentiality. Per user direction this is **deferred** and is not a blocker for the current native-HTTP responsiveness release.
+
+Current management auth does not send the Device Password in plaintext; password rotation uses an authenticated encrypted envelope; plaintext LAN Wi-Fi credential writes remain removed in favor of Security-2 provisioning.
+
+Do not redesign this during the 0.1.0.4 responsiveness validation unless a new concrete defect directly affects correctness or safety.
+
+## G. Canonical production firmware architecture
+
+There is one production firmware build architecture:
+
+- ESP-IDF 5.5.5;
 - exact ESP-IDF commit `b774170ff46c393eeb5e495ea37936038d3f4f4f`;
-- target classic ESP32 / ESP32-WROOM-32;
-- Arduino-ESP32 stable base **3.3.11**;
-- authoritative Arduino source commit `5cdf8975ae8d9e35888b724b01a444d22406424e`;
-- WebServer hardening PR #12794 included;
-- project root `battery-monitor/firmware/idf/`;
-- wrapper `battery-monitor/firmware/idf/main/BatteryMonitorApp.cpp`;
-- sole runtime implementation under `battery-monitor/firmware/BatteryMonitor/`;
-- sole authoritative build entrypoint `battery-monitor/firmware/idf/build.sh`.
+- classic ESP32 / ESP32-WROOM-32;
+- Arduino-ESP32 compatibility component based on 3.3.11;
+- exact Arduino source commit `5cdf8975ae8d9e35888b724b01a444d22406424e`;
+- application wrapper `battery-monitor/firmware/idf/main/BatteryMonitorApp.cpp`;
+- runtime implementation under `battery-monitor/firmware/BatteryMonitor/`;
+- sole build entrypoint `battery-monitor/firmware/idf/build.sh`.
 
-Do not restore PlatformIO, Arduino-ESP32 3.3.7, or a second firmware runtime.
+Do not restore PlatformIO, Arduino-CLI as a second production build, Arduino WebServer, or a second firmware runtime.
 
-## E. Device-at-rest security
+## H. Device-at-rest and release security
 
-Current production ESP-IDF configuration:
+Production configuration retains:
 
-- Flash Encryption: Release mode enabled;
-- NVS Encryption: enabled;
-- encrypted `nvs_keys` at `0x294000`;
-- partition table at `0xF000`;
-- `app0` at `0x10000`;
-- `app1` at `0x150000`;
-- Secure Boot intentionally OFF pending real encrypted-device validation;
+- Flash Encryption release mode enabled;
+- NVS Encryption enabled;
+- encrypted `nvs_keys` partition;
+- automatic application rollback enabled;
+- encrypted-NVS software release floor requiring strictly newer accepted releases;
+- Secure Boot intentionally OFF pending the full physical encrypted-device program;
 - irreversible eFuse application anti-rollback OFF pending the later production gate.
 
-The 4 MiB merged image is for a blank/un-encrypted ESP32 first install only. It is not post-encryption recovery media.
-
-## F. Signed USB OTA and release authority
-
-Post-encryption updates use `SIGNED_USB_OTA_V1` over trusted physical USB:
-
-1. Windows verifies the detached production RSA-3072-PSS-SHA256 signature.
-2. Windows transfers the application image in bounded chunks.
-3. Running firmware writes the inactive OTA slot through `esp_ota_write()` so Flash Encryption is applied by the device.
-4. ESP32 independently verifies image hash, application identity, release sequence, and production signature.
-5. Only a valid candidate may be selected for next boot.
-
-Production public-key SPKI SHA-256:
+Production signing public-key SPKI SHA-256:
 
 `69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e`
 
-Automatic application rollback is enabled. A newly selected candidate receives a 60-second health probation before being marked valid. The encrypted-NVS software release floor prevents equal/older signed releases from being selected after a newer release is accepted.
+The 4 MiB merged image is for genuinely blank, unencrypted first install only. Existing encrypted devices must use application-mediated signed OTA.
 
-## G. Device Password / provisioning authority
+## I. Immediate next action
 
-The validated candidate implements one normal Device Password concept across trusted USB administration, LAN management, protected setup Wi-Fi, Security-2 provisioning, Windows, Android, and embedded WebUI.
+The next production action is **not another source edit** unless hardware testing exposes a defect.
 
-Key rules:
+1. Run the protected `Battery Monitor Signed Firmware Release` workflow with:
+   - `source_sha = cb96191f8e3c8c99771b044e7a0b2260e5f56b2f`
+   - `version = 0.1.0.4`
+2. Verify the produced `SIGNED_RELEASE.txt`, signatures, source SHA, version, release sequence 4, and trust-root fingerprint.
+3. Install signed 0.1.0.4 on the already-encrypted test unit through the application-mediated updater.
+4. Execute `HARDWARE_TEST_PLAN_0_1_0_4_HTTP_RESPONSIVENESS.md` with the latency probe.
+5. Keep #104 open until hardware evidence shows the recurring multi-second/tens-of-seconds stalls are gone.
+6. Keep Secure Boot/eFuse anti-rollback activation deferred until the broader encrypted-device hardware matrix is complete.
 
-- normal Windows `USB Setup` can initialize or rotate an arbitrary Device Password;
-- optional Windows DPAPI storage is supported;
-- trusted serial password commands are redacted from logs;
-- arbitrary Device Passwords remain literal and case-sensitive;
-- only the exact historical restricted `XXXX-XXXX-XXXX-XXXX` factory-code pattern receives legacy canonicalization;
-- firmware, Windows, Android, and embedded WebUI use the same compatibility boundary;
-- factory/printed-code generation remains a separate Advanced/manufacturing path;
-- factory QR output is allowed only after the code is verified against the currently read physical device;
-- editing the code or changing COM ports invalidates QR/device authority;
-- Write/Verify re-check the physical Device ID immediately before credential action so a swapped board fails closed.
+## J. Read-first authority for the next session
 
-Focused compatibility procedure:
-
-`battery-monitor/DEVICE_PASSWORD_COMPATIBILITY_TEST_0_1_0_2.md`
-
-## H. Runtime behavior retained
-
-The validated `0.1.0.2` source also retains:
-
-- initial trusted-USB Device Password creation immediately enables protected WPA2 + Security-2 setup when no home Wi-Fi exists;
-- saved-Wi-Fi failure falls back to protected setup and retries home Wi-Fi on the established ~10-minute cadence;
-- scheduled fallback transition waits for provisioning shutdown;
-- an actively associated setup client defers scheduled retry instead of being disconnected mid-setup;
-- embedded WebUI status polling is ~1 second independent of ADC sample cadence;
-- runtime version reporting comes from the ESP-IDF application descriptor;
-- USB Setup chemistry selection does not silently overwrite thresholds; defaults require `Apply Chemistry Defaults`;
-- calibration factor/offset are stored in NVS as `calf`/`calo` and persist through reboot, power loss, and normal application-mediated signed OTA; full erase/NVS destruction is not persistence-preserving;
-- Advanced Tools uses the preconfigured high-entropy gate with PBKDF2-SHA256 verification and escalating lockout; its plaintext credential is not stored in repository authority documents.
-
-## I. P0 security status
-
-- P0-1 secure provisioning: source/build/signed release resolved; hardware/adversarial matrix pending.
-- P0-2 administrator security/recovery: source/build/signed release resolved; hardware/adversarial matrix pending; active-LAN request-integrity hardening remains future work.
-- P0-3 monitoring identity/spoof resistance: source/build/signed release resolved; protocol self-test green; real-network adversarial matrix pending.
-
-Known residual risk: normal LAN management still uses HTTP on the local LAN, so an active on-path attacker may observe session/CSRF bearer material. Proposed future replacement remains `BATMON-MGMT-WRITE-V2`, implemented atomically across firmware, embedded WebUI, Windows, and Android.
-
-## J. Current production action: physical hardware validation
-
-Production signing is complete. Do not re-sign merely to begin testing.
-
-Use the verified signed artifacts recorded in `battery-monitor/HARDWARE_TEST_ASSET_RECORD_0_1_0_2.md`.
-
-For an existing already-encrypted Battery Monitor:
-
-- use `Battery-Monitor-Windows-Signed-0.1.0.2`;
-- use `Firmware Update -> Update Firmware`;
-- do not use the merged first-install image or direct plaintext esptool flashing.
-
-For a genuinely blank, unencrypted ESP32:
-
-- use `Advanced First Install -> First Install (Blank ESP32)` from the signed Windows package;
-- allow first encrypted boot to complete without power interruption.
-
-Then execute:
-
-- `battery-monitor/HARDWARE_TEST_PLAN_0_1_0_2.md`
-- `battery-monitor/DEVICE_PASSWORD_COMPATIBILITY_TEST_0_1_0_2.md`
-
-Do not enable Secure Boot until the complete physical encrypted-device validation matrix passes.
-
-## K. Distribution work still open
-
-- real encrypted-device hardware matrix;
-- production Android APK signing/release packaging;
-- Windows Authenticode/code signing;
-- repository branch/ruleset protection;
-- later `BATMON-MGMT-WRITE-V2` active-LAN write integrity;
-- Secure Boot/eFuse production gate only after physical validation.
-
-## L. Read-first authorities
-
-At the exact live branch head, read in this order:
+Resolve the live branch head, then read:
 
 1. `battery-monitor/PROJECT_HANDOFF_LATEST.md`
 2. `battery-monitor/PROJECT_STATE_LATEST.md`
-3. `battery-monitor/HARDWARE_TEST_ASSET_RECORD_0_1_0_2.md`
-4. `battery-monitor/VALIDATED_CANDIDATE_0_1_0_2.md`
-5. `battery-monitor/SIGNED_RELEASE_OPERATOR_CHECKLIST_0_1_0_2.md`
-6. `battery-monitor/HARDWARE_TEST_PLAN_0_1_0_2.md`
-7. `battery-monitor/DEVICE_PASSWORD_COMPATIBILITY_TEST_0_1_0_2.md`
-8. `battery-monitor/firmware/README.md`
-9. `battery-monitor/firmware/idf/README.md`
-10. `battery-monitor/firmware/idf/build.sh`
-11. `battery-monitor/firmware/idf/version.txt`
-12. `battery-monitor/firmware/idf/sdkconfig.defaults`
-13. `battery-monitor/firmware/idf/partitions.csv`
-14. `battery-monitor/firmware/BatteryMonitor/BatteryMonitor.ino`
-15. `battery-monitor/firmware/BatteryMonitor/SerialProvisioning.ino`
-16. `battery-monitor/firmware/BatteryMonitor/FirmwareUpdate.ino`
-17. `battery-monitor/firmware/BatteryMonitor/FirmwareReleasePolicy.ino`
-18. `battery-monitor/firmware/BatteryMonitor/ZManagementAuth.ino`
-19. `battery-monitor/windows/BatteryMonitor.Client/UsbSetupForm.cs`
-20. `battery-monitor/windows/BatteryMonitor.Client/ProvisioningAdminForm.cs`
-21. `.github/workflows/battery-monitor-ci.yml`
-22. `.github/workflows/battery-monitor-signed-release.yml`
+3. `battery-monitor/VALIDATED_CANDIDATE_0_1_0_4.md`
+4. `battery-monitor/HARDWARE_TEST_PLAN_0_1_0_4_HTTP_RESPONSIVENESS.md`
+5. `battery-monitor/tools/Test-BatteryMonitorHttp.ps1`
+6. GitHub issue #104
+7. GitHub issue #103
+8. GitHub issue #102
+9. GitHub issue #105
+10. `battery-monitor/firmware/README.md`
+11. `battery-monitor/firmware/idf/README.md`
+12. `.github/workflows/battery-monitor-ci.yml`
+13. `.github/workflows/battery-monitor-signed-release.yml`
+14. `battery-monitor/firmware/idf/main/BatteryMonitorApp.cpp`
+15. `battery-monitor/firmware/BatteryMonitor/BatteryMonitor.ino`
+16. `battery-monitor/firmware/BatteryMonitor/NativeHttpServer.ino`
+17. `battery-monitor/firmware/BatteryMonitor/NativeHttpSynchronization.ino`
+18. `battery-monitor/firmware/BatteryMonitor/ConfigurationSynchronization.ino`
+19. `battery-monitor/firmware/BatteryMonitor/BatterySnapshot.ino`
+20. `battery-monitor/firmware/BatteryMonitor/FirmwareUpdateSynchronization.ino`
+21. `battery-monitor/firmware/BatteryMonitor/SecureProvisioning.ino`
+22. `battery-monitor/firmware/BatteryMonitor/MonitoringIdentityCore.ino`
+23. `battery-monitor/windows/BatteryMonitor.Client/DeviceClient.cs`
+24. `battery-monitor/windows/BatteryMonitor.Client/MainForm.cs`
 
-Then resolve the latest applicable normal toolchain and signed-release history before modifying product source.
-
-## M. Remote/local warning
-
-This state is based on the GitHub remote branch. Any local checkout must fetch and compare against live `battery-monitor-dev` before use.
+The exact normal-CI validated 0.1.0.4 product source remains `cb96191f8e3c8c99771b044e7a0b2260e5f56b2f` even when the live branch is later due only to documentation/test tooling.
