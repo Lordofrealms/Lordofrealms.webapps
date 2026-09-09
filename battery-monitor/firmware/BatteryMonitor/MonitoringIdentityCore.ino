@@ -6,12 +6,22 @@
 #include <mbedtls/md.h>
 #include <mbedtls/gcm.h>
 #include <esp_system.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include <atomic>
 
 static const char* MONITOR_ID_NAMESPACE = "batident";
 static const char* MONITOR_ID_KEY_NAME = "monkey";
 static const size_t MONITOR_ID_KEY_BYTES = 32;
 static uint8_t monitoringIdentityKey[MONITOR_ID_KEY_BYTES] = {};
-static bool monitoringIdentityReady = false;
+static std::atomic<bool> monitoringIdentityReady{false};
+static SemaphoreHandle_t monitoringIdentityInitMutex = nullptr;
+
+static bool ensureMonitoringIdentityInitMutex() {
+  if (monitoringIdentityInitMutex != nullptr) return true;
+  monitoringIdentityInitMutex = xSemaphoreCreateMutex();
+  return monitoringIdentityInitMutex != nullptr;
+}
 
 static String monitorBase64Encode(const uint8_t* data, size_t len) {
   static const char TABLE[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -38,7 +48,9 @@ static bool validMonitorNonce(const String& nonce) {
 }
 
 static bool monitoringHmac(const char* domain, const String& nonce, const String& payload, uint8_t out[32]) {
-  if (!monitoringIdentityReady) return false;
+  // Release/acquire publication guarantees the key bytes are complete before a
+  // concurrent HTTP/discovery reader is allowed to consume them.
+  if (!monitoringIdentityReady.load(std::memory_order_acquire)) return false;
   const mbedtls_md_info_t* info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
   if (!info) return false;
   mbedtls_md_context_t ctx;
@@ -57,28 +69,34 @@ static bool monitoringHmac(const char* domain, const String& nonce, const String
 }
 
 bool loadOrCreateMonitoringIdentity() {
-  Preferences idPrefs;
-  if (!idPrefs.begin(MONITOR_ID_NAMESPACE, false)) return false;
-  size_t len = idPrefs.getBytesLength(MONITOR_ID_KEY_NAME);
-  if (len == MONITOR_ID_KEY_BYTES) {
-    size_t read = idPrefs.getBytes(MONITOR_ID_KEY_NAME, monitoringIdentityKey, sizeof(monitoringIdentityKey));
-    idPrefs.end();
-    monitoringIdentityReady = read == sizeof(monitoringIdentityKey);
-    return monitoringIdentityReady;
-  }
-  if (len != 0) {
-    idPrefs.end();
-    memset(monitoringIdentityKey, 0, sizeof(monitoringIdentityKey));
-    monitoringIdentityReady = false;
-    return false;
+  if (monitoringIdentityReady.load(std::memory_order_acquire)) return true;
+  if (!ensureMonitoringIdentityInitMutex()) return false;
+  if (xSemaphoreTake(monitoringIdentityInitMutex, pdMS_TO_TICKS(1000)) != pdTRUE) return false;
+
+  if (monitoringIdentityReady.load(std::memory_order_relaxed)) {
+    xSemaphoreGive(monitoringIdentityInitMutex);
+    return true;
   }
 
-  esp_fill_random(monitoringIdentityKey, sizeof(monitoringIdentityKey));
-  size_t written = idPrefs.putBytes(MONITOR_ID_KEY_NAME, monitoringIdentityKey, sizeof(monitoringIdentityKey));
-  idPrefs.end();
-  monitoringIdentityReady = written == sizeof(monitoringIdentityKey);
-  if (!monitoringIdentityReady) memset(monitoringIdentityKey, 0, sizeof(monitoringIdentityKey));
-  return monitoringIdentityReady;
+  bool ready = false;
+  Preferences idPrefs;
+  if (idPrefs.begin(MONITOR_ID_NAMESPACE, false)) {
+    size_t len = idPrefs.getBytesLength(MONITOR_ID_KEY_NAME);
+    if (len == MONITOR_ID_KEY_BYTES) {
+      size_t read = idPrefs.getBytes(MONITOR_ID_KEY_NAME, monitoringIdentityKey, sizeof(monitoringIdentityKey));
+      ready = read == sizeof(monitoringIdentityKey);
+    } else if (len == 0) {
+      esp_fill_random(monitoringIdentityKey, sizeof(monitoringIdentityKey));
+      size_t written = idPrefs.putBytes(MONITOR_ID_KEY_NAME, monitoringIdentityKey, sizeof(monitoringIdentityKey));
+      ready = written == sizeof(monitoringIdentityKey);
+    }
+    idPrefs.end();
+  }
+
+  if (!ready) memset(monitoringIdentityKey, 0, sizeof(monitoringIdentityKey));
+  monitoringIdentityReady.store(ready, std::memory_order_release);
+  xSemaphoreGive(monitoringIdentityInitMutex);
+  return ready;
 }
 
 static String authenticatedDiscoveryPayload(const DeviceConfigState& config) {
@@ -135,7 +153,7 @@ void serviceAuthenticatedDiscovery() {
   String nonce = request.substring(prefix.length());
   nonce.toLowerCase();
   if (!validMonitorNonce(nonce)) return;
-  if (!monitoringIdentityReady && !loadOrCreateMonitoringIdentity()) return;
+  if (!monitoringIdentityReady.load(std::memory_order_acquire) && !loadOrCreateMonitoringIdentity()) return;
 
   String payload = authenticatedDiscoveryPayload(config);
   uint8_t mac[32];
