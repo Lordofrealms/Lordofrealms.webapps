@@ -157,9 +157,11 @@ static void processSerialProvisioningCommand(String line) {
   if (command == "VERIFYPROVCRED") {
     unsigned long remainingMs = provisioningVerifyCooldownRemainingMs();
     if (remainingMs > 0) { serialErr("PROVCRED_VERIFY_COOLDOWN " + String((remainingMs + 999UL) / 1000UL)); return; }
-    if (!hasProvisioningIdentity() && !loadDeviceCredentialIdentity()) { serialErr("PROVCRED_UNSET"); return; }
     String candidate = percentDecode(remaining);
-    if (verifyDevicePasswordFlexible(candidate)) {
+    bool credentialPresent = false;
+    bool matches = verifyDevicePasswordFlexibleTrustedUsb(candidate, credentialPresent);
+    if (!credentialPresent) { serialErr("PROVCRED_UNSET"); return; }
+    if (matches) {
       provisioningVerifyFailures = 0;
       provisioningVerifyBlockedUntilMs = 0;
       serialOk("PROVCRED MATCH");
