@@ -66,15 +66,11 @@ void refreshBatterySnapshotConfiguration() {
     publishedBatterySnapshot.calibrationFactor = config.calibrationFactor;
     publishedBatterySnapshot.calibrationOffset = config.calibrationOffset;
     publishedBatterySnapshot.sampleIntervalSec = config.sampleIntervalSec;
-    // Recalculate voltage from the already measured ADC millivolts when
-    // calibration changes; no new ADC read is required just to publish config.
     publishedBatterySnapshot.voltage =
       (((float)publishedBatterySnapshot.adcMillivolts / 1000.0f) *
        DIVIDER_MULTIPLIER * config.calibrationFactor) + config.calibrationOffset;
     classifyBatterySnapshot(publishedBatterySnapshot);
 
-    // Preserve legacy scalar mirrors for compatibility with older helpers. New
-    // cross-task readers use copyBatterySnapshot() rather than these scalars.
     batteryVoltage = publishedBatterySnapshot.voltage;
     adcMilliVolts = publishedBatterySnapshot.adcMillivolts;
     adcRaw = publishedBatterySnapshot.adcRaw;
@@ -84,8 +80,10 @@ void refreshBatterySnapshotConfiguration() {
 }
 
 void sampleBatterySnapshot() {
-  // High-impedance divider: throw away initial conversions, then use a trimmed
-  // mean. All conversion/delay work happens before taking either mutex.
+  const bool trace = isHttpTraceEnabled();
+  const uint32_t totalStart = trace ? micros() : 0;
+  const uint32_t adcStart = trace ? micros() : 0;
+
   for (int i = 0; i < 4; ++i) {
     analogReadMilliVolts(BATTERY_ADC_PIN);
     delay(2);
@@ -116,9 +114,14 @@ void sampleBatterySnapshot() {
   const uint32_t measuredMillivolts = sum / 12;
   const uint16_t measuredRaw = (uint16_t)(rawSum / N);
   const unsigned long measuredAt = millis();
+  const uint32_t adcUs = trace ? (uint32_t)(micros() - adcStart) : 0;
 
+  const uint32_t configStart = trace ? micros() : 0;
   DeviceConfigState config = {};
   if (!copyDeviceConfigState(config)) return;
+  const uint32_t configCopyUs = trace ? (uint32_t)(micros() - configStart) : 0;
+
+  const uint32_t publishStart = trace ? micros() : 0;
   if (!ensureBatterySnapshotMutex()) return;
   if (xSemaphoreTake(batterySnapshotMutex, pdMS_TO_TICKS(20)) != pdTRUE) return;
 
@@ -138,24 +141,40 @@ void sampleBatterySnapshot() {
   publishedBatterySnapshot = next;
   publishedBatterySnapshotReady = true;
 
-  // Keep legacy mirrors synchronized with the same completed snapshot.
   batteryVoltage = next.voltage;
   adcMilliVolts = next.adcMillivolts;
   adcRaw = next.adcRaw;
   lastSampleMs = next.sampleTimeMs;
 
   xSemaphoreGive(batterySnapshotMutex);
+  const uint32_t publishUs = trace ? (uint32_t)(micros() - publishStart) : 0;
+
+  if (trace) {
+    httpTraceLogAdcSample(adcUs, configCopyUs, publishUs,
+                          (uint32_t)(micros() - totalStart));
+  }
 }
 
-String batterySnapshotStatusJson() {
-  DeviceConfigState config = {};
-  if (!copyDeviceConfigState(config)) return "{\"error\":\"configuration unavailable\"}";
+String batterySnapshotStatusJson(HttpStatusBuildTiming* timing) {
+  const uint32_t totalStart = timing ? micros() : 0;
+  uint32_t stageStart = timing ? micros() : 0;
 
+  DeviceConfigState config = {};
+  bool configReady = copyDeviceConfigState(config);
+  if (timing) {
+    timing->configCopyUs = (uint32_t)(micros() - stageStart);
+    timing->configReady = configReady;
+  }
+  if (!configReady) return "{\"error\":\"configuration unavailable\"}";
+
+  stageStart = timing ? micros() : 0;
   BatterySnapshot snapshot = {};
-  if (!copyBatterySnapshot(snapshot)) {
-    // Network services start only after the initial sample in normal operation.
-    // If a snapshot is nevertheless unavailable, return a coherent zero-value
-    // measurement instead of racing the legacy scalar mirrors.
+  bool batteryReady = copyBatterySnapshot(snapshot);
+  if (timing) {
+    timing->batteryCopyUs = (uint32_t)(micros() - stageStart);
+    timing->batteryReady = batteryReady;
+  }
+  if (!batteryReady) {
     snapshot.lowVoltage = config.lowVoltage;
     snapshot.criticalVoltage = config.criticalVoltage;
     snapshot.calibrationFactor = config.calibrationFactor;
@@ -165,8 +184,14 @@ String batterySnapshotStatusJson() {
     classifyBatterySnapshot(snapshot);
   }
 
+  stageStart = timing ? micros() : 0;
   NetworkSnapshot network = {};
-  if (!copyNetworkSnapshot(network)) {
+  bool networkReady = copyNetworkSnapshot(network);
+  if (timing) {
+    timing->networkCopyUs = (uint32_t)(micros() - stageStart);
+    timing->networkReady = networkReady;
+  }
+  if (!networkReady) {
     strlcpy(network.ip, "0.0.0.0", sizeof(network.ip));
     network.wifiConnected = false;
     network.setupApActive = false;
@@ -174,6 +199,7 @@ String batterySnapshotStatusJson() {
     network.publishedAtMs = millis();
   }
 
+  const uint32_t jsonStart = timing ? micros() : 0;
   String json = "{";
   json += "\"apiVersion\":" + String(API_VERSION) + ",";
   json += "\"firmwareVersion\":\"" + String(FW_VERSION) + "\",";
@@ -198,5 +224,14 @@ String batterySnapshotStatusJson() {
   json += "\"lastSampleAgeMs\":" + String(millis() - snapshot.sampleTimeMs) + ",";
   json += "\"networkSnapshotAgeMs\":" + String(millis() - network.publishedAtMs);
   json += "}";
+
+  if (timing) {
+    timing->jsonBuildUs = (uint32_t)(micros() - jsonStart);
+    timing->totalBuildUs = (uint32_t)(micros() - totalStart);
+  }
   return json;
+}
+
+String batterySnapshotStatusJson() {
+  return batterySnapshotStatusJson(nullptr);
 }
