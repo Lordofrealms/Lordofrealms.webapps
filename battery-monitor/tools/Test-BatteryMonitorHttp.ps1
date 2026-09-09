@@ -32,9 +32,9 @@ if ($base -notmatch '^https?://') {
 $statusUri = "$base/api/status"
 $runtimeUri = "$base/api/runtime"
 
-$handler = New-Object System.Net.Http.HttpClientHandler
+$handler = [System.Net.Http.HttpClientHandler]::new()
 $handler.AllowAutoRedirect = $false
-$client = New-Object System.Net.Http.HttpClient($handler)
+$client = [System.Net.Http.HttpClient]::new($handler)
 $client.Timeout = [TimeSpan]::FromSeconds($TimeoutSec)
 
 $results = New-Object 'System.Collections.Generic.List[object]'
@@ -143,7 +143,6 @@ try {
 finally {
     Get-RuntimeSnapshot "END"
     $client.Dispose()
-    $handler.Dispose()
 }
 
 if ($CsvPath) {
