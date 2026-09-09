@@ -75,8 +75,11 @@ esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition)
 
 #include "../../BatteryMonitor/ZZZTrustedUsbIdentity.ino"
 #include "../../BatteryMonitor/NativeHttpServer.ino"
+#include "../../BatteryMonitor/NativeHttpMainControl.ino"
 
 // setup()/loop() are included last so the runtime sees every service primitive
-// above, while SerialProvisioning can still call the forward-declared
-// startFallbackAp() implemented here.
+// above. Remap only the main-loop control service: management session expiry
+// remains owned by the native HTTP task rather than being mutated by both cores.
+#define serviceNativeHttpControl serviceNativeHttpControlMainSafe
 #include "../../BatteryMonitor/BatteryMonitor.ino"
+#undef serviceNativeHttpControl
