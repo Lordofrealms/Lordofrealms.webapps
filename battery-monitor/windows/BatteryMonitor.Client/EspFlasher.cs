@@ -27,10 +27,12 @@ internal sealed class EspFlasher
             : null);
 
     public string? ReleaseMetadataPath => FindFirstExisting(
+        Path.Combine(_baseDirectory, "firmware", "SIGNED_RELEASE.txt"),
+        Path.Combine(_baseDirectory, "Firmware", "SIGNED_RELEASE.txt"),
         Path.Combine(_baseDirectory, "firmware", "RELEASE.txt"),
         Path.Combine(_baseDirectory, "Firmware", "RELEASE.txt"));
 
-    public string? UpdateVersion => ReadReleaseValue("version");
+    public string? UpdateVersion => ReadReleaseValue("version") ?? ReadVersionFile();
     public string? UpdateSourceSha => ReadReleaseValue("source_sha");
 
     public string? FactorySignaturePath => FactoryFirmwarePath is { } firmware
@@ -162,6 +164,21 @@ internal sealed class EspFlasher
                 var value = line[(separator + 1)..].Trim();
                 return value.Length == 0 ? null : value;
             }
+        }
+        catch { }
+        return null;
+    }
+
+    private string? ReadVersionFile()
+    {
+        try
+        {
+            var path = FindFirstExisting(
+                Path.Combine(_baseDirectory, "firmware", "version.txt"),
+                Path.Combine(_baseDirectory, "Firmware", "version.txt"));
+            if (path is null) return null;
+            var value = File.ReadAllText(path).Trim();
+            return value.Length == 0 ? null : value;
         }
         catch { }
         return null;
