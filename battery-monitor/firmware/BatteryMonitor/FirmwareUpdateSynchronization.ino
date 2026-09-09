@@ -10,16 +10,30 @@
 #include <freertos/semphr.h>
 
 static SemaphoreHandle_t firmwareUpdateMutex = nullptr;
+static portMUX_TYPE firmwareUpdateMutexInitMux = portMUX_INITIALIZER_UNLOCKED;
 static bool firmwareUpdateSyncErrorReported = false;
 
 bool initializeFirmwareUpdateSynchronization() {
   if (firmwareUpdateMutex != nullptr) return true;
-  firmwareUpdateMutex = xSemaphoreCreateMutex();
-  if (firmwareUpdateMutex == nullptr && !firmwareUpdateSyncErrorReported) {
+
+  // Allocation itself must not occur inside a critical section. Two tasks may
+  // race the first allocation, so publish exactly one candidate under a tiny
+  // spinlock and delete any losing candidate afterward.
+  SemaphoreHandle_t candidate = xSemaphoreCreateMutex();
+  portENTER_CRITICAL(&firmwareUpdateMutexInitMux);
+  if (firmwareUpdateMutex == nullptr && candidate != nullptr) {
+    firmwareUpdateMutex = candidate;
+    candidate = nullptr;
+  }
+  bool ready = firmwareUpdateMutex != nullptr;
+  portEXIT_CRITICAL(&firmwareUpdateMutexInitMux);
+  if (candidate != nullptr) vSemaphoreDelete(candidate);
+
+  if (!ready && !firmwareUpdateSyncErrorReported) {
     firmwareUpdateSyncErrorReported = true;
     Serial.println("ERROR: Could not allocate firmware-update synchronization mutex; OTA is disabled.");
   }
-  return firmwareUpdateMutex != nullptr;
+  return ready;
 }
 
 static bool takeFirmwareUpdateMutex(TickType_t waitTicks = pdMS_TO_TICKS(5000)) {
