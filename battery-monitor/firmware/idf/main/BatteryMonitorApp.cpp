@@ -99,15 +99,17 @@ esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition)
 #include "../../BatteryMonitor/NativeHttpSynchronization.ino"
 #include "../../BatteryMonitor/TrustedUsbSecuritySynchronization.ino"
 
-// Serial provisioning is the trusted physical transport. Password replacement
-// and removal are remapped through wrappers that quiesce native HTTP. Password
-// verification calls its explicit wrapper because it also needs to return the
-// distinct PROVCRED_UNSET state without performing an unsynchronized pre-check.
+// Serial provisioning is the trusted physical transport. Password replacement,
+// removal, and status reads are remapped through wrappers that quiesce native
+// HTTP where necessary. Password verification calls its explicit wrapper because
+// it also returns the distinct PROVCRED_UNSET state.
 #define setDevicePasswordFlexible setDevicePasswordFlexibleTrustedUsb
 #define clearProvisioningIdentity clearProvisioningIdentityTrustedUsb
+#define provisioningIdentitySummary provisioningIdentitySummaryTrustedUsb
 #define sampleBattery sampleBatterySnapshot
 #include "../../BatteryMonitor/SerialProvisioning.ino"
 #undef sampleBattery
+#undef provisioningIdentitySummary
 #undef clearProvisioningIdentity
 #undef setDevicePasswordFlexible
 
