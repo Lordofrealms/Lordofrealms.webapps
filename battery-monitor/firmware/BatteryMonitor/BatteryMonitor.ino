@@ -1,17 +1,10 @@
-// Battery Monitor production runtime wrapper.
+// Battery Monitor production runtime.
 //
-// ESP-IDF is the sole production build architecture. The historical sketch is
-// included for shared settings/UI/provisioning helpers, while setup()/loop()
-// below own the production runtime: resilient Wi-Fi, native esp_http_server,
-// coherent cached battery snapshots, signed USB/LAN OTA, and rollback health.
+// ESP-IDF is the sole production build architecture. Shared application state
+// comes from BatteryMonitorCore.ino; HTTP is owned exclusively by native
+// esp_http_server; measurements are published as coherent cached snapshots.
 
 #include <esp_ota_ops.h>
-
-#define setup batteryMonitorLegacySetup
-#define loop batteryMonitorLegacyLoop
-#include "BatteryMonitorLegacy.inc"
-#undef setup
-#undef loop
 
 bool loadOrCreateMonitoringIdentity();
 void serviceAuthenticatedDiscovery();
@@ -109,13 +102,22 @@ static void stopNativeNetworkServices() {
   stopNativeHttpServer();
 }
 
+// Single authoritative entry into protected provisioning. Keeping this in the
+// production runtime means no legacy Arduino WebServer helper is required.
+void startFallbackAp() {
+  if (fallbackApActive) return;
+  stopNativeNetworkServices();
+  if (!startSecureProvisioning()) {
+    fallbackApActive = false;
+    Serial.println("Secure setup could not start. Connect by trusted USB to initialize or repair the Device Password.");
+  }
+}
+
 static bool startSavedWifiConnection(bool waitForResult) {
   if (wifiSsid.length() == 0) return false;
 
   WiFi.mode(WIFI_STA);
   applyWifiRadioSettings();
-  // Clear stale association state without erasing Battery Monitor's separately
-  // persisted encrypted SSID/password.
   WiFi.disconnect(false, false);
   delay(25);
   applyWifiRadioSettings();
@@ -133,7 +135,6 @@ static bool startSavedWifiConnection(bool waitForResult) {
 
 static void startProtectedFallbackWithRetry(unsigned long now) {
   protectedFallbackHomeRetryPending = false;
-  stopNativeNetworkServices();
   startFallbackAp();
   if (fallbackApActive && wifiSsid.length() > 0) {
     protectedFallbackHomeRetryAtMs = now + PROTECTED_FALLBACK_RETRY_INTERVAL_MS;
@@ -259,7 +260,7 @@ void setup() {
   analogReadResolution(12);
   analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db);
   if (!initializeBatterySnapshotState())
-    Serial.println("WARNING: coherent battery snapshot unavailable; legacy globals remain as fallback.");
+    Serial.println("WARNING: coherent battery snapshot unavailable; legacy scalar mirrors remain as fallback.");
   sampleBatterySnapshot();
 
   bool connected = startSavedWifiConnection(true);
@@ -283,9 +284,6 @@ void setup() {
 }
 
 void loop() {
-  // Serial, ADC sampling, discovery, and Wi-Fi recovery remain owned by the
-  // application task. Native esp_http_server owns its own task and only reads
-  // the last completed battery snapshot for status requests.
   serviceSerialProvisioning();
   serviceFirmwareUpdateTimeout();
   serviceWifiRadioSettings();
