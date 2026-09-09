@@ -19,6 +19,7 @@ static std::atomic<bool> synchronizedFirmwareRebootPending{false};
 static std::atomic<uint32_t> browserRootSlowResponses{0};
 static std::atomic<uint32_t> browserStatusSlowResponses{0};
 static std::atomic<uint32_t> browserConfigSlowResponses{0};
+static const size_t BROWSER_ROOT_CHUNK_BYTES = 1024;
 
 static void prepareBrowserResponse(httpd_req_t* req) {
   // esp_http_server uses one server task. A browser tab that disappears while a
@@ -63,11 +64,50 @@ static esp_err_t synchronizedNativeRootHandler(httpd_req_t* req) {
   );
   const uint32_t buildUs = trace ? (uint32_t)(micros() - buildStart) : 0;
 
+  // The self-contained page is much larger than the JSON responses. Send it in
+  // bounded chunks so a partial/disconnected client fails at a known chunk and
+  // cannot require one monolithic socket write. This also lets HTTPTRACE report
+  // exactly how far a truncated framework transfer progressed.
+  httpd_resp_set_status(req, nativeHttpStatusText(200));
+  httpd_resp_set_type(req, "text/html; charset=utf-8");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+
   const uint32_t sendStart = trace ? micros() : 0;
-  esp_err_t result = nativeSend(req, 200, "text/html; charset=utf-8", page);
+  esp_err_t result = ESP_OK;
+  uint32_t chunksSent = 0;
+  uint32_t maxChunkUs = 0;
+  int failedChunk = -1;
+  size_t offset = 0;
+  while (offset < page.length()) {
+    size_t remaining = page.length() - offset;
+    size_t chunkBytes = remaining < BROWSER_ROOT_CHUNK_BYTES ? remaining : BROWSER_ROOT_CHUNK_BYTES;
+    uint32_t chunkStart = trace ? micros() : 0;
+    result = httpd_resp_send_chunk(req, page.c_str() + offset, chunkBytes);
+    if (trace) {
+      uint32_t chunkUs = (uint32_t)(micros() - chunkStart);
+      if (chunkUs > maxChunkUs) maxChunkUs = chunkUs;
+    }
+    if (result != ESP_OK) {
+      failedChunk = (int)chunksSent;
+      break;
+    }
+    offset += chunkBytes;
+    chunksSent++;
+  }
+  if (result == ESP_OK) {
+    uint32_t chunkStart = trace ? micros() : 0;
+    result = httpd_resp_send_chunk(req, nullptr, 0);
+    if (trace) {
+      uint32_t chunkUs = (uint32_t)(micros() - chunkStart);
+      if (chunkUs > maxChunkUs) maxChunkUs = chunkUs;
+    }
+    if (result != ESP_OK) failedChunk = (int)chunksSent;
+  }
   const uint32_t sendUs = trace ? (uint32_t)(micros() - sendStart) : 0;
-  if (trace) httpTraceLogSimple(sequence, "/", buildUs, sendUs,
-                                (uint32_t)(micros() - startedUs), (int)result);
+  if (trace) {
+    httpTraceLogRootChunks(sequence, buildUs, page.length(), chunksSent, maxChunkUs,
+                           failedChunk, sendUs, (uint32_t)(micros() - startedUs), (int)result);
+  }
   recordBrowserResponseLatency("/", startedUs, browserRootSlowResponses);
   return result;
 }
