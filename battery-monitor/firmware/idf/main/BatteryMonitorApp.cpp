@@ -90,6 +90,11 @@ esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition)
 #undef esp_ota_set_boot_partition
 #include "../../BatteryMonitor/FirmwareUpdateSynchronization.ino"
 
+// Client-side roaming is layered above the synchronized OTA/configuration
+// primitives. It uses background RSSI scans only; no 802.11k/v/r assistance is
+// enabled or required.
+#include "../../BatteryMonitor/WifiRoaming.ino"
+
 #include "../../BatteryMonitor/ZZZTrustedUsbIdentity.ino"
 
 // NativeHttpServer.ino remains the single parser/route implementation. Interpose
