@@ -10,6 +10,14 @@
 // probation before the ESP-IDF bootloader permanently accepts it, and the highest
 // accepted signed release sequence is retained in encrypted NVS to block signed-
 // image downgrades.
+//
+// Battery measurement ownership is intentionally independent of HTTP. The
+// sampling path performs ADC conversions on its configured cadence and updates
+// the cached battery state. HTTP/status clients only report the last completed
+// sample; no network request is allowed to trigger an ADC conversion. The native
+// ESP-IDF HTTP migration will preserve this model and make publication atomic as
+// a coherent snapshot so concurrent clients cannot observe a partially updated
+// set of ADC/voltage/timestamp fields.
 
 #include <esp_ota_ops.h>
 
@@ -262,7 +270,10 @@ static void serviceWifiStateWithProtectedFallback() {
     wifiDisconnectedSinceMs = 0;
     nextReconnectAttemptMs = now + RETRY_INTERVAL_MS;
     protectedFallbackHomeRetryAtMs = 0;
+    bool serverWasDown = !httpServerActive;
     startNormalNetworkServices();
+    if (serverWasDown) responsiveWebRoutesInstalled = false;
+    installResponsiveWebRoutesIfReady();
     return;
   }
 
@@ -388,7 +399,6 @@ void loop() {
   bool lifecycleLocked = false;
   if (wifiStateMayMutateHttpLifecycle()) lifecycleLocked = takeWebDomainForSharedWork();
   serviceWifiStateWithProtectedFallback();
-  if (httpServerActive) installResponsiveWebRoutesIfReady();
   if (fallbackApActive) serviceSecureProvisioning();
   releaseWebDomainForSharedWork(lifecycleLocked);
 
