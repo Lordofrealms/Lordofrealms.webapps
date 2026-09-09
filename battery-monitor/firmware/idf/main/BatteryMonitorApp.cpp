@@ -88,7 +88,15 @@ esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition)
 #include "../../BatteryMonitor/FirmwareUpdateSynchronization.ino"
 
 #include "../../BatteryMonitor/ZZZTrustedUsbIdentity.ino"
+
+// Keep NativeHttpServer.ino as the single parser/route implementation, but
+// interpose synchronized replacements for cross-task configuration and deferred
+// control routes. The public startNativeHttpServer() below installs those
+// replacements after the core server starts.
+#define startNativeHttpServer startNativeHttpServerCore
 #include "../../BatteryMonitor/NativeHttpServer.ino"
+#undef startNativeHttpServer
+#include "../../BatteryMonitor/NativeHttpSynchronization.ino"
 #include "../../BatteryMonitor/TrustedUsbSecuritySynchronization.ino"
 
 // Serial provisioning is the trusted physical transport. Password replacement
@@ -103,11 +111,9 @@ esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition)
 #undef clearProvisioningIdentity
 #undef setDevicePasswordFlexible
 
-#include "../../BatteryMonitor/NativeHttpMainControl.ino"
-
 // setup()/loop() are included last so the runtime sees every service primitive
-// above. Remap only the main-loop control service: management session expiry
-// remains owned by the native HTTP task rather than being mutated by both cores.
+// above. The main task calls only the atomic deferred-control service; management
+// challenge/session expiry remains owned by esp_http_server's task.
 #define serviceNativeHttpControl serviceNativeHttpControlMainSafe
 #include "../../BatteryMonitor/BatteryMonitor.ino"
 #undef serviceNativeHttpControl
