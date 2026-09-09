@@ -91,10 +91,14 @@ esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition)
 
 // Keep NativeHttpServer.ino as the single parser/route implementation, but
 // interpose synchronized replacements for cross-task configuration and deferred
-// control routes. The public startNativeHttpServer() below installs those
-// replacements after the core server starts.
+// control routes. Both start and stop are renamed while the core is included:
+// the public stop wrapper terminates the HTTP task before invalidating sessions,
+// so no authenticated write can survive into the short route-replacement phase
+// of a later restart.
 #define startNativeHttpServer startNativeHttpServerCore
+#define stopNativeHttpServer stopNativeHttpServerCore
 #include "../../BatteryMonitor/NativeHttpServer.ino"
+#undef stopNativeHttpServer
 #undef startNativeHttpServer
 #include "../../BatteryMonitor/NativeHttpSynchronization.ino"
 #include "../../BatteryMonitor/TrustedUsbSecuritySynchronization.ino"

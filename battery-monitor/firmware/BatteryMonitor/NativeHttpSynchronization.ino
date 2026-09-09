@@ -4,6 +4,11 @@
 // replaces only handlers that mutate shared application state or hand work to
 // the Arduino application task. That keeps the native server small while making
 // configuration writes and deferred provisioning/reboot control race-free.
+//
+// A public server stop always terminates esp_http_server first, then invalidates
+// management challenges/sessions. Therefore a restarted server cannot have an
+// already-authenticated client capable of reaching a core mutating route during
+// the very short interval before synchronized replacements are installed.
 
 #include <atomic>
 
@@ -102,6 +107,15 @@ static bool replaceNativeHandler(const char* uri,
     return false;
   }
   return true;
+}
+
+void stopNativeHttpServer() {
+  // httpd_stop() waits for the server task to terminate. Only after that task is
+  // gone do we touch its challenge/session arrays from the application task.
+  // This preserves single-task ownership while guaranteeing no authenticated
+  // session survives into a later server start/replacement interval.
+  stopNativeHttpServerCore();
+  invalidateManagementSessions();
 }
 
 bool startNativeHttpServer() {
