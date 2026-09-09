@@ -1,9 +1,56 @@
-// Trusted-USB-only HTTP diagnostics command router.
+// Trusted-USB-only HTTP diagnostics and transport-settings command router.
 //
 // The existing SerialProvisioning parser remains authoritative for all normal
 // commands and firmware-update raw mode. This wrapper intercepts only HTTPTRACE
-// diagnostics, then delegates every other complete command line unchanged.
-// Diagnostics are intentionally unavailable over LAN.
+// diagnostics plus HTTPSTATUS / SET HTTP engineering settings, then delegates
+// every other complete command line unchanged. These controls are intentionally
+// unavailable over LAN.
+
+static bool parseHttpUnsigned(const String& token, uint32_t& valueOut) {
+  if (token.length() == 0) return false;
+  char* end = nullptr;
+  unsigned long value = strtoul(token.c_str(), &end, 10);
+  if (!end || *end != '\0') return false;
+  valueOut = (uint32_t)value;
+  return true;
+}
+
+static bool processHttpRuntimeSettingsSerialCommand(String line) {
+  line.trim();
+
+  if (line == "BATMON1 HTTPSTATUS") {
+    serialOk(httpRuntimeSettingsSummary());
+    return true;
+  }
+
+  if (!line.startsWith("BATMON1 SET HTTP ")) return false;
+
+  String remaining = line.substring(17);
+  String clientsToken = nextToken(remaining);
+  String rootToken = nextToken(remaining);
+  String smallToken = nextToken(remaining);
+  String scanToken = nextToken(remaining);
+  remaining.trim();
+
+  uint32_t clients = 0, rootSendBuffer = 0, smallSendBuffer = 0, scanSendBuffer = 0;
+  if (remaining.length() != 0 ||
+      !parseHttpUnsigned(clientsToken, clients) ||
+      !parseHttpUnsigned(rootToken, rootSendBuffer) ||
+      !parseHttpUnsigned(smallToken, smallSendBuffer) ||
+      !parseHttpUnsigned(scanToken, scanSendBuffer)) {
+    serialErr("HTTP_INVALID_ARGUMENTS");
+    return true;
+  }
+
+  String error;
+  if (!setHttpRuntimeSettings(clients, rootSendBuffer, smallSendBuffer, scanSendBuffer, error)) {
+    serialErr(error);
+    return true;
+  }
+
+  serialOk(httpRuntimeSettingsSummary());
+  return true;
+}
 
 static bool processHttpDiagnosticsSerialCommand(String line) {
   line.trim();
@@ -57,7 +104,8 @@ void serviceSerialProvisioning() {
       if (serialProvisioningLine.length() > 0) {
         String completed = serialProvisioningLine;
         serialProvisioningLine = "";
-        if (!processHttpDiagnosticsSerialCommand(completed))
+        if (!processHttpRuntimeSettingsSerialCommand(completed) &&
+            !processHttpDiagnosticsSerialCommand(completed))
           processSerialProvisioningCommand(completed);
       }
       if (firmwareUpdateRawBytesPending()) return;

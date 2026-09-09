@@ -22,6 +22,7 @@ bool commitRunningFirmwareReleaseFloor(String& errorOut);
 esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition);
 
 #include "../../BatteryMonitor/WifiRadioSettings.ino"
+#include "../../BatteryMonitor/HttpRuntimeSettings.ino"
 
 // BatteryMonitorCore owns the single persistence/UI implementations. Rename the
 // mutable configuration entry points while including it, then expose the normal
@@ -91,25 +92,50 @@ esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition)
 
 #include "../../BatteryMonitor/ZZZTrustedUsbIdentity.ino"
 
+// NativeHttpServer.ino remains the single parser/route implementation. Interpose
+// two native-transport hooks while it is included:
+//  - httpd_start receives the persisted runtime client-session limit;
+//  - ordinary httpd_resp_send responses receive the route-appropriate TCP send
+//    buffer. The synchronized root route uses chunked output and applies its
+//    configured send buffer directly before the first chunk.
+static esp_err_t batteryMonitorHttpdStartRuntime(httpd_handle_t* handle,
+                                                 const httpd_config_t* config) {
+  loadHttpRuntimeSettings();
+  httpd_config_t adjusted = *config;
+  adjusted.max_open_sockets = httpRuntimeMaxClients();
+  return httpd_start(handle, &adjusted);
+}
+
+static esp_err_t batteryMonitorHttpdRespSendRuntime(httpd_req_t* req,
+                                                    const char* buffer,
+                                                    ssize_t length) {
+  httpRuntimeApplySendBufferForRequest(req);
+  return httpd_resp_send(req, buffer, length);
+}
+
 // Keep NativeHttpServer.ino as the single parser/route implementation, but
 // interpose synchronized replacements for cross-task configuration and deferred
 // control routes. Both start and stop are renamed while the core is included:
 // the public stop wrapper terminates the HTTP task before invalidating sessions,
 // so no authenticated write can survive into the short route-replacement phase
 // of a later restart.
+#define httpd_start batteryMonitorHttpdStartRuntime
+#define httpd_resp_send batteryMonitorHttpdRespSendRuntime
 #define startNativeHttpServer startNativeHttpServerCore
 #define stopNativeHttpServer stopNativeHttpServerCore
 #include "../../BatteryMonitor/NativeHttpServer.ino"
 #undef stopNativeHttpServer
 #undef startNativeHttpServer
+#undef httpd_resp_send
+#undef httpd_start
 #include "../../BatteryMonitor/NativeHttpSynchronization.ino"
 #include "../../BatteryMonitor/NetworkSnapshotControl.ino"
 #include "../../BatteryMonitor/TrustedUsbSecuritySynchronization.ino"
 
 // Serial provisioning is the trusted physical transport. Keep its protocol
 // implementation untouched, rename only its top-level byte-pump/event entry
-// points, then add a thin router that intercepts the diagnostic-only HTTPTRACE
-// commands and delegates every normal command to the existing parser.
+// points, then add a thin router that intercepts engineering-only HTTPTRACE and
+// HTTP transport-setting commands before delegating normal commands unchanged.
 #define setDevicePasswordFlexible setDevicePasswordFlexibleTrustedUsb
 #define clearProvisioningIdentity clearProvisioningIdentityTrustedUsb
 #define provisioningIdentitySummary provisioningIdentitySummaryTrustedUsb

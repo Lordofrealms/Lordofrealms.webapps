@@ -51,6 +51,7 @@ static esp_err_t synchronizedNativeRootHandler(httpd_req_t* req) {
   const uint32_t sequence = trace ? nextHttpTraceSequence() : 0;
   const uint32_t startedUs = micros();
   prepareBrowserResponse(req);
+  httpRuntimeApplySendBuffer(req, httpRuntimeRootSendBufferBytes());
 
   const uint32_t buildStart = trace ? micros() : 0;
   String page = buildIndexPage();
@@ -151,6 +152,29 @@ static esp_err_t synchronizedNativeConfigGetHandler(httpd_req_t* req) {
                                 (uint32_t)(micros() - startedUs), (int)result);
   recordBrowserResponseLatency("/api/config", startedUs, browserConfigSlowResponses);
   return result;
+}
+
+static esp_err_t synchronizedNativeRuntimeHandler(httpd_req_t* req) {
+  NativeHttpRequestScope scope;
+  NetworkSnapshot network = {};
+  bool networkReady = copyNetworkSnapshot(network);
+
+  String json = "{";
+  json += "\"firmwareVersion\":\"" + String(FW_VERSION) + "\",";
+  json += "\"httpServer\":\"esp_http_server\",";
+  json += "\"maxHttpClients\":" + String(httpRuntimeMaxClients()) + ",";
+  json += "\"lwipMaxSockets\":" + String((unsigned long)CONFIG_LWIP_MAX_SOCKETS) + ",";
+  json += "\"rootTcpSendBuffer\":" + String(httpRuntimeRootSendBufferBytes()) + ",";
+  json += "\"smallTcpSendBuffer\":" + String(httpRuntimeSmallSendBufferBytes()) + ",";
+  json += "\"wifiScanTcpSendBuffer\":" + String(httpRuntimeScanSendBufferBytes()) + ",";
+  json += "\"cpuMHz\":" + String(ESP.getCpuFreqMHz()) + ",";
+  json += "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",";
+  json += "\"minFreeHeap\":" + String(ESP.getMinFreeHeap()) + ",";
+  json += "\"wifiRssi\":" + String(networkReady && network.wifiConnected ? network.rssi : 0) + ",";
+  json += "\"requestCount\":" + String(nativeHttpRequests) + ",";
+  json += "\"maxHandlerUs\":" + String(nativeHttpMaxHandlerUs);
+  json += "}";
+  return nativeSendJson(req, 200, json);
 }
 
 static esp_err_t synchronizedNativeConfigPostHandler(httpd_req_t* req) {
@@ -265,7 +289,8 @@ bool startNativeHttpServer() {
     replaceNativeHandler("/api/config", HTTP_POST, synchronizedNativeConfigPostHandler) &&
     replaceNativeHandler("/api/wifi/provisioning", HTTP_POST, synchronizedNativeProvisioningHandler) &&
     replaceNativeHandler("/api/reset-wifi", HTTP_POST, synchronizedNativeProvisioningHandler) &&
-    replaceNativeHandler("/api/firmware/end", HTTP_POST, synchronizedNativeFirmwareEndHandler);
+    replaceNativeHandler("/api/firmware/end", HTTP_POST, synchronizedNativeFirmwareEndHandler) &&
+    replaceNativeHandler("/api/runtime", HTTP_GET, synchronizedNativeRuntimeHandler);
   if (!routesOk) {
     stopNativeHttpServer();
     return false;
@@ -274,6 +299,16 @@ bool startNativeHttpServer() {
 }
 
 void serviceNativeHttpControlMainSafe() {
+  if (consumeHttpRuntimeServerRestartRequest()) {
+    if (httpServerActive) {
+      Serial.printf("Restarting native HTTP server for runtime client limit %u.\n",
+                    (unsigned int)httpRuntimeMaxClients());
+      stopNativeHttpServer();
+      if (!startNativeHttpServer())
+        Serial.println("WARNING: Native HTTP server could not restart after HTTP settings change.");
+    }
+  }
+
   uint32_t provisioningAt = synchronizedProvisioningStartAtMs.load(std::memory_order_acquire);
   if (provisioningAt != 0 && (int32_t)((uint32_t)millis() - provisioningAt) >= 0) {
     if (synchronizedProvisioningStartAtMs.compare_exchange_strong(

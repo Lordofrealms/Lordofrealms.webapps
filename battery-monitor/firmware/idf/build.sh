@@ -118,16 +118,17 @@ idf.py set-target esp32
 idf.py build
 
 # Fail closed if the generated configuration ever drifts from the production
-# device-at-rest and OTA recoverability authority.
+# device-at-rest, socket-capacity and OTA recoverability authority.
 for required in \
   'CONFIG_SECURE_FLASH_ENC_ENABLED=y' \
   'CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y' \
   'CONFIG_NVS_ENCRYPTION=y' \
   'CONFIG_NVS_SEC_KEY_PROTECT_USING_FLASH_ENC=y' \
   'CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y' \
-  'CONFIG_PARTITION_TABLE_OFFSET=0xF000'; do
+  'CONFIG_PARTITION_TABLE_OFFSET=0xF000' \
+  'CONFIG_LWIP_MAX_SOCKETS=30'; do
   if ! grep -qx "$required" sdkconfig; then
-    echo "Required production security/layout setting missing from generated sdkconfig: $required" >&2
+    echo "Required production security/layout/network setting missing from generated sdkconfig: $required" >&2
     exit 3
   fi
 done
@@ -205,7 +206,13 @@ arduino_esp32_component_source=upstream-git
 arduino_esp32_commit=$ARDUINO_ESP32_COMMIT
 http_server=esp_http_server
 http_transport=native-esp-idf
-http_max_client_sessions=10
+http_max_client_sessions=15
+http_max_client_sessions_runtime_configurable=yes
+http_max_client_sessions_runtime_range=4-20
+http_root_tcp_sndbuf_default=12288
+http_small_tcp_sndbuf_default=3072
+http_wifi_scan_tcp_sndbuf_default=5760
+lwip_max_sockets=30
 target=esp32
 app_version=$APP_VERSION
 software_release_sequence=$APP_RELEASE_SEQUENCE
