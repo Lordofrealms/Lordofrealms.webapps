@@ -6,9 +6,14 @@
 // tasks concurrently, so every post-setup read/write of mutable configuration is
 // serialized here. BatterySnapshot consumes copied configuration after releasing
 // this mutex, which prevents config<->snapshot lock inversion.
+//
+// Two scalar values used on every main-loop pass (configured-Wi-Fi presence and
+// sampling interval) are mirrored atomically so the hot path does not take this
+// mutex every ~2 ms.
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include <atomic>
 
 void refreshBatterySnapshotConfiguration();
 
@@ -26,15 +31,25 @@ struct DeviceConfigState {
 
 static SemaphoreHandle_t deviceConfigMutex = nullptr;
 static bool deviceConfigSyncErrorReported = false;
+static std::atomic<bool> configuredWifiPresent{false};
+static std::atomic<uint32_t> cachedSampleIntervalSec{10};
 
 bool initializeDeviceConfigSynchronization() {
   if (deviceConfigMutex != nullptr) return true;
   deviceConfigMutex = xSemaphoreCreateMutex();
-  if (deviceConfigMutex == nullptr && !deviceConfigSyncErrorReported) {
-    deviceConfigSyncErrorReported = true;
-    Serial.println("ERROR: Could not allocate configuration synchronization mutex; network configuration access is disabled.");
+  if (deviceConfigMutex == nullptr) {
+    if (!deviceConfigSyncErrorReported) {
+      deviceConfigSyncErrorReported = true;
+      Serial.println("ERROR: Could not allocate configuration synchronization mutex; network configuration access is disabled.");
+    }
+    return false;
   }
-  return deviceConfigMutex != nullptr;
+
+  // setup() loads the globals before concurrent network services start, so this
+  // initial publication is race-free. Subsequent changes are published below.
+  configuredWifiPresent.store(wifiSsid.length() > 0, std::memory_order_release);
+  cachedSampleIntervalSec.store(sampleIntervalSec, std::memory_order_release);
+  return true;
 }
 
 static bool takeDeviceConfigMutex(TickType_t waitTicks = pdMS_TO_TICKS(1000)) {
@@ -70,17 +85,13 @@ bool copyConfiguredWifi(String& ssidOut, String& passwordOut) {
 }
 
 bool hasConfiguredWifi() {
-  if (!takeDeviceConfigMutex(pdMS_TO_TICKS(100))) return false;
-  bool configured = wifiSsid.length() > 0;
-  giveDeviceConfigMutex();
-  return configured;
+  if (deviceConfigMutex == nullptr && !initializeDeviceConfigSynchronization()) return false;
+  return configuredWifiPresent.load(std::memory_order_acquire);
 }
 
 uint32_t synchronizedSampleIntervalSec() {
-  if (!takeDeviceConfigMutex(pdMS_TO_TICKS(100))) return 10;
-  uint32_t value = sampleIntervalSec;
-  giveDeviceConfigMutex();
-  return value;
+  if (deviceConfigMutex == nullptr && !initializeDeviceConfigSynchronization()) return 10;
+  return cachedSampleIntervalSec.load(std::memory_order_acquire);
 }
 
 bool applyDeviceConfiguration(const String& newName,
@@ -103,6 +114,7 @@ bool applyDeviceConfiguration(const String& newName,
   calibrationOffset = newCalibrationOffset;
   sampleIntervalSec = newSampleIntervalSec;
   saveDeviceSettingsUnlocked();
+  cachedSampleIntervalSec.store(sampleIntervalSec, std::memory_order_release);
   giveDeviceConfigMutex();
   refreshBatterySnapshotConfiguration();
   errorOut = "";
@@ -137,6 +149,7 @@ bool setSampleIntervalSynchronized(uint32_t newSampleIntervalSec, String& errorO
   if (!takeDeviceConfigMutex()) { errorOut = "CONFIG_SYNC_UNAVAILABLE"; return false; }
   sampleIntervalSec = newSampleIntervalSec;
   saveDeviceSettingsUnlocked();
+  cachedSampleIntervalSec.store(sampleIntervalSec, std::memory_order_release);
   giveDeviceConfigMutex();
   refreshBatterySnapshotConfiguration();
   errorOut = "";
@@ -161,6 +174,7 @@ bool setCalibrationSynchronized(float newCalibrationFactor,
 void saveDeviceSettings() {
   if (!takeDeviceConfigMutex()) return;
   saveDeviceSettingsUnlocked();
+  cachedSampleIntervalSec.store(sampleIntervalSec, std::memory_order_release);
   giveDeviceConfigMutex();
 }
 
@@ -170,6 +184,7 @@ void saveWifiSettings(const String& ssid, const String& pass) {
     return;
   }
   saveWifiSettingsUnlocked(ssid, pass);
+  configuredWifiPresent.store(wifiSsid.length() > 0, std::memory_order_release);
   giveDeviceConfigMutex();
 }
 
@@ -179,6 +194,7 @@ void clearWifiSettings() {
     return;
   }
   clearWifiSettingsUnlocked();
+  configuredWifiPresent.store(false, std::memory_order_release);
   giveDeviceConfigMutex();
 }
 
