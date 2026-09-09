@@ -49,6 +49,7 @@ static bool dedicatedWebServerTaskReady = false;
 static unsigned long protectedFallbackHomeRetryAtMs = 0;
 static bool protectedFallbackHomeRetryPending = false;
 static unsigned long lastManagementAuthServiceMs = 0;
+static bool responsiveWebRoutesInstalled = false;
 
 static bool takeWebDomainForSharedWork() {
   if (!dedicatedWebServerTaskReady || firmwareUpdateIsLanTransport()) return false;
@@ -71,9 +72,48 @@ static bool resetButtonMayEnterProvisioning() {
   return (unsigned long)(millis() - bootButtonPressedSinceMs) >= WIFI_RESET_HOLD_MS;
 }
 
+static void handleResponsiveRoot() {
+  String page = buildIndexPage();
+  // The pinned Arduino WebServer is single-client. The legacy page used
+  // setInterval(), which starts another fetch every second even when the prior
+  // status request has not completed. Replace only the startup scheduler at
+  // response time so automatic polling is strictly single-flight.
+  page.replace(
+    "loadConfig().then(refresh);setInterval(refresh,refreshMs);",
+    "async function refreshLoop(){await refresh();setTimeout(refreshLoop,refreshMs)}loadConfig().then(refreshLoop);"
+  );
+  server.sendHeader("Cache-Control", "no-store");
+  server.sendHeader("Connection", "close");
+  server.send(200, "text/html; charset=utf-8", page);
+}
+
+static void handleResponsiveStatus() {
+  server.sendHeader("Cache-Control", "no-store");
+  server.sendHeader("Connection", "close");
+  server.send(200, "application/json", statusJson());
+}
+
+static void installResponsiveWebRoutesIfReady() {
+  if (!httpServerActive || responsiveWebRoutesInstalled) return;
+
+  // configureHttpServer() installs the legacy routes before server.begin().
+  // Replace the two high-frequency GET handlers once. removeRoute() removes all
+  // matching handlers, preventing duplicate routes from being selected first.
+  server.removeRoute("/", HTTP_GET);
+  server.removeRoute("/api/status", HTTP_GET);
+  server.on("/", HTTP_GET, handleResponsiveRoot);
+  server.on("/api/status", HTTP_GET, handleResponsiveStatus);
+
+  // handleClient() already runs from a task that yields every millisecond, so
+  // do not add another internal 1 ms delay when there is no accepted client.
+  server.enableDelay(false);
+  responsiveWebRoutesInstalled = true;
+}
+
 static void registerRuntimeDiagnosticsRoute() {
   server.on("/api/runtime", HTTP_GET, []() {
     server.sendHeader("Cache-Control", "no-store");
+    server.sendHeader("Connection", "close");
     String json = "{";
     json += "\"firmwareVersion\":\"" + String(FW_VERSION) + "\",";
     json += "\"cpuMHz\":" + String(ESP.getCpuFreqMHz()) + ",";
@@ -296,6 +336,7 @@ void setup() {
   if (connected) {
     Serial.printf("Wi-Fi connected: %s\n", WiFi.localIP().toString().c_str());
     startNormalNetworkServices();
+    installResponsiveWebRoutesIfReady();
     nextReconnectAttemptMs = millis() + RETRY_INTERVAL_MS;
   } else if (wifiSsid.length() == 0 && provisioningReady) {
     startFallbackAp();
@@ -347,6 +388,7 @@ void loop() {
   bool lifecycleLocked = false;
   if (wifiStateMayMutateHttpLifecycle()) lifecycleLocked = takeWebDomainForSharedWork();
   serviceWifiStateWithProtectedFallback();
+  if (httpServerActive) installResponsiveWebRoutesIfReady();
   if (fallbackApActive) serviceSecureProvisioning();
   releaseWebDomainForSharedWork(lifecycleLocked);
 
