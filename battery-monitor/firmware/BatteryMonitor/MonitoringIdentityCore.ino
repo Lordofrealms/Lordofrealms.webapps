@@ -16,11 +16,24 @@ static const size_t MONITOR_ID_KEY_BYTES = 32;
 static uint8_t monitoringIdentityKey[MONITOR_ID_KEY_BYTES] = {};
 static std::atomic<bool> monitoringIdentityReady{false};
 static SemaphoreHandle_t monitoringIdentityInitMutex = nullptr;
+static portMUX_TYPE monitoringIdentityInitMux = portMUX_INITIALIZER_UNLOCKED;
 
 static bool ensureMonitoringIdentityInitMutex() {
   if (monitoringIdentityInitMutex != nullptr) return true;
-  monitoringIdentityInitMutex = xSemaphoreCreateMutex();
-  return monitoringIdentityInitMutex != nullptr;
+
+  // HTTP and UDP discovery can be the first caller on different cores. Allocate
+  // outside the critical section, then publish exactly one mutex under a tiny
+  // spinlock. A losing candidate is deleted after leaving the critical section.
+  SemaphoreHandle_t candidate = xSemaphoreCreateMutex();
+  portENTER_CRITICAL(&monitoringIdentityInitMux);
+  if (monitoringIdentityInitMutex == nullptr && candidate != nullptr) {
+    monitoringIdentityInitMutex = candidate;
+    candidate = nullptr;
+  }
+  bool ready = monitoringIdentityInitMutex != nullptr;
+  portEXIT_CRITICAL(&monitoringIdentityInitMux);
+  if (candidate != nullptr) vSemaphoreDelete(candidate);
+  return ready;
 }
 
 static String monitorBase64Encode(const uint8_t* data, size_t len) {
