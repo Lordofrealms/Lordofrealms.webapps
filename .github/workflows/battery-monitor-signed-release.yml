@@ -10,7 +10,7 @@ on:
       version:
         description: 'Exact firmware version from battery-monitor/firmware/idf/version.txt'
         required: true
-        default: '0.1.0.1'
+        default: '0.1.0.6'
         type: string
 
 permissions:
@@ -100,6 +100,7 @@ jobs:
           grep -qx 'http_transport=native-esp-idf' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
           grep -qx 'http_max_client_sessions=15' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
           grep -qx 'http_max_client_sessions_runtime_configurable=yes' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
+          grep -qx 'http_tcp_sndbuf_default=12288' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
           grep -qx 'lwip_max_sockets=30' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
 
       - name: Sign and independently verify firmware
@@ -194,9 +195,7 @@ jobs:
             echo 'http_transport=native-esp-idf'
             echo 'http_max_client_sessions=15'
             echo 'http_max_client_sessions_runtime_configurable=yes'
-            echo 'http_root_tcp_sndbuf_default=12288'
-            echo 'http_small_tcp_sndbuf_default=3072'
-            echo 'http_wifi_scan_tcp_sndbuf_default=5760'
+            echo 'http_tcp_sndbuf_default=12288'
             echo 'lwip_max_sockets=30'
             echo 'algorithm=RSA-3072-PSS-SHA256'
             echo "public_key_spki_sha256=$EXPECTED_KEY_FINGERPRINT"
