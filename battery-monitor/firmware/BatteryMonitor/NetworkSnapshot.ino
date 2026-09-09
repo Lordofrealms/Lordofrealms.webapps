@@ -45,24 +45,42 @@ bool copyNetworkSnapshot(NetworkSnapshot& out) {
 }
 
 void publishNetworkSnapshotNow() {
+  const bool trace = isHttpTraceEnabled();
+  const uint32_t totalStart = trace ? micros() : 0;
+  uint32_t stageStart = trace ? micros() : 0;
+
   NetworkSnapshot next = {};
   next.publishedAtMs = millis();
   next.wifiConnected = WiFi.status() == WL_CONNECTED;
-  next.setupApActive = secureProvisioningActive.load(std::memory_order_acquire) || fallbackApActive;
-  next.rssi = next.wifiConnected ? WiFi.RSSI() : 0;
+  const uint32_t statusUs = trace ? (uint32_t)(micros() - stageStart) : 0;
 
+  next.setupApActive = secureProvisioningActive.load(std::memory_order_acquire) || fallbackApActive;
+
+  stageStart = trace ? micros() : 0;
+  next.rssi = next.wifiConnected ? WiFi.RSSI() : 0;
+  const uint32_t rssiUs = trace ? (uint32_t)(micros() - stageStart) : 0;
+
+  stageStart = trace ? micros() : 0;
   IPAddress ip(0, 0, 0, 0);
   if (next.wifiConnected) ip = WiFi.localIP();
   else if (next.setupApActive) ip = WiFi.softAPIP();
   String ipText = ip.toString();
   strlcpy(next.ip, ipText.c_str(), sizeof(next.ip));
+  const uint32_t ipUs = trace ? (uint32_t)(micros() - stageStart) : 0;
 
+  stageStart = trace ? micros() : 0;
   if (!ensureNetworkSnapshotMutex()) return;
   if (xSemaphoreTake(networkSnapshotMutex, pdMS_TO_TICKS(10)) != pdTRUE) return;
   publishedNetworkSnapshot = next;
   publishedNetworkSnapshotReady = true;
   xSemaphoreGive(networkSnapshotMutex);
   nextNetworkSnapshotAtMs = next.publishedAtMs + NETWORK_SNAPSHOT_INTERVAL_MS;
+  const uint32_t publishUs = trace ? (uint32_t)(micros() - stageStart) : 0;
+
+  if (trace) {
+    httpTraceLogNetworkPublish(statusUs, rssiUs, ipUs, publishUs,
+                               (uint32_t)(micros() - totalStart));
+  }
 }
 
 void serviceNetworkSnapshot() {
