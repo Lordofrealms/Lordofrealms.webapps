@@ -1,9 +1,9 @@
 // Cross-task synchronization layer for the native ESP-IDF HTTP server.
 //
 // NativeHttpServer.ino remains the one parser/route implementation. This layer
-// replaces only handlers that mutate shared application state or hand work to
-// the Arduino application task. That keeps the native server small while making
-// configuration writes and deferred provisioning/reboot control race-free.
+// replaces handlers that mutate shared application state or hand work to the
+// Arduino application task. It also owns the browser-facing read routes so the
+// WebUI cannot be held hostage by config loading or stale persistent sockets.
 //
 // A public server stop always terminates esp_http_server first, then invalidates
 // management challenges/sessions. Therefore a restarted server cannot have an
@@ -11,10 +11,82 @@
 // the very short interval before synchronized replacements are installed.
 
 #include <atomic>
+#include <sys/time.h>
 
 static std::atomic<uint32_t> synchronizedProvisioningStartAtMs{0};
 static std::atomic<uint32_t> synchronizedFirmwareRebootAtMs{0};
 static std::atomic<bool> synchronizedFirmwareRebootPending{false};
+static std::atomic<uint32_t> browserRootSlowResponses{0};
+static std::atomic<uint32_t> browserStatusSlowResponses{0};
+static std::atomic<uint32_t> browserConfigSlowResponses{0};
+
+static void prepareBrowserResponse(httpd_req_t* req) {
+  // esp_http_server uses one server task. A browser tab that disappears while a
+  // response is being sent must not own that task for the global 3-second send
+  // timeout. Browser read responses are intentionally short-lived connections.
+  httpd_resp_set_hdr(req, "Connection", "close");
+  int fd = httpd_req_to_sockfd(req);
+  if (fd >= 0) {
+    struct timeval timeout = {};
+    timeout.tv_sec = 1;
+    timeout.tv_usec = 0;
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+  }
+}
+
+static void recordBrowserResponseLatency(const char* route,
+                                         uint32_t startedUs,
+                                         std::atomic<uint32_t>& slowCounter) {
+  uint32_t elapsed = (uint32_t)(micros() - startedUs);
+  if (elapsed < 250000UL) return;
+  slowCounter.fetch_add(1, std::memory_order_relaxed);
+  Serial.printf("WARNING: Native HTTP %s response took %lu ms.\n",
+                route, (unsigned long)(elapsed / 1000UL));
+}
+
+static esp_err_t synchronizedNativeRootHandler(httpd_req_t* req) {
+  NativeHttpRequestScope scope;
+  uint32_t startedUs = micros();
+  prepareBrowserResponse(req);
+
+  String page = buildIndexPage();
+  // Live status must never depend on the settings/config endpoint. Populate
+  // configuration only after successful management unlock; status starts as
+  // soon as the HTML/JS has loaded.
+  page.replace("loadConfig().then(refreshLoop);", "refreshLoop();");
+  page.replace(
+    "session=s.session;csrf=s.csrf;el('devicePassword').value='';el('settings').disabled=false;",
+    "session=s.session;csrf=s.csrf;await loadConfig();el('devicePassword').value='';el('settings').disabled=false;"
+  );
+
+  esp_err_t result = nativeSend(req, 200, "text/html; charset=utf-8", page);
+  recordBrowserResponseLatency("/", startedUs, browserRootSlowResponses);
+  return result;
+}
+
+static esp_err_t synchronizedNativeStatusHandler(httpd_req_t* req) {
+  NativeHttpRequestScope scope;
+  uint32_t startedUs = micros();
+  prepareBrowserResponse(req);
+  // batterySnapshotStatusJson() reads the published BatterySnapshot and the
+  // published configuration snapshot; it never triggers ADC or NVS work.
+  String body = batterySnapshotStatusJson();
+  esp_err_t result = nativeSendJson(req, 200, body);
+  recordBrowserResponseLatency("/api/status", startedUs, browserStatusSlowResponses);
+  return result;
+}
+
+static esp_err_t synchronizedNativeConfigGetHandler(httpd_req_t* req) {
+  NativeHttpRequestScope scope;
+  uint32_t startedUs = micros();
+  prepareBrowserResponse(req);
+  // configJson() is prebuilt when configuration is published. Reads do not wait
+  // for NVS persistence and do not copy mutable authoritative globals.
+  String body = configJson();
+  esp_err_t result = nativeSendJson(req, 200, body);
+  recordBrowserResponseLatency("/api/config", startedUs, browserConfigSlowResponses);
+  return result;
+}
 
 static esp_err_t synchronizedNativeConfigPostHandler(httpd_req_t* req) {
   NativeHttpRequestScope scope;
@@ -126,6 +198,9 @@ bool startNativeHttpServer() {
   if (!startNativeHttpServerCore()) return false;
 
   bool routesOk =
+    replaceNativeHandler("/", HTTP_GET, synchronizedNativeRootHandler) &&
+    replaceNativeHandler("/api/status", HTTP_GET, synchronizedNativeStatusHandler) &&
+    replaceNativeHandler("/api/config", HTTP_GET, synchronizedNativeConfigGetHandler) &&
     replaceNativeHandler("/api/config", HTTP_POST, synchronizedNativeConfigPostHandler) &&
     replaceNativeHandler("/api/wifi/provisioning", HTTP_POST, synchronizedNativeProvisioningHandler) &&
     replaceNativeHandler("/api/reset-wifi", HTTP_POST, synchronizedNativeProvisioningHandler) &&
