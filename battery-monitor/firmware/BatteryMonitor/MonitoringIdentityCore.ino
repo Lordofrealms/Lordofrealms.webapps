@@ -81,11 +81,11 @@ bool loadOrCreateMonitoringIdentity() {
   return monitoringIdentityReady;
 }
 
-static String authenticatedDiscoveryPayload() {
+static String authenticatedDiscoveryPayload(const DeviceConfigState& config) {
   String payload = "{";
   payload += "\"apiVersion\":" + String(API_VERSION) + ",";
   payload += "\"deviceId\":\"" + jsonEscape(deviceId) + "\",";
-  payload += "\"name\":\"" + jsonEscape(deviceName) + "\",";
+  payload += "\"name\":\"" + jsonEscape(config.deviceName) + "\",";
   payload += "\"hostname\":\"" + jsonEscape(hostName) + "\",";
   payload += "\"ip\":\"" + localIpString() + "\",";
   payload += "\"port\":" + String(HTTP_PORT) + ",";
@@ -93,12 +93,12 @@ static String authenticatedDiscoveryPayload() {
   return payload;
 }
 
-static void sendLegacyDiscoveryReply() {
+static void sendLegacyDiscoveryReply(const DeviceConfigState& config) {
   String reply = "{";
   reply += "\"protocol\":\"BATMON_DISCOVERY_V1\",";
   reply += "\"apiVersion\":" + String(API_VERSION) + ",";
   reply += "\"deviceId\":\"" + jsonEscape(deviceId) + "\",";
-  reply += "\"name\":\"" + jsonEscape(deviceName) + "\",";
+  reply += "\"name\":\"" + jsonEscape(config.deviceName) + "\",";
   reply += "\"hostname\":\"" + jsonEscape(hostName) + "\",";
   reply += "\"ip\":\"" + localIpString() + "\",";
   reply += "\"port\":" + String(HTTP_PORT) + ",";
@@ -120,8 +120,13 @@ void serviceAuthenticatedDiscovery() {
   String request(buffer);
   request.trim();
 
+  // Copy mutable display/configuration state once per request. Discovery never
+  // holds the configuration mutex while performing UDP writes or HMAC work.
+  DeviceConfigState config = {};
+  if (!copyDeviceConfigState(config)) return;
+
   if (request == "BATMON_DISCOVER_V1") {
-    sendLegacyDiscoveryReply();
+    sendLegacyDiscoveryReply(config);
     return;
   }
 
@@ -132,7 +137,7 @@ void serviceAuthenticatedDiscovery() {
   if (!validMonitorNonce(nonce)) return;
   if (!monitoringIdentityReady && !loadOrCreateMonitoringIdentity()) return;
 
-  String payload = authenticatedDiscoveryPayload();
+  String payload = authenticatedDiscoveryPayload(config);
   uint8_t mac[32];
   if (!monitoringHmac("BATMON-DISCOVERY-V2", nonce, payload, mac)) return;
   String encoded = monitorBase64Encode((const uint8_t*)payload.c_str(), payload.length());
