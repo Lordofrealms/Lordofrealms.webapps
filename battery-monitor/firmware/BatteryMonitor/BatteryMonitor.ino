@@ -106,6 +106,7 @@ static void stopNativeNetworkServices() {
 // production runtime means no legacy Arduino WebServer helper is required.
 void startFallbackAp() {
   if (fallbackApActive) return;
+  cancelBatteryMonitorRoamingScan();
   stopNativeNetworkServices();
   if (!startSecureProvisioning()) {
     fallbackApActive = false;
@@ -304,6 +305,10 @@ void loop() {
   serviceWifiRadioSettings();
   serviceNativeHttpControl();
 
+  // Run before the OTA early-return so an OTA that begins while a background
+  // roaming scan is active immediately cancels that scan. The roaming service
+  // itself never initiates a scan while firmwareUpdateInProgress() is true.
+  serviceBatteryMonitorWifiRoaming();
   if (firmwareUpdateInProgress()) {
     delay(1);
     return;
