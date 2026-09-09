@@ -19,6 +19,7 @@
 #include <esp_wifi.h>
 #include <esp_event.h>
 #include <psa/crypto.h>
+#include <atomic>
 
 static const char* PROV_NAMESPACE = "batsec";
 static const size_t PROV_SALT_BYTES = 16;
@@ -34,9 +35,14 @@ static size_t provisioningSaltLen = 0;
 static uint8_t* provisioningVerifier = nullptr;
 static size_t provisioningVerifierLen = 0;
 static network_prov_security2_params_t provisioningSec2Params = {};
-static bool secureProvisioningActive = false;
-static bool secureProvisioningInitialized = false;
-static bool secureProvisioningEventRegistered = false;
+// NETWORK_PROV_EVENT executes on Espressif's event task while the application
+// loop/USB path runs on the Arduino task. Publish lifecycle state atomically;
+// mutable credential material itself remains protected by the rule that it is
+// never replaced while Security 2 is active.
+static std::atomic<bool> secureProvisioningActive{false};
+static std::atomic<bool> secureProvisioningInitialized{false};
+static std::atomic<bool> secureProvisioningEndPending{false};
+static bool secureProvisioningEventRegistered = false; // application-task-owned
 
 static bool isSetupCodeChar(char c) {
   static const char* ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -287,6 +293,7 @@ static void syncProvisionedWifiToBatteryMonitorPrefs() {
   String ssid((const char*)conf.sta.ssid);
   String password((const char*)conf.sta.password);
   if (ssid.length() > 0) saveWifiSettings(ssid, password);
+  password = "";
 }
 
 static void secureProvisioningEventHandler(void* arg, esp_event_base_t eventBase, int32_t eventId, void* eventData) {
@@ -303,11 +310,13 @@ static void secureProvisioningEventHandler(void* arg, esp_event_base_t eventBase
       Serial.println("Secure provisioning Wi-Fi connection failed; setup service remains available");
       break;
     case NETWORK_PROV_END:
-      Serial.println("Secure provisioning session ended; returning to normal network services");
+      Serial.println("Secure provisioning session ended; returning control to the application task");
       network_prov_mgr_deinit();
-      secureProvisioningActive = false;
-      secureProvisioningInitialized = false;
-      fallbackApActive = false;
+      secureProvisioningActive.store(false, std::memory_order_release);
+      secureProvisioningInitialized.store(false, std::memory_order_release);
+      // fallbackApActive is application-task-owned. Do not mutate it from the
+      // Espressif event task; serviceSecureProvisioning() performs that handoff.
+      secureProvisioningEndPending.store(true, std::memory_order_release);
       break;
     default:
       break;
@@ -315,7 +324,7 @@ static void secureProvisioningEventHandler(void* arg, esp_event_base_t eventBase
 }
 
 bool startSecureProvisioning() {
-  if (secureProvisioningActive) return true;
+  if (secureProvisioningActive.load(std::memory_order_acquire)) return true;
   if (!hasProvisioningIdentity() && !loadProvisioningIdentity()) {
     Serial.println("Secure provisioning unavailable: no per-device setup credential. Configure by USB/admin first.");
     return false;
@@ -340,7 +349,8 @@ bool startSecureProvisioning() {
     Serial.printf("network_prov_mgr_init failed: %d\n", (int)err);
     return false;
   }
-  secureProvisioningInitialized = true;
+  secureProvisioningInitialized.store(true, std::memory_order_release);
+  secureProvisioningEndPending.store(false, std::memory_order_release);
 
   // Re-provisioning after a router/password change is allowed, but always with
   // the same per-device setup credential unless an administrator rotates it
@@ -361,11 +371,11 @@ bool startSecureProvisioning() {
   if (err != ESP_OK) {
     Serial.printf("network_prov_mgr_start_provisioning failed: %d\n", (int)err);
     network_prov_mgr_deinit();
-    secureProvisioningInitialized = false;
+    secureProvisioningInitialized.store(false, std::memory_order_release);
     return false;
   }
 
-  secureProvisioningActive = true;
+  secureProvisioningActive.store(true, std::memory_order_release);
   fallbackApActive = true;
   Serial.printf("Secure setup AP active: %s (WPA2 + Security 2)\n", apSsid.c_str());
   return true;
@@ -373,12 +383,16 @@ bool startSecureProvisioning() {
 }
 
 void requestStopSecureProvisioning() {
-  if (!secureProvisioningInitialized) return;
+  if (!secureProvisioningInitialized.load(std::memory_order_acquire)) return;
   network_prov_mgr_stop_provisioning();
 }
 
 void serviceSecureProvisioning() {
-  // Provisioning manager and its event loop own the active secure session.
-  // No forced reboot is used; this avoids racing the provisioner's final status
-  // exchange. NETWORK_PROV_END returns control to normal network services.
+  // Provisioning manager/event loop owns the protocol. The only application
+  // handoff needed on NETWORK_PROV_END is the fallback lifecycle flag; keeping
+  // that write here avoids a cross-core data race with the main Wi-Fi state
+  // machine.
+  if (secureProvisioningEndPending.exchange(false, std::memory_order_acq_rel)) {
+    fallbackApActive = false;
+  }
 }
