@@ -22,7 +22,27 @@ bool commitRunningFirmwareReleaseFloor(String& errorOut);
 esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition);
 
 #include "../../BatteryMonitor/WifiRadioSettings.ino"
+
+// BatteryMonitorCore owns the single persistence/UI implementations. Rename the
+// mutable configuration entry points while including it, then expose the normal
+// names through ConfigurationSynchronization.ino so HTTP, USB, provisioning
+// callbacks, discovery, and the sampler never race Arduino Strings or the
+// shared Preferences handle.
+#define saveDeviceSettings saveDeviceSettingsUnlocked
+#define saveWifiSettings saveWifiSettingsUnlocked
+#define clearWifiSettings clearWifiSettingsUnlocked
+#define configJson configJsonUnlocked
+#define statusTextForVoltage statusTextForVoltageUnlocked
+#define startMdns startMdnsUnlocked
 #include "../../BatteryMonitor/BatteryMonitorCore.ino"
+#undef startMdns
+#undef statusTextForVoltage
+#undef configJson
+#undef clearWifiSettings
+#undef saveWifiSettings
+#undef saveDeviceSettings
+#include "../../BatteryMonitor/ConfigurationSynchronization.ino"
+
 #include "../../BatteryMonitor/SecureProvisioning.ino"
 #include "../../BatteryMonitor/ManagementSecurityCore.ino"
 #include "../../BatteryMonitor/MonitoringIdentityCore.ino"
