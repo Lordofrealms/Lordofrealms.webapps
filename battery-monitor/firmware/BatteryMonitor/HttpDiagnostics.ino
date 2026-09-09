@@ -57,6 +57,32 @@ void httpTraceLogSimple(uint32_t sequence,
     (unsigned long)ESP.getMinFreeHeap());
 }
 
+void httpTraceLogRootChunks(uint32_t sequence,
+                            uint32_t buildUs,
+                            size_t bodyBytes,
+                            uint32_t chunksSent,
+                            uint32_t maxChunkUs,
+                            int failedChunk,
+                            uint32_t sendUs,
+                            uint32_t totalUs,
+                            int sendResult) {
+  if (!isHttpTraceEnabled()) return;
+  Serial.printf(
+    "HTTPTRACE req=%lu route=/ build_us=%lu body_bytes=%u chunks_sent=%lu max_chunk_send_us=%lu "
+    "failed_chunk=%d send_us=%lu total_us=%lu send_rc=%d heap=%lu min_heap=%lu\n",
+    (unsigned long)sequence,
+    (unsigned long)buildUs,
+    (unsigned int)bodyBytes,
+    (unsigned long)chunksSent,
+    (unsigned long)maxChunkUs,
+    failedChunk,
+    (unsigned long)sendUs,
+    (unsigned long)totalUs,
+    sendResult,
+    (unsigned long)ESP.getFreeHeap(),
+    (unsigned long)ESP.getMinFreeHeap());
+}
+
 void httpTraceLogStatus(uint32_t sequence,
                         const HttpStatusBuildTiming& timing,
                         uint32_t sendUs,
