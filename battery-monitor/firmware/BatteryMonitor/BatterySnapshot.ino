@@ -173,7 +173,7 @@ String batterySnapshotStatusJson() {
   json += "\"hostname\":\"" + jsonEscape(hostName) + "\",";
   json += "\"ip\":\"" + localIpString() + "\",";
   json += "\"wifiConnected\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";
-  json += "\"setupApActive\":" + String(fallbackApActive ? "true" : "false") + ",";
+  json += "\"setupApActive\":" + String(secureProvisioningActive.load(std::memory_order_acquire) ? "true" : "false") + ",";
   json += "\"rssi\":" + String(WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0) + ",";
   json += "\"batteryType\":\"" + jsonEscape(config.batteryType) + "\",";
   json += "\"voltage\":" + String(snapshot.voltage, 3) + ",";
