@@ -225,7 +225,14 @@ static void processSerialProvisioningCommand(String line) {
   }
 
   if (command == "CLEARWIFI") { clearWifiSettings(); WiFi.disconnect(true, true); serialOk("CLEARWIFI"); return; }
-  if (command == "CLEARPROVCRED") { clearProvisioningIdentity(); provisioningVerifyFailures = 0; provisioningVerifyBlockedUntilMs = 0; serialOk("CLEARPROVCRED"); return; }
+  if (command == "CLEARPROVCRED") {
+    String error;
+    if (!clearProvisioningIdentityTrustedUsb(error)) { serialErr(error); return; }
+    provisioningVerifyFailures = 0;
+    provisioningVerifyBlockedUntilMs = 0;
+    serialOk("CLEARPROVCRED");
+    return;
+  }
   if (command == "REBOOT") { serialOk("REBOOTING"); Serial.flush(); delay(150); ESP.restart(); return; }
   if (command != "SET") { serialErr("UNKNOWN_COMMAND"); return; }
 
