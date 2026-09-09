@@ -11,7 +11,7 @@ set -euo pipefail
 
 EXPECTED_IDF_COMMIT="b774170ff46c393eeb5e495ea37936038d3f4f4f" # ESP-IDF v5.5.5
 ARDUINO_ESP32_BASE_RELEASE="3.3.11"
-ARDUINO_ESP32_COMMIT="5cdf8975ae8d9e35888b724b01a444d22406424e" # 3.3.11 + merged upstream WebServer hardening PR #12794
+ARDUINO_ESP32_COMMIT="5cdf8975ae8d9e35888b724b01a444d22406424e" # exact pinned Arduino compatibility component
 EXPECTED_FW_KEY_FINGERPRINT="69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT_DIR="${1:-$PROJECT_DIR/out}"
@@ -48,10 +48,11 @@ if [[ "$actual_idf_commit" != "$EXPECTED_IDF_COMMIT" ]]; then
   exit 2
 fi
 
-# Arduino-ESP32 is pinned to an immutable upstream Git commit: exactly two
-# commits after the 3.3.11 release, containing Espressif's merged WebServer
-# hardening. Do not silently fall back to the vulnerable 3.3.7 registry pin or
-# to a floating branch/tag.
+# Arduino-ESP32 is pinned to an immutable upstream Git commit for the selected
+# hardware/network compatibility classes used by the ESP-IDF application. HTTP
+# parsing/socket ownership is native esp_http_server and does not depend on the
+# Arduino WebServer implementation. Do not silently fall back to the old 3.3.7
+# registry pin or to a floating branch/tag.
 if [[ ! -f "$COMPONENT_MANIFEST" ]] ||
    ! grep -Fq 'git: https://github.com/espressif/arduino-esp32.git' "$COMPONENT_MANIFEST" ||
    ! grep -Fq "version: \"$ARDUINO_ESP32_COMMIT\"" "$COMPONENT_MANIFEST"; then
@@ -202,7 +203,9 @@ esp_idf_commit=$EXPECTED_IDF_COMMIT
 arduino_esp32_base_release=$ARDUINO_ESP32_BASE_RELEASE
 arduino_esp32_component_source=upstream-git
 arduino_esp32_commit=$ARDUINO_ESP32_COMMIT
-arduino_esp32_webserver_hardening=upstream-pr-12794-merged
+http_server=esp_http_server
+http_transport=native-esp-idf
+http_max_client_sessions=10
 target=esp32
 app_version=$APP_VERSION
 software_release_sequence=$APP_RELEASE_SEQUENCE
@@ -219,12 +222,13 @@ flash_encryption=enabled-release-mode
 nvs_encryption=enabled-flash-encryption-key-protection
 nvs_keys_partition=0x294000+0x1000-encrypted
 signed_usb_ota=SIGNED_USB_OTA_V1
+signed_lan_ota=SIGNED_LAN_OTA_V1
 firmware_update_signature_algorithm=RSA-3072-PSS-SHA256
 firmware_update_public_key_spki_sha256=$repo_key_fingerprint
-firmware_update_transport=trusted-physical-usb-application-mediated
+firmware_update_transports=trusted-physical-usb-and-authenticated-lan-application-mediated
 factory_image_scope=blank-unencrypted-device-first-install-only
 post_encryption_plaintext_uart_flash=disabled
-post_encryption_update_path=signed-application-mediated-ota
+post_encryption_update_path=signed-application-mediated-usb-or-lan-ota
 post_boot_ota_rollback=enabled
 ota_candidate_health_probation=60s-local-monitoring-identity-release-policy-and-main-loop
 hardware_efuse_app_anti_rollback=disabled-pending-secure-boot-production-efuse-gate
