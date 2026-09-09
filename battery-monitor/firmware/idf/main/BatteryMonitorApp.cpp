@@ -46,6 +46,7 @@ esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition)
 #include "../../BatteryMonitor/SecureProvisioning.ino"
 #include "../../BatteryMonitor/ManagementSecurityCore.ino"
 #include "../../BatteryMonitor/MonitoringIdentityCore.ino"
+#include "../../BatteryMonitor/HttpDiagnostics.ino"
 #include "../../BatteryMonitor/NetworkSnapshot.ino"
 #include "../../BatteryMonitor/BatterySnapshot.ino"
 #include "../../BatteryMonitor/FirmwareReleasePolicy.ino"
