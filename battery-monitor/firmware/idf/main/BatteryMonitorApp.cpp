@@ -27,17 +27,14 @@ esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition)
 // mutable configuration entry points while including it, then expose the normal
 // names through ConfigurationSynchronization.ino so HTTP, USB, provisioning
 // callbacks, discovery, and the sampler never race Arduino Strings or the
-// shared Preferences handle. localIpString is also interposed so HTTP observes
-// the atomically published fallback-AP state rather than the main-task raw flag.
+// shared Preferences handle.
 #define saveDeviceSettings saveDeviceSettingsUnlocked
 #define saveWifiSettings saveWifiSettingsUnlocked
 #define clearWifiSettings clearWifiSettingsUnlocked
 #define configJson configJsonUnlocked
 #define statusTextForVoltage statusTextForVoltageUnlocked
 #define startMdns startMdnsUnlocked
-#define localIpString localIpStringUnlocked
 #include "../../BatteryMonitor/BatteryMonitorCore.ino"
-#undef localIpString
 #undef startMdns
 #undef statusTextForVoltage
 #undef configJson
