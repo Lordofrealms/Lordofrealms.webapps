@@ -29,11 +29,43 @@ esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition)
 #include "../../BatteryMonitor/BatterySnapshot.ino"
 #include "../../BatteryMonitor/FirmwareReleasePolicy.ino"
 
-// Signed-update implementation remains transport-neutral. The release policy is
-// injected only at the final OTA boot-selection call.
+// FirmwareUpdate.ino remains the one verifier/writer implementation. Rename its
+// cross-task entry points while including it, then expose synchronized wrappers
+// with the original API names. This prevents trusted USB and native LAN HTTP
+// from racing the same OTA handle/SHA state while leaving cryptographic policy
+// in exactly one implementation.
 #define esp_ota_set_boot_partition batteryMonitorPolicySetBootPartition
+#define firmwareUpdateInProgress firmwareUpdateInProgressUnlocked
+#define firmwareUpdateIsLanTransport firmwareUpdateIsLanTransportUnlocked
+#define firmwareUpdateRawBytesPending firmwareUpdateRawBytesPendingUnlocked
+#define firmwareUpdateBytesWritten firmwareUpdateBytesWrittenUnlocked
+#define beginSignedFirmwareUpdate beginSignedFirmwareUpdateUnlocked
+#define beginSignedFirmwareUpdateLan beginSignedFirmwareUpdateLanUnlocked
+#define prepareSignedFirmwareChunk prepareSignedFirmwareChunkUnlocked
+#define writeSignedFirmwareLanChunk writeSignedFirmwareLanChunkUnlocked
+#define serviceSignedFirmwareRawSerial serviceSignedFirmwareRawSerialUnlocked
+#define finishSignedFirmwareUpdate finishSignedFirmwareUpdateUnlocked
+#define finishSignedFirmwareUpdateLan finishSignedFirmwareUpdateLanUnlocked
+#define abortSignedFirmwareUpdate abortSignedFirmwareUpdateUnlocked
+#define abortSignedFirmwareUpdateLan abortSignedFirmwareUpdateLanUnlocked
+#define serviceFirmwareUpdateTimeout serviceFirmwareUpdateTimeoutUnlocked
 #include "../../BatteryMonitor/FirmwareUpdate.ino"
+#undef serviceFirmwareUpdateTimeout
+#undef abortSignedFirmwareUpdateLan
+#undef abortSignedFirmwareUpdate
+#undef finishSignedFirmwareUpdateLan
+#undef finishSignedFirmwareUpdate
+#undef serviceSignedFirmwareRawSerial
+#undef writeSignedFirmwareLanChunk
+#undef prepareSignedFirmwareChunk
+#undef beginSignedFirmwareUpdateLan
+#undef beginSignedFirmwareUpdate
+#undef firmwareUpdateBytesWritten
+#undef firmwareUpdateRawBytesPending
+#undef firmwareUpdateIsLanTransport
+#undef firmwareUpdateInProgress
 #undef esp_ota_set_boot_partition
+#include "../../BatteryMonitor/FirmwareUpdateSynchronization.ino"
 
 // USB calibration publishes through the same coherent snapshot path as the
 // periodic sampler. It never updates an independent set of measurement fields.
