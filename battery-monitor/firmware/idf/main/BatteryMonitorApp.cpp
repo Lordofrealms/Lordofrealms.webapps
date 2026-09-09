@@ -67,14 +67,23 @@ esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition)
 #undef esp_ota_set_boot_partition
 #include "../../BatteryMonitor/FirmwareUpdateSynchronization.ino"
 
-// USB calibration publishes through the same coherent snapshot path as the
-// periodic sampler. It never updates an independent set of measurement fields.
+#include "../../BatteryMonitor/ZZZTrustedUsbIdentity.ino"
+#include "../../BatteryMonitor/NativeHttpServer.ino"
+#include "../../BatteryMonitor/TrustedUsbSecuritySynchronization.ino"
+
+// Serial provisioning is the trusted physical transport. Route its credential
+// reads/writes through wrappers that quiesce native HTTP, while leaving native
+// HTTP handlers bound directly to the transport-neutral security core.
+#define verifyDevicePasswordFlexible verifyDevicePasswordFlexibleTrustedUsb
+#define setDevicePasswordFlexible setDevicePasswordFlexibleTrustedUsb
+#define clearProvisioningIdentity clearProvisioningIdentityTrustedUsb
 #define sampleBattery sampleBatterySnapshot
 #include "../../BatteryMonitor/SerialProvisioning.ino"
 #undef sampleBattery
+#undef clearProvisioningIdentity
+#undef setDevicePasswordFlexible
+#undef verifyDevicePasswordFlexible
 
-#include "../../BatteryMonitor/ZZZTrustedUsbIdentity.ino"
-#include "../../BatteryMonitor/NativeHttpServer.ino"
 #include "../../BatteryMonitor/NativeHttpMainControl.ino"
 
 // setup()/loop() are included last so the runtime sees every service primitive
