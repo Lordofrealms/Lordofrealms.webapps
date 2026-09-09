@@ -22,13 +22,24 @@ static bool trustedUsbQuiesceNativeHttp() {
   return restore;
 }
 
-bool verifyDevicePasswordFlexibleTrustedUsb(const String& candidate) {
-  // The protected provisioning AP has no native LAN HTTP server. Verification
-  // only reads the stable check hash, so it is safe while Security 2 is active.
-  if (secureProvisioningActive) return verifyDevicePasswordFlexible(candidate);
+bool verifyDevicePasswordFlexibleTrustedUsb(const String& candidate, bool& credentialPresentOut) {
+  credentialPresentOut = false;
 
+  // Security 2 owns the currently loaded SRP pointers while provisioning is
+  // active. The protected setup AP has no LAN HTTP server, and an active
+  // provisioner necessarily already has credential material loaded. Never try
+  // to reload/free that material just to service a USB verification request.
+  if (secureProvisioningActive) {
+    credentialPresentOut = hasProvisioningIdentity();
+    return credentialPresentOut && verifyDevicePasswordFlexible(candidate);
+  }
+
+  // Outside provisioning, stop native HTTP before both the existence/load check
+  // and the password verification. This closes the last read race with LAN
+  // password rotation, whose handler can replace the same credential material.
   bool restore = trustedUsbQuiesceNativeHttp();
-  bool ok = verifyDevicePasswordFlexible(candidate);
+  credentialPresentOut = hasProvisioningIdentity() || loadDeviceCredentialIdentity();
+  bool ok = credentialPresentOut && verifyDevicePasswordFlexible(candidate);
   trustedUsbRestoreNativeHttp(restore);
   return ok;
 }
