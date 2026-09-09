@@ -3,8 +3,9 @@
 // These settings intentionally live outside the ordinary user configuration UI.
 // They are advanced/service controls stored in the encrypted `batmon` NVS
 // namespace so changing them later does not require another firmware build.
-// Defaults match the preferred reliability policy: modem sleep disabled and
-// maximum TX power requested at 20 dBm (80 quarter-dBm units).
+// Defaults match the preferred reliability policy: modem sleep disabled,
+// maximum TX power requested at 20 dBm (80 quarter-dBm units), and station
+// association scans all channels then prefers the strongest matching AP.
 
 #include <WiFi.h>
 #include <Preferences.h>
@@ -60,6 +61,13 @@ void loadWifiRadioSettings() {
 
 bool applyWifiRadioSettings() {
   if (!wifiRadioSettingsLoaded) loadWifiRadioSettings();
+
+  // These two station-selection settings are cached by Arduino-ESP32 and are
+  // copied into wifi_config_t by the next WiFi.begin(). WIFI_ALL_CHANNEL_SCAN
+  // is important on multi-AP networks sharing one SSID: fast scan otherwise
+  // stops at the first acceptable BSSID it encounters.
+  WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
+  WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
 
   // setSleep() also caches the requested policy before STA startup, so it is
   // safe to call around mode transitions. setTxPower() requires an active STA
