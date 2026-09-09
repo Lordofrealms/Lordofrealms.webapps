@@ -8,9 +8,7 @@ internal sealed class HttpRuntimeSettingsForm : Form
     private readonly UsbHttpRuntimeSettingsProvisioner _provisioner = new();
     private readonly ComboBox _port = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly NumericUpDown _clients = Number(4, 20, 15, 1);
-    private readonly NumericUpDown _rootSendBuffer = Number(2880, 32768, 12288, 1024);
-    private readonly NumericUpDown _smallSendBuffer = Number(2880, 32768, 3072, 1024);
-    private readonly NumericUpDown _scanSendBuffer = Number(2880, 32768, 5760, 256);
+    private readonly Label _tcpSendBuffer = new() { AutoSize = true, Text = "12,288 B (firmware build setting)" };
     private readonly Label _globalSockets = new() { AutoSize = true, Text = "30 (firmware build ceiling)" };
     private readonly TextBox _log = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical };
     private readonly List<Button> _operationButtons = new();
@@ -21,8 +19,8 @@ internal sealed class HttpRuntimeSettingsForm : Form
         Text = "Battery Monitor - HTTP Transport Settings";
         Icon = AppIcon.Current;
         Width = 650;
-        Height = 565;
-        MinimumSize = new Size(610, 520);
+        Height = 480;
+        MinimumSize = new Size(610, 440);
         StartPosition = FormStartPosition.CenterParent;
 
         BuildUi();
@@ -37,7 +35,7 @@ internal sealed class HttpRuntimeSettingsForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(14),
             ColumnCount = 2,
-            RowCount = 10
+            RowCount = 8
         };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 205));
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -47,7 +45,7 @@ internal sealed class HttpRuntimeSettingsForm : Form
         {
             AutoSize = true,
             MaximumSize = new Size(585, 0),
-            Text = "Engineering HTTP transport controls. Values are stored on the monitor in encrypted NVS. TCP send-buffer changes apply to subsequent requests immediately. Changing the HTTP client-session limit briefly restarts only the native HTTP service; the ESP32 does not reboot."
+            Text = "Engineering HTTP transport controls. The maximum HTTP client-session limit is stored on the monitor in encrypted NVS and can be changed live. The pinned ESP-IDF/lwIP stack does not support per-socket TCP send-buffer resizing, so TCP send buffer and global socket ceiling are read-only firmware build settings."
         };
         root.Controls.Add(intro, 0, 0);
         root.SetColumnSpan(intro, 2);
@@ -60,33 +58,31 @@ internal sealed class HttpRuntimeSettingsForm : Form
         AddRow(root, 1, "USB serial port", portPanel);
 
         AddRow(root, 2, "Max HTTP client sessions", _clients);
-        AddRow(root, 3, "Root / TCP send buffer", _rootSendBuffer);
-        AddRow(root, 4, "Small API TCP send buffer", _smallSendBuffer);
-        AddRow(root, 5, "Wi-Fi scan TCP send buffer", _scanSendBuffer);
-        AddRow(root, 6, "Global lwIP max sockets", _globalSockets);
+        AddRow(root, 3, "Global TCP send buffer", _tcpSendBuffer);
+        AddRow(root, 4, "Global lwIP max sockets", _globalSockets);
 
         var note = new Label
         {
             AutoSize = true,
             MaximumSize = new Size(390, 0),
-            Text = "Defaults: 15 clients; / = 12,288 B; small APIs = 3,072 B; Wi-Fi scan = 5,760 B. Send buffers cannot be set below 2× the 1,440-byte TCP MSS. CONFIG_LWIP_MAX_SOCKETS is fixed at 30 and requires firmware rebuild to change."
+            Text = "Defaults: 15 HTTP clients, 12,288-byte TCP send buffer, and 30 lwIP sockets. Changing the client-session limit briefly restarts only esp_http_server; the ESP32 does not reboot. TCP buffer/socket-ceiling changes require a firmware rebuild."
         };
-        root.Controls.Add(note, 1, 7);
+        root.Controls.Add(note, 1, 5);
 
         var actions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
         actions.Controls.Add(MakeButton("Save to Device", async (_, _) => await SaveAsync()));
         var close = new Button { Text = "Close", AutoSize = true };
         close.Click += (_, _) => Close();
         actions.Controls.Add(close);
-        root.Controls.Add(actions, 0, 8);
+        root.Controls.Add(actions, 0, 6);
         root.SetColumnSpan(actions, 2);
 
         _log.Dock = DockStyle.Fill;
         _log.Font = new Font(FontFamily.GenericMonospace, 9f);
-        root.Controls.Add(_log, 0, 9);
+        root.Controls.Add(_log, 0, 7);
         root.SetColumnSpan(_log, 2);
 
-        for (var i = 0; i < 9; i++) root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        for (var i = 0; i < 7; i++) root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
     }
 
@@ -125,19 +121,14 @@ internal sealed class HttpRuntimeSettingsForm : Form
         if (port is null) return;
 
         var clients = decimal.ToInt32(_clients.Value);
-        var rootSendBuffer = decimal.ToInt32(_rootSendBuffer.Value);
-        var smallSendBuffer = decimal.ToInt32(_smallSendBuffer.Value);
-        var scanSendBuffer = decimal.ToInt32(_scanSendBuffer.Value);
-
         await RunOperationAsync(async token =>
         {
-            var settings = await _provisioner.SetAsync(port, clients, rootSendBuffer,
-                smallSendBuffer, scanSendBuffer, AppendLog, token);
+            var settings = await _provisioner.SetAsync(port, clients, AppendLog, token);
             BeginInvoke(new Action(() =>
             {
                 ApplyReadback(settings);
                 MessageBox.Show(this,
-                    "HTTP transport settings were saved to encrypted NVS and applied. Buffer changes apply to new requests immediately. If the client-session limit changed, the native HTTP service was restarted without rebooting the monitor.",
+                    "The HTTP client-session limit was saved to encrypted NVS. If the value changed, the native HTTP service was restarted without rebooting the monitor.",
                     "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }));
         });
@@ -146,10 +137,8 @@ internal sealed class HttpRuntimeSettingsForm : Form
     private void ApplyReadback(UsbHttpRuntimeSettings settings)
     {
         _clients.Value = Math.Clamp(settings.MaxClients, (int)_clients.Minimum, (int)_clients.Maximum);
-        _rootSendBuffer.Value = Math.Clamp(settings.RootSendBuffer, (int)_rootSendBuffer.Minimum, (int)_rootSendBuffer.Maximum);
-        _smallSendBuffer.Value = Math.Clamp(settings.SmallSendBuffer, (int)_smallSendBuffer.Minimum, (int)_smallSendBuffer.Maximum);
-        _scanSendBuffer.Value = Math.Clamp(settings.ScanSendBuffer, (int)_scanSendBuffer.Minimum, (int)_scanSendBuffer.Maximum);
-        _globalSockets.Text = $"{settings.LwipMaxSockets} (firmware build ceiling)";
+        _tcpSendBuffer.Text = $"{settings.TcpSendBuffer:N0} B (firmware build setting)";
+        _globalSockets.Text = $"{settings.LwipMaxSockets:N0} (firmware build ceiling)";
     }
 
     private void RefreshPorts()
@@ -187,9 +176,6 @@ internal sealed class HttpRuntimeSettingsForm : Form
         foreach (var button in _operationButtons) button.Enabled = !busy;
         _port.Enabled = !busy;
         _clients.Enabled = !busy;
-        _rootSendBuffer.Enabled = !busy;
-        _smallSendBuffer.Enabled = !busy;
-        _scanSendBuffer.Enabled = !busy;
     }
 
     private string? SelectedPort()
@@ -247,9 +233,6 @@ internal sealed class UsbHttpRuntimeSettingsProvisioner
     public async Task<UsbHttpRuntimeSettings> SetAsync(
         string portName,
         int maxClients,
-        int rootSendBuffer,
-        int smallSendBuffer,
-        int scanSendBuffer,
         Action<string>? log = null,
         CancellationToken cancellationToken = default)
     {
@@ -258,8 +241,7 @@ internal sealed class UsbHttpRuntimeSettingsProvisioner
             using var port = OpenPort(portName);
             WaitForFirmwareAfterOpen(port, log, cancellationToken);
             EnsureBatteryMonitor(port, log, cancellationToken);
-            var command = string.Create(CultureInfo.InvariantCulture,
-                $"BATMON1 SET HTTP {maxClients} {rootSendBuffer} {smallSendBuffer} {scanSendBuffer}");
+            var command = "BATMON1 SET HTTP " + maxClients.ToString(CultureInfo.InvariantCulture);
             return ParseHttpSettings(SendCommand(port, command, log,
                 cancellationToken, TimeSpan.FromSeconds(4)));
         }, cancellationToken);
@@ -360,15 +342,13 @@ internal sealed class UsbHttpRuntimeSettingsProvisioner
             throw new InvalidOperationException("Unexpected HTTP settings response: " + response);
 
         var parts = response.Substring(prefix.Length).Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length != 5 ||
+        if (parts.Length != 3 ||
             !int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var clients) ||
-            !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var root) ||
-            !int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var small) ||
-            !int.TryParse(parts[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out var scan) ||
-            !int.TryParse(parts[4], NumberStyles.Integer, CultureInfo.InvariantCulture, out var global))
+            !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var tcpSendBuffer) ||
+            !int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var globalSockets))
             throw new InvalidOperationException("Battery Monitor returned malformed HTTP transport settings.");
 
-        return new UsbHttpRuntimeSettings(clients, root, small, scan, global);
+        return new UsbHttpRuntimeSettings(clients, tcpSendBuffer, globalSockets);
     }
 
     private static void SleepWithCancellation(TimeSpan duration, CancellationToken cancellationToken)
@@ -384,7 +364,5 @@ internal sealed class UsbHttpRuntimeSettingsProvisioner
 
 internal sealed record UsbHttpRuntimeSettings(
     int MaxClients,
-    int RootSendBuffer,
-    int SmallSendBuffer,
-    int ScanSendBuffer,
+    int TcpSendBuffer,
     int LwipMaxSockets);

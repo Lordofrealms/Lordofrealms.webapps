@@ -1,10 +1,11 @@
-// Trusted-USB-only HTTP diagnostics and transport-settings command router.
+// Trusted-USB-only HTTP diagnostics, transport settings, and hardware identity.
 //
 // The existing SerialProvisioning parser remains authoritative for all normal
-// commands and firmware-update raw mode. This wrapper intercepts only HTTPTRACE
-// diagnostics plus HTTPSTATUS / SET HTTP engineering settings, then delegates
-// every other complete command line unchanged. These controls are intentionally
-// unavailable over LAN.
+// commands and firmware-update raw mode. This wrapper intercepts only HTTPTRACE,
+// HTTPSTATUS / SET HTTP, and HWINFO engineering commands, then delegates every
+// other complete command line unchanged. These controls are unavailable over LAN.
+
+#include <esp_chip_info.h>
 
 static bool parseHttpUnsigned(const String& token, uint32_t& valueOut) {
   if (token.length() == 0) return false;
@@ -12,6 +13,31 @@ static bool parseHttpUnsigned(const String& token, uint32_t& valueOut) {
   unsigned long value = strtoul(token.c_str(), &end, 10);
   if (!end || *end != '\0') return false;
   valueOut = (uint32_t)value;
+  return true;
+}
+
+static String hardwareIdentitySummary() {
+  esp_chip_info_t chip = {};
+  esp_chip_info(&chip);
+
+  String result = "HWINFO ";
+  result += "model=" + String(ESP.getChipModel()) + " ";
+  result += "modelId=" + String((unsigned int)chip.model) + " ";
+  result += "revision=" + String((unsigned int)chip.revision) + " ";
+  result += "cores=" + String((unsigned int)chip.cores) + " ";
+  result += "flashBytes=" + String((unsigned long)ESP.getFlashChipSize()) + " ";
+  result += "psramBytes=" + String((unsigned long)ESP.getPsramSize()) + " ";
+  result += "cpuMHz=" + String((unsigned long)ESP.getCpuFreqMHz()) + " ";
+  result += "features=0x" + String((unsigned long)chip.features, HEX) + " ";
+  result += "idf=" + String(ESP.getSdkVersion()) + " ";
+  result += "arduino=" + String(ESP.getCoreVersion());
+  return result;
+}
+
+static bool processHardwareIdentitySerialCommand(String line) {
+  line.trim();
+  if (line != "BATMON1 HWINFO") return false;
+  serialOk(hardwareIdentitySummary());
   return true;
 }
 
@@ -27,23 +53,16 @@ static bool processHttpRuntimeSettingsSerialCommand(String line) {
 
   String remaining = line.substring(17);
   String clientsToken = nextToken(remaining);
-  String rootToken = nextToken(remaining);
-  String smallToken = nextToken(remaining);
-  String scanToken = nextToken(remaining);
   remaining.trim();
 
-  uint32_t clients = 0, rootSendBuffer = 0, smallSendBuffer = 0, scanSendBuffer = 0;
-  if (remaining.length() != 0 ||
-      !parseHttpUnsigned(clientsToken, clients) ||
-      !parseHttpUnsigned(rootToken, rootSendBuffer) ||
-      !parseHttpUnsigned(smallToken, smallSendBuffer) ||
-      !parseHttpUnsigned(scanToken, scanSendBuffer)) {
+  uint32_t clients = 0;
+  if (remaining.length() != 0 || !parseHttpUnsigned(clientsToken, clients)) {
     serialErr("HTTP_INVALID_ARGUMENTS");
     return true;
   }
 
   String error;
-  if (!setHttpRuntimeSettings(clients, rootSendBuffer, smallSendBuffer, scanSendBuffer, error)) {
+  if (!setHttpRuntimeMaxClients(clients, error)) {
     serialErr(error);
     return true;
   }
@@ -104,7 +123,8 @@ void serviceSerialProvisioning() {
       if (serialProvisioningLine.length() > 0) {
         String completed = serialProvisioningLine;
         serialProvisioningLine = "";
-        if (!processHttpRuntimeSettingsSerialCommand(completed) &&
+        if (!processHardwareIdentitySerialCommand(completed) &&
+            !processHttpRuntimeSettingsSerialCommand(completed) &&
             !processHttpDiagnosticsSerialCommand(completed))
           processSerialProvisioningCommand(completed);
       }

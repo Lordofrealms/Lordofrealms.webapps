@@ -13,14 +13,16 @@ CONFIG_ESPTOOLPY_FLASHFREQ_40M=y
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 
-# Native ESP-IDF HTTP server migration. Battery Monitor defaults to 15 HTTP
-# client sessions and allows the service-level setting to be reduced/raised at
-# runtime within a bounded range. esp_http_server reserves additional sockets
-# internally, while discovery/mDNS also consume lwIP descriptors, so keep the
-# global descriptor ceiling comfortably above the HTTP client limit. This does
-# not preallocate full TCP windows for all descriptors; per-connection memory is
-# allocated on demand and runtime heap diagnostics remain part of validation.
+# Native ESP-IDF HTTP server transport. Battery Monitor defaults to 15 HTTP
+# client sessions and allows the service-level client limit to be changed at
+# runtime within a bounded range. The pinned lwIP stack does not implement
+# per-socket TCP send-buffer resizing, so use a 12 KiB global TCP send-buffer
+# default: large enough to hold the self-contained ~9 KiB root page without
+# crossing the old 5760-byte default. Keep the global descriptor ceiling well
+# above the HTTP pool because esp_http_server, discovery and mDNS also consume
+# sockets. These are capacity limits, not eager per-socket memory reservations.
 CONFIG_LWIP_MAX_SOCKETS=30
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=12288
 
 # Flash layout. Release-mode Flash Encryption enlarges the classic ESP32
 # bootloader beyond the old 0x7000-byte allowance. Keep the application
