@@ -2,9 +2,9 @@
 //
 // ADC conversions are owned by the application sampling path. HTTP, Windows,
 // discovery, and other readers never trigger an ADC conversion; they only copy
-// the last completed snapshot under a very short mutex. Configuration is copied
-// under its separate mutex before this mutex is taken, so no config/snapshot
-// lock inversion is possible. The ADC work itself remains outside both mutexes.
+// the last completed snapshot under a very short mutex. Configuration and
+// network state are also copied from their published snapshots, so status JSON
+// does not call NVS or the Wi-Fi driver.
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -165,16 +165,25 @@ String batterySnapshotStatusJson() {
     classifyBatterySnapshot(snapshot);
   }
 
+  NetworkSnapshot network = {};
+  if (!copyNetworkSnapshot(network)) {
+    strlcpy(network.ip, "0.0.0.0", sizeof(network.ip));
+    network.wifiConnected = false;
+    network.setupApActive = false;
+    network.rssi = 0;
+    network.publishedAtMs = millis();
+  }
+
   String json = "{";
   json += "\"apiVersion\":" + String(API_VERSION) + ",";
   json += "\"firmwareVersion\":\"" + String(FW_VERSION) + "\",";
   json += "\"deviceId\":\"" + jsonEscape(deviceId) + "\",";
   json += "\"name\":\"" + jsonEscape(config.deviceName) + "\",";
   json += "\"hostname\":\"" + jsonEscape(hostName) + "\",";
-  json += "\"ip\":\"" + localIpString() + "\",";
-  json += "\"wifiConnected\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";
-  json += "\"setupApActive\":" + String(secureProvisioningActive.load(std::memory_order_acquire) ? "true" : "false") + ",";
-  json += "\"rssi\":" + String(WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0) + ",";
+  json += "\"ip\":\"" + String(network.ip) + "\",";
+  json += "\"wifiConnected\":" + String(network.wifiConnected ? "true" : "false") + ",";
+  json += "\"setupApActive\":" + String(network.setupApActive ? "true" : "false") + ",";
+  json += "\"rssi\":" + String(network.rssi) + ",";
   json += "\"batteryType\":\"" + jsonEscape(config.batteryType) + "\",";
   json += "\"voltage\":" + String(snapshot.voltage, 3) + ",";
   json += "\"state\":\"" + String(snapshot.state) + "\",";
@@ -186,7 +195,8 @@ String batterySnapshotStatusJson() {
   json += "\"calibrationOffset\":" + String(snapshot.calibrationOffset, 4) + ",";
   json += "\"sampleIntervalSec\":" + String(snapshot.sampleIntervalSec) + ",";
   json += "\"uptimeSec\":" + String(millis() / 1000UL) + ",";
-  json += "\"lastSampleAgeMs\":" + String(millis() - snapshot.sampleTimeMs);
+  json += "\"lastSampleAgeMs\":" + String(millis() - snapshot.sampleTimeMs) + ",";
+  json += "\"networkSnapshotAgeMs\":" + String(millis() - network.publishedAtMs);
   json += "}";
   return json;
 }
