@@ -26,6 +26,10 @@ bool hasProvisioningIdentity();
 bool initializeDedicatedWebServerTask();
 bool lockBatteryMonitorWebDomain();
 void unlockBatteryMonitorWebDomain();
+uint32_t batteryMonitorWebHandleCalls();
+uint32_t batteryMonitorWebMutexMisses();
+uint32_t batteryMonitorWebMaxHandleMicros();
+uint32_t batteryMonitorWebLastHandleAgeMs();
 void registerWifiFirmwareUpdateRoutes();
 void serviceWifiFirmwareUpdate();
 bool firmwareUpdateIsLanTransport();
@@ -35,6 +39,7 @@ static const unsigned long OTA_ROLLBACK_CONFIRM_RETRY_MS = 10UL * 1000UL;
 static const uint32_t OTA_ROLLBACK_MIN_LOOP_PASSES = 250;
 static const unsigned long PROTECTED_FALLBACK_RETRY_INTERVAL_MS = 60UL * 1000UL;
 static const unsigned long PROTECTED_FALLBACK_CLIENT_RETRY_DEFERRAL_MS = 60UL * 1000UL;
+static const unsigned long MANAGEMENT_AUTH_SERVICE_INTERVAL_MS = 100UL;
 static bool otaRollbackPendingValidation = false;
 static bool otaRollbackHealthPrerequisitesReady = false;
 static unsigned long otaRollbackProbationStartedMs = 0;
@@ -43,6 +48,47 @@ static uint32_t otaRollbackLoopPasses = 0;
 static bool dedicatedWebServerTaskReady = false;
 static unsigned long protectedFallbackHomeRetryAtMs = 0;
 static bool protectedFallbackHomeRetryPending = false;
+static unsigned long lastManagementAuthServiceMs = 0;
+
+static bool takeWebDomainForSharedWork() {
+  if (!dedicatedWebServerTaskReady || firmwareUpdateIsLanTransport()) return false;
+  return lockBatteryMonitorWebDomain();
+}
+
+static void releaseWebDomainForSharedWork(bool locked) {
+  if (locked) unlockBatteryMonitorWebDomain();
+}
+
+static bool wifiStateMayMutateHttpLifecycle() {
+  if (!dedicatedWebServerTaskReady || firmwareUpdateIsLanTransport()) return false;
+  if (fallbackApActive || protectedFallbackHomeRetryPending) return true;
+  if (WiFi.status() != WL_CONNECTED) return true;
+  return !httpServerActive;
+}
+
+static bool resetButtonMayEnterProvisioning() {
+  if (digitalRead(RESET_WIFI_PIN) != LOW || bootButtonPressedSinceMs == 0) return false;
+  return (unsigned long)(millis() - bootButtonPressedSinceMs) >= WIFI_RESET_HOLD_MS;
+}
+
+static void registerRuntimeDiagnosticsRoute() {
+  server.on("/api/runtime", HTTP_GET, []() {
+    server.sendHeader("Cache-Control", "no-store");
+    String json = "{";
+    json += "\"firmwareVersion\":\"" + String(FW_VERSION) + "\",";
+    json += "\"cpuMHz\":" + String(ESP.getCpuFreqMHz()) + ",";
+    json += "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",";
+    json += "\"minFreeHeap\":" + String(ESP.getMinFreeHeap()) + ",";
+    json += "\"wifiRssi\":" + String(WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0) + ",";
+    json += "\"webTaskDedicated\":" + String(dedicatedWebServerTaskReady ? "true" : "false") + ",";
+    json += "\"webHandleCalls\":" + String(batteryMonitorWebHandleCalls()) + ",";
+    json += "\"webMutexMisses\":" + String(batteryMonitorWebMutexMisses()) + ",";
+    json += "\"webMaxHandleUs\":" + String(batteryMonitorWebMaxHandleMicros()) + ",";
+    json += "\"webLastHandleAgeMs\":" + String(batteryMonitorWebLastHandleAgeMs());
+    json += "}";
+    server.send(200, "application/json", json);
+  });
+}
 
 static void initializeOtaRollbackHealth(bool monitoringReady,
                                         bool releasePolicyReady) {
@@ -242,6 +288,7 @@ void setup() {
 
   registerMonitoringIdentityRoutes();
   registerWifiFirmwareUpdateRoutes();
+  registerRuntimeDiagnosticsRoute();
 
   bool connected = startSavedWifiConnection(true);
   if (!applyWifiRadioSettings())
@@ -267,14 +314,18 @@ void setup() {
 }
 
 void loop() {
-  // During LAN OTA, leave the HTTP task uncontended so authenticated chunk
-  // requests can continue. Otherwise retain the shared WebServer-domain lock.
-  bool domainLocked = true;
-  if (dedicatedWebServerTaskReady) {
-    domainLocked = firmwareUpdateIsLanTransport() ? false : lockBatteryMonitorWebDomain();
+  // The WebServer mutex protects the synchronous Arduino WebServer parser and
+  // the small pieces of shared state that its handlers mutate. It must NOT be
+  // held across the whole application loop: ADC sampling, Wi-Fi/radio service,
+  // discovery, rollback health, and ordinary idle work are independent and can
+  // otherwise starve the dedicated Core-0 HTTP task for long periods.
+
+  if (Serial.available() > 0) {
+    bool locked = takeWebDomainForSharedWork();
+    serviceSerialProvisioning();
+    releaseWebDomainForSharedWork(locked);
   }
 
-  serviceSerialProvisioning();
   serviceFirmwareUpdateTimeout();
   serviceWifiFirmwareUpdate();
   serviceWifiRadioSettings();
@@ -284,7 +335,6 @@ void loop() {
     // the synchronous server here instead of deadlocking after FW begin.
     if (firmwareUpdateIsLanTransport() && !dedicatedWebServerTaskReady && httpServerActive)
       server.handleClient();
-    if (dedicatedWebServerTaskReady && domainLocked) unlockBatteryMonitorWebDomain();
     delay(1);
     return;
   }
@@ -292,19 +342,30 @@ void loop() {
   if (!fallbackApActive) {
     if (!dedicatedWebServerTaskReady && httpServerActive) server.handleClient();
     serviceAuthenticatedDiscovery();
-    serviceWifiStateWithProtectedFallback();
-  } else {
-    serviceWifiStateWithProtectedFallback();
-    if (fallbackApActive) serviceSecureProvisioning();
   }
+
+  bool lifecycleLocked = false;
+  if (wifiStateMayMutateHttpLifecycle()) lifecycleLocked = takeWebDomainForSharedWork();
+  serviceWifiStateWithProtectedFallback();
+  if (fallbackApActive) serviceSecureProvisioning();
+  releaseWebDomainForSharedWork(lifecycleLocked);
+
+  bool resetLocked = false;
+  if (resetButtonMayEnterProvisioning()) resetLocked = takeWebDomainForSharedWork();
   serviceResetButton();
-  serviceManagementAuth();
+  releaseWebDomainForSharedWork(resetLocked);
+
+  unsigned long now = millis();
+  if ((unsigned long)(now - lastManagementAuthServiceMs) >= MANAGEMENT_AUTH_SERVICE_INTERVAL_MS) {
+    bool authLocked = takeWebDomainForSharedWork();
+    serviceManagementAuth();
+    releaseWebDomainForSharedWork(authLocked);
+    lastManagementAuthServiceMs = now;
+  }
 
   unsigned long intervalMs = sampleIntervalSec * 1000UL;
   if (millis() - lastSampleMs >= intervalMs) sampleBattery();
 
   serviceOtaRollbackHealth();
-
-  if (dedicatedWebServerTaskReady && domainLocked) unlockBatteryMonitorWebDomain();
   delay(2);
 }
