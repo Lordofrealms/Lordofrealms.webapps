@@ -325,9 +325,11 @@ bool startSecureProvisioning() {
   Serial.println("Secure provisioning unavailable: Arduino core was built without Security 2 support.");
   return false;
 #else
+  // Provisioning takes ownership of Wi-Fi. Stop the native HTTP transport and
+  // normal discovery services directly; there is no Arduino WebServer layer.
   stopMdns();
-  server.stop();
-  discoveryUdp.stop();
+  stopNativeHttpServer();
+  stopDiscovery();
 
   network_prov_mgr_config_t config = {};
   config.scheme = network_prov_scheme_softap;
