@@ -1,4 +1,4 @@
-// Cross-task synchronization for Battery Monitor configuration/network state.
+// Cross-task synchronization for Battery Monitor configuration state.
 //
 // Device settings are shared by the Arduino application task, esp_http_server,
 // and the Espressif provisioning event callback. Arduino String mutation and the
@@ -7,8 +7,9 @@
 // serialized here. BatterySnapshot consumes copied configuration after releasing
 // this mutex, which prevents config<->snapshot lock inversion.
 //
-// Scalar values used on hot/cross-task read paths are mirrored atomically so the
-// main loop and HTTP status path do not take this mutex unnecessarily.
+// Two scalar values used on every main-loop pass (configured-Wi-Fi presence and
+// sampling interval) are mirrored atomically so the hot path does not take this
+// mutex every ~2 ms.
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -32,7 +33,6 @@ static SemaphoreHandle_t deviceConfigMutex = nullptr;
 static bool deviceConfigSyncErrorReported = false;
 static std::atomic<bool> configuredWifiPresent{false};
 static std::atomic<uint32_t> cachedSampleIntervalSec{10};
-static std::atomic<bool> publishedFallbackApActive{false};
 
 bool initializeDeviceConfigSynchronization() {
   if (deviceConfigMutex != nullptr) return true;
@@ -49,7 +49,6 @@ bool initializeDeviceConfigSynchronization() {
   // initial publication is race-free. Subsequent changes are published below.
   configuredWifiPresent.store(wifiSsid.length() > 0, std::memory_order_release);
   cachedSampleIntervalSec.store(sampleIntervalSec, std::memory_order_release);
-  publishedFallbackApActive.store(fallbackApActive, std::memory_order_release);
   return true;
 }
 
@@ -60,23 +59,6 @@ static bool takeDeviceConfigMutex(TickType_t waitTicks = pdMS_TO_TICKS(1000)) {
 
 static void giveDeviceConfigMutex() {
   if (deviceConfigMutex != nullptr) xSemaphoreGive(deviceConfigMutex);
-}
-
-void publishFallbackApState(bool active) {
-  // fallbackApActive itself is application-task-owned. HTTP readers consume the
-  // atomic publication below, so there is no cross-core access to that raw bool.
-  fallbackApActive = active;
-  publishedFallbackApActive.store(active, std::memory_order_release);
-}
-
-bool synchronizedFallbackApActive() {
-  return publishedFallbackApActive.load(std::memory_order_acquire);
-}
-
-String localIpString() {
-  if (WiFi.status() == WL_CONNECTED) return WiFi.localIP().toString();
-  if (synchronizedFallbackApActive()) return WiFi.softAPIP().toString();
-  return "0.0.0.0";
 }
 
 bool copyDeviceConfigState(DeviceConfigState& out) {
