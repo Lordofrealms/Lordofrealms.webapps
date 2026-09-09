@@ -103,6 +103,7 @@ esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition)
 #undef stopNativeHttpServer
 #undef startNativeHttpServer
 #include "../../BatteryMonitor/NativeHttpSynchronization.ino"
+#include "../../BatteryMonitor/NetworkSnapshotControl.ino"
 #include "../../BatteryMonitor/TrustedUsbSecuritySynchronization.ino"
 
 // Serial provisioning is the trusted physical transport. Keep its protocol
@@ -125,8 +126,10 @@ esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition)
 #include "../../BatteryMonitor/HttpDiagnosticsSerialRouter.ino"
 
 // setup()/loop() are included last so the runtime sees every service primitive
-// above. The main task calls only the atomic deferred-control service; management
-// challenge/session expiry remains owned by esp_http_server's task.
-#define serviceNativeHttpControl serviceNativeHttpControlMainSafe
+// above. Network source acquisition also stays on the main task; HTTP only reads
+// the published network snapshot.
+#define startNativeHttpServer startNativeHttpServerWithNetworkSnapshot
+#define serviceNativeHttpControl serviceNativeHttpControlWithNetworkSnapshot
 #include "../../BatteryMonitor/BatteryMonitor.ino"
 #undef serviceNativeHttpControl
+#undef startNativeHttpServer
