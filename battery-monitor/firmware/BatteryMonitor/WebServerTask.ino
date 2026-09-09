@@ -8,9 +8,9 @@
 // cadence.
 //
 // WebServer itself is not safe to start/stop while another task is inside
-// handleClient(). The domain mutex therefore serializes HTTP servicing against
-// normal-network lifecycle transitions, secure provisioning, USB configuration,
-// ADC/config snapshots and OTA transitions performed by the main loop.
+// handleClient(). The domain mutex therefore serializes HTTP servicing only
+// against actual WebServer lifecycle/shared-state transitions. Ordinary ADC,
+// discovery, radio, and application-loop work must not hold this mutex.
 //
 // USB OTA intentionally quiesces HTTP. Authenticated LAN OTA is different: its
 // subsequent chunk/finalize requests arrive through this same WebServer, so HTTP
@@ -25,6 +25,10 @@ bool firmwareUpdateIsLanTransport();
 
 static SemaphoreHandle_t batteryMonitorWebDomainMutex = nullptr;
 static TaskHandle_t batteryMonitorWebTaskHandle = nullptr;
+static volatile uint32_t webHandleCalls = 0;
+static volatile uint32_t webMutexMisses = 0;
+static volatile uint32_t webMaxHandleUs = 0;
+static volatile uint32_t webLastHandleMs = 0;
 
 bool lockBatteryMonitorWebDomain() {
   if (batteryMonitorWebDomainMutex == nullptr) return true;
@@ -35,6 +39,14 @@ void unlockBatteryMonitorWebDomain() {
   if (batteryMonitorWebDomainMutex != nullptr) xSemaphoreGive(batteryMonitorWebDomainMutex);
 }
 
+uint32_t batteryMonitorWebHandleCalls() { return webHandleCalls; }
+uint32_t batteryMonitorWebMutexMisses() { return webMutexMisses; }
+uint32_t batteryMonitorWebMaxHandleMicros() { return webMaxHandleUs; }
+uint32_t batteryMonitorWebLastHandleAgeMs() {
+  uint32_t last = webLastHandleMs;
+  return last == 0 ? UINT32_MAX : (uint32_t)(millis() - last);
+}
+
 static bool batteryMonitorWebMayServe() {
   return !firmwareUpdateInProgress() || firmwareUpdateIsLanTransport();
 }
@@ -42,13 +54,20 @@ static bool batteryMonitorWebMayServe() {
 static void batteryMonitorWebTask(void*) {
   for (;;) {
     if (httpServerActive && !fallbackApActive && batteryMonitorWebMayServe()) {
-      if (xSemaphoreTake(batteryMonitorWebDomainMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+      if (xSemaphoreTake(batteryMonitorWebDomainMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         // Re-check after taking the mutex because the main loop may have changed
         // network/OTA state while this task was waiting.
         if (httpServerActive && !fallbackApActive && batteryMonitorWebMayServe()) {
+          uint32_t startedUs = micros();
           server.handleClient();
+          uint32_t elapsedUs = (uint32_t)(micros() - startedUs);
+          webHandleCalls++;
+          webLastHandleMs = millis();
+          if (elapsedUs > webMaxHandleUs) webMaxHandleUs = elapsedUs;
         }
         xSemaphoreGive(batteryMonitorWebDomainMutex);
+      } else {
+        webMutexMisses++;
       }
     }
     vTaskDelay(pdMS_TO_TICKS(1));
@@ -69,7 +88,7 @@ bool initializeDedicatedWebServerTask() {
     "batmon-web",
     8192,
     nullptr,
-    2,
+    3,
     &batteryMonitorWebTaskHandle,
     0
   );
