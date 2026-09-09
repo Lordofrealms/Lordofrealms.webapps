@@ -1,23 +1,9 @@
-// Battery Monitor primary sketch wrapper.
+// Battery Monitor production runtime wrapper.
 //
-// The original v0.1.0 main sketch is retained verbatim in
-// BatteryMonitorLegacy.inc. Only setup/loop are overridden here so P0-3 can
-// add authenticated monitoring identity without duplicating the large embedded
-// browser UI, protected Wi-Fi fallback can recover a monitor when infrastructure
-// Wi-Fi is unavailable, signed USB/LAN OTA can run through the application after
-// Flash Encryption is active, advanced Wi-Fi radio settings can be persisted in
-// encrypted NVS, a newly selected signed OTA image must survive a local health
-// probation before the ESP-IDF bootloader permanently accepts it, and the highest
-// accepted signed release sequence is retained in encrypted NVS to block signed-
-// image downgrades.
-//
-// Battery measurement ownership is intentionally independent of HTTP. The
-// sampling path performs ADC conversions on its configured cadence and updates
-// the cached battery state. HTTP/status clients only report the last completed
-// sample; no network request is allowed to trigger an ADC conversion. The native
-// ESP-IDF HTTP migration will preserve this model and make publication atomic as
-// a coherent snapshot so concurrent clients cannot observe a partially updated
-// set of ADC/voltage/timestamp fields.
+// ESP-IDF is the sole production build architecture. The historical sketch is
+// included for shared settings/UI/provisioning helpers, while setup()/loop()
+// below own the production runtime: resilient Wi-Fi, native esp_http_server,
+// coherent cached battery snapshots, signed USB/LAN OTA, and rollback health.
 
 #include <esp_ota_ops.h>
 
@@ -28,115 +14,31 @@
 #undef loop
 
 bool loadOrCreateMonitoringIdentity();
-void registerMonitoringIdentityRoutes();
 void serviceAuthenticatedDiscovery();
 bool hasProvisioningIdentity();
-bool initializeDedicatedWebServerTask();
-bool lockBatteryMonitorWebDomain();
-void unlockBatteryMonitorWebDomain();
-uint32_t batteryMonitorWebHandleCalls();
-uint32_t batteryMonitorWebMutexMisses();
-uint32_t batteryMonitorWebMaxHandleMicros();
-uint32_t batteryMonitorWebLastHandleAgeMs();
-void registerWifiFirmwareUpdateRoutes();
-void serviceWifiFirmwareUpdate();
-bool firmwareUpdateIsLanTransport();
+
+bool initializeBatterySnapshotState();
+void sampleBatterySnapshot();
+void refreshBatterySnapshotConfiguration();
+String batterySnapshotStatusJson();
+
+bool startNativeHttpServer();
+void stopNativeHttpServer();
+void serviceNativeHttpControl();
 
 static const unsigned long OTA_ROLLBACK_PROBATION_MS = 60UL * 1000UL;
 static const unsigned long OTA_ROLLBACK_CONFIRM_RETRY_MS = 10UL * 1000UL;
 static const uint32_t OTA_ROLLBACK_MIN_LOOP_PASSES = 250;
 static const unsigned long PROTECTED_FALLBACK_RETRY_INTERVAL_MS = 60UL * 1000UL;
 static const unsigned long PROTECTED_FALLBACK_CLIENT_RETRY_DEFERRAL_MS = 60UL * 1000UL;
-static const unsigned long MANAGEMENT_AUTH_SERVICE_INTERVAL_MS = 100UL;
+
 static bool otaRollbackPendingValidation = false;
 static bool otaRollbackHealthPrerequisitesReady = false;
 static unsigned long otaRollbackProbationStartedMs = 0;
 static unsigned long otaRollbackNextConfirmAttemptMs = 0;
 static uint32_t otaRollbackLoopPasses = 0;
-static bool dedicatedWebServerTaskReady = false;
 static unsigned long protectedFallbackHomeRetryAtMs = 0;
 static bool protectedFallbackHomeRetryPending = false;
-static unsigned long lastManagementAuthServiceMs = 0;
-static bool responsiveWebRoutesInstalled = false;
-
-static bool takeWebDomainForSharedWork() {
-  if (!dedicatedWebServerTaskReady || firmwareUpdateIsLanTransport()) return false;
-  return lockBatteryMonitorWebDomain();
-}
-
-static void releaseWebDomainForSharedWork(bool locked) {
-  if (locked) unlockBatteryMonitorWebDomain();
-}
-
-static bool wifiStateMayMutateHttpLifecycle() {
-  if (!dedicatedWebServerTaskReady || firmwareUpdateIsLanTransport()) return false;
-  if (fallbackApActive || protectedFallbackHomeRetryPending) return true;
-  if (WiFi.status() != WL_CONNECTED) return true;
-  return !httpServerActive;
-}
-
-static bool resetButtonMayEnterProvisioning() {
-  if (digitalRead(RESET_WIFI_PIN) != LOW || bootButtonPressedSinceMs == 0) return false;
-  return (unsigned long)(millis() - bootButtonPressedSinceMs) >= WIFI_RESET_HOLD_MS;
-}
-
-static void handleResponsiveRoot() {
-  String page = buildIndexPage();
-  // The pinned Arduino WebServer is single-client. The legacy page used
-  // setInterval(), which starts another fetch every second even when the prior
-  // status request has not completed. Replace only the startup scheduler at
-  // response time so automatic polling is strictly single-flight.
-  page.replace(
-    "loadConfig().then(refresh);setInterval(refresh,refreshMs);",
-    "async function refreshLoop(){await refresh();setTimeout(refreshLoop,refreshMs)}loadConfig().then(refreshLoop);"
-  );
-  server.sendHeader("Cache-Control", "no-store");
-  server.sendHeader("Connection", "close");
-  server.send(200, "text/html; charset=utf-8", page);
-}
-
-static void handleResponsiveStatus() {
-  server.sendHeader("Cache-Control", "no-store");
-  server.sendHeader("Connection", "close");
-  server.send(200, "application/json", statusJson());
-}
-
-static void installResponsiveWebRoutesIfReady() {
-  if (!httpServerActive || responsiveWebRoutesInstalled) return;
-
-  // configureHttpServer() installs the legacy routes before server.begin().
-  // Replace the two high-frequency GET handlers once. removeRoute() removes all
-  // matching handlers, preventing duplicate routes from being selected first.
-  server.removeRoute("/", HTTP_GET);
-  server.removeRoute("/api/status", HTTP_GET);
-  server.on("/", HTTP_GET, handleResponsiveRoot);
-  server.on("/api/status", HTTP_GET, handleResponsiveStatus);
-
-  // handleClient() already runs from a task that yields every millisecond, so
-  // do not add another internal 1 ms delay when there is no accepted client.
-  server.enableDelay(false);
-  responsiveWebRoutesInstalled = true;
-}
-
-static void registerRuntimeDiagnosticsRoute() {
-  server.on("/api/runtime", HTTP_GET, []() {
-    server.sendHeader("Cache-Control", "no-store");
-    server.sendHeader("Connection", "close");
-    String json = "{";
-    json += "\"firmwareVersion\":\"" + String(FW_VERSION) + "\",";
-    json += "\"cpuMHz\":" + String(ESP.getCpuFreqMHz()) + ",";
-    json += "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",";
-    json += "\"minFreeHeap\":" + String(ESP.getMinFreeHeap()) + ",";
-    json += "\"wifiRssi\":" + String(WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0) + ",";
-    json += "\"webTaskDedicated\":" + String(dedicatedWebServerTaskReady ? "true" : "false") + ",";
-    json += "\"webHandleCalls\":" + String(batteryMonitorWebHandleCalls()) + ",";
-    json += "\"webMutexMisses\":" + String(batteryMonitorWebMutexMisses()) + ",";
-    json += "\"webMaxHandleUs\":" + String(batteryMonitorWebMaxHandleMicros()) + ",";
-    json += "\"webLastHandleAgeMs\":" + String(batteryMonitorWebLastHandleAgeMs());
-    json += "}";
-    server.send(200, "application/json", json);
-  });
-}
 
 static void initializeOtaRollbackHealth(bool monitoringReady,
                                         bool releasePolicyReady) {
@@ -155,7 +57,6 @@ static void initializeOtaRollbackHealth(bool monitoringReady,
   otaRollbackProbationStartedMs = millis();
   otaRollbackNextConfirmAttemptMs = otaRollbackProbationStartedMs + OTA_ROLLBACK_PROBATION_MS;
   otaRollbackLoopPasses = 0;
-
   Serial.println("OTA candidate is pending validation; starting 60-second local health probation.");
 
   if (!otaRollbackHealthPrerequisitesReady) {
@@ -190,17 +91,31 @@ static void serviceOtaRollbackHealth() {
   }
 
   otaRollbackNextConfirmAttemptMs = now + OTA_ROLLBACK_CONFIRM_RETRY_MS;
-  Serial.printf("WARNING: Could not mark OTA candidate valid (%s); keeping rollback armed.\n", esp_err_to_name(err));
+  Serial.printf("WARNING: Could not mark OTA candidate valid (%s); keeping rollback armed.\n",
+                esp_err_to_name(err));
+}
+
+static void startNativeNetworkServices() {
+  if (!httpServerActive && !startNativeHttpServer()) {
+    Serial.println("WARNING: Native HTTP server unavailable; monitoring LAN API is offline.");
+  }
+  startDiscovery();
+  startMdns();
+}
+
+static void stopNativeNetworkServices() {
+  stopMdns();
+  stopDiscovery();
+  stopNativeHttpServer();
 }
 
 static bool startSavedWifiConnection(bool waitForResult) {
   if (wifiSsid.length() == 0) return false;
 
-  // Clear stale association state without erasing credentials. Battery Monitor
-  // keeps its authoritative SSID/password in encrypted `batmon` NVS and passes
-  // them explicitly to WiFi.begin() on every recovery attempt.
   WiFi.mode(WIFI_STA);
   applyWifiRadioSettings();
+  // Clear stale association state without erasing Battery Monitor's separately
+  // persisted encrypted SSID/password.
   WiFi.disconnect(false, false);
   delay(25);
   applyWifiRadioSettings();
@@ -208,13 +123,36 @@ static bool startSavedWifiConnection(bool waitForResult) {
   WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
 
   if (!waitForResult) return WiFi.status() == WL_CONNECTED;
-
   unsigned long started = millis();
   while (WiFi.status() != WL_CONNECTED &&
          (unsigned long)(millis() - started) < CONNECT_ATTEMPT_MS) {
     delay(200);
   }
   return WiFi.status() == WL_CONNECTED;
+}
+
+static void startProtectedFallbackWithRetry(unsigned long now) {
+  protectedFallbackHomeRetryPending = false;
+  stopNativeNetworkServices();
+  startFallbackAp();
+  if (fallbackApActive && wifiSsid.length() > 0) {
+    protectedFallbackHomeRetryAtMs = now + PROTECTED_FALLBACK_RETRY_INTERVAL_MS;
+    Serial.printf("Protected setup AP will retry saved home Wi-Fi in %lu seconds.\n",
+                  PROTECTED_FALLBACK_RETRY_INTERVAL_MS / 1000UL);
+  }
+}
+
+static void requestProtectedFallbackHomeRetry(unsigned long now) {
+  if (WiFi.softAPgetStationNum() > 0) {
+    protectedFallbackHomeRetryAtMs = now + PROTECTED_FALLBACK_CLIENT_RETRY_DEFERRAL_MS;
+    Serial.println("Protected setup client is active; deferring saved-Wi-Fi retry for 60 seconds.");
+    return;
+  }
+
+  protectedFallbackHomeRetryAtMs = 0;
+  protectedFallbackHomeRetryPending = true;
+  Serial.println("Protected setup AP stopping for scheduled saved-Wi-Fi retry.");
+  requestStopSecureProvisioning();
 }
 
 static void beginHomeWifiRetryAfterProvisioningStops(unsigned long now) {
@@ -224,29 +162,6 @@ static void beginHomeWifiRetryAfterProvisioningStops(unsigned long now) {
   wifiDisconnectedSinceMs = now;
   nextReconnectAttemptMs = now + RETRY_INTERVAL_MS;
   Serial.println("Protected setup AP stopped cleanly; retrying saved home Wi-Fi.");
-}
-
-static void requestProtectedFallbackHomeRetry(unsigned long now) {
-  if (WiFi.softAPgetStationNum() > 0) {
-    protectedFallbackHomeRetryAtMs = now + PROTECTED_FALLBACK_CLIENT_RETRY_DEFERRAL_MS;
-    Serial.println("Protected setup client is active; deferring scheduled home Wi-Fi retry for 60 seconds.");
-    return;
-  }
-
-  protectedFallbackHomeRetryAtMs = 0;
-  protectedFallbackHomeRetryPending = true;
-  Serial.println("Protected setup AP stopping for scheduled home Wi-Fi retry.");
-  requestStopSecureProvisioning();
-}
-
-static void startProtectedFallbackWithRetry(unsigned long now) {
-  protectedFallbackHomeRetryPending = false;
-  startFallbackAp();
-  if (fallbackApActive && wifiSsid.length() > 0) {
-    protectedFallbackHomeRetryAtMs = now + PROTECTED_FALLBACK_RETRY_INTERVAL_MS;
-    Serial.printf("Protected setup AP will retry saved home Wi-Fi in %lu seconds.\n",
-                  PROTECTED_FALLBACK_RETRY_INTERVAL_MS / 1000UL);
-  }
 }
 
 static void serviceWifiStateWithProtectedFallback() {
@@ -265,15 +180,11 @@ static void serviceWifiStateWithProtectedFallback() {
     return;
   }
 
-  bool connected = WiFi.status() == WL_CONNECTED;
-  if (connected) {
+  if (WiFi.status() == WL_CONNECTED) {
     wifiDisconnectedSinceMs = 0;
     nextReconnectAttemptMs = now + RETRY_INTERVAL_MS;
     protectedFallbackHomeRetryAtMs = 0;
-    bool serverWasDown = !httpServerActive;
-    startNormalNetworkServices();
-    if (serverWasDown) responsiveWebRoutesInstalled = false;
-    installResponsiveWebRoutesIfReady();
+    startNativeNetworkServices();
     return;
   }
 
@@ -281,9 +192,8 @@ static void serviceWifiStateWithProtectedFallback() {
 
   if (wifiSsid.length() == 0) {
     if (hasProvisioningIdentity() || loadDeviceCredentialIdentity()) {
-      startFallbackAp();
+      startProtectedFallbackWithRetry(now);
       protectedFallbackHomeRetryAtMs = 0;
-      protectedFallbackHomeRetryPending = false;
     }
     return;
   }
@@ -296,9 +206,26 @@ static void serviceWifiStateWithProtectedFallback() {
   }
 
   if ((unsigned long)(now - wifiDisconnectedSinceMs) >= CONNECT_ATTEMPT_MS) {
-    Serial.println("Home Wi-Fi unavailable after retry window; entering protected fallback setup AP.");
+    Serial.println("Home Wi-Fi unavailable after 30-second retry window; entering protected fallback setup AP.");
     startProtectedFallbackWithRetry(now);
   }
+}
+
+static void serviceResetButtonNative() {
+  bool pressed = digitalRead(RESET_WIFI_PIN) == LOW;
+  unsigned long now = millis();
+  if (!pressed) {
+    bootButtonPressedSinceMs = 0;
+    return;
+  }
+
+  if (bootButtonPressedSinceMs == 0) bootButtonPressedSinceMs = now;
+  if ((unsigned long)(now - bootButtonPressedSinceMs) < WIFI_RESET_HOLD_MS) return;
+
+  Serial.println("BOOT held 5 seconds: entering secure Wi-Fi provisioning; Device Password and settings are preserved");
+  while (digitalRead(RESET_WIFI_PIN) == LOW) delay(50);
+  bootButtonPressedSinceMs = 0;
+  startProtectedFallbackWithRetry(millis());
 }
 
 void setup() {
@@ -316,41 +243,33 @@ void setup() {
 
   loadSettings();
   loadWifiRadioSettings();
-  // setSleep() can cache the configured policy before Wi-Fi starts. TX power is
-  // applied again immediately after STA/AP startup below.
   applyWifiRadioSettings();
 
   String releasePolicyError;
   bool releasePolicyReady = initializeFirmwareReleasePolicy(releasePolicyError);
-  if (!releasePolicyReady) {
+  if (!releasePolicyReady)
     Serial.printf("ERROR: Firmware release policy unavailable: %s\n", releasePolicyError.c_str());
-  }
 
   bool provisioningReady = loadDeviceCredentialIdentity();
   bool monitoringReady = loadOrCreateMonitoringIdentity();
-  if (!monitoringReady) {
+  if (!monitoringReady)
     Serial.println("WARNING: Monitoring Identity Key unavailable; authenticated discovery/status will fail closed.");
-  }
 
   pinMode(RESET_WIFI_PIN, INPUT_PULLUP);
   analogReadResolution(12);
   analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db);
-  sampleBattery();
-
-  registerMonitoringIdentityRoutes();
-  registerWifiFirmwareUpdateRoutes();
-  registerRuntimeDiagnosticsRoute();
+  if (!initializeBatterySnapshotState())
+    Serial.println("WARNING: coherent battery snapshot unavailable; legacy globals remain as fallback.");
+  sampleBatterySnapshot();
 
   bool connected = startSavedWifiConnection(true);
-  if (!applyWifiRadioSettings())
-    Serial.println("WARNING: Could not fully apply configured Wi-Fi radio policy.");
+  applyWifiRadioSettings();
   if (connected) {
     Serial.printf("Wi-Fi connected: %s\n", WiFi.localIP().toString().c_str());
-    startNormalNetworkServices();
-    installResponsiveWebRoutesIfReady();
+    startNativeNetworkServices();
     nextReconnectAttemptMs = millis() + RETRY_INTERVAL_MS;
   } else if (wifiSsid.length() == 0 && provisioningReady) {
-    startFallbackAp();
+    startProtectedFallbackWithRetry(millis());
   } else if (wifiSsid.length() > 0 && provisioningReady) {
     Serial.println("Saved Wi-Fi is unavailable; starting protected fallback setup AP.");
     startProtectedFallbackWithRetry(millis());
@@ -359,64 +278,31 @@ void setup() {
   }
 
   serviceWifiRadioSettings();
-  dedicatedWebServerTaskReady = initializeDedicatedWebServerTask();
-
   Serial.printf("Device %s (%s), hostname %s.local\n", deviceId.c_str(), deviceName.c_str(), hostName.c_str());
   initializeOtaRollbackHealth(monitoringReady, releasePolicyReady);
 }
 
 void loop() {
-  // The WebServer mutex protects the synchronous Arduino WebServer parser and
-  // the small pieces of shared state that its handlers mutate. It must NOT be
-  // held across the whole application loop: ADC sampling, Wi-Fi/radio service,
-  // discovery, rollback health, and ordinary idle work are independent and can
-  // otherwise starve the dedicated Core-0 HTTP task for long periods.
-
-  if (Serial.available() > 0) {
-    bool locked = takeWebDomainForSharedWork();
-    serviceSerialProvisioning();
-    releaseWebDomainForSharedWork(locked);
-  }
-
+  // Serial, ADC sampling, discovery, and Wi-Fi recovery remain owned by the
+  // application task. Native esp_http_server owns its own task and only reads
+  // the last completed battery snapshot for status requests.
+  serviceSerialProvisioning();
   serviceFirmwareUpdateTimeout();
-  serviceWifiFirmwareUpdate();
   serviceWifiRadioSettings();
+  serviceNativeHttpControl();
 
   if (firmwareUpdateInProgress()) {
-    // If the dedicated HTTP task could not be created, service LAN OTA through
-    // the synchronous server here instead of deadlocking after FW begin.
-    if (firmwareUpdateIsLanTransport() && !dedicatedWebServerTaskReady && httpServerActive)
-      server.handleClient();
     delay(1);
     return;
   }
 
-  if (!fallbackApActive) {
-    if (!dedicatedWebServerTaskReady && httpServerActive) server.handleClient();
-    serviceAuthenticatedDiscovery();
-  }
-
-  bool lifecycleLocked = false;
-  if (wifiStateMayMutateHttpLifecycle()) lifecycleLocked = takeWebDomainForSharedWork();
+  if (!fallbackApActive) serviceAuthenticatedDiscovery();
   serviceWifiStateWithProtectedFallback();
   if (fallbackApActive) serviceSecureProvisioning();
-  releaseWebDomainForSharedWork(lifecycleLocked);
-
-  bool resetLocked = false;
-  if (resetButtonMayEnterProvisioning()) resetLocked = takeWebDomainForSharedWork();
-  serviceResetButton();
-  releaseWebDomainForSharedWork(resetLocked);
-
-  unsigned long now = millis();
-  if ((unsigned long)(now - lastManagementAuthServiceMs) >= MANAGEMENT_AUTH_SERVICE_INTERVAL_MS) {
-    bool authLocked = takeWebDomainForSharedWork();
-    serviceManagementAuth();
-    releaseWebDomainForSharedWork(authLocked);
-    lastManagementAuthServiceMs = now;
-  }
+  serviceResetButtonNative();
 
   unsigned long intervalMs = sampleIntervalSec * 1000UL;
-  if (millis() - lastSampleMs >= intervalMs) sampleBattery();
+  if ((unsigned long)(millis() - lastSampleMs) >= intervalMs) sampleBatterySnapshot();
 
   serviceOtaRollbackHealth();
   delay(2);
