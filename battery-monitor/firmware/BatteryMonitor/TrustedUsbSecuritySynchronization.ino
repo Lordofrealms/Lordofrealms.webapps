@@ -22,6 +22,20 @@ static bool trustedUsbQuiesceNativeHttp() {
   return restore;
 }
 
+String provisioningIdentitySummaryTrustedUsb() {
+  // During active Security 2 provisioning, credential material is stable and
+  // native HTTP is already stopped. Outside provisioning, quiesce LAN auth so a
+  // password rotation cannot replace Strings/SRP pointers halfway through this
+  // trusted-USB status read.
+  if (secureProvisioningActive.load(std::memory_order_acquire))
+    return provisioningIdentitySummary();
+
+  bool restore = trustedUsbQuiesceNativeHttp();
+  String summary = provisioningIdentitySummary();
+  trustedUsbRestoreNativeHttp(restore);
+  return summary;
+}
+
 bool verifyDevicePasswordFlexibleTrustedUsb(const String& candidate, bool& credentialPresentOut) {
   credentialPresentOut = false;
 
@@ -29,7 +43,7 @@ bool verifyDevicePasswordFlexibleTrustedUsb(const String& candidate, bool& crede
   // active. The protected setup AP has no LAN HTTP server, and an active
   // provisioner necessarily already has credential material loaded. Never try
   // to reload/free that material just to service a USB verification request.
-  if (secureProvisioningActive) {
+  if (secureProvisioningActive.load(std::memory_order_acquire)) {
     credentialPresentOut = hasProvisioningIdentity();
     return credentialPresentOut && verifyDevicePasswordFlexible(candidate);
   }
@@ -50,7 +64,7 @@ bool setDevicePasswordFlexibleTrustedUsb(const String& usernameValue,
   // Security 2 owns pointers into the current SRP credential material for the
   // life of an active provisioning session. Do not free/replace it underneath
   // the provisioner; the USB administrator can retry once provisioning ends.
-  if (secureProvisioningActive) {
+  if (secureProvisioningActive.load(std::memory_order_acquire)) {
     errorOut = "PROVISIONING_ACTIVE";
     return false;
   }
@@ -67,11 +81,14 @@ bool clearProvisioningIdentityTrustedUsb(String& errorOut) {
   // Security 2 owns pointers into the SRP material. Ask the provisioner to stop
   // and wait for NETWORK_PROV_END before freeing those pointers. Unlike the old
   // void-only path, a stop timeout is returned to the USB client explicitly.
-  if (secureProvisioningActive) {
+  if (secureProvisioningActive.load(std::memory_order_acquire)) {
     requestStopSecureProvisioning();
     unsigned long started = millis();
-    while (secureProvisioningActive && (unsigned long)(millis() - started) < 5000UL) delay(10);
-    if (secureProvisioningActive) {
+    while (secureProvisioningActive.load(std::memory_order_acquire) &&
+           (unsigned long)(millis() - started) < 5000UL) {
+      delay(10);
+    }
+    if (secureProvisioningActive.load(std::memory_order_acquire)) {
       errorOut = "PROVISIONING_STOP_TIMEOUT";
       return false;
     }
