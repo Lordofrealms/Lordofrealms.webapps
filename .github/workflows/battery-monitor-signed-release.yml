@@ -96,6 +96,9 @@ jobs:
           grep -qx 'software_signed_release_floor=encrypted-nvs-strictly-newer' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
           grep -qx 'post_boot_ota_rollback=enabled' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
           grep -qx 'hardware_efuse_app_anti_rollback=disabled-pending-secure-boot-production-efuse-gate' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
+          grep -qx 'http_server=esp_http_server' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
+          grep -qx 'http_transport=native-esp-idf' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
+          grep -qx 'http_max_client_sessions=10' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
 
       - name: Sign and independently verify firmware
         shell: bash
@@ -185,7 +188,9 @@ jobs:
             echo 'arduino_esp32_base_release=3.3.11'
             echo 'arduino_esp32_component_source=upstream-git'
             echo 'arduino_esp32_commit=5cdf8975ae8d9e35888b724b01a444d22406424e'
-            echo 'arduino_esp32_webserver_hardening=upstream-pr-12794-merged'
+            echo 'http_server=esp_http_server'
+            echo 'http_transport=native-esp-idf'
+            echo 'http_max_client_sessions=10'
             echo 'algorithm=RSA-3072-PSS-SHA256'
             echo "public_key_spki_sha256=$EXPECTED_KEY_FINGERPRINT"
             sha256sum /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.bin
