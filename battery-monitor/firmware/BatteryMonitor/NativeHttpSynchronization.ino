@@ -55,14 +55,6 @@ static esp_err_t synchronizedNativeRootHandler(httpd_req_t* req) {
 
   const uint32_t buildStart = trace ? micros() : 0;
   String page = buildIndexPage();
-  // Live status must never depend on the settings/config endpoint. Populate
-  // configuration only after successful management unlock; status starts as
-  // soon as the HTML/JS has loaded.
-  page.replace("loadConfig().then(refreshLoop);", "refreshLoop();");
-  page.replace(
-    "session=s.session;csrf=s.csrf;el('devicePassword').value='';el('settings').disabled=false;",
-    "session=s.session;csrf=s.csrf;await loadConfig();el('devicePassword').value='';el('settings').disabled=false;"
-  );
   const uint32_t buildUs = trace ? (uint32_t)(micros() - buildStart) : 0;
 
   // The self-contained page is much larger than the JSON responses. Send it in
@@ -237,7 +229,6 @@ static esp_err_t synchronizedNativeProvisioningHandler(httpd_req_t* req) {
   synchronizedProvisioningStartAtMs.store((uint32_t)(millis() + 350UL), std::memory_order_release);
   return nativeSendJson(req, 200, String("{\"ok\":true,\"setupSsid\":\"") + jsonEscape(apSsid) + "\"}");
 }
-
 static esp_err_t synchronizedNativeFirmwareEndHandler(httpd_req_t* req) {
   NativeHttpRequestScope scope;
   if (!nativeRequireManagementWriteAuth(req)) return ESP_OK;
