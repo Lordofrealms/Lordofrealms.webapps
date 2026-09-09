@@ -2,8 +2,9 @@
 //
 // ADC conversions are owned by the application sampling path. HTTP, Windows,
 // discovery, and other readers never trigger an ADC conversion; they only copy
-// the last completed snapshot under a very short mutex. The ADC work itself is
-// deliberately performed outside the mutex.
+// the last completed snapshot under a very short mutex. Configuration is copied
+// under its separate mutex before this mutex is taken, so no config/snapshot
+// lock inversion is possible. The ADC work itself remains outside both mutexes.
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -55,22 +56,25 @@ bool copyBatterySnapshot(BatterySnapshot& out) {
 }
 
 void refreshBatterySnapshotConfiguration() {
+  DeviceConfigState config = {};
+  if (!copyDeviceConfigState(config)) return;
   if (!ensureBatterySnapshotMutex()) return;
   if (xSemaphoreTake(batterySnapshotMutex, pdMS_TO_TICKS(20)) != pdTRUE) return;
   if (publishedBatterySnapshotReady) {
-    publishedBatterySnapshot.lowVoltage = lowVoltage;
-    publishedBatterySnapshot.criticalVoltage = criticalVoltage;
-    publishedBatterySnapshot.calibrationFactor = calibrationFactor;
-    publishedBatterySnapshot.calibrationOffset = calibrationOffset;
-    publishedBatterySnapshot.sampleIntervalSec = sampleIntervalSec;
+    publishedBatterySnapshot.lowVoltage = config.lowVoltage;
+    publishedBatterySnapshot.criticalVoltage = config.criticalVoltage;
+    publishedBatterySnapshot.calibrationFactor = config.calibrationFactor;
+    publishedBatterySnapshot.calibrationOffset = config.calibrationOffset;
+    publishedBatterySnapshot.sampleIntervalSec = config.sampleIntervalSec;
     // Recalculate voltage from the already measured ADC millivolts when
     // calibration changes; no new ADC read is required just to publish config.
     publishedBatterySnapshot.voltage =
       (((float)publishedBatterySnapshot.adcMillivolts / 1000.0f) *
-       DIVIDER_MULTIPLIER * calibrationFactor) + calibrationOffset;
+       DIVIDER_MULTIPLIER * config.calibrationFactor) + config.calibrationOffset;
     classifyBatterySnapshot(publishedBatterySnapshot);
 
-    // Preserve legacy readers (USB STATUS and older internal helpers).
+    // Preserve legacy scalar mirrors for compatibility with older helpers. New
+    // cross-task readers use copyBatterySnapshot() rather than these scalars.
     batteryVoltage = publishedBatterySnapshot.voltage;
     adcMilliVolts = publishedBatterySnapshot.adcMillivolts;
     adcRaw = publishedBatterySnapshot.adcRaw;
@@ -81,7 +85,7 @@ void refreshBatterySnapshotConfiguration() {
 
 void sampleBatterySnapshot() {
   // High-impedance divider: throw away initial conversions, then use a trimmed
-  // mean. All conversion/delay work happens before taking the snapshot mutex.
+  // mean. All conversion/delay work happens before taking either mutex.
   for (int i = 0; i < 4; ++i) {
     analogReadMilliVolts(BATTERY_ADC_PIN);
     delay(2);
@@ -113,6 +117,8 @@ void sampleBatterySnapshot() {
   const uint16_t measuredRaw = (uint16_t)(rawSum / N);
   const unsigned long measuredAt = millis();
 
+  DeviceConfigState config = {};
+  if (!copyDeviceConfigState(config)) return;
   if (!ensureBatterySnapshotMutex()) return;
   if (xSemaphoreTake(batterySnapshotMutex, pdMS_TO_TICKS(20)) != pdTRUE) return;
 
@@ -120,14 +126,11 @@ void sampleBatterySnapshot() {
   next.adcMillivolts = measuredMillivolts;
   next.adcRaw = measuredRaw;
   next.sampleTimeMs = measuredAt;
-  // Apply the CURRENT calibration/threshold values only at publication time.
-  // A concurrent HTTP config change therefore cannot produce a half-old,
-  // half-new snapshot.
-  next.lowVoltage = lowVoltage;
-  next.criticalVoltage = criticalVoltage;
-  next.calibrationFactor = calibrationFactor;
-  next.calibrationOffset = calibrationOffset;
-  next.sampleIntervalSec = sampleIntervalSec;
+  next.lowVoltage = config.lowVoltage;
+  next.criticalVoltage = config.criticalVoltage;
+  next.calibrationFactor = config.calibrationFactor;
+  next.calibrationOffset = config.calibrationOffset;
+  next.sampleIntervalSec = config.sampleIntervalSec;
   next.voltage = (((float)measuredMillivolts / 1000.0f) *
                   DIVIDER_MULTIPLIER * next.calibrationFactor) + next.calibrationOffset;
   classifyBatterySnapshot(next);
@@ -135,7 +138,7 @@ void sampleBatterySnapshot() {
   publishedBatterySnapshot = next;
   publishedBatterySnapshotReady = true;
 
-  // Keep legacy/USB consumers synchronized with the same completed snapshot.
+  // Keep legacy mirrors synchronized with the same completed snapshot.
   batteryVoltage = next.voltage;
   adcMilliVolts = next.adcMillivolts;
   adcRaw = next.adcRaw;
@@ -145,18 +148,20 @@ void sampleBatterySnapshot() {
 }
 
 String batterySnapshotStatusJson() {
+  DeviceConfigState config = {};
+  if (!copyDeviceConfigState(config)) return "{\"error\":\"configuration unavailable\"}";
+
   BatterySnapshot snapshot = {};
-  bool ready = copyBatterySnapshot(snapshot);
-  if (!ready) {
-    snapshot.voltage = batteryVoltage;
-    snapshot.adcMillivolts = adcMilliVolts;
-    snapshot.adcRaw = adcRaw;
-    snapshot.sampleTimeMs = lastSampleMs;
-    snapshot.lowVoltage = lowVoltage;
-    snapshot.criticalVoltage = criticalVoltage;
-    snapshot.calibrationFactor = calibrationFactor;
-    snapshot.calibrationOffset = calibrationOffset;
-    snapshot.sampleIntervalSec = sampleIntervalSec;
+  if (!copyBatterySnapshot(snapshot)) {
+    // Network services start only after the initial sample in normal operation.
+    // If a snapshot is nevertheless unavailable, return a coherent zero-value
+    // measurement instead of racing the legacy scalar mirrors.
+    snapshot.lowVoltage = config.lowVoltage;
+    snapshot.criticalVoltage = config.criticalVoltage;
+    snapshot.calibrationFactor = config.calibrationFactor;
+    snapshot.calibrationOffset = config.calibrationOffset;
+    snapshot.sampleIntervalSec = config.sampleIntervalSec;
+    snapshot.sampleTimeMs = millis();
     classifyBatterySnapshot(snapshot);
   }
 
@@ -164,13 +169,13 @@ String batterySnapshotStatusJson() {
   json += "\"apiVersion\":" + String(API_VERSION) + ",";
   json += "\"firmwareVersion\":\"" + String(FW_VERSION) + "\",";
   json += "\"deviceId\":\"" + jsonEscape(deviceId) + "\",";
-  json += "\"name\":\"" + jsonEscape(deviceName) + "\",";
+  json += "\"name\":\"" + jsonEscape(config.deviceName) + "\",";
   json += "\"hostname\":\"" + jsonEscape(hostName) + "\",";
   json += "\"ip\":\"" + localIpString() + "\",";
   json += "\"wifiConnected\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";
   json += "\"setupApActive\":" + String(fallbackApActive ? "true" : "false") + ",";
   json += "\"rssi\":" + String(WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0) + ",";
-  json += "\"batteryType\":\"" + jsonEscape(batteryType) + "\",";
+  json += "\"batteryType\":\"" + jsonEscape(config.batteryType) + "\",";
   json += "\"voltage\":" + String(snapshot.voltage, 3) + ",";
   json += "\"state\":\"" + String(snapshot.state) + "\",";
   json += "\"adcRaw\":" + String(snapshot.adcRaw) + ",";
