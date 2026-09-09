@@ -127,17 +127,28 @@ static void processSerialProvisioningCommand(String line) {
   if (command == "PING") { serialOk("PONG " + deviceId + " " + String(FW_VERSION)); return; }
 
   if (command == "STATUS") {
+    DeviceConfigState config = {};
+    BatterySnapshot snapshot = {};
+    if (!copyDeviceConfigState(config)) { serialErr("CONFIG_SYNC_UNAVAILABLE"); return; }
+    if (!copyBatterySnapshot(snapshot)) {
+      snapshot.lowVoltage = config.lowVoltage;
+      snapshot.criticalVoltage = config.criticalVoltage;
+      snapshot.calibrationFactor = config.calibrationFactor;
+      snapshot.calibrationOffset = config.calibrationOffset;
+      snapshot.sampleIntervalSec = config.sampleIntervalSec;
+    }
+
     String reply = "STATUS ";
     reply += deviceId + " ";
-    reply += percentEncode(deviceName) + " ";
-    reply += percentEncode(batteryType) + " ";
-    reply += String(lowVoltage, 3) + " ";
-    reply += String(criticalVoltage, 3) + " ";
-    reply += String(sampleIntervalSec) + " ";
-    reply += percentEncode(wifiSsid) + " ";
-    reply += String(batteryVoltage, 3) + " ";
-    reply += String(calibrationFactor, 6) + " ";
-    reply += String(calibrationOffset, 4) + " ";
+    reply += percentEncode(config.deviceName) + " ";
+    reply += percentEncode(config.batteryType) + " ";
+    reply += String(config.lowVoltage, 3) + " ";
+    reply += String(config.criticalVoltage, 3) + " ";
+    reply += String(config.sampleIntervalSec) + " ";
+    reply += percentEncode(config.wifiSsid) + " ";
+    reply += String(snapshot.voltage, 3) + " ";
+    reply += String(config.calibrationFactor, 6) + " ";
+    reply += String(config.calibrationOffset, 4) + " ";
     reply += String(FW_VERSION);
     serialOk(reply);
     return;
@@ -243,7 +254,10 @@ static void processSerialProvisioningCommand(String line) {
   if (setting == "NAME") {
     String value = percentDecode(remaining); value.trim();
     if (value.length() < 1 || value.length() > 48) { serialErr("INVALID_NAME"); return; }
-    deviceName = value; saveDeviceSettings(); serialOk("NAME " + percentEncode(deviceName)); return;
+    String error;
+    if (!setDeviceNameSynchronized(value, error)) { serialErr(error); return; }
+    serialOk("NAME " + percentEncode(value));
+    return;
   }
 
   if (setting == "BATTERY") {
@@ -252,22 +266,30 @@ static void processSerialProvisioningCommand(String line) {
     float low = nextToken(remaining).toFloat();
     float critical = nextToken(remaining).toFloat();
     if (!isValidBatteryProfileId(type) || critical < 6.0f || critical > 20.0f || low <= critical || low > 20.0f) { serialErr("INVALID_BATTERY"); return; }
-    batteryType = type; lowVoltage = low; criticalVoltage = critical; saveDeviceSettings();
-    serialOk("BATTERY " + percentEncode(batteryType) + " " + String(lowVoltage, 3) + " " + String(criticalVoltage, 3)); return;
+    String error;
+    if (!setBatterySettingsSynchronized(type, low, critical, error)) { serialErr(error); return; }
+    serialOk("BATTERY " + percentEncode(type) + " " + String(low, 3) + " " + String(critical, 3));
+    return;
   }
 
   if (setting == "SAMPLE") {
     long seconds = remaining.toInt();
     if (seconds < 1 || seconds > 3600) { serialErr("INVALID_SAMPLE"); return; }
-    sampleIntervalSec = (uint32_t)seconds; saveDeviceSettings(); serialOk("SAMPLE " + String(sampleIntervalSec)); return;
+    String error;
+    if (!setSampleIntervalSynchronized((uint32_t)seconds, error)) { serialErr(error); return; }
+    serialOk("SAMPLE " + String(seconds));
+    return;
   }
 
   if (setting == "CAL") {
     float factor = nextToken(remaining).toFloat();
     float offset = nextToken(remaining).toFloat();
     if (factor < 0.5f || factor > 1.5f || offset < -5.0f || offset > 5.0f) { serialErr("INVALID_CAL"); return; }
-    calibrationFactor = factor; calibrationOffset = offset; saveDeviceSettings(); sampleBattery();
-    serialOk("CAL " + String(calibrationFactor, 6) + " " + String(calibrationOffset, 4)); return;
+    String error;
+    if (!setCalibrationSynchronized(factor, offset, error)) { serialErr(error); return; }
+    sampleBattery();
+    serialOk("CAL " + String(factor, 6) + " " + String(offset, 4));
+    return;
   }
 
   if (setting == "RADIO") {
@@ -299,10 +321,11 @@ static void processSerialProvisioningCommand(String line) {
       WiFi.mode(WIFI_STA);
       applyWifiRadioSettings();
       WiFi.setHostname(hostName.c_str());
-      WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
+      WiFi.begin(ssid.c_str(), password.c_str());
       wifiDisconnectedSinceMs = millis(); nextReconnectAttemptMs = millis() + RETRY_INTERVAL_MS;
     }
-    serialOk("WIFI " + percentEncode(wifiSsid)); return;
+    serialOk("WIFI " + percentEncode(ssid));
+    return;
   }
 
   if (setting == "PROVCRED") {
@@ -312,7 +335,7 @@ static void processSerialProvisioningCommand(String line) {
     if (!setDevicePasswordFlexible(username, devicePassword, error)) { serialErr(error); return; }
     provisioningVerifyFailures = 0; provisioningVerifyBlockedUntilMs = 0;
 
-    bool startProtectedSetup = wifiSsid.length() == 0 && !fallbackApActive;
+    bool startProtectedSetup = !hasConfiguredWifi() && !fallbackApActive;
     serialOk("PROVCRED " + percentEncode(username) + " " + apSsid);
     if (startProtectedSetup) {
       Serial.println("Device Password initialized with no home Wi-Fi; starting protected setup AP.");
