@@ -17,7 +17,9 @@ CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 # simultaneous HTTP client sessions. esp_http_server reserves three additional
 # sockets internally, while discovery/mDNS also consume lwIP descriptors, so
 # raise the global socket ceiling above the default 10 rather than starving
-# non-HTTP networking when the HTTP pool is busy.
+# non-HTTP networking when the HTTP pool is busy. The limit itself does not
+# preallocate ten full TCP windows; lwIP allocates most per-connection memory on
+# demand, and runtime heap diagnostics remain part of the hardware validation.
 CONFIG_LWIP_MAX_SOCKETS=20
 
 # Flash layout. Release-mode Flash Encryption enlarges the classic ESP32
