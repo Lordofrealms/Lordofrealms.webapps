@@ -52,17 +52,17 @@ bool setDevicePasswordFlexibleTrustedUsb(const String& usernameValue,
   return ok;
 }
 
-void clearProvisioningIdentityTrustedUsb() {
-  // CLEARPROVCRED predates an error-returning wire shape. If Security 2 happens
-  // to be active, stop it first and wait for NETWORK_PROV_END so its SRP
-  // pointers are no longer live before clearing the credential namespace.
+bool clearProvisioningIdentityTrustedUsb(String& errorOut) {
+  // Security 2 owns pointers into the SRP material. Ask the provisioner to stop
+  // and wait for NETWORK_PROV_END before freeing those pointers. Unlike the old
+  // void-only path, a stop timeout is returned to the USB client explicitly.
   if (secureProvisioningActive) {
     requestStopSecureProvisioning();
     unsigned long started = millis();
     while (secureProvisioningActive && (unsigned long)(millis() - started) < 5000UL) delay(10);
     if (secureProvisioningActive) {
-      Serial.println("WARNING: CLEARPROVCRED deferred because secure provisioning did not stop cleanly.");
-      return;
+      errorOut = "PROVISIONING_STOP_TIMEOUT";
+      return false;
     }
   }
 
@@ -71,4 +71,6 @@ void clearProvisioningIdentityTrustedUsb() {
   clearManagementAuthFailures();
   clearProvisioningIdentity();
   trustedUsbRestoreNativeHttp(restore);
+  errorOut = "";
+  return true;
 }
