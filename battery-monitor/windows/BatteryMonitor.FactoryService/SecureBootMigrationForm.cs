@@ -5,6 +5,7 @@ namespace BatteryMonitor.Client;
 internal sealed class SecureBootMigrationForm : Form
 {
     private readonly UsbSecurityInfoReader _security = new();
+    private readonly SecureBootMigrationWorkflow _workflow = new();
     private readonly ComboBox _port = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 120 };
     private readonly Label _hardware = ValueLabel();
     private readonly Label _flashEncryption = ValueLabel();
@@ -14,7 +15,7 @@ internal sealed class SecureBootMigrationForm : Form
     private readonly Label _eligibility = new() { AutoSize = true, MaximumSize = new Size(650, 0), Font = new Font(SystemFonts.MessageBoxFont, FontStyle.Bold) };
     private readonly TextBox _log = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill };
     private readonly Button _readiness = new() { Text = "Run Migration Readiness Check", AutoSize = true };
-    private readonly Button _migrate = new() { Text = "Migrate This Unit to Secure Boot", AutoSize = true, Enabled = false };
+    private readonly Button _migrate = new() { Text = "Prepare & Migrate This Unit", AutoSize = true, Enabled = false };
     private CancellationTokenSource? _cts;
     private MigrationBundleInfo _bundleInfo = MigrationBundleInfo.Load();
     private bool _deviceEligible;
@@ -24,8 +25,8 @@ internal sealed class SecureBootMigrationForm : Form
         Text = "Battery Monitor Factory - Secure Boot Migration";
         Icon = AppIcon.Current;
         Width = 850;
-        Height = 690;
-        MinimumSize = new Size(760, 610);
+        Height = 720;
+        MinimumSize = new Size(760, 630);
         StartPosition = FormStartPosition.CenterParent;
         BuildUi();
         RefreshPorts();
@@ -47,12 +48,13 @@ internal sealed class SecureBootMigrationForm : Form
         {
             AutoSize = true,
             MaximumSize = new Size(800, 0),
-            Text = "Factory-only retrofit workflow for already-provisioned Battery Monitors. This does NOT change normal new-unit provisioning. The migration will eventually stage a Secure-Boot-v2-signed application first, then replace the encrypted second-stage bootloader from a local staging partition, reboot, and verify that hardware Secure Boot actually activated. The final bootloader-copy step is irreversible and power-loss-sensitive, so migration remains blocked until every preflight and signed-bundle check passes."
+            Text = "Factory-only retrofit workflow for already-provisioned Battery Monitors. This does NOT change normal new-unit provisioning. The tool first installs/resumes the signed migration application and lets it pass normal OTA probation, then stages and fully verifies the Secure-Boot-v2 bootloader without touching the primary bootloader. A separate typed confirmation is required before the final encrypted primary-bootloader copy. Loss of power during that final copy can permanently brick the unit."
         };
         root.Controls.Add(intro, 0, 0); root.SetColumnSpan(intro, 2);
 
         var ports = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
         ports.Controls.Add(_port);
+        _port.SelectedIndexChanged += (_, _) => InvalidateReadiness();
         var refresh = new Button { Text = "Refresh Ports", AutoSize = true };
         refresh.Click += (_, _) => RefreshPorts();
         ports.Controls.Add(refresh);
@@ -60,9 +62,7 @@ internal sealed class SecureBootMigrationForm : Form
 
         var actions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
         _readiness.Click += async (_, _) => await CheckReadinessAsync();
-        _migrate.Click += (_, _) => MessageBox.Show(this,
-            "The Factory migration UI and preflight are ready, but the irreversible bootloader-staging protocol is not armed in this build yet. This button will only be enabled after the device-side migration protocol and a fully signed migration bundle are both validated in CI.",
-            "Secure Boot Migration Not Armed", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        _migrate.Click += async (_, _) => await MigrateAsync();
         actions.Controls.Add(_readiness);
         actions.Controls.Add(_migrate);
         root.Controls.Add(actions, 1, 2);
@@ -86,12 +86,8 @@ internal sealed class SecureBootMigrationForm : Form
 
     private async Task CheckReadinessAsync()
     {
-        var port = _port.SelectedItem?.ToString();
-        if (string.IsNullOrWhiteSpace(port))
-        {
-            MessageBox.Show(this, "Select a COM port first.", "Secure Boot Migration", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
+        var port = SelectedPort();
+        if (port is null) return;
 
         SetBusy(true);
         _cts = new CancellationTokenSource();
@@ -110,11 +106,15 @@ internal sealed class SecureBootMigrationForm : Form
             _hardware.Text = $"{hardware.Model}; silicon revision {FormatRevision(hardware.Revision)} — {(eco3 ? "Secure Boot v2 capable" : "NOT eligible for Secure Boot v2")}";
             _flashEncryption.Text = $"{(security.FlashEncryptionEnabled ? "Enabled" : "Disabled")} ({security.FlashEncryptionMode})";
             _secureBoot.Text = security.SecureBootEnabled ? "Already enabled" : "Disabled — migration candidate";
-            _installed.Text = $"{security.FirmwareVersion} (release sequence {security.ReleaseSequence})";
+            _installed.Text = $"{security.FirmwareVersion} (release sequence {security.ReleaseSequence}; {security.DeviceId})";
             RenderBundle();
 
             var newerBundle = _bundleInfo.ReleaseSequence.HasValue && _bundleInfo.ReleaseSequence.Value > security.ReleaseSequence;
-            _deviceEligible = eco3 && security.ProductionFlashEncryptionReady && !security.SecureBootEnabled && _bundleInfo.Ready && newerBundle;
+            var resumeBundle = _bundleInfo.ReleaseSequence.HasValue &&
+                               _bundleInfo.ReleaseSequence.Value == security.ReleaseSequence &&
+                               string.Equals(_bundleInfo.Version, security.FirmwareVersion, StringComparison.Ordinal);
+            var bundleCompatible = newerBundle || resumeBundle;
+            _deviceEligible = eco3 && security.ProductionFlashEncryptionReady && !security.SecureBootEnabled && _bundleInfo.Ready && bundleCompatible;
 
             if (!eco3)
                 _eligibility.Text = "BLOCKED — ESP32 Secure Boot v2 requires silicon revision 3.0/ECO3 or newer.";
@@ -123,15 +123,16 @@ internal sealed class SecureBootMigrationForm : Form
             else if (security.SecureBootEnabled)
                 _eligibility.Text = "NO MIGRATION NEEDED — Secure Boot is already enabled on this unit.";
             else if (!_bundleInfo.Ready)
-                _eligibility.Text = "BLOCKED — a complete, independently signed Secure Boot migration bundle is not installed with Factory & Service.";
-            else if (!newerBundle)
-                _eligibility.Text = "BLOCKED — the migration release sequence must be strictly newer than the installed firmware release sequence.";
+                _eligibility.Text = "BLOCKED — a complete protected-signer Secure Boot migration bundle is not installed with Factory & Service.";
+            else if (!bundleCompatible)
+                _eligibility.Text = "BLOCKED — bundle release must be newer than the unit, or exactly match the already-installed migration application for resume.";
+            else if (resumeBundle)
+                _eligibility.Text = $"READY TO RESUME — {security.DeviceId} is already on migration release {_bundleInfo.Version}; Factory will resume at readiness/staging without replaying the same release.";
             else
-                _eligibility.Text = "READY FOR MIGRATION — device preflight and bundle checks passed. Irreversible action remains disabled until the device-side bootloader staging protocol is validated.";
+                _eligibility.Text = $"READY FOR MIGRATION — {security.DeviceId} preflight and full signed-bundle verification passed.";
 
             Append(_eligibility.Text);
-            // Intentionally remain false until the device-side staging protocol is implemented and CI validated.
-            _migrate.Enabled = false;
+            _migrate.Enabled = _deviceEligible;
         }
         catch (OperationCanceledException) { Append("Readiness check cancelled."); }
         catch (Exception ex)
@@ -146,10 +147,147 @@ internal sealed class SecureBootMigrationForm : Form
         }
     }
 
+    private async Task MigrateAsync()
+    {
+        var port = SelectedPort();
+        if (port is null) return;
+        if (!_deviceEligible || !_bundleInfo.Ready || _bundleInfo.Package is null)
+        {
+            MessageBox.Show(this, "Run a successful migration readiness check first.", "Secure Boot Migration",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        SetBusy(true);
+        _cts = new CancellationTokenSource();
+        PreparedSecureBootMigration? prepared = null;
+        try
+        {
+            Append("Beginning Factory Secure Boot migration preparation. The primary bootloader is not modified during preparation/staging.");
+            prepared = await _workflow.PrepareAsync(port, _bundleInfo.Package, Append, _cts.Token);
+            _eligibility.Text = $"STAGED & VERIFIED — {prepared.DeviceId}. Primary bootloader is still unchanged. Final irreversible confirmation required.";
+            Append(_eligibility.Text);
+
+            if (!ConfirmIrreversibleCommit(prepared))
+            {
+                Append("Operator cancelled before the irreversible primary-bootloader copy. Aborting staged migration state.");
+                await _workflow.AbortStagedAsync(prepared, Append, CancellationToken.None);
+                _eligibility.Text = "CANCELLED SAFELY — staged migration was aborted before the primary bootloader was modified. Run readiness again to retry.";
+                _deviceEligible = false;
+                return;
+            }
+
+            Append("Operator supplied the exact device identity confirmation. Entering the irreversible commit gate.");
+            var verified = await _workflow.CommitAndVerifyAsync(prepared, Append, _cts.Token);
+            _flashEncryption.Text = $"Enabled ({verified.FlashEncryptionMode})";
+            _secureBoot.Text = "ENABLED — hardware verified";
+            _installed.Text = $"{verified.FirmwareVersion} (release sequence {verified.ReleaseSequence}; {verified.DeviceId})";
+            _eligibility.Text = $"MIGRATION VERIFIED — {verified.DeviceId} reports release-mode Flash Encryption and hardware Secure Boot enabled.";
+            Append(_eligibility.Text);
+            _deviceEligible = false;
+
+            MessageBox.Show(this,
+                $"Secure Boot migration completed and was verified on {verified.DeviceId}.\n\n" +
+                $"Firmware: {verified.FirmwareVersion}\nRelease sequence: {verified.ReleaseSequence}\n" +
+                "Flash Encryption: release mode\nSecure Boot: enabled\n\n" +
+                "The next validation gate is a normal newer signed application OTA while Secure Boot remains enabled.",
+                "Secure Boot Migration Verified", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (OperationCanceledException)
+        {
+            Append("Migration operation cancelled.");
+            if (prepared is not null)
+                await _workflow.AbortStagedAsync(prepared, Append, CancellationToken.None);
+            _deviceEligible = false;
+        }
+        catch (Exception ex)
+        {
+            Append("ERROR: " + ex.Message);
+            var copyFailure = ex.Message.Contains("DO_NOT_REBOOT_OR_REMOVE_POWER", StringComparison.OrdinalIgnoreCase);
+            if (!copyFailure && prepared is not null)
+                await _workflow.AbortStagedAsync(prepared, Append, CancellationToken.None);
+
+            _eligibility.Text = copyFailure
+                ? "CRITICAL — primary bootloader copy reported failure. DO NOT REBOOT OR REMOVE POWER. Restage the known-good bootloader from this running session."
+                : "BLOCKED — migration stopped before verified completion. Run readiness again before retrying.";
+            _deviceEligible = false;
+            MessageBox.Show(this,
+                copyFailure
+                    ? ex.Message + "\n\nDO NOT reboot, unplug USB, or remove power from this unit."
+                    : ex.Message,
+                copyFailure ? "Secure Boot Migration Critical" : "Secure Boot Migration Failed",
+                MessageBoxButtons.OK,
+                copyFailure ? MessageBoxIcon.Stop : MessageBoxIcon.Error);
+        }
+        finally
+        {
+            _cts.Dispose(); _cts = null; SetBusy(false);
+            _migrate.Enabled = _deviceEligible;
+        }
+    }
+
+    private bool ConfirmIrreversibleCommit(PreparedSecureBootMigration prepared)
+    {
+        using var dialog = new Form
+        {
+            Text = "FINAL Secure Boot Commit Confirmation",
+            Icon = AppIcon.Current,
+            Width = 640,
+            Height = 390,
+            MinimumSize = new Size(600, 350),
+            StartPosition = FormStartPosition.CenterParent,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false,
+            MinimizeBox = false
+        };
+
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 1, RowCount = 5 };
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        dialog.Controls.Add(root);
+
+        root.Controls.Add(new Label
+        {
+            AutoSize = true,
+            MaximumSize = new Size(590, 0),
+            Font = new Font(SystemFonts.MessageBoxFont, FontStyle.Bold),
+            Text = "IRREVERSIBLE POWER-LOSS-SENSITIVE STEP"
+        });
+        root.Controls.Add(new Label
+        {
+            AutoSize = true,
+            MaximumSize = new Size(590, 0),
+            Margin = new Padding(0, 10, 0, 10),
+            Text = $"The signed Secure Boot bootloader for {prepared.DeviceId} is staged and readback-verified. Continuing will erase/copy the encrypted primary bootloader at 0x1000. Loss of power during this copy can permanently brick the unit. Keep stable power connected until Factory reports that the copy completed and the unit rebooted with Secure Boot enabled.\n\nBootloader SHA-256:\n{prepared.BootloaderSha256}"
+        });
+        root.Controls.Add(new Label
+        {
+            AutoSize = true,
+            Text = $"Type the exact device identity {prepared.DeviceId} to enable Commit:"
+        });
+        var typed = new TextBox { Dock = DockStyle.Top, Margin = new Padding(0, 6, 0, 6) };
+        root.Controls.Add(typed);
+
+        var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft };
+        var commit = new Button { Text = "Commit Secure Boot", AutoSize = true, Enabled = false, DialogResult = DialogResult.OK };
+        var cancel = new Button { Text = "Cancel Before Commit", AutoSize = true, DialogResult = DialogResult.Cancel };
+        typed.TextChanged += (_, _) => commit.Enabled = string.Equals(typed.Text.Trim(), prepared.DeviceId, StringComparison.Ordinal);
+        buttons.Controls.Add(commit);
+        buttons.Controls.Add(cancel);
+        root.Controls.Add(buttons);
+        dialog.AcceptButton = commit;
+        dialog.CancelButton = cancel;
+
+        return dialog.ShowDialog(this) == DialogResult.OK;
+    }
+
     private void RenderBundle()
     {
         _bundle.Text = _bundleInfo.Ready
-            ? $"{_bundleInfo.Version} (release sequence {_bundleInfo.ReleaseSequence}); application + bootloader + detached signatures present"
+            ? $"{_bundleInfo.Version} (release sequence {_bundleInfo.ReleaseSequence}); application + bootloader + detached signatures + metadata hashes verified"
             : _bundleInfo.Status;
     }
 
@@ -160,6 +298,22 @@ internal sealed class SecureBootMigrationForm : Form
         _port.Items.Clear(); _port.Items.AddRange(ports);
         if (old is not null && _port.Items.Contains(old)) _port.SelectedItem = old;
         else if (_port.Items.Count > 0) _port.SelectedIndex = 0;
+        InvalidateReadiness();
+    }
+
+    private void InvalidateReadiness()
+    {
+        if (_cts is not null) return;
+        _deviceEligible = false;
+        _migrate.Enabled = false;
+    }
+
+    private string? SelectedPort()
+    {
+        var port = _port.SelectedItem?.ToString();
+        if (!string.IsNullOrWhiteSpace(port)) return port;
+        MessageBox.Show(this, "Select a COM port first.", "Secure Boot Migration", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        return null;
     }
 
     private void SetBusy(bool busy)
@@ -191,40 +345,25 @@ internal sealed class SecureBootMigrationForm : Form
         public string Status { get; private init; } = "Migration bundle not installed.";
         public string Version { get; private init; } = "unknown";
         public uint? ReleaseSequence { get; private init; }
+        public SecureBootMigrationPackage? Package { get; private init; }
 
         public static MigrationBundleInfo Load()
         {
             try
             {
-                var dir = Path.Combine(AppContext.BaseDirectory, "secure-boot-migration");
-                var app = Path.Combine(dir, "BatteryMonitor.secureboot.app.bin");
-                var appSig = app + ".sig";
-                var boot = Path.Combine(dir, "BatteryMonitor.secureboot.bootloader.bin");
-                var bootSig = boot + ".sig";
-                var metadata = Path.Combine(dir, "MIGRATION_RELEASE.txt");
-                if (!File.Exists(app) || !File.Exists(appSig) || !File.Exists(boot) || !File.Exists(bootSig) || !File.Exists(metadata))
-                    return new MigrationBundleInfo { Status = "Migration bundle incomplete or not installed." };
-
-                FirmwareSignatureVerifier.VerifyOrThrow(app, appSig);
-                FirmwareSignatureVerifier.VerifyOrThrow(boot, bootSig);
-
-                var values = File.ReadAllLines(metadata)
-                    .Select(line => line.Trim())
-                    .Where(line => line.Length > 0 && !line.StartsWith('#'))
-                    .Select(line => line.Split('=', 2))
-                    .Where(parts => parts.Length == 2)
-                    .ToDictionary(parts => parts[0].Trim(), parts => parts[1].Trim(), StringComparer.OrdinalIgnoreCase);
-                if (!values.TryGetValue("version", out var version) || string.IsNullOrWhiteSpace(version) ||
-                    !values.TryGetValue("release_sequence", out var seqText) || !uint.TryParse(seqText, out var sequence) || sequence == 0)
-                    return new MigrationBundleInfo { Status = "Migration bundle metadata is invalid." };
-
+                var package = SecureBootMigrationPackage.LoadInstalled();
                 return new MigrationBundleInfo
                 {
                     Ready = true,
                     Status = "Ready",
-                    Version = version,
-                    ReleaseSequence = sequence
+                    Version = package.Version,
+                    ReleaseSequence = package.ReleaseSequence,
+                    Package = package
                 };
+            }
+            catch (FileNotFoundException)
+            {
+                return new MigrationBundleInfo { Status = "Protected signed migration bundle is incomplete or not installed." };
             }
             catch (Exception ex)
             {
