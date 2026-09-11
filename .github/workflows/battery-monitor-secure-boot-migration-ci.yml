@@ -1,0 +1,60 @@
+name: Battery Monitor Secure Boot Migration Candidate
+
+on:
+  push:
+    branches: [battery-monitor-dev]
+    paths:
+      - 'battery-monitor/firmware/**'
+      - 'battery-monitor/signing/**'
+      - '.github/workflows/battery-monitor-secure-boot-migration-ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: battery-monitor-secure-boot-migration-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  migration_candidate:
+    name: Build unsigned ECO3 Secure Boot v2 migration candidate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install pinned ESP-IDF 5.5.5
+        shell: bash
+        run: |
+          set -euo pipefail
+          idf="$RUNNER_TEMP/esp-idf"
+          commit='b774170ff46c393eeb5e495ea37936038d3f4f4f'
+          mkdir -p "$idf"
+          git -C "$idf" init
+          git -C "$idf" remote add origin https://github.com/espressif/esp-idf.git
+          git -C "$idf" fetch --depth=1 origin "$commit"
+          git -C "$idf" checkout --detach FETCH_HEAD
+          test "$(git -C "$idf" rev-parse HEAD)" = "$commit"
+          git -C "$idf" submodule update --init --recursive --depth=1
+          "$idf/install.sh" esp32
+          echo "IDF_PATH=$idf" >> "$GITHUB_ENV"
+
+      - name: Build Secure Boot migration candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "$IDF_PATH/export.sh"
+          bash battery-monitor/firmware/idf/build_secure_boot_migration.sh /tmp/battery-monitor-secure-boot-migration
+          test -f /tmp/battery-monitor-secure-boot-migration/BatteryMonitor.secureboot.app.unsigned.bin
+          test -f /tmp/battery-monitor-secure-boot-migration/BatteryMonitor.secureboot.bootloader.unsigned.bin
+          test -f /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
+          grep -qx 'migration_version=0.1.0.12' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
+          grep -qx 'release_sequence=12' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
+          grep -qx 'secure_boot=enabled-v2-rsa-remote-signing' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
+          grep -qx 'minimum_esp32_revision=3.0-ECO3' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
+
+      - name: Upload unsigned migration candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Battery-Monitor-Secure-Boot-Migration-CI-UNSIGNED-0.1.0.12
+          path: /tmp/battery-monitor-secure-boot-migration
