@@ -1,0 +1,25 @@
+# Factory-only Secure Boot retrofit build overlay.
+#
+# This overlays sdkconfig.defaults and is never used by normal 0.1.0.11
+# production provisioning. It builds an ECO3+ ESP32 Secure Boot v2 candidate
+# while keeping remote signing: CI has no Secure Boot private key.
+CONFIG_ESP32_REV_MIN_3=y
+CONFIG_ESP32_REV_MIN=3
+CONFIG_SECURE_BOOT=y
+CONFIG_SECURE_BOOT_V2_ENABLED=y
+CONFIG_SECURE_BOOT_V2_RSA_ENABLED=y
+CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
+# CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES is not set
+
+# Keep existing release-mode Flash Encryption/NVS encryption and leave hardware
+# application anti-rollback disabled during the retrofit validation phase.
+CONFIG_SECURE_FLASH_ENC_ENABLED=y
+CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y
+CONFIG_NVS_ENCRYPTION=y
+CONFIG_NVS_SEC_KEY_PROTECT_USING_FLASH_ENC=y
+# CONFIG_BOOTLOADER_APP_ANTI_ROLLBACK is not set
+
+# Preserve the deployed layout so existing encrypted units can be migrated
+# without rewriting their partition table. The primary bootloader has 0xE000
+# bytes available from 0x1000 up to the partition table at 0xF000.
+CONFIG_PARTITION_TABLE_OFFSET=0xF000
