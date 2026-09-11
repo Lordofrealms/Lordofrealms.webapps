@@ -1,24 +1,15 @@
 using Microsoft.Win32;
-using System.Diagnostics;
 using System.Security.Cryptography;
 
 namespace BatteryMonitor.Client;
 
-internal sealed class EspFlasher
+// Customer-side signed firmware package/update helper. Blank-device ROM
+// flashing and esptool process control are deliberately implemented only by the
+// Factory & Service partial class so those manufacturing capabilities are not
+// present in BatteryMonitor.Client.exe.
+internal sealed partial class EspFlasher
 {
     private readonly string _baseDirectory = AppContext.BaseDirectory;
-
-    public string? EsptoolPath => FindFirstExisting(
-        Path.Combine(_baseDirectory, "tools", "esptool", "esptool.exe"),
-        Directory.Exists(Path.Combine(_baseDirectory, "tools", "esptool"))
-            ? Directory.EnumerateFiles(Path.Combine(_baseDirectory, "tools", "esptool"), "esptool.exe", SearchOption.AllDirectories).FirstOrDefault()
-            : null);
-
-    public string? FactoryFirmwarePath => FindFirstExisting(
-        Path.Combine(_baseDirectory, "firmware", "BatteryMonitor.ino.merged.bin"),
-        Directory.Exists(Path.Combine(_baseDirectory, "firmware"))
-            ? Directory.EnumerateFiles(Path.Combine(_baseDirectory, "firmware"), "*.merged.bin", SearchOption.AllDirectories).FirstOrDefault()
-            : null);
 
     public string? UpdateFirmwarePath => FindFirstExisting(
         Path.Combine(_baseDirectory, "firmware", "BatteryMonitor.ino.bin"),
@@ -35,10 +26,6 @@ internal sealed class EspFlasher
     public string? UpdateVersion => ReadReleaseValue("version") ?? ReadVersionFile();
     public string? UpdateSourceSha => ReadReleaseValue("source_sha");
 
-    public string? FactorySignaturePath => FactoryFirmwarePath is { } firmware
-        ? FindFirstExisting(firmware + ".sig")
-        : null;
-
     public string? UpdateSignaturePath => UpdateFirmwarePath is { } firmware
         ? FindFirstExisting(firmware + ".sig")
         : null;
@@ -51,13 +38,7 @@ internal sealed class EspFlasher
     public string DirectApplicationUpdateDisabledReason =>
         "Direct USB/ROM firmware update is disabled because Battery Monitor uses release-mode Flash Encryption. Normal updates are transferred over USB to the running application, which verifies the production signature and writes the inactive encrypted OTA partition.";
 
-    // Backward-compatible alias used by older UI code while the updater/factory
-    // split is being completed.
-    public string? FirmwarePath => FactoryFirmwarePath;
-
-    public bool IsFactoryReady => EsptoolPath is not null && FactoryFirmwarePath is not null && FactorySignaturePath is not null;
     public bool IsUpdateReady => UpdateFirmwarePath is not null && UpdateSignaturePath is not null;
-    public bool IsReady => IsFactoryReady;
 
     public IReadOnlyList<string> GetSerialPorts()
     {
@@ -77,12 +58,6 @@ internal sealed class EspFlasher
         catch { }
 
         return ports.OrderBy(ParsePortNumber).ThenBy(p => p, StringComparer.OrdinalIgnoreCase).ToArray();
-    }
-
-    public async Task<(bool Success, string Output)> ProbeEsp32Async(string port, CancellationToken cancellationToken = default)
-    {
-        if (EsptoolPath is null) return (false, "Bundled esptool.exe was not found.");
-        return await RunEsptoolAsync(new[] { "--chip", "esp32", "--port", port, "chip-id" }, null, TimeSpan.FromSeconds(10), cancellationToken);
     }
 
     public async Task<(bool Success, string Output)> UpdateFirmwareAsync(
@@ -110,43 +85,6 @@ internal sealed class EspFlasher
             return (false, message);
         }
     }
-
-    public async Task<(bool Success, string Output)> FactoryFlashAsync(
-        string port,
-        Action<string>? output,
-        CancellationToken cancellationToken = default)
-    {
-        if (EsptoolPath is null) return (false, "Bundled esptool.exe was not found.");
-        if (FactoryFirmwarePath is null) return (false, "Bundled Battery Monitor merged first-install firmware image was not found.");
-        if (FactorySignaturePath is null) return (false, "Bundled Battery Monitor first-install firmware signature was not found. Flashing was blocked.");
-        if (!VerifyFirmware(FactoryFirmwarePath, FactorySignaturePath, output, out var verificationError))
-            return (false, verificationError);
-
-        // This plaintext merged image is for blank/un-encrypted ESP32 devices.
-        // After first boot enables release-mode Flash Encryption, esptool's own
-        // encrypted-flash protection will reject a plaintext overwrite. We do
-        // not pass --force and must never bypass that safety check.
-        return await RunEsptoolAsync(
-            new[]
-            {
-                "--chip", "esp32",
-                "--port", port,
-                "--baud", "460800",
-                "--before", "default-reset",
-                "--after", "hard-reset",
-                "write-flash",
-                "0x0", FactoryFirmwarePath
-            },
-            output,
-            TimeSpan.FromMinutes(3),
-            cancellationToken);
-    }
-
-    // Older callers are intentionally mapped to first-install factory flash.
-    // Signature enforcement still applies because FactoryFlashAsync owns the
-    // actual operation.
-    public Task<(bool Success, string Output)> FlashAsync(string port, Action<string>? output, CancellationToken cancellationToken = default) =>
-        FactoryFlashAsync(port, output, cancellationToken);
 
     private string? ReadReleaseValue(string key)
     {
@@ -199,63 +137,6 @@ internal sealed class EspFlasher
             error = "Firmware signature verification failed: " + ex.Message;
             output?.Invoke(error);
             return false;
-        }
-    }
-
-    private async Task<(bool Success, string Output)> RunEsptoolAsync(
-        IReadOnlyList<string> arguments,
-        Action<string>? output,
-        TimeSpan timeout,
-        CancellationToken cancellationToken)
-    {
-        var tool = EsptoolPath ?? throw new InvalidOperationException("esptool.exe was not found.");
-        var psi = new ProcessStartInfo
-        {
-            FileName = tool,
-            WorkingDirectory = Path.GetDirectoryName(tool) ?? _baseDirectory,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
-        foreach (var argument in arguments) psi.ArgumentList.Add(argument);
-
-        using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
-        var lines = new List<string>();
-        void Record(string? line)
-        {
-            if (string.IsNullOrWhiteSpace(line)) return;
-            lock (lines) lines.Add(line);
-            output?.Invoke(line);
-        }
-
-        process.OutputDataReceived += (_, e) => Record(e.Data);
-        process.ErrorDataReceived += (_, e) => Record(e.Data);
-
-        try
-        {
-            if (!process.Start()) return (false, "Could not start esptool.exe.");
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
-
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(timeout);
-            try { await process.WaitForExitAsync(timeoutCts.Token); }
-            catch (OperationCanceledException)
-            {
-                try { if (!process.HasExited) process.Kill(true); } catch { }
-                var timedOut = !cancellationToken.IsCancellationRequested;
-                Record(timedOut ? "Timed out waiting for esptool." : "Operation cancelled.");
-                return (false, string.Join(Environment.NewLine, lines));
-            }
-
-            process.WaitForExit();
-            return (process.ExitCode == 0, string.Join(Environment.NewLine, lines));
-        }
-        catch (Exception ex)
-        {
-            Record(ex.Message);
-            return (false, string.Join(Environment.NewLine, lines));
         }
     }
 
