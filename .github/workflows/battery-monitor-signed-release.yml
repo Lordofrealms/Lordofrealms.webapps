@@ -4,7 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       source_sha:
-        description: 'Exact 40-character commit SHA to build and sign'
+        description: 'Exact 40-character commit SHA to promote/sign'
+        required: true
+        type: string
+      ci_run_id:
+        description: 'Successful Battery Monitor Toolchain run ID containing the exact firmware bytes to promote'
         required: true
         type: string
       version:
@@ -15,10 +19,11 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   signed_firmware:
-    name: Build and sign ESP32 firmware
+    name: Promote and sign exact CI ESP32 firmware
     runs-on: ubuntu-latest
     environment: battery-monitor-production-signing
     env:
@@ -26,12 +31,16 @@ jobs:
       BATMON_FIRMWARE_SIGNING_KEY_PASSWORD: ${{ secrets.BATMON_FIRMWARE_SIGNING_KEY_PASSWORD }}
       EXPECTED_KEY_FINGERPRINT: 69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e
     steps:
-      - name: Validate requested source SHA
+      - name: Validate requested source SHA and CI run ID
         shell: bash
         run: |
           set -euo pipefail
           if [[ ! '${{ inputs.source_sha }}' =~ ^[0-9a-fA-F]{40}$ ]]; then
             echo 'source_sha must be an exact 40-character commit SHA.' >&2
+            exit 1
+          fi
+          if [[ ! '${{ inputs.ci_run_id }}' =~ ^[0-9]+$ ]]; then
+            echo 'ci_run_id must be a numeric GitHub Actions run ID.' >&2
             exit 1
           fi
 
@@ -63,47 +72,83 @@ jobs:
           echo "BATMON_RELEASE_VERSION=$source_version" >> "$GITHUB_ENV"
           echo "BATMON_RELEASE_SEQUENCE=$release_sequence" >> "$GITHUB_ENV"
 
-      - name: Install pinned ESP-IDF 5.5.5
+      - name: Validate exact CI run authority
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${CI_RUN_ID}"
+          run_json="$(curl --fail --silent --show-error -L \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$api")"
+          actual_sha="$(jq -r '.head_sha' <<<"$run_json")"
+          conclusion="$(jq -r '.conclusion' <<<"$run_json")"
+          workflow_path="$(jq -r '.path' <<<"$run_json")"
+          event="$(jq -r '.event' <<<"$run_json")"
+          if [[ "$actual_sha" != "$EXPECTED_SOURCE_SHA" ]]; then
+            echo "CI run head SHA '$actual_sha' does not match requested source '$EXPECTED_SOURCE_SHA'." >&2
+            exit 1
+          fi
+          if [[ "$conclusion" != 'success' ]]; then
+            echo "CI run must be completed successfully; conclusion was '$conclusion'." >&2
+            exit 1
+          fi
+          if [[ "$workflow_path" != '.github/workflows/battery-monitor-ci.yml' ]]; then
+            echo "CI run came from unexpected workflow '$workflow_path'." >&2
+            exit 1
+          fi
+          if [[ "$event" != 'push' && "$event" != 'workflow_dispatch' ]]; then
+            echo "CI run event '$event' is not an accepted release-promotion source." >&2
+            exit 1
+          fi
+          echo "Promoting exact firmware bytes from CI run ${CI_RUN_ID}, source ${actual_sha}."
+
+      - name: Download exact CI firmware artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: battery-monitor-esp32-CI-UNSIGNED-v0.1.0
+          path: /tmp/battery-monitor-signed-firmware
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.ci_run_id }}
+
+      - name: Validate promoted firmware authority and hashes
         shell: bash
         run: |
           set -euo pipefail
-          idf="$RUNNER_TEMP/esp-idf"
-          commit='b774170ff46c393eeb5e495ea37936038d3f4f4f'
-          mkdir -p "$idf"
-          git -C "$idf" init
-          git -C "$idf" remote add origin https://github.com/espressif/esp-idf.git
-          git -C "$idf" fetch --depth=1 origin "$commit"
-          git -C "$idf" checkout --detach FETCH_HEAD
-          test "$(git -C "$idf" rev-parse HEAD)" = "$commit"
-          git -C "$idf" submodule update --init --recursive --depth=1
-          "$idf/install.sh" esp32
-          echo "IDF_PATH=$idf" >> "$GITHUB_ENV"
+          dir=/tmp/battery-monitor-signed-firmware
+          test -f "$dir/BatteryMonitor.ino.bin"
+          test -f "$dir/BatteryMonitor.ino.merged.bin"
+          test -f "$dir/version.txt"
+          test -f "$dir/BUILD_AUTHORITY.txt"
+          test "$(stat -c %s "$dir/BatteryMonitor.ino.merged.bin")" -eq 4194304
+          test "$(tr -d '\r\n' < "$dir/version.txt")" = "$BATMON_RELEASE_VERSION"
+          grep -qx "app_version=$BATMON_RELEASE_VERSION" "$dir/BUILD_AUTHORITY.txt"
+          grep -qx "software_release_sequence=$BATMON_RELEASE_SEQUENCE" "$dir/BUILD_AUTHORITY.txt"
+          grep -qx 'software_signed_release_floor=encrypted-nvs-strictly-newer' "$dir/BUILD_AUTHORITY.txt"
+          grep -qx 'post_boot_ota_rollback=enabled' "$dir/BUILD_AUTHORITY.txt"
+          grep -qx 'hardware_efuse_app_anti_rollback=disabled-pending-secure-boot-production-efuse-gate' "$dir/BUILD_AUTHORITY.txt"
+          grep -qx 'http_server=esp_http_server' "$dir/BUILD_AUTHORITY.txt"
+          grep -qx 'http_transport=native-esp-idf' "$dir/BUILD_AUTHORITY.txt"
+          grep -qx 'http_max_client_sessions=15' "$dir/BUILD_AUTHORITY.txt"
+          grep -qx 'http_max_client_sessions_runtime_configurable=yes' "$dir/BUILD_AUTHORITY.txt"
+          grep -qx 'http_tcp_sndbuf_default=12288' "$dir/BUILD_AUTHORITY.txt"
+          grep -qx 'lwip_max_sockets=30' "$dir/BUILD_AUTHORITY.txt"
+          expected_app="$(awk -F= '$1=="application_sha256"{print $2}' "$dir/BUILD_AUTHORITY.txt")"
+          expected_merged="$(awk -F= '$1=="merged_sha256"{print $2}' "$dir/BUILD_AUTHORITY.txt")"
+          actual_app="$(sha256sum "$dir/BatteryMonitor.ino.bin" | awk '{print $1}')"
+          actual_merged="$(sha256sum "$dir/BatteryMonitor.ino.merged.bin" | awk '{print $1}')"
+          test -n "$expected_app" && test "$actual_app" = "$expected_app"
+          test -n "$expected_merged" && test "$actual_merged" = "$expected_merged"
+          echo "Exact promoted app SHA-256: $actual_app"
+          echo "Exact promoted merged SHA-256: $actual_merged"
 
-      - name: Build exact authoritative firmware
-        shell: bash
-        run: |
-          set -euo pipefail
-          . "$IDF_PATH/export.sh"
-          bash battery-monitor/firmware/idf/build.sh /tmp/battery-monitor-signed-firmware
-          test -f /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.bin
-          test -f /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.merged.bin
-          test -f /tmp/battery-monitor-signed-firmware/version.txt
-          test -f /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
-          test "$(stat -c %s /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.merged.bin)" -eq 4194304
-          test "$(tr -d '\r\n' < /tmp/battery-monitor-signed-firmware/version.txt)" = "$BATMON_RELEASE_VERSION"
-          grep -qx "app_version=$BATMON_RELEASE_VERSION" /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
-          grep -qx "software_release_sequence=$BATMON_RELEASE_SEQUENCE" /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
-          grep -qx 'software_signed_release_floor=encrypted-nvs-strictly-newer' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
-          grep -qx 'post_boot_ota_rollback=enabled' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
-          grep -qx 'hardware_efuse_app_anti_rollback=disabled-pending-secure-boot-production-efuse-gate' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
-          grep -qx 'http_server=esp_http_server' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
-          grep -qx 'http_transport=native-esp-idf' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
-          grep -qx 'http_max_client_sessions=15' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
-          grep -qx 'http_max_client_sessions_runtime_configurable=yes' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
-          grep -qx 'http_tcp_sndbuf_default=12288' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
-          grep -qx 'lwip_max_sockets=30' /tmp/battery-monitor-signed-firmware/BUILD_AUTHORITY.txt
-
-      - name: Sign and independently verify firmware
+      - name: Sign and independently verify promoted firmware
         shell: bash
         run: |
           set -euo pipefail
@@ -178,6 +223,8 @@ jobs:
 
           {
             echo 'schema=BATMON_SIGNED_RELEASE_V1'
+            echo 'promotion_mode=exact-ci-artifact'
+            echo 'promoted_ci_run_id=${{ inputs.ci_run_id }}'
             echo 'source_sha=${{ inputs.source_sha }}'
             echo "version=$BATMON_RELEASE_VERSION"
             echo "software_release_sequence=$BATMON_RELEASE_SEQUENCE"
@@ -185,6 +232,7 @@ jobs:
             echo 'post_boot_ota_rollback=enabled'
             echo 'hardware_efuse_app_anti_rollback=disabled-pending-secure-boot-production-efuse-gate'
             echo 'signed_usb_ota=SIGNED_USB_OTA_V1'
+            echo 'signed_lan_ota=SIGNED_LAN_OTA_V1'
             echo 'architecture=ESP-IDF+Arduino-component'
             echo 'esp_idf_version=5.5.5'
             echo 'esp_idf_commit=b774170ff46c393eeb5e495ea37936038d3f4f4f'
