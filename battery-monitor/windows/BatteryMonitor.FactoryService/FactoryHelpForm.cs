@@ -54,7 +54,7 @@ HTTP Diagnostics provides source timing and live HTTP trace controls for enginee
 
 Production device protections remain authoritative: signed firmware verification, release-mode Flash Encryption, encrypted NVS, signed OTA policy, release-floor checks, and rollback behavior. Factory provisioning reads the running device's actual Flash Encryption state over trusted USB and will not produce a label if release-mode encryption is not active.
 
-The Factory & Service session expires after one hour of inactivity, clears when the application exits, and locks when the Windows session is locked.")
+The Factory & Service session expires after one hour of keyboard/mouse inactivity. Expiry closes open Factory/Service tool windows and exits the management app so the password is required again. Exiting the application or locking the Windows session also clears the Factory & Service session.")
     ];
 
     public FactoryHelpForm()
