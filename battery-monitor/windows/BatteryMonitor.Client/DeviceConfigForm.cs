@@ -15,8 +15,6 @@ public sealed class DeviceConfigForm : Form
     private readonly NumericUpDown _poll = new();
     private readonly NumericUpDown _offlineTimeoutValue = new();
     private readonly ComboBox _offlineTimeoutUnit = new();
-    private readonly NumericUpDown _calFactor = new();
-    private readonly NumericUpDown _calOffset = new();
     private readonly TextBox _devicePassword = new() { UseSystemPasswordChar = true };
     private readonly TextBox _newPassword = new() { UseSystemPasswordChar = true };
     private readonly TextBox _confirmPassword = new() { UseSystemPasswordChar = true };
@@ -46,8 +44,8 @@ public sealed class DeviceConfigForm : Form
 
         Text = $"Configure {device.DisplayName}";
         Icon = AppIcon.Current;
-        Width = 620;
-        Height = 930;
+        Width = 640;
+        Height = 850;
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -61,8 +59,6 @@ public sealed class DeviceConfigForm : Form
         ConfigureNumeric(_sample, 1, 3600, 0, 1);
         ConfigureNumeric(_poll, 2, 3600, 0, 1);
         ConfigureNumeric(_offlineTimeoutValue, 1, 86400, 0, 1);
-        ConfigureNumeric(_calFactor, 0.5m, 1.5m, 6, 0.0001m);
-        ConfigureNumeric(_calOffset, -5, 5, 4, 0.001m);
 
         _offlineTimeoutUnit.DropDownStyle = ComboBoxStyle.DropDownList;
         _offlineTimeoutUnit.Items.Add(new TimeUnitChoice("seconds", 1));
@@ -74,7 +70,7 @@ public sealed class DeviceConfigForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(14),
             ColumnCount = 2,
-            RowCount = 22,
+            RowCount = 20,
             AutoScroll = true
         };
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
@@ -83,11 +79,31 @@ public sealed class DeviceConfigForm : Form
 
         AddRow(table, 0, "Local alias", _localName);
         AddRow(table, 1, "Name stored on unit", _deviceName);
-        AddRow(table, 2, "Battery profile", _batteryType);
+
+        var profilePanel = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
+        _batteryType.Width = 255;
+        profilePanel.Controls.Add(_batteryType);
+        var manageProfiles = new Button
+        {
+            Text = "⚙",
+            AutoSize = true,
+            AccessibleName = "Manage Battery Profiles",
+            Margin = new Padding(8, 3, 3, 3)
+        };
+        var profileTip = new ToolTip();
+        profileTip.SetToolTip(manageProfiles, "Manage Battery Profiles");
+        manageProfiles.Click += (_, _) => ManageProfiles();
+        profilePanel.Controls.Add(manageProfiles);
+        AddRow(table, 2, "Battery profile", profilePanel);
+
         AddRow(table, 3, "Low warning (V)", _low);
         AddRow(table, 4, "Critical (V)", _critical);
-        AddRow(table, 5, "Unit sample interval (s)", _sample);
-        AddRow(table, 6, "PC poll interval (s)", _poll);
+        var preset = new Button { Text = "Apply Profile Defaults", AutoSize = true };
+        preset.Click += (_, _) => ApplyPreset();
+        table.Controls.Add(preset, 1, 5);
+
+        AddRow(table, 6, "Unit sample interval (s)", _sample);
+        AddRow(table, 7, "PC poll interval (s)", _poll);
 
         var timeoutPanel = new TableLayoutPanel
         {
@@ -102,19 +118,7 @@ public sealed class DeviceConfigForm : Form
         timeoutPanel.Controls.Add(_offlineTimeoutValue, 0, 0);
         _offlineTimeoutUnit.Dock = DockStyle.Fill;
         timeoutPanel.Controls.Add(_offlineTimeoutUnit, 1, 0);
-        AddRow(table, 7, "Offline timeout", timeoutPanel);
-
-        AddRow(table, 8, "Calibration factor", _calFactor);
-        AddRow(table, 9, "Calibration offset (V)", _calOffset);
-
-        var profileActions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
-        var preset = new Button { Text = "Apply Profile Defaults", AutoSize = true };
-        preset.Click += (_, _) => ApplyPreset();
-        var manageProfiles = new Button { Text = "Manage Profiles", AutoSize = true };
-        manageProfiles.Click += (_, _) => ManageProfiles();
-        profileActions.Controls.Add(preset);
-        profileActions.Controls.Add(manageProfiles);
-        table.Controls.Add(profileActions, 1, 10);
+        AddRow(table, 8, "Offline timeout", timeoutPanel);
 
         var alertButton = new Button { Text = "Configure Alerts", AutoSize = true };
         alertButton.Click += (_, _) => ConfigureAlerts();
@@ -124,8 +128,8 @@ public sealed class DeviceConfigForm : Form
             AutoSize = true,
             Anchor = AnchorStyles.Left,
             Margin = new Padding(3, 9, 3, 3)
-        }, 0, 11);
-        table.Controls.Add(alertButton, 1, 11);
+        }, 0, 9);
+        table.Controls.Add(alertButton, 1, 9);
 
         var securityHeader = new Label
         {
@@ -134,11 +138,11 @@ public sealed class DeviceConfigForm : Form
             Font = new Font(Font, FontStyle.Bold),
             Margin = new Padding(3, 14, 3, 3)
         };
-        table.Controls.Add(securityHeader, 0, 12);
+        table.Controls.Add(securityHeader, 0, 10);
         table.SetColumnSpan(securityHeader, 2);
 
-        AddRow(table, 13, "Current Device Password", _devicePassword);
-        table.Controls.Add(_rememberPassword, 1, 14);
+        AddRow(table, 11, "Current Device Password", _devicePassword);
+        table.Controls.Add(_rememberPassword, 1, 12);
 
         var forget = new Button { Text = "Forget Saved Password", AutoSize = true };
         forget.Click += (_, _) =>
@@ -150,11 +154,11 @@ public sealed class DeviceConfigForm : Form
                 "The saved password will be removed when you save/close this dialog.",
                 "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
         };
-        table.Controls.Add(forget, 1, 15);
+        table.Controls.Add(forget, 1, 13);
 
-        AddRow(table, 16, "New Device Password", _newPassword);
-        AddRow(table, 17, "Confirm new password", _confirmPassword);
-        table.Controls.Add(_showPasswords, 1, 18);
+        AddRow(table, 14, "New Device Password", _newPassword);
+        AddRow(table, 15, "Confirm new password", _confirmPassword);
+        table.Controls.Add(_showPasswords, 1, 16);
         _showPasswords.CheckedChanged += (_, _) =>
         {
             var hide = !_showPasswords.Checked;
@@ -166,10 +170,10 @@ public sealed class DeviceConfigForm : Form
         var info = new Label
         {
             AutoSize = true,
-            MaximumSize = new Size(540, 0),
-            Text = "Save + Apply authenticates with the Device Password before changing the unit. Battery profile IDs and active voltage thresholds are stored on the unit; custom profile definitions remain Windows-side. Applying profile defaults is explicit and never happens just because you select another profile. Alert settings, the local alias, PC poll interval, and offline timeout are Windows-only settings."
+            MaximumSize = new Size(560, 0),
+            Text = "Save + Apply authenticates with the Device Password before changing the unit. Battery profile and active voltage thresholds are stored on the unit; custom profile definitions remain Windows-side. Applying profile defaults is explicit. Calibration is a factory/service function and is intentionally not changed here. Alert settings, local alias, PC poll interval, and offline timeout are Windows-only settings."
         };
-        table.Controls.Add(info, 0, 19);
+        table.Controls.Add(info, 0, 17);
         table.SetColumnSpan(info, 2);
 
         var buttons = new FlowLayoutPanel
@@ -186,7 +190,7 @@ public sealed class DeviceConfigForm : Form
         buttons.Controls.Add(cancel);
         buttons.Controls.Add(saveBoth);
         buttons.Controls.Add(saveLocal);
-        table.Controls.Add(buttons, 0, 20);
+        table.Controls.Add(buttons, 0, 18);
         table.SetColumnSpan(buttons, 2);
 
         AcceptButton = saveBoth;
@@ -204,7 +208,7 @@ public sealed class DeviceConfigForm : Form
             _batteryType.Items.Add(new BatteryProfile
             {
                 Id = selectId,
-                Name = $"Unknown / Custom ({selectId})",
+                Name = "Custom Battery",
                 LowVoltage = currentLow,
                 CriticalVoltage = currentCritical,
                 BuiltIn = false
@@ -267,8 +271,6 @@ public sealed class DeviceConfigForm : Form
         _sample.Value = Clamp(_device.SampleIntervalSec, _sample);
         _poll.Value = Clamp(_device.PollIntervalSec, _poll);
         LoadOfflineTimeout(_device.OfflineTimeoutSec <= 0 ? 300 : _device.OfflineTimeoutSec);
-        _calFactor.Value = Clamp((decimal)_device.CalibrationFactor, _calFactor);
-        _calOffset.Value = Clamp((decimal)_device.CalibrationOffset, _calOffset);
 
         if (!string.IsNullOrEmpty(savedDevicePassword))
         {
@@ -287,7 +289,6 @@ public sealed class DeviceConfigForm : Form
             _recoveryAlert);
 
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
-
         _lowAlert = dialog.LowAlert;
         _criticalAlert = dialog.CriticalAlert;
         _offlineAlert = dialog.OfflineAlert;
@@ -315,15 +316,13 @@ public sealed class DeviceConfigForm : Form
 
     private int OfflineTimeoutSecondsFromControls()
     {
-        var unit = _offlineTimeoutUnit.SelectedItem as TimeUnitChoice
-                   ?? new TimeUnitChoice("seconds", 1);
+        var unit = _offlineTimeoutUnit.SelectedItem as TimeUnitChoice ?? new TimeUnitChoice("seconds", 1);
         var seconds = (long)_offlineTimeoutValue.Value * unit.SecondsMultiplier;
         if (seconds < 5 || seconds > 86400) return -1;
         return (int)seconds;
     }
 
-    private static decimal Clamp(decimal value, NumericUpDown n) =>
-        Math.Max(n.Minimum, Math.Min(n.Maximum, value));
+    private static decimal Clamp(decimal value, NumericUpDown n) => Math.Max(n.Minimum, Math.Min(n.Maximum, value));
 
     private void ApplyPreset()
     {
@@ -336,37 +335,29 @@ public sealed class DeviceConfigForm : Form
     {
         if (string.IsNullOrWhiteSpace(_deviceName.Text))
         {
-            MessageBox.Show(this, "The name stored on the unit cannot be blank.",
-                "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "The name stored on the unit cannot be blank.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
-
         if (_batteryType.SelectedItem is not BatteryProfile selectedProfile || !BatteryProfileCatalog.IsValidProfileId(selectedProfile.Id))
         {
-            MessageBox.Show(this, "Select a valid battery profile.",
-                "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "Select a valid battery profile.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
-
         if (_low.Value <= _critical.Value)
         {
-            MessageBox.Show(this, "Low warning must be higher than the critical threshold.",
-                "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "Low warning must be higher than the critical threshold.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
         var timeoutSec = OfflineTimeoutSecondsFromControls();
         if (timeoutSec < 0)
         {
-            MessageBox.Show(this, "Offline timeout must be between 5 seconds and 24 hours.",
-                "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "Offline timeout must be between 5 seconds and 24 hours.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
-
         if (timeoutSec < _poll.Value)
         {
-            MessageBox.Show(this, "Offline timeout must be at least as long as the PC poll interval.",
-                "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "Offline timeout must be at least as long as the PC poll interval.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -374,9 +365,7 @@ public sealed class DeviceConfigForm : Form
         {
             if (!DevicePasswordRules.TryValidate(_devicePassword.Text, out var currentError))
             {
-                MessageBox.Show(this,
-                    "A valid current Device Password is required to change the unit.\n\n" + currentError,
-                    "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(this, "A valid current Device Password is required to change the unit.\n\n" + currentError, "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
@@ -384,33 +373,26 @@ public sealed class DeviceConfigForm : Form
             {
                 if (!DevicePasswordRules.TryValidate(_newPassword.Text, out var newError))
                 {
-                    MessageBox.Show(this, newError,
-                        "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(this, newError, "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
-
                 if (_newPassword.Text != _confirmPassword.Text)
                 {
-                    MessageBox.Show(this, "The new Device Password entries do not match.",
-                        "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(this, "The new Device Password entries do not match.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
-
                 if (DevicePasswordRules.IsWeak(_newPassword.Text, out var reason))
                 {
                     var result = MessageBox.Show(this,
                         $"This Device Password looks weak. {reason}\n\nA person on the same LAN may have an easier time guessing it. Use it anyway?",
-                        "Weak Device Password", MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
-                        MessageBoxDefaultButton.Button2);
+                        "Weak Device Password", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
                     if (result != DialogResult.Yes) return;
                 }
             }
         }
         else if (!string.IsNullOrEmpty(_newPassword.Text))
         {
-            MessageBox.Show(this,
-                "Changing the Device Password requires Save + Apply to Unit.",
-                "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "Changing the Device Password requires Save + Apply to Unit.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
@@ -422,8 +404,7 @@ public sealed class DeviceConfigForm : Form
         _device.SampleIntervalSec = (int)_sample.Value;
         _device.PollIntervalSec = (int)_poll.Value;
         _device.OfflineTimeoutSec = timeoutSec;
-        _device.CalibrationFactor = (double)_calFactor.Value;
-        _device.CalibrationOffset = (double)_calOffset.Value;
+        // Calibration remains untouched here; it is owned by the Factory & Service application.
 
         _device.LowAlert = _lowAlert.Clone();
         _device.CriticalAlert = _criticalAlert.Clone();
