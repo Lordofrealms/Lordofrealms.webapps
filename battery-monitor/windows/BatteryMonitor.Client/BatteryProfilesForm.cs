@@ -4,22 +4,23 @@ internal sealed class BatteryProfilesForm : Form
 {
     private readonly BatteryProfileCatalog _catalog = BatteryProfileCatalog.Current;
     private readonly ListBox _profiles = new() { Dock = DockStyle.Fill };
-    private readonly TextBox _id = new();
     private readonly TextBox _name = new();
     private readonly NumericUpDown _low = new();
     private readonly NumericUpDown _critical = new();
     private readonly Label _kind = new() { AutoSize = true };
     private readonly Button _save = new() { Text = "Save Profile", AutoSize = true };
-    private readonly Button _delete = new() { Text = "Delete Profile", AutoSize = true };
+    private readonly Button _delete = new() { Text = "Delete", AutoSize = true };
+    private readonly Button _duplicate = new() { Text = "Duplicate", AutoSize = true };
     private bool _loading;
+    private string? _editingId;
 
     public BatteryProfilesForm()
     {
         Text = "Battery Monitor - Battery Profiles";
         Icon = AppIcon.Current;
         Width = 720;
-        Height = 480;
-        MinimumSize = new Size(650, 430);
+        Height = 500;
+        MinimumSize = new Size(650, 450);
         StartPosition = FormStartPosition.CenterParent;
 
         ConfigureVoltage(_low);
@@ -43,33 +44,35 @@ internal sealed class BatteryProfilesForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         Controls.Add(root);
 
-        var left = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
+        var left = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4 };
         left.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         left.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         left.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        left.Controls.Add(new Label { Text = "Available profiles", AutoSize = true });
+        left.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        left.Controls.Add(new Label { Text = "Battery profiles", AutoSize = true });
         left.Controls.Add(_profiles);
         var add = new Button { Text = "New Custom Profile", AutoSize = true };
         add.Click += (_, _) => NewProfile();
         left.Controls.Add(add);
+        _duplicate.Click += (_, _) => DuplicateSelected();
+        left.Controls.Add(_duplicate);
         root.Controls.Add(left, 0, 0);
 
-        var editor = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12, 0, 0, 0), ColumnCount = 2, RowCount = 7 };
+        var editor = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12, 0, 0, 0), ColumnCount = 2, RowCount = 6 };
         editor.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 145));
         editor.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         AddRow(editor, 0, "Profile type", _kind);
-        AddRow(editor, 1, "Stable profile ID", _id);
-        AddRow(editor, 2, "Display name", _name);
-        AddRow(editor, 3, "Low warning (V)", _low);
-        AddRow(editor, 4, "Critical (V)", _critical);
+        AddRow(editor, 1, "Name", _name);
+        AddRow(editor, 2, "Low warning (V)", _low);
+        AddRow(editor, 3, "Critical (V)", _critical);
 
         var note = new Label
         {
             AutoSize = true,
             MaximumSize = new Size(390, 0),
-            Text = "Built-in profiles come from the packaged battery-profiles.json and are read-only. Custom profiles are stored separately under your Windows application-data folder so app upgrades do not delete them. Applying profile defaults is always explicit."
+            Text = "Built-in profiles are protected defaults. Duplicate one to make your own version, or create a new custom profile. Custom profile names can use normal words and punctuation; the internal device identifier is generated automatically and is intentionally hidden."
         };
-        editor.Controls.Add(note, 0, 5);
+        editor.Controls.Add(note, 0, 4);
         editor.SetColumnSpan(note, 2);
 
         var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight };
@@ -77,7 +80,7 @@ internal sealed class BatteryProfilesForm : Form
         _delete.Click += (_, _) => DeleteProfile();
         buttons.Controls.Add(_save);
         buttons.Controls.Add(_delete);
-        editor.Controls.Add(buttons, 1, 6);
+        editor.Controls.Add(buttons, 1, 5);
         root.Controls.Add(editor, 1, 0);
 
         var close = new Button { Text = "Close", AutoSize = true, Anchor = AnchorStyles.Right };
@@ -135,27 +138,25 @@ internal sealed class BatteryProfilesForm : Form
 
     private void LoadSelected()
     {
-        if (_loading) return;
-        if (_profiles.SelectedItem is not BatteryProfile profile) return;
-        _kind.Text = profile.BuiltIn ? "Built-in (packaged)" : "Custom (user)";
-        _id.Text = profile.Id;
+        if (_loading || _profiles.SelectedItem is not BatteryProfile profile) return;
+        _editingId = profile.BuiltIn ? null : profile.Id;
+        _kind.Text = profile.BuiltIn ? "Built-in default" : "Custom";
         _name.Text = profile.Name;
         _low.Value = Clamp((decimal)profile.LowVoltage, _low);
         _critical.Value = Clamp((decimal)profile.CriticalVoltage, _critical);
-        _id.ReadOnly = true;
         _name.ReadOnly = profile.BuiltIn;
         _low.Enabled = !profile.BuiltIn;
         _critical.Enabled = !profile.BuiltIn;
         _save.Enabled = !profile.BuiltIn;
         _delete.Enabled = !profile.BuiltIn;
+        _duplicate.Enabled = true;
     }
 
     private void NewProfile()
     {
         _profiles.ClearSelected();
+        _editingId = null;
         _kind.Text = "New custom profile";
-        _id.ReadOnly = false;
-        _id.Text = "custom_";
         _name.ReadOnly = false;
         _name.Text = "Custom Battery";
         _low.Enabled = true;
@@ -164,18 +165,40 @@ internal sealed class BatteryProfilesForm : Form
         _critical.Value = 11.90m;
         _save.Enabled = true;
         _delete.Enabled = false;
-        _id.Focus();
-        _id.SelectionStart = _id.Text.Length;
+        _duplicate.Enabled = false;
+        _name.Focus();
+        _name.SelectAll();
+    }
+
+    private void DuplicateSelected()
+    {
+        if (_profiles.SelectedItem is not BatteryProfile source) return;
+        _profiles.ClearSelected();
+        _editingId = null;
+        _kind.Text = $"New custom profile based on {source.Name}";
+        _name.ReadOnly = false;
+        _name.Text = source.Name + " Copy";
+        _low.Enabled = true;
+        _critical.Enabled = true;
+        _low.Value = Clamp((decimal)source.LowVoltage, _low);
+        _critical.Value = Clamp((decimal)source.CriticalVoltage, _critical);
+        _save.Enabled = true;
+        _delete.Enabled = false;
+        _duplicate.Enabled = false;
+        _name.Focus();
+        _name.SelectAll();
     }
 
     private void SaveProfile()
     {
         try
         {
+            var displayName = _name.Text.Trim();
+            var id = _editingId ?? _catalog.CreateUniqueProfileId(displayName);
             var profile = new BatteryProfile
             {
-                Id = _id.Text.Trim(),
-                Name = _name.Text.Trim(),
+                Id = id,
+                Name = displayName,
                 LowVoltage = (double)_low.Value,
                 CriticalVoltage = (double)_critical.Value,
                 BuiltIn = false
@@ -193,7 +216,7 @@ internal sealed class BatteryProfilesForm : Form
     {
         if (_profiles.SelectedItem is not BatteryProfile profile || profile.BuiltIn) return;
         if (MessageBox.Show(this,
-                $"Delete custom battery profile '{profile.Name}'? Devices already using it will keep their stored profile ID and active voltage thresholds.",
+                $"Delete custom battery profile '{profile.Name}'? Devices already using it will keep their stored profile identity and active voltage thresholds.",
                 "Battery Monitor", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
             return;
         _catalog.DeleteUserProfile(profile.Id);
