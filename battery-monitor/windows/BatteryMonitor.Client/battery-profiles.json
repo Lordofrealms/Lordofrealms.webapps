@@ -11,7 +11,7 @@
       "id": "lifepo4_4s",
       "name": "4S LiFePO4",
       "lowVoltage": 12.80,
-      "criticalVoltage": 12.00
+      "criticalVoltage": 12.50
     }
   ]
 }
