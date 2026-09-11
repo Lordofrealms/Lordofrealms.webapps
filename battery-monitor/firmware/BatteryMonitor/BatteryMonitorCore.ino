@@ -99,7 +99,7 @@ String statusTextForVoltage(float voltage) {
 void chemistryDefaults(const String& type, float& lowOut, float& criticalOut) {
   if (type == "lifepo4_4s") {
     lowOut = 12.80f;
-    criticalOut = 12.00f;
+    criticalOut = 12.50f;
   } else {
     lowOut = 12.20f;
     criticalOut = 11.90f;
@@ -195,10 +195,10 @@ body{font-family:Arial,sans-serif;max-width:760px;margin:24px auto;padding:0 16p
 <div class="card"><h2>Management access</h2><label>Device Password</label><input id="devicePassword" type="password" autocomplete="current-password" maxlength="128"><p><button onclick="unlockSettings()">Unlock settings</button><button onclick="lockSettings()">Lock</button></p><div id="authState" class="small">Settings are locked. Battery status remains readable.</div></div>
 <div class="card"><h2>Device settings</h2><fieldset id="settings" disabled>
 <label>Device name</label><input id="name" maxlength="48">
-<label>Battery profile ID</label><input id="batteryType" list="batteryProfileIds" maxlength="31"><datalist id="batteryProfileIds"><option value="lead_acid"><option value="lifepo4_4s"></datalist><div class="small">Custom profile definitions live in the Windows app; the monitor stores this stable ID plus its active voltage thresholds.</div>
+<input id="batteryType" type="hidden"><input id="calf" type="hidden"><input id="calo" type="hidden">
+<div class="small">Battery profile selection and calibration are managed by the Battery Monitor Windows and authorized service tools. Active voltage thresholds can still be adjusted here.</div>
 <div class="grid"><div><label>Low warning (V)</label><input id="low" type="number" min="6" max="20" step="0.01"></div><div><label>Critical (V)</label><input id="crit" type="number" min="6" max="20" step="0.01"></div></div>
-<div class="grid"><div><label>Sample interval (seconds)</label><input id="sample" type="number" min="1" max="3600"></div><div><label>Calibration factor</label><input id="calf" type="number" step="0.0001"></div></div>
-<label>Calibration offset (V)</label><input id="calo" type="number" step="0.001"><p><button onclick="saveConfig()">Save settings</button><button onclick="applyPreset()">Apply built-in profile defaults</button></p>
+<label>Sample interval (seconds)</label><input id="sample" type="number" min="1" max="3600"><p><button onclick="saveConfig()">Save settings</button></p>
 <h3>Wi-Fi</h3><div id="wifiInfo" class="small"></div><p><button onclick="enterProvisioning()">Change Wi-Fi / Secure Setup</button></p><div class="small">This starts the protected BatteryMonitor setup network without erasing your Device Password. Home Wi-Fi credentials are sent only through Espressif Security 2.</div></fieldset></div>
 <script>
 let refreshMs=1000,session='',csrf='';const el=id=>document.getElementById(id),te=new TextEncoder();
@@ -211,7 +211,6 @@ async function refreshLoop(){await refresh();setTimeout(refreshLoop,refreshMs)}
 async function loadConfig(){let c=await api('/api/config');el('name').value=c.name;el('batteryType').value=c.batteryType;el('low').value=c.lowVoltage;el('crit').value=c.criticalVoltage;el('sample').value=c.sampleIntervalSec;el('calf').value=c.calibrationFactor;el('calo').value=c.calibrationOffset}
 async function unlockSettings(){try{let c=await api('/api/auth/challenge'),p=initialCodeCompat(el('devicePassword').value),root=sha256(te.encode('BATMON-CODECHECK-V1|'+c.deviceId+'|'+p)),key=sha256(te.encode('BATMON-LAN-MGMT-V1|'+c.deviceId+'|'+hex(root))),proof=hex(hmac(key,te.encode('BATMON-AUTH-V1|'+c.deviceId+'|'+c.challengeId+'|'+c.nonce))),body=new URLSearchParams({challengeId:c.challengeId,proof}),s=await api('/api/auth/session',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});session=s.session;csrf=s.csrf;el('devicePassword').value='';el('settings').disabled=false;el('authState').textContent='Unlocked for up to 15 minutes of activity.';el('authState').className='small ok'}catch(e){session='';csrf='';el('settings').disabled=true;el('authState').textContent='Unlock failed. Check the Device Password. '+e.message;el('authState').className='small warn'}}
 async function lockSettings(){try{if(session)await api('/api/auth/logout',{method:'POST'},true)}catch(e){}session='';csrf='';el('settings').disabled=true;el('authState').textContent='Settings are locked. Battery status remains readable.';el('authState').className='small'}
-function applyPreset(){let t=el('batteryType').value;if(t==='lifepo4_4s'){el('low').value='12.80';el('crit').value='12.00'}else if(t==='lead_acid'){el('low').value='12.20';el('crit').value='11.90'}}
 async function saveConfig(){try{let b=new URLSearchParams({name:el('name').value,batteryType:el('batteryType').value,lowVoltage:el('low').value,criticalVoltage:el('crit').value,sampleIntervalSec:el('sample').value,calibrationFactor:el('calf').value,calibrationOffset:el('calo').value});await api('/api/config',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:b},true);alert('Saved');await loadConfig();await refresh()}catch(e){alert('Save failed: '+e.message)}}
 async function enterProvisioning(){if(!confirm('Start the secure setup network to change Wi-Fi? Your Device Password and current settings will be preserved.'))return;try{let r=await api('/api/wifi/provisioning',{method:'POST'},true);alert('Secure setup is starting as '+r.setupSsid+'. Use the Battery Monitor Windows/Android setup app and the same Device Password.')}catch(e){alert('Could not start secure setup: '+e.message)}}
 loadConfig().then(refreshLoop);
