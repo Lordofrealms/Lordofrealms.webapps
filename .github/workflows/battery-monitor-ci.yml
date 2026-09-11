@@ -63,7 +63,7 @@ jobs:
           path: /tmp/battery-monitor-firmware
 
   windows:
-    name: Windows .NET 8 client
+    name: Windows customer + Factory Service apps
     runs-on: windows-latest
     needs: firmware
     steps:
@@ -167,65 +167,83 @@ jobs:
           if ($helperOutput -notmatch 'BATMONPROV1') { throw 'Standalone provisioning helper did not start correctly' }
           $global:LASTEXITCODE = 0
 
-      - name: Build
+      - name: Restore and build both Windows applications
         shell: pwsh
         run: |
           dotnet restore battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj
+          dotnet restore battery-monitor/windows/BatteryMonitor.FactoryService/BatteryMonitor.FactoryService.csproj
           dotnet build battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release --no-restore
+          dotnet build battery-monitor/windows/BatteryMonitor.FactoryService/BatteryMonitor.FactoryService.csproj -c Release --no-restore
 
       - name: Run P0-3 protocol self-test
         shell: pwsh
         run: |
           dotnet run --project battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release --no-build -- --protocol-self-test
 
-      - name: Publish self-contained win-x64
+      - name: Publish separate self-contained win-x64 applications
         shell: pwsh
         run: |
           dotnet publish battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj `
-            -c Release `
-            -r win-x64 `
-            --self-contained true `
-            -p:PublishSingleFile=true `
-            -p:IncludeNativeLibrariesForSelfExtract=true `
-            -p:DebugType=None `
-            -o battery-monitor/windows/publish
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None `
+            -o battery-monitor/windows/publish/customer
+          dotnet publish battery-monitor/windows/BatteryMonitor.FactoryService/BatteryMonitor.FactoryService.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None `
+            -o battery-monitor/windows/publish/factory
 
-      - name: Bundle unsigned CI firmware and tools
+      - name: Bundle customer and Factory Service dependencies separately
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/firmware | Out-Null
-          New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/tools/esptool | Out-Null
-          New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/tools/esp-provisioner | Out-Null
+          $customer = 'battery-monitor/windows/publish/customer'
+          $factory = 'battery-monitor/windows/publish/factory'
+          New-Item -ItemType Directory -Force -Path "$customer/firmware" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$customer/tools/esp-provisioner" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$factory/firmware" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$factory/tools/esptool" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$factory/tools/esp-provisioner" | Out-Null
+
           $merged = Get-ChildItem battery-monitor/windows/staging/firmware -Filter 'BatteryMonitor.ino.merged.bin' -Recurse | Select-Object -First 1
           $app = Get-ChildItem battery-monitor/windows/staging/firmware -Filter 'BatteryMonitor.ino.bin' -Recurse | Select-Object -First 1
-          if (-not $merged) { throw 'Merged Battery Monitor blank-device first-install firmware was not downloaded from firmware job' }
-          if (-not $app) { throw 'Battery Monitor application update image was not downloaded from firmware job' }
-          Copy-Item $merged.FullName battery-monitor/windows/publish/firmware/BatteryMonitor.ino.merged.bin
-          Copy-Item $app.FullName battery-monitor/windows/publish/firmware/BatteryMonitor.ino.bin
+          if (-not $merged) { throw 'Merged first-install firmware missing from CI firmware job' }
+          if (-not $app) { throw 'Application-update firmware missing from CI firmware job' }
+
+          # Customer package receives only ordinary application-update firmware and
+          # the Security-2 provisioning helper. It intentionally does not receive
+          # esptool or the blank-device merged factory image.
+          Copy-Item $app.FullName "$customer/firmware/BatteryMonitor.ino.bin"
+          Copy-Item battery-monitor/windows/staging/esp-provisioner/* "$customer/tools/esp-provisioner" -Recurse -Force
+
+          # Factory & Service package receives manufacturing tools/images as well.
+          Copy-Item $app.FullName "$factory/firmware/BatteryMonitor.ino.bin"
+          Copy-Item $merged.FullName "$factory/firmware/BatteryMonitor.ino.merged.bin"
+          Copy-Item battery-monitor/windows/staging/esptool/* "$factory/tools/esptool" -Recurse -Force
+          Copy-Item battery-monitor/windows/staging/esp-provisioner/* "$factory/tools/esp-provisioner" -Recurse -Force
+
           @"
           BATTERY MONITOR CI BUILD - UNSIGNED FIRMWARE
+          These CI firmware images are intentionally unsigned. Customer firmware update
+          and Factory first-install operations must reject them. Signed release packaging
+          supplies the production signatures for the same separated applications.
+          "@ | Set-Content "$customer/firmware/UNSIGNED_CI_BUILD.txt"
+          Copy-Item "$customer/firmware/UNSIGNED_CI_BUILD.txt" "$factory/firmware/UNSIGNED_CI_BUILD.txt"
 
-          This is the same authoritative ESP-IDF + Arduino-component firmware
-          architecture used by signed releases. These particular CI images are
-          intentionally unsigned, so the Windows client's firmware update and
-          blank-device first-install functions reject them. The gated signed-
-          release workflow signs the same build outputs for release packages.
-          "@ | Set-Content battery-monitor/windows/publish/firmware/UNSIGNED_CI_BUILD.txt
-          Copy-Item battery-monitor/windows/staging/esptool/* battery-monitor/windows/publish/tools/esptool -Recurse -Force
-          Copy-Item battery-monitor/windows/staging/esp-provisioner/* battery-monitor/windows/publish/tools/esp-provisioner -Recurse -Force
-          $tool = Get-ChildItem battery-monitor/windows/publish/tools/esptool -Filter esptool.exe -Recurse | Select-Object -First 1
-          $provisioner = Get-ChildItem battery-monitor/windows/publish/tools/esp-provisioner -Filter BatteryMonitorEspProv.exe -Recurse | Select-Object -First 1
-          if (-not $tool) { throw 'Bundled esptool.exe missing' }
-          if (-not $provisioner) { throw 'Bundled Security-2 provisioning helper missing' }
-          Get-FileHash battery-monitor/windows/publish/firmware/BatteryMonitor.ino.bin -Algorithm SHA256
-          Get-FileHash battery-monitor/windows/publish/firmware/BatteryMonitor.ino.merged.bin -Algorithm SHA256
-          Get-FileHash $provisioner.FullName -Algorithm SHA256
+          if (Test-Path "$customer/tools/esptool") { throw 'Customer package must not contain esptool' }
+          if (Test-Path "$customer/firmware/BatteryMonitor.ino.merged.bin") { throw 'Customer package must not contain blank-device merged firmware' }
+          if (-not (Get-ChildItem "$factory/tools/esptool" -Filter esptool.exe -Recurse | Select-Object -First 1)) { throw 'Factory package missing esptool' }
+          if (-not (Get-ChildItem "$customer/tools/esp-provisioner" -Filter BatteryMonitorEspProv.exe -Recurse | Select-Object -First 1)) { throw 'Customer package missing Security-2 helper' }
 
-      - name: Upload unsigned CI Windows client
+      - name: Upload unsigned CI customer app
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: Battery-Monitor-Windows-CI-UNSIGNED-v0.1.0
-          path: battery-monitor/windows/publish
+          name: Battery-Monitor-Windows-Customer-CI-UNSIGNED-v0.1.0
+          path: battery-monitor/windows/publish/customer
+
+      - name: Upload unsigned CI Factory Service app
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Battery-Monitor-Factory-Service-CI-UNSIGNED-v0.1.0
+          path: battery-monitor/windows/publish/factory
 
   android:
     name: Android provisioning APK
