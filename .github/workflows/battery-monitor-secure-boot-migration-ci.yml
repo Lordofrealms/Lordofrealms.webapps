@@ -44,14 +44,29 @@ jobs:
         run: |
           set -euo pipefail
           . "$IDF_PATH/export.sh"
-          bash battery-monitor/firmware/idf/build_secure_boot_migration.sh /tmp/battery-monitor-secure-boot-migration
-          test -f /tmp/battery-monitor-secure-boot-migration/BatteryMonitor.secureboot.app.unsigned.bin
-          test -f /tmp/battery-monitor-secure-boot-migration/BatteryMonitor.secureboot.bootloader.unsigned.bin
-          test -f /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
-          grep -qx 'migration_version=0.1.0.12' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
-          grep -qx 'release_sequence=12' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
-          grep -qx 'secure_boot=enabled-v2-rsa-remote-signing' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
-          grep -qx 'minimum_esp32_revision=3.0-ECO3' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
+          set +e
+          (
+            set -euo pipefail
+            bash battery-monitor/firmware/idf/build_secure_boot_migration.sh /tmp/battery-monitor-secure-boot-migration
+            test -f /tmp/battery-monitor-secure-boot-migration/BatteryMonitor.secureboot.app.unsigned.bin
+            test -f /tmp/battery-monitor-secure-boot-migration/BatteryMonitor.secureboot.bootloader.unsigned.bin
+            test -f /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
+            grep -qx 'migration_version=0.1.0.12' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
+            grep -qx 'release_sequence=12' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
+            grep -qx 'secure_boot=enabled-v2-rsa-remote-signing' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
+            grep -qx 'minimum_esp32_revision=3.0-ECO3' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
+          ) 2>&1 | tee /tmp/battery-monitor-secure-boot-migration-build.log
+          build_status=${PIPESTATUS[0]}
+          set -e
+          exit "$build_status"
+
+      - name: Upload migration build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Battery-Monitor-Secure-Boot-Migration-CI-Diagnostics-0.1.0.12
+          path: /tmp/battery-monitor-secure-boot-migration-build.log
+          if-no-files-found: error
 
       - name: Upload unsigned migration candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
