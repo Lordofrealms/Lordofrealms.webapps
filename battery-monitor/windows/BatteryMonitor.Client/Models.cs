@@ -174,8 +174,6 @@ public static class BatteryPresets
     public static string FriendlyName(string batteryType)
     {
         var profile = BatteryProfileCatalog.Current.Find(batteryType);
-        return profile?.Name ?? (string.IsNullOrWhiteSpace(batteryType)
-            ? "Unknown / Custom"
-            : $"Unknown / Custom ({batteryType})");
+        return profile?.Name ?? "Custom Battery";
     }
 }
