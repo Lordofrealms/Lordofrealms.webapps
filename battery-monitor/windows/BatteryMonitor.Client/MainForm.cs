@@ -38,9 +38,9 @@ public sealed class MainForm : Form
 
         Text = "Battery Monitor";
         Icon = AppIcon.Current;
-        Width = 1450;
+        Width = 1550;
         Height = 650;
-        MinimumSize = new Size(1100, 500);
+        MinimumSize = new Size(1150, 500);
         StartPosition = FormStartPosition.CenterScreen;
 
         BuildUi();
@@ -99,18 +99,20 @@ public sealed class MainForm : Form
         _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         _grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
         _grid.RowHeadersVisible = false;
+
+        // Operational information first; administrative identity details move right.
         _grid.Columns.Add("name", "Name");
-        _grid.Columns.Add("unit", "Unit Name");
         _grid.Columns.Add("voltage", "Voltage");
         _grid.Columns.Add("state", "State");
-        _grid.Columns.Add("firmware", "Firmware");
-        _grid.Columns.Add("fwStatus", "FW Status");
-        _grid.Columns.Add("alerts", "Alerts");
-        _grid.Columns.Add("trust", "Trust");
-        _grid.Columns.Add("type", "Battery");
-        _grid.Columns.Add("address", "Address");
         _grid.Columns.Add("lastSeen", "Last Seen");
-        _grid.Columns.Add("rssi", "RSSI");
+        _grid.Columns.Add("signal", "Signal Strength");
+        _grid.Columns.Add("type", "Battery");
+        _grid.Columns.Add("fwStatus", "FW Status");
+        _grid.Columns.Add("address", "Address");
+        _grid.Columns.Add("unit", "Unit Name");
+        _grid.Columns.Add("firmware", "Firmware");
+        _grid.Columns.Add("trust", "Trust");
+        _grid.Columns.Add("alerts", "Alerts");
         _grid.Columns.Add("id", "Device ID");
         _grid.DoubleClick += async (_, _) => await ConfigureSelectedAsync();
         root.Controls.Add(_grid, 0, 2);
@@ -136,19 +138,18 @@ public sealed class MainForm : Form
         devices.DropDownItems.Add("&Configure", null, async (_, _) => await ConfigureSelectedAsync());
         devices.DropDownItems.Add("Snooze &Alerts", null, (_, _) => SnoozeSelected());
         devices.DropDownItems.Add("Change &Wi-Fi", null, async (_, _) => await ChangeWifiSelectedAsync());
-        devices.DropDownItems.Add("&Open Web Page", null, (_, _) => OpenSelectedWebPage());
+        devices.DropDownItems.Add("&Open Device Web Page", null, (_, _) => OpenSelectedWebPage());
         devices.DropDownItems.Add(new ToolStripSeparator());
-        devices.DropDownItems.Add("&Remove from PC", null, (_, _) => RemoveSelected());
+        devices.DropDownItems.Add("&Remove from This PC", null, (_, _) => RemoveSelected());
+
+        var setup = new ToolStripMenuItem("&Setup");
+        setup.DropDownItems.Add("Set Up / Recover Device by &USB...", null, (_, _) => OpenUsbSetup());
+        setup.DropDownItems.Add("USB Pair / &Trust...", null, (_, _) => OpenUsbTrust());
+        setup.DropDownItems.Add("Set Up &Wi-Fi on a New Device...", null, (_, _) => OpenWirelessSetup());
+        setup.DropDownItems.Add(new ToolStripSeparator());
+        setup.DropDownItems.Add("&Update Firmware...", null, (_, _) => OpenFirmwareUpdate());
 
         var tools = new ToolStripMenuItem("&Tools");
-        tools.DropDownItems.Add("&USB Setup", null, (_, _) => OpenUsbSetup());
-        tools.DropDownItems.Add("USB Pair / &Trust", null, (_, _) => OpenUsbTrust());
-        tools.DropDownItems.Add("&Wireless Setup", null, (_, _) => OpenWirelessSetup());
-        tools.DropDownItems.Add("&Update Firmware", null, (_, _) => OpenFirmwareUpdate());
-        tools.DropDownItems.Add(new ToolStripSeparator());
-        tools.DropDownItems.Add("&Advanced Tools", null, (_, _) => OpenAdvancedTools());
-        tools.DropDownItems.Add(new ToolStripSeparator());
-
         var startup = new ToolStripMenuItem("Start with &Windows")
         {
             CheckOnClick = true,
@@ -172,13 +173,16 @@ public sealed class MainForm : Form
 
         var help = new ToolStripMenuItem("&Help");
         help.DropDownItems.Add("&Getting Started", null, (_, _) => OpenHelp("Getting Started"));
+        help.DropDownItems.Add("Device Password and &Trust", null, (_, _) => OpenHelp("Device Password"));
         help.DropDownItems.Add("&Wi-Fi and Recovery", null, (_, _) => OpenHelp("Wi-Fi"));
-        help.DropDownItems.Add("&Alerts", null, (_, _) => OpenHelp("Alerts"));
+        help.DropDownItems.Add("&Battery Profiles", null, (_, _) => OpenHelp("Battery Profiles"));
+        help.DropDownItems.Add("&Alerts and Snooze", null, (_, _) => OpenHelp("Alerts"));
+        help.DropDownItems.Add("&Firmware Updates", null, (_, _) => OpenHelp("Firmware"));
         help.DropDownItems.Add("&Troubleshooting", null, (_, _) => OpenHelp("Troubleshooting"));
         help.DropDownItems.Add(new ToolStripSeparator());
         help.DropDownItems.Add("&About Battery Monitor", null, (_, _) => OpenHelp("About"));
 
-        menu.Items.AddRange([file, devices, tools, help]);
+        menu.Items.AddRange([file, devices, setup, tools, help]);
         return menu;
     }
 
@@ -218,13 +222,6 @@ public sealed class MainForm : Form
     private void OpenFirmwareUpdate()
     {
         using var dialog = new FirmwareUpdateForm();
-        dialog.ShowDialog(this);
-    }
-
-    private void OpenAdvancedTools()
-    {
-        if (!AdminSecurity.Authenticate(this)) return;
-        using var dialog = new AdvancedToolsForm();
         dialog.ShowDialog(this);
     }
 
@@ -326,8 +323,7 @@ public sealed class MainForm : Form
                 || device.Port != found.Port
                 || !string.Equals(device.Hostname, found.Hostname, StringComparison.OrdinalIgnoreCase)
                 || (!string.IsNullOrWhiteSpace(found.FirmwareVersion) && !string.Equals(device.FirmwareVersion, found.FirmwareVersion, StringComparison.Ordinal))
-                || (!string.IsNullOrWhiteSpace(found.Name) &&
-                    !string.Equals(device.DeviceName, found.Name, StringComparison.Ordinal));
+                || (!string.IsNullOrWhiteSpace(found.Name) && !string.Equals(device.DeviceName, found.Name, StringComparison.Ordinal));
 
             device.Address = found.Ip;
             device.Port = found.Port;
@@ -757,8 +753,7 @@ public sealed class MainForm : Form
         foreach (var device in _devices.OrderBy(d => d.DisplayName, StringComparer.OrdinalIgnoreCase))
         {
             var offline = device.MonitoringTrustState == "Trusted" && IsOffline(device, now);
-            var unreachable = device.MonitoringTrustState == "Trusted" &&
-                              device.FailureStartedUtc.HasValue && !offline;
+            var unreachable = device.MonitoringTrustState == "Trusted" && device.FailureStartedUtc.HasValue && !offline;
 
             var lastSeen = device.LastSeenUtc.HasValue ? ToAge(device.LastSeenUtc.Value) : "Never";
             var stateText = device.IdentityFailure
@@ -778,19 +773,19 @@ public sealed class MainForm : Form
 
             var rowIndex = _grid.Rows.Add(
                 device.DisplayName,
-                device.DeviceName,
                 device.Voltage.HasValue && device.MonitoringTrustState == "Trusted" && !device.IdentityFailure
                     ? $"{device.Voltage:0.00} V"
                     : "--",
                 stateText,
-                installedFirmware,
-                firmwareState,
-                alertState,
-                device.IsCandidate ? "Unpaired candidate" : device.MonitoringTrustState,
-                BatteryPresets.FriendlyName(device.BatteryType),
-                device.Address,
                 lastSeen,
-                device.Rssi == 0 ? "--" : $"{device.Rssi} dBm",
+                SignalStrengthText(device.Rssi),
+                BatteryPresets.FriendlyName(device.BatteryType),
+                firmwareState,
+                device.Address,
+                device.DeviceName,
+                installedFirmware,
+                device.IsCandidate ? "Unpaired candidate" : device.MonitoringTrustState,
+                alertState,
                 device.DeviceId);
 
             var row = _grid.Rows[rowIndex];
@@ -799,22 +794,18 @@ public sealed class MainForm : Form
         }
 
         var trusted = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure);
-        var good = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure &&
-                                       !d.FailureStartedUtc.HasValue && d.State == "good");
-        var alert = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure &&
-                                        d.State is "low" or "critical");
+        var good = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure && !d.FailureStartedUtc.HasValue && d.State == "good");
+        var alert = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure && d.State is "low" or "critical");
         var snoozed = _devices.Count(d => d.AlertsAreSnoozed(now));
         var identityFailures = _devices.Count(d => d.IdentityFailure);
         var unpaired = _devices.Count(d => d.MonitoringTrustState != "Trusted" && !d.IdentityFailure);
-        var offlineCount = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure &&
-                                               IsOffline(d, now));
-        var unreachableCount = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure &&
-                                                   d.FailureStartedUtc.HasValue && !IsOffline(d, now));
+        var offlineCount = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure && IsOffline(d, now));
+        var unreachableCount = _devices.Count(d => d.MonitoringTrustState == "Trusted" && !d.IdentityFailure && d.FailureStartedUtc.HasValue && !IsOffline(d, now));
 
         _summary.Text =
             $"{_devices.Count} visible | {trusted} trusted | {good} good | {alert} battery alert(s) | {snoozed} snoozed | {unpaired} unpaired | {identityFailures} identity failure(s) | {unreachableCount} unreachable | {offlineCount} offline";
 
-        var iconState = DetermineAppIconState();
+        var iconState = DetermineAppIconState(now);
         if (_lastAppIconState != iconState)
         {
             var statusIcon = AppIcon.ForState(iconState);
@@ -823,27 +814,49 @@ public sealed class MainForm : Form
             _lastAppIconState = iconState;
         }
 
-        var stateName = iconState.ToString();
-        _tray.Text = _devices.Count == 0
-            ? "Battery Monitor - Gray"
-            : $"Battery Monitor - {_devices.Count} device(s) - {stateName}";
+        var stateName = iconState == AppIconState.Security ? "Security" : iconState.ToString();
+        var snoozeNote = snoozed > 0 ? $" • {snoozed} snoozed" : "";
+        var tooltip = _devices.Count == 0
+            ? "Battery Monitor - No devices"
+            : $"Battery Monitor - {_devices.Count} device(s) - {stateName}{snoozeNote}";
+        _tray.Text = tooltip.Length <= 63 ? tooltip : tooltip[..63];
     }
 
-    private AppIconState DetermineAppIconState()
+    private AppIconState DetermineAppIconState(DateTime now)
     {
-        if (_devices.Any(d => string.Equals(d.State, "critical", StringComparison.OrdinalIgnoreCase)))
+        // Identity/security failures are intentionally never hidden by snooze.
+        if (_devices.Any(d => d.IdentityFailure)) return AppIconState.Security;
+
+        bool Actionable(MonitorEntry d) => !d.AlertsAreSnoozed(now);
+        if (_devices.Any(d => Actionable(d) && d.MonitoringTrustState == "Trusted" &&
+                              string.Equals(d.State, "critical", StringComparison.OrdinalIgnoreCase)))
             return AppIconState.Red;
-        if (_devices.Any(d => string.Equals(d.State, "low", StringComparison.OrdinalIgnoreCase)))
+        if (_devices.Any(d => Actionable(d) && d.MonitoringTrustState == "Trusted" &&
+                              string.Equals(d.State, "low", StringComparison.OrdinalIgnoreCase)))
             return AppIconState.Yellow;
 
-        if (_devices.Count == 0 || _devices.Any(d =>
-                d.IdentityFailure ||
+        if (_devices.Count == 0) return AppIconState.Gray;
+        if (_devices.Any(d =>
                 d.MonitoringTrustState != "Trusted" ||
-                d.FailureStartedUtc.HasValue ||
-                !string.Equals(d.State, "good", StringComparison.OrdinalIgnoreCase)))
+                (Actionable(d) && (d.FailureStartedUtc.HasValue ||
+                 (!string.Equals(d.State, "good", StringComparison.OrdinalIgnoreCase) &&
+                  !string.Equals(d.State, "low", StringComparison.OrdinalIgnoreCase) &&
+                  !string.Equals(d.State, "critical", StringComparison.OrdinalIgnoreCase))))))
             return AppIconState.Gray;
 
+        // Snoozed low/critical/offline states remain visible in their rows, but
+        // the aggregate attention icon represents only currently actionable units.
         return AppIconState.Green;
+    }
+
+    private static string SignalStrengthText(int rssi)
+    {
+        if (rssi == 0) return "--";
+        var label = rssi >= -55 ? "Excellent" :
+                    rssi >= -67 ? "Good" :
+                    rssi >= -75 ? "Fair" :
+                    rssi >= -84 ? "Weak" : "Very Weak";
+        return $"{label} ({rssi} dBm)";
     }
 
     private static string ToAge(DateTime utc)
