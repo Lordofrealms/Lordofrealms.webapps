@@ -5,6 +5,10 @@
 // and authenticated LAN OTA on esp_http_server's task. Every access to mutable
 // OTA state is serialized here so the transports can never race an OTA handle,
 // SHA-256 context, expected digest/signature, byte counters, or timeout abort.
+//
+// The Factory-only Secure Boot migration has a separate staged-bootloader state
+// machine. New ordinary OTA sessions are rejected while that migration is
+// active so LAN/USB application OTA can never compete with a bootloader write.
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -81,6 +85,11 @@ bool beginSignedFirmwareUpdate(const String& sizeToken,
                                const String& signatureBase64,
                                String& errorOut) {
   if (!takeFirmwareUpdateMutex()) { errorOut = "FW_SYNC_UNAVAILABLE"; return false; }
+  if (secureBootMigrationInProgress()) {
+    errorOut = "FW_SECURE_BOOT_MIGRATION_ACTIVE";
+    giveFirmwareUpdateMutex();
+    return false;
+  }
   bool ok = beginSignedFirmwareUpdateUnlocked(sizeToken, expectedSha256Hex, signatureBase64, errorOut);
   giveFirmwareUpdateMutex();
   return ok;
@@ -91,6 +100,11 @@ bool beginSignedFirmwareUpdateLan(const String& sizeToken,
                                   const String& signatureBase64,
                                   String& errorOut) {
   if (!takeFirmwareUpdateMutex()) { errorOut = "FW_SYNC_UNAVAILABLE"; return false; }
+  if (secureBootMigrationInProgress()) {
+    errorOut = "FW_SECURE_BOOT_MIGRATION_ACTIVE";
+    giveFirmwareUpdateMutex();
+    return false;
+  }
   bool ok = beginSignedFirmwareUpdateLanUnlocked(sizeToken, expectedSha256Hex, signatureBase64, errorOut);
   giveFirmwareUpdateMutex();
   return ok;
