@@ -6,6 +6,7 @@ internal sealed class FactoryProvisioningForm : Form
 {
     private readonly EspFlasher _flasher = new();
     private readonly UsbProvisioner _usb = new();
+    private readonly UsbSecurityInfoReader _security = new();
     private readonly FactoryLabelStore _labels = new();
     private readonly ComboBox _port = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 120 };
     private readonly Label _status = new() { AutoSize = true, MaximumSize = new Size(720, 0) };
@@ -51,7 +52,7 @@ internal sealed class FactoryProvisioningForm : Form
         {
             AutoSize = true,
             MaximumSize = new Size(800, 0),
-            Text = "One factory workflow: verify and flash the signed first-install image to a genuinely blank/un-encrypted ESP32, wait for its encrypted first boot, initialize and verify the factory Device Password, then create the unit's QR/label record. Do not use this workflow as recovery on an already-encrypted unit."
+            Text = "One factory workflow: verify and flash the signed first-install image to a genuinely blank/un-encrypted ESP32, wait for first boot, prove that release-mode Flash Encryption actually activated, initialize and verify the factory Device Password, then create the unit's QR/label record. Do not use this workflow as recovery on an already-encrypted unit."
         };
         root.Controls.Add(intro, 0, 0); root.SetColumnSpan(intro, 2);
 
@@ -143,15 +144,27 @@ internal sealed class FactoryProvisioningForm : Form
         {
             var token = _cts.Token;
             var canonical = ProvisioningCode.Normalize(ProvisioningCode.GenerateFormatted());
-            Append("Step 1/4: verifying signed factory image and flashing blank ESP32...");
+            Append("Step 1/5: verifying signed factory image and flashing blank ESP32...");
             var flash = await _flasher.FactoryFlashAsync(port, Append, token);
             if (!flash.Success) throw new InvalidOperationException("Signed first-install flash failed. See the log. Do not bypass encrypted-flash protection with --force.");
 
-            Append("Step 2/4: waiting for encrypted first boot and Battery Monitor firmware...");
+            Append("Step 2/5: waiting for first boot and Battery Monitor firmware...");
             var status = await WaitForBatteryMonitorAsync(port, token);
             Append($"Battery Monitor is running as {status.DeviceId}, firmware {status.FirmwareVersion}.");
 
-            Append("Step 3/4: initializing and verifying factory Device Password...");
+            Append("Step 3/5: proving first-boot production security state...");
+            var security = await _security.ReadAsync(port, Append, token);
+            Append($"Security state: Flash Encryption {(security.FlashEncryptionEnabled ? "enabled" : "disabled")} ({security.FlashEncryptionMode}), Secure Boot {(security.SecureBootEnabled ? "enabled" : "disabled")}, release sequence {security.ReleaseSequence}.");
+            if (!security.ProductionFlashEncryptionReady)
+                throw new InvalidOperationException($"Factory security verification failed: Flash Encryption must be enabled in release mode before this unit can be labeled (reported enabled={security.FlashEncryptionEnabled}, mode={security.FlashEncryptionMode}).");
+            if (!string.Equals(security.FirmwareVersion, status.FirmwareVersion, StringComparison.Ordinal))
+                throw new InvalidOperationException($"Factory security verification failed: firmware version changed during verification ({status.FirmwareVersion} vs {security.FirmwareVersion}).");
+            if (security.SecureBootEnabled)
+                Append("Secure Boot is active on this unit.");
+            else
+                Append("Secure Boot is not active; this is expected until the separate production Secure Boot/eFuse gate is approved.");
+
+            Append("Step 4/5: initializing and verifying factory Device Password...");
             var identity = await _usb.ReadProvisioningIdentityAsync(port, Append, token);
             var username = identity.IsConfigured && !string.IsNullOrWhiteSpace(identity.Username) ? identity.Username : "batmon";
             await _usb.SetProvisioningCredentialAsync(port, username, canonical, Append, token);
@@ -161,7 +174,7 @@ internal sealed class FactoryProvisioningForm : Form
             if (!identity.IsConfigured || string.IsNullOrWhiteSpace(identity.SetupSsid))
                 throw new InvalidOperationException("Provisioning identity was not available after credential initialization.");
 
-            Append("Step 4/4: creating protected QR/label record...");
+            Append("Step 5/5: creating protected QR/label record...");
             var payload = ProvisioningCode.BuildQrPayload(status.DeviceId, identity.SetupSsid, identity.Username, canonical);
             var record = new FactoryLabelRecord
             {
@@ -174,8 +187,8 @@ internal sealed class FactoryProvisioningForm : Form
             };
             _labels.AddOrReplace(record);
             ShowCompleted(record);
-            Append("Factory provisioning complete. QR/label record was added to the protected print queue.");
-            _status.Text = "Provisioning complete and verified.";
+            Append("Factory provisioning complete. Flash Encryption release mode and Device Password were verified; QR/label record was added to the protected print queue.");
+            _status.Text = "Provisioning complete and security-verified.";
         }
         catch (OperationCanceledException) { Append("Operation cancelled."); _status.Text = "Cancelled."; }
         catch (Exception ex)
