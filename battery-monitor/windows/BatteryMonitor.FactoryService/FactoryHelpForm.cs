@@ -14,16 +14,19 @@ The integrated process:
 1. Verifies the bundled production signature.
 2. Flashes the complete first-install image without bypassing esptool protection.
 3. Waits for first boot while release-mode Flash Encryption and encrypted NVS initialize.
-4. Reads the new Battery Monitor identity.
-5. Generates, writes, and verifies the factory Device Password.
-6. Creates the QR payload and stores a DPAPI-protected label record.
+4. Reads the new Battery Monitor identity and the actual trusted-USB security state.
+5. Requires Flash Encryption to report enabled in release mode before the unit can proceed.
+6. Generates, writes, and verifies the factory Device Password.
+7. Creates the QR payload and stores a DPAPI-protected label record.
+
+Secure Boot is reported by the same security-state check but is not currently required; its irreversible production/eFuse activation remains a separate hardware-validation gate.
 
 Do not use the blank-device path as recovery after Flash Encryption has activated. Use signed application-mediated firmware update/recovery paths instead."),
 
         ("Factory Credentials and Labels",
 @"The factory Device Password and QR are initial setup credentials. A credential is never read back from the ESP32; the factory workflow proves the generated credential after writing it.
 
-Completed provisioning automatically creates a protected label record. QR / Label Manager can preview, reprint, or batch-print provisioned units. Label records contain credentials and are DPAPI-protected for the current Windows account.
+Completed provisioning automatically creates a protected label record only after the required production Flash Encryption state and Device Password have both verified. QR / Label Manager can preview, reprint, or batch-print provisioned units. Label records contain credentials and are DPAPI-protected for the current Windows account.
 
 Treat printed QR labels and initial passwords as credentials."),
 
@@ -49,7 +52,7 @@ HTTP Diagnostics provides source timing and live HTTP trace controls for enginee
         ("Security Model",
 @"The Factory & Service password is an operator-access deterrent and workflow separation layer. It is not the device's cryptographic trust boundary and should not be relied upon against a determined attacker who can modify the management executable.
 
-Production device protections remain authoritative: signed firmware verification, release-mode Flash Encryption, encrypted NVS, signed OTA policy, release-floor checks, and rollback behavior.
+Production device protections remain authoritative: signed firmware verification, release-mode Flash Encryption, encrypted NVS, signed OTA policy, release-floor checks, and rollback behavior. Factory provisioning reads the running device's actual Flash Encryption state over trusted USB and will not produce a label if release-mode encryption is not active.
 
 The Factory & Service session expires after one hour of inactivity, clears when the application exits, and locks when the Windows session is locked.")
     ];
