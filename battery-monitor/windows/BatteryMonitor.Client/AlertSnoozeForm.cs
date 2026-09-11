@@ -2,11 +2,17 @@ namespace BatteryMonitor.Client;
 
 internal sealed class AlertSnoozeForm : Form
 {
-    private readonly DateTimePicker _customUntil = new()
+    private readonly DateTimePicker _customDate = new()
     {
-        Format = DateTimePickerFormat.Custom,
-        CustomFormat = "g",
-        Width = 190
+        Format = DateTimePickerFormat.Short,
+        Width = 120
+    };
+
+    private readonly DateTimePicker _customTime = new()
+    {
+        Format = DateTimePickerFormat.Time,
+        ShowUpDown = true,
+        Width = 110
     };
 
     public DateTime? SnoozeUntilUtc { get; private set; }
@@ -15,8 +21,8 @@ internal sealed class AlertSnoozeForm : Form
     {
         Text = $"Alert Snooze - {deviceName}";
         Icon = AppIcon.Current;
-        Width = 500;
-        Height = 300;
+        Width = 520;
+        Height = 310;
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -26,9 +32,11 @@ internal sealed class AlertSnoozeForm : Form
         var currentLocal = currentUntilUtc.HasValue && currentUntilUtc.Value > DateTime.UtcNow
             ? currentUntilUtc.Value.ToLocalTime()
             : (DateTime?)null;
-        _customUntil.Value = currentLocal ?? now.AddHours(1);
-        _customUntil.MinDate = now.AddMinutes(1);
-        _customUntil.MaxDate = now.AddYears(1);
+        var initial = currentLocal ?? now.AddHours(1);
+        _customDate.Value = initial.Date;
+        _customDate.MinDate = now.Date;
+        _customDate.MaxDate = now.AddYears(1).Date;
+        _customTime.Value = DateTime.Today.Add(initial.TimeOfDay);
 
         var root = new TableLayoutPanel
         {
@@ -43,7 +51,7 @@ internal sealed class AlertSnoozeForm : Form
         root.Controls.Add(new Label
         {
             AutoSize = true,
-            MaximumSize = new Size(450, 0),
+            MaximumSize = new Size(470, 0),
             Text = "Temporarily silence low-battery, critical-battery, offline, and recovery notifications for this device. Monitoring and status updates continue normally. Identity/security failures are never snoozed."
         });
 
@@ -64,9 +72,11 @@ internal sealed class AlertSnoozeForm : Form
         root.Controls.Add(presets);
 
         var custom = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
-        custom.Controls.Add(new Label { Text = "Custom resume time", AutoSize = true, Margin = new Padding(3, 8, 8, 3) });
-        custom.Controls.Add(_customUntil);
-        var applyCustom = new Button { Text = "Snooze Until", AutoSize = true };
+        custom.Controls.Add(new Label { Text = "Resume date", AutoSize = true, Margin = new Padding(3, 8, 4, 3) });
+        custom.Controls.Add(_customDate);
+        custom.Controls.Add(new Label { Text = "Time", AutoSize = true, Margin = new Padding(12, 8, 4, 3) });
+        custom.Controls.Add(_customTime);
+        var applyCustom = new Button { Text = "Snooze Until", AutoSize = true, Margin = new Padding(12, 3, 3, 3) };
         applyCustom.Click += (_, _) => ApplyCustom();
         custom.Controls.Add(applyCustom);
         root.Controls.Add(custom);
@@ -106,11 +116,13 @@ internal sealed class AlertSnoozeForm : Form
 
     private void ApplyCustom()
     {
-        var selectedLocal = DateTime.SpecifyKind(_customUntil.Value, DateTimeKind.Local);
+        var selectedLocal = DateTime.SpecifyKind(
+            _customDate.Value.Date.Add(_customTime.Value.TimeOfDay),
+            DateTimeKind.Local);
         var selectedUtc = selectedLocal.ToUniversalTime();
         if (selectedUtc <= DateTime.UtcNow)
         {
-            MessageBox.Show(this, "Choose a resume time in the future.", "Battery Monitor",
+            MessageBox.Show(this, "Choose a resume date and time in the future.", "Battery Monitor",
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
