@@ -15,6 +15,21 @@
     <PackageReference Include="QRCoder" Version="1.8.0" />
   </ItemGroup>
 
+  <!-- Factory/manufacturing/service implementations are deliberately absent
+       from the customer executable. They are linked into the separately built
+       BatteryMonitor.FactoryService management application instead. -->
+  <ItemGroup>
+    <Compile Remove="AdminSecurity.cs" />
+    <Compile Remove="AdvancedToolsForm.cs" />
+    <Compile Remove="ProvisioningAdminForm.cs" />
+    <Compile Remove="FirmwareFlashForm.cs" />
+    <Compile Remove="WifiRadioSettingsForm.cs" />
+    <Compile Remove="HttpRuntimeSettingsForm.cs" />
+    <Compile Remove="HardwareIdentityForm.cs" />
+    <Compile Remove="SerialConsoleForm.cs" />
+    <Compile Remove="HttpDiagnosticsForm.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Content Include="battery-profiles.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
