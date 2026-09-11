@@ -17,6 +17,10 @@ void startFallbackAp();
 void stopNativeHttpServer();
 bool firmwareUpdateInProgress();
 void serviceFirmwareUpdateTimeout();
+bool secureBootMigrationInProgress();
+bool secureBootMigrationRawBytesPending();
+void serviceSecureBootMigrationRawSerial();
+void serviceSecureBootMigrationTimeout();
 bool initializeFirmwareReleasePolicy(String& errorOut);
 bool commitRunningFirmwareReleaseFloor(String& errorOut);
 esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition);
@@ -90,6 +94,12 @@ esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition)
 #undef firmwareUpdateInProgress
 #undef esp_ota_set_boot_partition
 #include "../../BatteryMonitor/FirmwareUpdateSynchronization.ino"
+
+// Factory-only Secure Boot migration reuses the established firmware-signature
+// verifier and release-floor policy above. Normal production builds compile
+// fail-closed stubs; only the isolated ECO3 Secure Boot migration build enables
+// the staged bootloader-copy implementation.
+#include "../../BatteryMonitor/SecureBootMigration.ino"
 
 // Client-side roaming is layered above the synchronized OTA/configuration
 // primitives. It uses background RSSI scans only; no 802.11k/v/r assistance is
