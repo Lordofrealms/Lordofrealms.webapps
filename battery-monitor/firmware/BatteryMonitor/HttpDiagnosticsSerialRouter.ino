@@ -1,11 +1,10 @@
 // Trusted-USB-only HTTP diagnostics, transport settings, hardware identity,
-// and Wi-Fi radio diagnostics.
+// Wi-Fi radio diagnostics, and Factory Secure Boot migration.
 //
 // The existing SerialProvisioning parser remains authoritative for all normal
-// commands and firmware-update raw mode. This wrapper intercepts only HTTPTRACE,
-// HTTPSTATUS / SET HTTP, HWINFO, and WIFIINFO engineering commands, then delegates
-// every other complete command line unchanged. These controls are unavailable
-// over LAN.
+// commands and ordinary firmware-update raw mode. This wrapper intercepts only
+// engineering/factory commands, then delegates every other complete command
+// line unchanged. These controls are unavailable over LAN.
 
 #include <esp_chip_info.h>
 #include <esp_wifi.h>
@@ -221,13 +220,106 @@ static bool processHttpDiagnosticsSerialCommand(String line) {
   return true;
 }
 
+static bool processSecureBootMigrationSerialCommand(String line) {
+  line.trim();
+
+  if (line == "BATMON1 SBMIGCAPS") {
+    serialOk("SBMIGCAPS " + secureBootMigrationCapabilitySummary());
+    return true;
+  }
+
+  static const char beginPrefix[] = "BATMON1 SBMIGBEGIN ";
+  if (line.startsWith(beginPrefix)) {
+    String remaining = line.substring(sizeof(beginPrefix) - 1);
+    String sizeToken = nextToken(remaining);
+    String sha256Hex = nextToken(remaining);
+    String signatureBase64 = remaining;
+    signatureBase64.trim();
+    String error;
+    if (!beginSecureBootMigration(sizeToken, sha256Hex, signatureBase64, error)) {
+      serialErr(error);
+      return true;
+    }
+    serialOk(String("SBMIGBEGIN READY ") + String(BATMON_SBMIG_MAX_CHUNK));
+    return true;
+  }
+
+  static const char chunkPrefix[] = "BATMON1 SBMIGCHUNK ";
+  if (line.startsWith(chunkPrefix)) {
+    String remaining = line.substring(sizeof(chunkPrefix) - 1);
+    char* end = nullptr;
+    unsigned long chunkSize = strtoul(remaining.c_str(), &end, 10);
+    if (!end || *end != '\0') {
+      serialErr("SBMIG_INVALID_CHUNK_SIZE");
+      return true;
+    }
+    String error;
+    if (!prepareSecureBootMigrationChunk((size_t)chunkSize, error)) {
+      serialErr(error);
+      return true;
+    }
+    serialOk(String("SBMIGCHUNK READY ") + String(chunkSize));
+    return true;
+  }
+
+  if (line == "BATMON1 SBMIGEND") {
+    String result;
+    String error;
+    if (!finishSecureBootMigrationStaging(result, error)) {
+      serialErr(error);
+      return true;
+    }
+    serialOk("SBMIGEND " + result);
+    return true;
+  }
+
+  static const char commitPrefix[] = "BATMON1 SBMIGCOMMIT ";
+  if (line.startsWith(commitPrefix)) {
+    String confirmationSha = line.substring(sizeof(commitPrefix) - 1);
+    confirmationSha.trim();
+    String result;
+    String error;
+    if (!commitSecureBootMigration(confirmationSha, result, error)) {
+      serialErr(error);
+      return true;
+    }
+    serialOk("SBMIGCOMMIT " + result);
+    Serial.flush();
+    delay(250);
+    ESP.restart();
+    return true;
+  }
+
+  if (line == "BATMON1 SBMIGABORT") {
+    String result;
+    if (!abortSecureBootMigration(result)) {
+      serialErr("SBMIG_NO_ACTIVE_MIGRATION");
+      return true;
+    }
+    serialOk("SBMIGABORT " + result);
+    return true;
+  }
+
+  return false;
+}
+
 void serviceSerialProvisioning() {
+  // Secure Boot migration raw mode has priority because its bootloader transfer
+  // is Factory-only and must not be interpreted as normal line-oriented input.
+  if (secureBootMigrationRawBytesPending()) {
+    serviceSecureBootMigrationRawSerial();
+    return;
+  }
   if (firmwareUpdateRawBytesPending()) {
     serviceSignedFirmwareRawSerial();
     return;
   }
 
   while (Serial.available() > 0) {
+    if (secureBootMigrationRawBytesPending()) {
+      serviceSecureBootMigrationRawSerial();
+      return;
+    }
     if (firmwareUpdateRawBytesPending()) {
       serviceSignedFirmwareRawSerial();
       return;
@@ -239,12 +331,14 @@ void serviceSerialProvisioning() {
       if (serialProvisioningLine.length() > 0) {
         String completed = serialProvisioningLine;
         serialProvisioningLine = "";
-        if (!processHardwareIdentitySerialCommand(completed) &&
+        if (!processSecureBootMigrationSerialCommand(completed) &&
+            !processHardwareIdentitySerialCommand(completed) &&
             !processWifiDiagnosticsSerialCommand(completed) &&
             !processHttpRuntimeSettingsSerialCommand(completed) &&
             !processHttpDiagnosticsSerialCommand(completed))
           processSerialProvisioningCommand(completed);
       }
+      if (secureBootMigrationRawBytesPending()) return;
       if (firmwareUpdateRawBytesPending()) return;
       continue;
     }
