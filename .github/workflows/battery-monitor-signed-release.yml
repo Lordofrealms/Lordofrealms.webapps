@@ -10,7 +10,7 @@ on:
       version:
         description: 'Exact firmware version from battery-monitor/firmware/idf/version.txt'
         required: true
-        default: '0.1.0.6'
+        default: '0.1.0.9'
         type: string
 
 permissions:
@@ -210,7 +210,7 @@ jobs:
           path: /tmp/battery-monitor-signed-firmware
 
   windows_signed:
-    name: Build Windows package with signed firmware
+    name: Build separate signed customer and Factory Service packages
     runs-on: windows-latest
     needs: signed_firmware
     steps:
@@ -277,11 +277,13 @@ jobs:
           Copy-Item dist/BatteryMonitorEspProv.exe "$helperDir/BatteryMonitorEspProv.exe"
           Copy-Item "$vendor/json_parser/LICENSE" "$helperDir/APACHE-2.0.txt"
 
-      - name: Build Windows client
+      - name: Build both Windows applications
         shell: pwsh
         run: |
           dotnet restore battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj
+          dotnet restore battery-monitor/windows/BatteryMonitor.FactoryService/BatteryMonitor.FactoryService.csproj
           dotnet build battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release --no-restore
+          dotnet build battery-monitor/windows/BatteryMonitor.FactoryService/BatteryMonitor.FactoryService.csproj -c Release --no-restore
           dotnet run --project battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release --no-build -- --protocol-self-test
 
       - name: Exercise production firmware verifier
@@ -313,30 +315,53 @@ jobs:
             Remove-Item $tampered -Force
           }
 
-      - name: Publish self-contained win-x64
+      - name: Publish separate self-contained win-x64 applications
         shell: pwsh
         run: |
-          dotnet publish battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o battery-monitor/windows/publish
+          dotnet publish battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o battery-monitor/windows/publish/customer
+          dotnet publish battery-monitor/windows/BatteryMonitor.FactoryService/BatteryMonitor.FactoryService.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o battery-monitor/windows/publish/factory
 
-      - name: Bundle signed firmware, flash tool, and secure provisioner
+      - name: Bundle signed customer and Factory Service packages
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/firmware | Out-Null
-          New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/tools/esptool | Out-Null
-          New-Item -ItemType Directory -Force -Path battery-monitor/windows/publish/tools/esp-provisioner | Out-Null
+          $customer = 'battery-monitor/windows/publish/customer'
+          $factory = 'battery-monitor/windows/publish/factory'
+          New-Item -ItemType Directory -Force -Path "$customer/firmware" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$customer/tools/esp-provisioner" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$factory/firmware" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$factory/tools/esptool" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$factory/tools/esp-provisioner" | Out-Null
+
+          foreach ($name in @('BatteryMonitor.ino.bin')) {
+            $image = Get-ChildItem battery-monitor/windows/staging/firmware -Filter $name -Recurse | Select-Object -First 1
+            if (-not $image -or -not (Test-Path ($image.FullName + '.sig'))) { throw "Missing signed $name pair" }
+            Copy-Item $image.FullName (Join-Path "$customer/firmware" $name)
+            Copy-Item ($image.FullName + '.sig') (Join-Path "$customer/firmware" ($name + '.sig'))
+          }
+          Copy-Item battery-monitor/windows/staging/firmware/SIGNED_RELEASE.txt "$customer/firmware/SIGNED_RELEASE.txt"
+          Copy-Item battery-monitor/windows/staging/esp-provisioner/* "$customer/tools/esp-provisioner" -Recurse -Force
+
           foreach ($name in @('BatteryMonitor.ino.bin','BatteryMonitor.ino.merged.bin')) {
             $image = Get-ChildItem battery-monitor/windows/staging/firmware -Filter $name -Recurse | Select-Object -First 1
-            if (-not $image) { throw "Missing $name" }
-            if (-not (Test-Path ($image.FullName + '.sig'))) { throw "Missing signature for $name" }
-            Copy-Item $image.FullName (Join-Path 'battery-monitor/windows/publish/firmware' $name)
-            Copy-Item ($image.FullName + '.sig') (Join-Path 'battery-monitor/windows/publish/firmware' ($name + '.sig'))
+            if (-not $image -or -not (Test-Path ($image.FullName + '.sig'))) { throw "Missing signed $name pair" }
+            Copy-Item $image.FullName (Join-Path "$factory/firmware" $name)
+            Copy-Item ($image.FullName + '.sig') (Join-Path "$factory/firmware" ($name + '.sig'))
           }
-          Copy-Item battery-monitor/windows/staging/firmware/SIGNED_RELEASE.txt battery-monitor/windows/publish/firmware/SIGNED_RELEASE.txt
-          Copy-Item battery-monitor/windows/staging/esptool/* battery-monitor/windows/publish/tools/esptool -Recurse -Force
-          Copy-Item battery-monitor/windows/staging/esp-provisioner/* battery-monitor/windows/publish/tools/esp-provisioner -Recurse -Force
+          Copy-Item battery-monitor/windows/staging/firmware/SIGNED_RELEASE.txt "$factory/firmware/SIGNED_RELEASE.txt"
+          Copy-Item battery-monitor/windows/staging/esptool/* "$factory/tools/esptool" -Recurse -Force
+          Copy-Item battery-monitor/windows/staging/esp-provisioner/* "$factory/tools/esp-provisioner" -Recurse -Force
 
-      - name: Upload signed Windows package
+          if (Test-Path "$customer/tools/esptool") { throw 'Customer signed package must not contain esptool' }
+          if (Test-Path "$customer/firmware/BatteryMonitor.ino.merged.bin") { throw 'Customer signed package must not contain blank-device merged firmware' }
+
+      - name: Upload signed customer package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: Battery-Monitor-Windows-Signed-${{ inputs.version }}
-          path: battery-monitor/windows/publish
+          name: Battery-Monitor-Windows-Customer-Signed-${{ inputs.version }}
+          path: battery-monitor/windows/publish/customer
+
+      - name: Upload signed Factory Service package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Battery-Monitor-Factory-Service-Signed-${{ inputs.version }}
+          path: battery-monitor/windows/publish/factory
