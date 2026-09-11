@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <RootNamespace>BatteryMonitor.Client</RootNamespace>
+    <AssemblyName>BatteryMonitor.FactoryService</AssemblyName>
+    <ApplicationManifest>../BatteryMonitor.Client/app.manifest</ApplicationManifest>
+    <ApplicationIcon>../BatteryMonitor.Client/AppIcon.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.IO.Ports" Version="8.0.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <PackageReference Include="QRCoder" Version="1.8.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../BatteryMonitor.Client/*.cs"
+             Exclude="../BatteryMonitor.Client/Program.cs;../BatteryMonitor.Client/MainForm.cs;../BatteryMonitor.Client/ClientEnhancements.cs;../BatteryMonitor.Client/HelpForm.cs" />
+    <Compile Include="*.cs" />
+  </ItemGroup>
+</Project>
