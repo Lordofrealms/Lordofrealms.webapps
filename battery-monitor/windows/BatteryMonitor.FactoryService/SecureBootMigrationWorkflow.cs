@@ -66,26 +66,38 @@ internal sealed class SecureBootMigrationWorkflow
         log?.Invoke("Migration application passed probation. Staging the signed Secure Boot v2 bootloader; primary bootloader remains untouched during this phase.");
         await _migration.StageBootloaderAsync(
             portName,
+            expectedDeviceId,
             package.BootloaderPath,
             package.BootloaderSignaturePath,
             log,
             cancellationToken);
 
-        var stagedSecurity = await _security.ReadAsync(portName, log, cancellationToken);
-        EnsureSameDevice(expectedDeviceId, stagedSecurity, "after bootloader staging");
-        if (stagedSecurity.SecureBootEnabled || !stagedSecurity.ProductionFlashEncryptionReady ||
-            stagedSecurity.ReleaseSequence != package.ReleaseSequence)
-            throw new InvalidOperationException("Device security state changed unexpectedly after bootloader staging; irreversible commit is blocked.");
-
-        return new PreparedSecureBootMigration
+        // Once staging is armed on-device, any host-side validation failure must
+        // explicitly disarm it rather than leaving the verified staging handle
+        // active until its 15-minute timeout.
+        try
         {
-            PortName = portName,
-            DeviceId = expectedDeviceId,
-            Package = package,
-            BootloaderSha256 = package.BootloaderSha256,
-            Hardware = hardware,
-            PreCommitSecurity = stagedSecurity
-        };
+            var stagedSecurity = await _security.ReadAsync(portName, log, cancellationToken);
+            EnsureSameDevice(expectedDeviceId, stagedSecurity, "after bootloader staging");
+            if (stagedSecurity.SecureBootEnabled || !stagedSecurity.ProductionFlashEncryptionReady ||
+                stagedSecurity.ReleaseSequence != package.ReleaseSequence)
+                throw new InvalidOperationException("Device security state changed unexpectedly after bootloader staging; irreversible commit is blocked.");
+
+            return new PreparedSecureBootMigration
+            {
+                PortName = portName,
+                DeviceId = expectedDeviceId,
+                Package = package,
+                BootloaderSha256 = package.BootloaderSha256,
+                Hardware = hardware,
+                PreCommitSecurity = stagedSecurity
+            };
+        }
+        catch
+        {
+            await _migration.AbortAsync(portName, expectedDeviceId, log, CancellationToken.None);
+            throw;
+        }
     }
 
     public async Task<UsbSecurityInfo> CommitAndVerifyAsync(
@@ -116,7 +128,15 @@ internal sealed class SecureBootMigrationWorkflow
             !string.Equals(finalIdentityCheck.FirmwareVersion, prepared.Package.Version, StringComparison.Ordinal))
             throw new InvalidOperationException("Device security state changed at the final commit gate; irreversible commit is blocked.");
 
-        await _migration.CommitAsync(prepared.PortName, prepared.BootloaderSha256, log, cancellationToken);
+        // CommitAsync performs one last identity + capability check in the same
+        // open serial session that carries SBMIGCOMMIT, eliminating the residual
+        // port-swap/TOCTOU window between host preflight and irreversible write.
+        await _migration.CommitAsync(
+            prepared.PortName,
+            prepared.DeviceId,
+            prepared.BootloaderSha256,
+            log,
+            cancellationToken);
         log?.Invoke("Waiting for the migrated unit to reboot and report hardware Secure Boot state...");
 
         var verified = await WaitForPostMigrationSecurityAsync(prepared, log, cancellationToken);
@@ -138,7 +158,7 @@ internal sealed class SecureBootMigrationWorkflow
     }
 
     public Task AbortStagedAsync(PreparedSecureBootMigration prepared, Action<string>? log = null, CancellationToken cancellationToken = default) =>
-        _migration.AbortAsync(prepared.PortName, log, cancellationToken);
+        _migration.AbortAsync(prepared.PortName, prepared.DeviceId, log, cancellationToken);
 
     private async Task<SecureBootMigrationCapabilities> WaitForMigrationReadinessAsync(
         string portName,
