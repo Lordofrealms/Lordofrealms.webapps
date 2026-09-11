@@ -55,7 +55,7 @@ internal sealed class BatteryProfileCatalog
             merged.AddRange(_builtIns.Select(p => p.Clone()));
             merged.AddRange(_userProfiles
                 .Where(p => !_builtIns.Any(b => b.Id.Equals(p.Id, StringComparison.OrdinalIgnoreCase)))
-                .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase)
                 .Select(p => p.Clone()));
             return merged;
         }
@@ -75,11 +75,47 @@ internal sealed class BatteryProfileCatalog
         _userProfiles = LoadUserProfiles();
     }
 
+    public string CreateUniqueProfileId(string displayName)
+    {
+        var chars = new List<char>(31);
+        var underscorePending = false;
+        foreach (var c in displayName.Trim())
+        {
+            if (char.IsAsciiLetterOrDigit(c))
+            {
+                if (underscorePending && chars.Count > 0 && chars[^1] != '_') chars.Add('_');
+                underscorePending = false;
+                if (chars.Count < 24) chars.Add(char.ToLowerInvariant(c));
+            }
+            else if (char.IsWhiteSpace(c) || c is '-' or '_' or '.')
+            {
+                underscorePending = chars.Count > 0;
+            }
+        }
+
+        var root = new string(chars.ToArray()).Trim('_');
+        if (string.IsNullOrWhiteSpace(root)) root = "custom";
+        if (root.Length > 24) root = root[..24].TrimEnd('_');
+
+        var existing = new HashSet<string>(All.Select(p => p.Id), StringComparer.OrdinalIgnoreCase);
+        if (!existing.Contains(root) && IsValidProfileId(root)) return root;
+
+        for (var i = 2; i < 10_000; i++)
+        {
+            var suffix = "_" + i;
+            var prefix = root.Length + suffix.Length <= 31 ? root : root[..(31 - suffix.Length)].TrimEnd('_');
+            var candidate = prefix + suffix;
+            if (!existing.Contains(candidate)) return candidate;
+        }
+
+        return "custom_" + Guid.NewGuid().ToString("N")[..12];
+    }
+
     public void SaveUserProfile(BatteryProfile profile)
     {
         ValidateProfile(profile);
         if (_builtIns.Any(p => p.Id.Equals(profile.Id, StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidOperationException("Built-in battery profiles cannot be overwritten. Choose a different profile ID.");
+            throw new InvalidOperationException("Built-in battery profiles cannot be overwritten. Duplicate the profile to create a custom version.");
 
         var existing = _userProfiles.FindIndex(p => p.Id.Equals(profile.Id, StringComparison.OrdinalIgnoreCase));
         var copy = profile.Clone();
@@ -108,9 +144,11 @@ internal sealed class BatteryProfileCatalog
     public static void ValidateProfile(BatteryProfile profile)
     {
         if (!IsValidProfileId(profile.Id))
-            throw new InvalidOperationException("Profile ID must be 1-31 characters using only letters, numbers, underscore, dash, or period.");
-        if (string.IsNullOrWhiteSpace(profile.Name) || profile.Name.Trim().Length > 64)
-            throw new InvalidOperationException("Profile name must be 1-64 characters.");
+            throw new InvalidOperationException("The internal battery profile identifier is invalid.");
+        if (string.IsNullOrWhiteSpace(profile.Name) || profile.Name.Trim().Length > 128)
+            throw new InvalidOperationException("Profile name must be 1-128 characters.");
+        if (profile.Name.Any(char.IsControl))
+            throw new InvalidOperationException("Profile name cannot contain control characters.");
         if (profile.CriticalVoltage < 6.0 || profile.CriticalVoltage > 20.0 ||
             profile.LowVoltage <= profile.CriticalVoltage || profile.LowVoltage > 20.0)
             throw new InvalidOperationException("Profile voltage thresholds are invalid. Low must be above Critical and both must be within 6-20 V.");
@@ -147,7 +185,7 @@ internal sealed class BatteryProfileCatalog
         return new List<BatteryProfile>
         {
             new() { Id = "lead_acid", Name = "12 V Lead Acid", LowVoltage = 12.20, CriticalVoltage = 11.90, BuiltIn = true },
-            new() { Id = "lifepo4_4s", Name = "4S LiFePO4", LowVoltage = 12.80, CriticalVoltage = 12.00, BuiltIn = true }
+            new() { Id = "lifepo4_4s", Name = "4S LiFePO4", LowVoltage = 12.80, CriticalVoltage = 12.50, BuiltIn = true }
         };
     }
 
@@ -183,7 +221,7 @@ internal sealed class BatteryProfileCatalog
         var file = new BatteryProfileFile
         {
             Version = SchemaVersion,
-            Profiles = _userProfiles.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).Select(p => p.Clone()).ToList()
+            Profiles = _userProfiles.OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase).Select(p => p.Clone()).ToList()
         };
         foreach (var p in file.Profiles) p.BuiltIn = false;
         var temp = _userPath + ".tmp";
