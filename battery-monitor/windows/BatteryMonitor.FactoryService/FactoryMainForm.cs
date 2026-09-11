@@ -13,6 +13,7 @@ internal sealed class FactoryMainForm : Form, IMessageFilter
     private const int WM_MOUSELAST = 0x020E;
     private readonly Label _session = new() { AutoSize = true };
     private readonly System.Windows.Forms.Timer _sessionTimer = new() { Interval = 30_000 };
+    private bool _closingForExpiredSession;
 
     public FactoryMainForm()
     {
@@ -25,7 +26,7 @@ internal sealed class FactoryMainForm : Form, IMessageFilter
 
         BuildUi();
         Application.AddMessageFilter(this);
-        _sessionTimer.Tick += (_, _) => RefreshSessionLabel();
+        _sessionTimer.Tick += (_, _) => ServiceSessionState();
         _sessionTimer.Start();
         Shown += (_, _) => WTSRegisterSessionNotification(Handle, NOTIFY_FOR_THIS_SESSION);
         FormClosed += (_, _) =>
@@ -42,7 +43,12 @@ internal sealed class FactoryMainForm : Form, IMessageFilter
     {
         if ((m.Msg >= WM_KEYFIRST && m.Msg <= WM_KEYLAST) ||
             (m.Msg >= WM_MOUSEFIRST && m.Msg <= WM_MOUSELAST))
+        {
+            // TouchSession deliberately does nothing after expiry. The periodic
+            // session service then closes the entire Factory app rather than
+            // allowing an already-open modal tool to outlive authorization.
             AdminSecurity.TouchSession();
+        }
         return false;
     }
 
@@ -159,15 +165,40 @@ internal sealed class FactoryMainForm : Form, IMessageFilter
         AdminSecurity.TouchSession();
         using var form = create();
         form.ShowDialog(this);
-        AdminSecurity.TouchSession();
+        if (AdminSecurity.SessionUnlocked)
+            AdminSecurity.TouchSession();
         RefreshSessionLabel();
+    }
+
+    private void ServiceSessionState()
+    {
+        if (AdminSecurity.SessionUnlocked)
+        {
+            RefreshSessionLabel();
+            return;
+        }
+
+        if (_closingForExpiredSession || IsDisposed) return;
+        _closingForExpiredSession = true;
+        _session.Text = "Locked — inactivity timeout expired";
+        AdminSecurity.LockSession();
+
+        // Close owned/modal tools first. The main form is disabled while
+        // ShowDialog is active, so closing only the shell would otherwise leave
+        // the nested modal message loop alive.
+        foreach (Form owned in OwnedForms.ToArray())
+        {
+            try { owned.Close(); } catch { }
+        }
+
+        BeginInvoke(new Action(Close));
     }
 
     private void RefreshSessionLabel()
     {
         if (!AdminSecurity.SessionUnlocked)
         {
-            _session.Text = "Locked — the next Factory/Service action will require the password";
+            _session.Text = "Locked";
             return;
         }
         var remaining = AdminSecurity.SessionRemaining;
@@ -179,6 +210,11 @@ internal sealed class FactoryMainForm : Form, IMessageFilter
         if (m.Msg == WM_WTSSESSION_CHANGE && m.WParam.ToInt32() == WTS_SESSION_LOCK)
         {
             AdminSecurity.LockSession();
+            _closingForExpiredSession = true;
+            foreach (Form owned in OwnedForms.ToArray())
+            {
+                try { owned.Close(); } catch { }
+            }
             BeginInvoke(new Action(Close));
         }
         base.WndProc(ref m);
