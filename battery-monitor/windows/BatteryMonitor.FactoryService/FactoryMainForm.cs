@@ -6,6 +6,7 @@ internal sealed class FactoryMainForm : Form, IMessageFilter
 {
     private const int WM_WTSSESSION_CHANGE = 0x02B1;
     private const int WTS_SESSION_LOCK = 0x7;
+    private const int WTS_SESSION_UNLOCK = 0x8;
     private const int NOTIFY_FOR_THIS_SESSION = 0;
     private const int WM_KEYFIRST = 0x0100;
     private const int WM_KEYLAST = 0x0109;
@@ -13,7 +14,8 @@ internal sealed class FactoryMainForm : Form, IMessageFilter
     private const int WM_MOUSELAST = 0x020E;
     private readonly Label _session = new() { AutoSize = true };
     private readonly System.Windows.Forms.Timer _sessionTimer = new() { Interval = 30_000 };
-    private bool _closingForExpiredSession;
+    private bool _sessionLockVisible;
+    private bool _windowsSessionLocked;
 
     public FactoryMainForm()
     {
@@ -43,12 +45,7 @@ internal sealed class FactoryMainForm : Form, IMessageFilter
     {
         if ((m.Msg >= WM_KEYFIRST && m.Msg <= WM_KEYLAST) ||
             (m.Msg >= WM_MOUSEFIRST && m.Msg <= WM_MOUSELAST))
-        {
-            // TouchSession deliberately does nothing after expiry. The periodic
-            // session service then closes the entire Factory app rather than
-            // allowing an already-open modal tool to outlive authorization.
             AdminSecurity.TouchSession();
-        }
         return false;
     }
 
@@ -110,7 +107,7 @@ internal sealed class FactoryMainForm : Form, IMessageFilter
         lockNow.Click += (_, _) =>
         {
             AdminSecurity.LockSession();
-            Close();
+            ShowSessionLock("Factory & Service was locked manually.");
         };
         footer.Controls.Add(close);
         footer.Controls.Add(lockNow);
@@ -172,26 +169,52 @@ internal sealed class FactoryMainForm : Form, IMessageFilter
 
     private void ServiceSessionState()
     {
+        if (_windowsSessionLocked)
+        {
+            _session.Text = "Locked — Windows session is locked";
+            return;
+        }
+
         if (AdminSecurity.SessionUnlocked)
         {
             RefreshSessionLabel();
             return;
         }
 
-        if (_closingForExpiredSession || IsDisposed) return;
-        _closingForExpiredSession = true;
-        _session.Text = "Locked — inactivity timeout expired";
+        ShowSessionLock("The one-hour Factory & Service inactivity timeout expired.");
+    }
+
+    private void ShowSessionLock(string reason)
+    {
+        if (_sessionLockVisible || _windowsSessionLocked || IsDisposed) return;
+        _sessionLockVisible = true;
         AdminSecurity.LockSession();
+        _session.Text = "Locked — password required";
 
-        // Close owned/modal tools first. The main form is disabled while
-        // ShowDialog is active, so closing only the shell would otherwise leave
-        // the nested modal message loop alive.
-        foreach (Form owned in OwnedForms.ToArray())
+        try
         {
-            try { owned.Close(); } catch { }
-        }
+            var owner = OwnedForms.FirstOrDefault(f => f.Visible && !f.IsDisposed) ?? this;
+            using var gate = new FactorySessionLockForm(reason);
+            var result = gate.ShowDialog(owner);
+            if (result == DialogResult.OK && AdminSecurity.SessionUnlocked)
+            {
+                RefreshSessionLabel();
+                return;
+            }
 
-        BeginInvoke(new Action(Close));
+            if (gate.ExitRequested)
+            {
+                foreach (Form owned in OwnedForms.ToArray())
+                {
+                    try { owned.Close(); } catch { }
+                }
+                BeginInvoke(new Action(Close));
+            }
+        }
+        finally
+        {
+            _sessionLockVisible = false;
+        }
     }
 
     private void RefreshSessionLabel()
@@ -207,15 +230,20 @@ internal sealed class FactoryMainForm : Form, IMessageFilter
 
     protected override void WndProc(ref Message m)
     {
-        if (m.Msg == WM_WTSSESSION_CHANGE && m.WParam.ToInt32() == WTS_SESSION_LOCK)
+        if (m.Msg == WM_WTSSESSION_CHANGE)
         {
-            AdminSecurity.LockSession();
-            _closingForExpiredSession = true;
-            foreach (Form owned in OwnedForms.ToArray())
+            var code = m.WParam.ToInt32();
+            if (code == WTS_SESSION_LOCK)
             {
-                try { owned.Close(); } catch { }
+                _windowsSessionLocked = true;
+                AdminSecurity.LockSession();
+                _session.Text = "Locked — Windows session is locked";
             }
-            BeginInvoke(new Action(Close));
+            else if (code == WTS_SESSION_UNLOCK)
+            {
+                _windowsSessionLocked = false;
+                BeginInvoke(new Action(() => ShowSessionLock("The Windows session was locked. Re-enter the Factory & Service password to continue.")));
+            }
         }
         base.WndProc(ref m);
     }
