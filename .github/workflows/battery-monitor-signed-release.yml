@@ -14,7 +14,7 @@ on:
       version:
         description: 'Exact firmware version from battery-monitor/firmware/idf/version.txt'
         required: true
-        default: '0.1.0.10'
+        default: '0.1.0.11'
         type: string
 
 permissions:
