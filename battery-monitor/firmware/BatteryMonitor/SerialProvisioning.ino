@@ -19,6 +19,7 @@
 // BATMON1 STATUS
 // BATMON1 PROVSTATUS
 // BATMON1 RADIOSTATUS
+// BATMON1 SECURITYINFO                (trusted physical USB; read-only eFuse/runtime state)
 // BATMON1 MONITORKEY                 (trusted physical USB only; secret response)
 // BATMON1 VERIFYPROVCRED <encoded-device-password>
 // BATMON1 FWCAPS
@@ -156,6 +157,7 @@ static void processSerialProvisioningCommand(String line) {
 
   if (command == "PROVSTATUS") { serialOk("PROVSTATUS " + provisioningIdentitySummary()); return; }
   if (command == "RADIOSTATUS") { serialOk(wifiRadioSettingsSummary()); return; }
+  if (command == "SECURITYINFO") { serialOk(trustedUsbSecurityStateSummary()); return; }
 
   if (command == "MONITORKEY") {
     String keyHex = trustedUsbMonitoringIdentityKeyHex();
