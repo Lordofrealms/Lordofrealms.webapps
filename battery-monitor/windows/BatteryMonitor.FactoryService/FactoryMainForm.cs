@@ -2,11 +2,15 @@ using System.Runtime.InteropServices;
 
 namespace BatteryMonitor.Client;
 
-internal sealed class FactoryMainForm : Form
+internal sealed class FactoryMainForm : Form, IMessageFilter
 {
     private const int WM_WTSSESSION_CHANGE = 0x02B1;
     private const int WTS_SESSION_LOCK = 0x7;
     private const int NOTIFY_FOR_THIS_SESSION = 0;
+    private const int WM_KEYFIRST = 0x0100;
+    private const int WM_KEYLAST = 0x0109;
+    private const int WM_MOUSEFIRST = 0x0200;
+    private const int WM_MOUSELAST = 0x020E;
     private readonly Label _session = new() { AutoSize = true };
     private readonly System.Windows.Forms.Timer _sessionTimer = new() { Interval = 30_000 };
 
@@ -20,16 +24,26 @@ internal sealed class FactoryMainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
 
         BuildUi();
+        Application.AddMessageFilter(this);
         _sessionTimer.Tick += (_, _) => RefreshSessionLabel();
         _sessionTimer.Start();
         Shown += (_, _) => WTSRegisterSessionNotification(Handle, NOTIFY_FOR_THIS_SESSION);
         FormClosed += (_, _) =>
         {
             _sessionTimer.Stop();
+            Application.RemoveMessageFilter(this);
             try { WTSUnRegisterSessionNotification(Handle); } catch { }
             AdminSecurity.LockSession();
         };
         RefreshSessionLabel();
+    }
+
+    public bool PreFilterMessage(ref Message m)
+    {
+        if ((m.Msg >= WM_KEYFIRST && m.Msg <= WM_KEYLAST) ||
+            (m.Msg >= WM_MOUSEFIRST && m.Msg <= WM_MOUSELAST))
+            AdminSecurity.TouchSession();
+        return false;
     }
 
     private void BuildUi()
@@ -153,7 +167,7 @@ internal sealed class FactoryMainForm : Form
     {
         if (!AdminSecurity.SessionUnlocked)
         {
-            _session.Text = "Locked";
+            _session.Text = "Locked — the next Factory/Service action will require the password";
             return;
         }
         var remaining = AdminSecurity.SessionRemaining;
