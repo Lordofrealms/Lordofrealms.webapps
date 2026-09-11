@@ -26,6 +26,7 @@ internal sealed class UsbSecureBootMigrationProvisioner
 
     public async Task StageBootloaderAsync(
         string portName,
+        string expectedDeviceId,
         string bootloaderPath,
         string signaturePath,
         Action<string>? log = null,
@@ -50,7 +51,8 @@ internal sealed class UsbSecureBootMigrationProvisioner
             {
                 port = OpenPort(portName);
                 WaitForFirmware(port, log, cancellationToken);
-                EnsureBatteryMonitor(port, log, cancellationToken);
+                var actualDeviceId = EnsureBatteryMonitor(port, log, cancellationToken);
+                RequireDeviceIdentity(expectedDeviceId, actualDeviceId, "bootloader staging");
                 var capsResponse = SendCommand(port, "BATMON1 SBMIGCAPS", log, cancellationToken, TimeSpan.FromSeconds(4));
                 var caps = ParseCapabilities(capsResponse);
                 if (!caps.Ready)
@@ -59,7 +61,7 @@ internal sealed class UsbSecureBootMigrationProvisioner
                 var chunkSize = Math.Min(HostChunkLimit, caps.MaxChunkBytes);
                 var digestHex = Convert.ToHexString(digest).ToLowerInvariant();
                 var signatureBase64 = Convert.ToBase64String(signature);
-                log?.Invoke($"Staging signed Secure Boot bootloader: {image.Length:N0} bytes, SHA-256 {digestHex}.");
+                log?.Invoke($"Staging signed Secure Boot bootloader on {actualDeviceId}: {image.Length:N0} bytes, SHA-256 {digestHex}.");
 
                 var begin = SendCommand(
                     port,
@@ -125,7 +127,7 @@ internal sealed class UsbSecureBootMigrationProvisioner
                     throw new InvalidOperationException("Battery Monitor reported an unexpected staged bootloader byte count.");
 
                 migrationStarted = false; // verified staging intentionally remains armed on-device
-                log?.Invoke("Bootloader staged, detached-signature verified, and flash readback hash verified. Primary bootloader has NOT been modified yet.");
+                log?.Invoke($"Bootloader staged on {actualDeviceId}, detached-signature verified, and flash readback hash verified. Primary bootloader has NOT been modified yet.");
             }
             catch
             {
@@ -147,6 +149,7 @@ internal sealed class UsbSecureBootMigrationProvisioner
 
     public async Task CommitAsync(
         string portName,
+        string expectedDeviceId,
         string expectedBootloaderSha256Hex,
         Action<string>? log = null,
         CancellationToken cancellationToken = default)
@@ -155,8 +158,20 @@ internal sealed class UsbSecureBootMigrationProvisioner
         {
             using var port = OpenPort(portName);
             WaitForFirmware(port, log, cancellationToken);
-            EnsureBatteryMonitor(port, log, cancellationToken);
-            log?.Invoke("Issuing irreversible Secure Boot bootloader commit. DO NOT remove power during the primary bootloader copy.");
+
+            // This identity check deliberately happens in the same open serial
+            // session as SBMIGCOMMIT. A COM-port reassignment/device swap cannot
+            // pass an earlier host-side check and then receive the irreversible
+            // command in a newly opened session.
+            var actualDeviceId = EnsureBatteryMonitor(port, log, cancellationToken);
+            RequireDeviceIdentity(expectedDeviceId, actualDeviceId, "irreversible Secure Boot commit");
+
+            var capsResponse = SendCommand(port, "BATMON1 SBMIGCAPS", log, cancellationToken, TimeSpan.FromSeconds(4));
+            var caps = ParseCapabilities(capsResponse);
+            if (!caps.Ready)
+                throw new InvalidOperationException("Secure Boot migration is no longer ready in the final commit session: " + caps.Status);
+
+            log?.Invoke($"Issuing irreversible Secure Boot bootloader commit to {actualDeviceId}. DO NOT remove power during the primary bootloader copy.");
             var response = SendCommand(
                 port,
                 $"BATMON1 SBMIGCOMMIT {expectedBootloaderSha256Hex}",
@@ -165,11 +180,15 @@ internal sealed class UsbSecureBootMigrationProvisioner
                 TimeSpan.FromSeconds(45));
             if (!response.StartsWith("BATMON1 OK SBMIGCOMMIT COMMITTED REBOOT_REQUIRED", StringComparison.Ordinal))
                 ThrowProtocolError("irreversible Secure Boot bootloader commit", response);
-            log?.Invoke("Primary bootloader copy completed successfully; device is rebooting into Secure Boot activation.");
+            log?.Invoke($"Primary bootloader copy completed successfully on {actualDeviceId}; device is rebooting into Secure Boot activation.");
         }, cancellationToken);
     }
 
-    public async Task AbortAsync(string portName, Action<string>? log = null, CancellationToken cancellationToken = default)
+    public async Task AbortAsync(
+        string portName,
+        string expectedDeviceId,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -177,7 +196,8 @@ internal sealed class UsbSecureBootMigrationProvisioner
             {
                 using var port = OpenPort(portName);
                 WaitForFirmware(port, log, cancellationToken);
-                EnsureBatteryMonitor(port, log, cancellationToken);
+                var actualDeviceId = EnsureBatteryMonitor(port, log, cancellationToken);
+                RequireDeviceIdentity(expectedDeviceId, actualDeviceId, "migration abort");
                 var response = SendCommand(port, "BATMON1 SBMIGABORT", log, cancellationToken, TimeSpan.FromSeconds(4), throwOnTimeout: false);
                 if (!string.IsNullOrWhiteSpace(response)) log?.Invoke("Migration staging abort response: " + response);
             }, cancellationToken);
@@ -230,18 +250,31 @@ internal sealed class UsbSecureBootMigrationProvisioner
         try { port.DiscardOutBuffer(); } catch { }
     }
 
-    private static void EnsureBatteryMonitor(SerialPort port, Action<string>? log, CancellationToken cancellationToken)
+    private static string EnsureBatteryMonitor(SerialPort port, Action<string>? log, CancellationToken cancellationToken)
     {
         string? last = null;
         for (var attempt = 0; attempt < 3; attempt++)
         {
             last = SendCommand(port, "BATMON1 PING", log, cancellationToken, TimeSpan.FromSeconds(2), throwOnTimeout: false);
-            if (last.StartsWith("BATMON1 OK PONG ", StringComparison.Ordinal)) return;
+            const string prefix = "BATMON1 OK PONG ";
+            if (last.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                var parts = last.Substring(prefix.Length).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 2 && !string.IsNullOrWhiteSpace(parts[0])) return parts[0];
+                throw new InvalidOperationException("Battery Monitor returned an invalid PING identity response.");
+            }
             SleepWithCancellation(TimeSpan.FromMilliseconds(300), cancellationToken);
         }
         throw new InvalidOperationException(string.IsNullOrWhiteSpace(last)
             ? "The selected COM port did not respond as a Battery Monitor."
             : "Unexpected Battery Monitor ping response: " + last);
+    }
+
+    private static void RequireDeviceIdentity(string expectedDeviceId, string actualDeviceId, string operation)
+    {
+        if (string.Equals(expectedDeviceId, actualDeviceId, StringComparison.Ordinal)) return;
+        throw new InvalidOperationException(
+            $"A different Battery Monitor is on the selected COM port during {operation}. Expected {expectedDeviceId}, found {actualDeviceId}. Operation blocked.");
     }
 
     private static string SendCommand(
