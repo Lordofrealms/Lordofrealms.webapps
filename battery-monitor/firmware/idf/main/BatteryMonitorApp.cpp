@@ -51,6 +51,7 @@ esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition)
 #include "../../BatteryMonitor/NetworkSnapshot.ino"
 #include "../../BatteryMonitor/BatterySnapshot.ino"
 #include "../../BatteryMonitor/FirmwareReleasePolicy.ino"
+#include "../../BatteryMonitor/SecurityState.ino"
 
 // FirmwareUpdate.ino remains the one verifier/writer implementation. Rename its
 // cross-task entry points while including it, then expose synchronized wrappers
