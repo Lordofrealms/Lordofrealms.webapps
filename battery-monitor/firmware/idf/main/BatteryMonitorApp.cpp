@@ -6,6 +6,7 @@
 
 #include <Arduino.h>
 #include <esp_ota_ops.h>
+#include <esp_image_format.h>
 
 // Cross-module declarations required before their implementation is included.
 static String percentEncode(const String& value);
@@ -99,12 +100,30 @@ esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition)
 // verifier and release-floor policy above. Normal production builds compile
 // fail-closed stubs; only the isolated ECO3 Secure Boot migration build enables
 // the staged bootloader-copy implementation.
+//
+// ESP-IDF resets its temporary bootloader-image offset in esp_ota_end(), but not
+// in esp_ota_abort(). Wrap abort only while this module is included so every
+// cancellation/timeout restores later image validation to the primary 0x1000
+// bootloader rather than leaving it pointed at the staging partition.
+static esp_err_t batteryMonitorSecureBootMigrationOtaAbort(esp_ota_handle_t handle) {
+  esp_err_t result = esp_ota_abort(handle);
+  esp_image_bootloader_offset_set(ESP_PRIMARY_BOOTLOADER_OFFSET);
+  return result;
+}
+#define esp_ota_abort batteryMonitorSecureBootMigrationOtaAbort
 #include "../../BatteryMonitor/SecureBootMigration.ino"
+#undef esp_ota_abort
 
-// Client-side roaming is layered above the synchronized OTA/configuration
-// primitives. It uses background RSSI scans only; no 802.11k/v/r assistance is
-// enabled or required.
+// During either application OTA or a staged Secure Boot migration, background
+// Wi-Fi roaming/recovery must not start competing work. Migration is deliberately
+// treated as firmware-update activity for these runtime-control decisions while
+// retaining its own Factory-only transfer state machine.
+static bool batteryMonitorAnyFirmwareMutationInProgress() {
+  return firmwareUpdateInProgress() || secureBootMigrationInProgress();
+}
+#define firmwareUpdateInProgress batteryMonitorAnyFirmwareMutationInProgress
 #include "../../BatteryMonitor/WifiRoaming.ino"
+#undef firmwareUpdateInProgress
 
 #include "../../BatteryMonitor/ZZZTrustedUsbIdentity.ino"
 
@@ -150,8 +169,8 @@ static esp_err_t batteryMonitorHttpdRespSendRuntime(httpd_req_t* req,
 
 // Serial provisioning is the trusted physical transport. Keep its protocol
 // implementation untouched, rename only its top-level byte-pump/event entry
-// points, then add a thin router that intercepts engineering-only HTTPTRACE and
-// HTTP transport-setting commands before delegating normal commands unchanged.
+// points, then add a thin router that intercepts engineering/factory commands
+// before delegating normal commands unchanged.
 #define setDevicePasswordFlexible setDevicePasswordFlexibleTrustedUsb
 #define clearProvisioningIdentity clearProvisioningIdentityTrustedUsb
 #define provisioningIdentitySummary provisioningIdentitySummaryTrustedUsb
@@ -168,10 +187,19 @@ static esp_err_t batteryMonitorHttpdRespSendRuntime(httpd_req_t* req,
 #include "../../BatteryMonitor/HttpDiagnosticsSerialRouter.ino"
 
 // setup()/loop() are included last so the runtime sees every service primitive
-// above. Network source acquisition also stays on the main task; HTTP only reads
-// the published network snapshot.
+// above. Treat migration as firmware-update activity for the main-loop early
+// return and service both timeout state machines through the established call
+// site without creating a second runtime implementation.
+static void batteryMonitorServiceAllFirmwareMutationTimeouts() {
+  serviceFirmwareUpdateTimeout();
+  serviceSecureBootMigrationTimeout();
+}
+#define firmwareUpdateInProgress batteryMonitorAnyFirmwareMutationInProgress
+#define serviceFirmwareUpdateTimeout batteryMonitorServiceAllFirmwareMutationTimeouts
 #define startNativeHttpServer startNativeHttpServerWithNetworkSnapshot
 #define serviceNativeHttpControl serviceNativeHttpControlWithNetworkSnapshot
 #include "../../BatteryMonitor/BatteryMonitor.ino"
 #undef serviceNativeHttpControl
 #undef startNativeHttpServer
+#undef serviceFirmwareUpdateTimeout
+#undef firmwareUpdateInProgress
