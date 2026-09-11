@@ -22,8 +22,8 @@ internal sealed class FactoryMainForm : Form, IMessageFilter
         Text = "Battery Monitor Factory & Service";
         Icon = AppIcon.Current;
         Width = 780;
-        Height = 640;
-        MinimumSize = new Size(700, 560);
+        Height = 690;
+        MinimumSize = new Size(700, 590);
         StartPosition = FormStartPosition.CenterScreen;
 
         BuildUi();
@@ -79,6 +79,9 @@ internal sealed class FactoryMainForm : Form, IMessageFilter
             ToolButton("Factory Credential / QR", "Lower-level credential rotation/verification and individual QR generation.", () => new ProvisioningAdminForm()),
             ToolButton("Blank ESP32 First Install", "Lower-level signed first-install tool for a genuinely blank, unencrypted ESP32.", () => new FirmwareFlashForm()),
             ToolButton("QR / Label Manager", "Review provisioned-device label records and batch-print QR labels.", () => new FactoryLabelManagerForm()));
+
+        AddSection(root, "Production security",
+            ToolButton("Secure Boot Migration", "Retrofit an existing release-encrypted ECO3+ unit to Secure Boot v2 after strict hardware, security-state, version, and signed-bundle preflight.", () => new SecureBootMigrationForm()));
 
         AddSection(root, "Calibration",
             ToolButton("Calibration Calculator", "Read current calibration, calculate from one or two trusted reference measurements, and explicitly apply the result.", () => new CalibrationForm()));
