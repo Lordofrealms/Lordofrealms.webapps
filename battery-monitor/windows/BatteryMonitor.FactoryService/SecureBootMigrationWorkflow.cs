@@ -20,6 +20,10 @@ internal sealed class SecureBootMigrationWorkflow
         var hardware = await UsbHardwareIdentityProvisioner.ReadAsync(portName, log, cancellationToken);
         var security = await _security.ReadAsync(portName, log, cancellationToken);
         ValidateHardwareAndSecurity(hardware, security, allowAlreadyMigrated: false);
+        if (string.IsNullOrWhiteSpace(security.DeviceId))
+            throw new InvalidOperationException("Battery Monitor did not provide a stable device identity for migration binding.");
+        var expectedDeviceId = security.DeviceId;
+        log?.Invoke($"Secure Boot migration is bound to device {expectedDeviceId} on {portName}.");
 
         if (security.ReleaseSequence < package.ReleaseSequence)
         {
@@ -45,10 +49,11 @@ internal sealed class SecureBootMigrationWorkflow
                 $"Installed firmware {security.FirmwareVersion} (sequence {security.ReleaseSequence}) cannot be migrated with bundle {package.Version} (sequence {package.ReleaseSequence}).");
         }
 
-        var caps = await WaitForMigrationReadinessAsync(portName, package, log, cancellationToken);
+        var caps = await WaitForMigrationReadinessAsync(portName, package, expectedDeviceId, log, cancellationToken);
         if (!caps.Ready) throw new InvalidOperationException("Secure Boot migration application never became ready: " + caps.Status);
 
         var postAppSecurity = await _security.ReadAsync(portName, log, cancellationToken);
+        EnsureSameDevice(expectedDeviceId, postAppSecurity, "before bootloader staging");
         if (!postAppSecurity.ProductionFlashEncryptionReady || postAppSecurity.SecureBootEnabled ||
             postAppSecurity.ReleaseSequence != package.ReleaseSequence ||
             !string.Equals(postAppSecurity.FirmwareVersion, package.Version, StringComparison.Ordinal))
@@ -66,13 +71,20 @@ internal sealed class SecureBootMigrationWorkflow
             log,
             cancellationToken);
 
+        var stagedSecurity = await _security.ReadAsync(portName, log, cancellationToken);
+        EnsureSameDevice(expectedDeviceId, stagedSecurity, "after bootloader staging");
+        if (stagedSecurity.SecureBootEnabled || !stagedSecurity.ProductionFlashEncryptionReady ||
+            stagedSecurity.ReleaseSequence != package.ReleaseSequence)
+            throw new InvalidOperationException("Device security state changed unexpectedly after bootloader staging; irreversible commit is blocked.");
+
         return new PreparedSecureBootMigration
         {
             PortName = portName,
+            DeviceId = expectedDeviceId,
             Package = package,
             BootloaderSha256 = package.BootloaderSha256,
             Hardware = hardware,
-            PreCommitSecurity = postAppSecurity
+            PreCommitSecurity = stagedSecurity
         };
     }
 
@@ -82,15 +94,33 @@ internal sealed class SecureBootMigrationWorkflow
         CancellationToken cancellationToken = default)
     {
         prepared.Package.Verify();
-        log?.Invoke("Rechecking migration capability immediately before irreversible commit...");
+        log?.Invoke($"Rechecking device identity and migration capability immediately before irreversible commit ({prepared.DeviceId})...");
+
+        var beforeCommit = await _security.ReadAsync(prepared.PortName, log, cancellationToken);
+        EnsureSameDevice(prepared.DeviceId, beforeCommit, "immediately before Secure Boot commit");
+        if (!beforeCommit.ProductionFlashEncryptionReady || beforeCommit.SecureBootEnabled ||
+            beforeCommit.ReleaseSequence != prepared.Package.ReleaseSequence ||
+            !string.Equals(beforeCommit.FirmwareVersion, prepared.Package.Version, StringComparison.Ordinal))
+            throw new InvalidOperationException("Device security state no longer matches the prepared migration; irreversible commit is blocked.");
+
         var caps = await _migration.ReadCapabilitiesAsync(prepared.PortName, log, cancellationToken);
         if (!caps.Ready)
             throw new InvalidOperationException("Device is no longer ready to commit Secure Boot migration: " + caps.Status);
+
+        // A second identity read after the capability request closes the normal
+        // COM-port reuse/swap window before the irreversible command is sent.
+        var finalIdentityCheck = await _security.ReadAsync(prepared.PortName, log, cancellationToken);
+        EnsureSameDevice(prepared.DeviceId, finalIdentityCheck, "at final Secure Boot commit gate");
+        if (!finalIdentityCheck.ProductionFlashEncryptionReady || finalIdentityCheck.SecureBootEnabled ||
+            finalIdentityCheck.ReleaseSequence != prepared.Package.ReleaseSequence ||
+            !string.Equals(finalIdentityCheck.FirmwareVersion, prepared.Package.Version, StringComparison.Ordinal))
+            throw new InvalidOperationException("Device security state changed at the final commit gate; irreversible commit is blocked.");
 
         await _migration.CommitAsync(prepared.PortName, prepared.BootloaderSha256, log, cancellationToken);
         log?.Invoke("Waiting for the migrated unit to reboot and report hardware Secure Boot state...");
 
         var verified = await WaitForPostMigrationSecurityAsync(prepared, log, cancellationToken);
+        EnsureSameDevice(prepared.DeviceId, verified, "after Secure Boot reboot");
         if (!verified.ProductionFlashEncryptionReady)
             throw new InvalidOperationException("Post-migration verification failed: Flash Encryption is no longer in release mode.");
         if (!verified.SecureBootEnabled)
@@ -103,7 +133,7 @@ internal sealed class SecureBootMigrationWorkflow
         if (hardware.Revision < 300)
             throw new InvalidOperationException("Post-migration hardware identity unexpectedly reports pre-ECO3 silicon.");
 
-        log?.Invoke($"SECURE BOOT MIGRATION VERIFIED: {verified.FirmwareVersion}; sequence {verified.ReleaseSequence}; Flash Encryption release mode; Secure Boot enabled.");
+        log?.Invoke($"SECURE BOOT MIGRATION VERIFIED: {prepared.DeviceId}; {verified.FirmwareVersion}; sequence {verified.ReleaseSequence}; Flash Encryption release mode; Secure Boot enabled.");
         return verified;
     }
 
@@ -113,6 +143,7 @@ internal sealed class SecureBootMigrationWorkflow
     private async Task<SecureBootMigrationCapabilities> WaitForMigrationReadinessAsync(
         string portName,
         SecureBootMigrationPackage package,
+        string expectedDeviceId,
         Action<string>? log,
         CancellationToken cancellationToken)
     {
@@ -125,6 +156,7 @@ internal sealed class SecureBootMigrationWorkflow
             try
             {
                 var security = await _security.ReadAsync(portName, null, cancellationToken);
+                EnsureSameDevice(expectedDeviceId, security, "while waiting for migration readiness");
                 if (security.SecureBootEnabled)
                     throw new InvalidOperationException("Secure Boot unexpectedly became enabled before the bootloader migration commit.");
                 if (security.ReleaseSequence > package.ReleaseSequence)
@@ -139,7 +171,8 @@ internal sealed class SecureBootMigrationWorkflow
                 lastStatus = caps.Status;
             }
             catch (OperationCanceledException) { throw; }
-            catch (InvalidOperationException ex) when (!ex.Message.Contains("unexpectedly became enabled", StringComparison.OrdinalIgnoreCase) &&
+            catch (InvalidOperationException ex) when (!ex.Message.Contains("different Battery Monitor", StringComparison.OrdinalIgnoreCase) &&
+                                                       !ex.Message.Contains("unexpectedly became enabled", StringComparison.OrdinalIgnoreCase) &&
                                                        !ex.Message.Contains("advanced beyond", StringComparison.OrdinalIgnoreCase))
             {
                 lastStatus = ex.Message;
@@ -173,10 +206,15 @@ internal sealed class SecureBootMigrationWorkflow
             try
             {
                 var security = await _security.ReadAsync(prepared.PortName, null, cancellationToken);
+                EnsureSameDevice(prepared.DeviceId, security, "during post-migration verification");
                 if (security.SecureBootEnabled) return security;
                 last = new InvalidOperationException("Device responded after reboot but Secure Boot is still disabled.");
             }
             catch (OperationCanceledException) { throw; }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("different Battery Monitor", StringComparison.OrdinalIgnoreCase))
+            {
+                throw;
+            }
             catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or TimeoutException)
             {
                 last = ex;
@@ -202,12 +240,20 @@ internal sealed class SecureBootMigrationWorkflow
             throw new InvalidOperationException("Secure Boot is already enabled on this unit; no migration is required.");
     }
 
+    private static void EnsureSameDevice(string expectedDeviceId, UsbSecurityInfo actual, string stage)
+    {
+        if (string.Equals(expectedDeviceId, actual.DeviceId, StringComparison.Ordinal)) return;
+        throw new InvalidOperationException(
+            $"A different Battery Monitor is on the selected COM port {stage}. Expected {expectedDeviceId}, found {actual.DeviceId}. Migration is blocked.");
+    }
+
     private static string FormatRevision(int raw) => $"{raw / 100}.{raw % 100:00}";
 }
 
 internal sealed class PreparedSecureBootMigration
 {
     public string PortName { get; init; } = "";
+    public string DeviceId { get; init; } = "";
     public SecureBootMigrationPackage Package { get; init; } = null!;
     public string BootloaderSha256 { get; init; } = "";
     public HardwareIdentity Hardware { get; init; } = null!;
