@@ -4,7 +4,8 @@
 # production provisioning. It builds an ECO3+ ESP32 Secure Boot v2 candidate
 # while keeping remote signing: CI has no Secure Boot private key.
 CONFIG_ESP32_REV_MIN_3=y
-CONFIG_ESP32_REV_MIN=3
+# ESP-IDF derives CONFIG_ESP32_REV_MIN=300 from ESP32_REV_MIN_3. Do not assign
+# the derived no-prompt integer directly; revision values use hundredths.
 CONFIG_SECURE_BOOT=y
 CONFIG_SECURE_BOOT_V2_ENABLED=y
 CONFIG_SECURE_BOOT_V2_RSA_ENABLED=y
