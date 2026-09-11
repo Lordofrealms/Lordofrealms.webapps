@@ -184,7 +184,12 @@ static esp_err_t batteryMonitorHttpdRespSendRuntime(httpd_req_t* req,
 #undef provisioningIdentitySummary
 #undef clearProvisioningIdentity
 #undef setDevicePasswordFlexible
+// Router text needs the protocol chunk constant in both normal and migration
+// builds. The implementation constant itself exists only in the migration build,
+// so expose the wire-protocol value locally without enabling any capability.
+#define BATMON_SBMIG_MAX_CHUNK 4096
 #include "../../BatteryMonitor/HttpDiagnosticsSerialRouter.ino"
+#undef BATMON_SBMIG_MAX_CHUNK
 
 // setup()/loop() are included last so the runtime sees every service primitive
 // above. Treat migration as firmware-update activity for the main-loop early
