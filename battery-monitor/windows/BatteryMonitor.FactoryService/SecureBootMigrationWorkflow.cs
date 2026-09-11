@@ -66,12 +66,11 @@ internal sealed class SecureBootMigrationWorkflow
             log,
             cancellationToken);
 
-        var bootloaderSha = package.BootloaderSha256;
         return new PreparedSecureBootMigration
         {
             PortName = portName,
             Package = package,
-            BootloaderSha256 = bootloaderSha,
+            BootloaderSha256 = package.BootloaderSha256,
             Hardware = hardware,
             PreCommitSecurity = postAppSecurity
         };
@@ -217,17 +216,17 @@ internal sealed class PreparedSecureBootMigration
 
 internal sealed class SecureBootMigrationPackage
 {
-    public string DirectoryPath { get; private init; } = "";
-    public string ApplicationPath { get; private init; } = "";
-    public string ApplicationSignaturePath { get; private init; } = "";
-    public string BootloaderPath { get; private init; } = "";
-    public string BootloaderSignaturePath { get; private init; } = "";
-    public string MetadataPath { get; private init; } = "";
-    public string Version { get; private init; } = "";
-    public uint ReleaseSequence { get; private init; }
-    public string ApplicationSha256 { get; private init; } = "";
-    public string BootloaderSha256 { get; private init; } = "";
-    public string SecureBootKeyFingerprint { get; private init; } = "";
+    public string DirectoryPath { get; private set; } = "";
+    public string ApplicationPath { get; private set; } = "";
+    public string ApplicationSignaturePath { get; private set; } = "";
+    public string BootloaderPath { get; private set; } = "";
+    public string BootloaderSignaturePath { get; private set; } = "";
+    public string MetadataPath { get; private set; } = "";
+    public string Version { get; private set; } = "";
+    public uint ReleaseSequence { get; private set; }
+    public string ApplicationSha256 { get; private set; } = "";
+    public string BootloaderSha256 { get; private set; } = "";
+    public string SecureBootKeyFingerprint { get; private set; } = "";
 
     public static SecureBootMigrationPackage LoadInstalled()
     {
@@ -272,7 +271,7 @@ internal sealed class SecureBootMigrationPackage
             throw new InvalidOperationException("Migration bundle metadata is missing version.");
         if (!values.TryGetValue("release_sequence", out var seqText) || !uint.TryParse(seqText, NumberStyles.None, CultureInfo.InvariantCulture, out var sequence) || sequence == 0)
             throw new InvalidOperationException("Migration bundle metadata has invalid release_sequence.");
-        if (!FirmwareVersionInfo.TryParse(version, out var parsedVersion) || parsedVersion.ReleaseSequence != sequence)
+        if (!TryParseReleaseSequence(version, out var versionSequence) || versionSequence != sequence)
             throw new InvalidOperationException("Migration bundle version and release sequence do not agree.");
 
         if (!values.TryGetValue("signed_application_sha256", out var expectedApp) || !IsSha256(expectedApp) ||
@@ -293,9 +292,21 @@ internal sealed class SecureBootMigrationPackage
 
         Version = version;
         ReleaseSequence = sequence;
-        ApplicationSha256 = actualApp.ToLowerInvariant();
-        BootloaderSha256 = actualBoot.ToLowerInvariant();
+        ApplicationSha256 = actualApp;
+        BootloaderSha256 = actualBoot;
         SecureBootKeyFingerprint = values.TryGetValue("secure_boot_public_key_spki_sha256", out var fingerprint) ? fingerprint : "";
+    }
+
+    private static bool TryParseReleaseSequence(string version, out uint sequence)
+    {
+        sequence = 0;
+        var cleaned = version.Trim();
+        var dash = cleaned.IndexOf('-');
+        var plus = cleaned.IndexOf('+');
+        var separator = dash < 0 ? plus : plus < 0 ? dash : Math.Min(dash, plus);
+        if (separator >= 0) cleaned = cleaned[..separator];
+        var parts = cleaned.Split('.');
+        return parts.Length == 4 && uint.TryParse(parts[3], NumberStyles.None, CultureInfo.InvariantCulture, out sequence) && sequence > 0;
     }
 
     private static void Require(IReadOnlyDictionary<string, string> values, string key, string expected)
