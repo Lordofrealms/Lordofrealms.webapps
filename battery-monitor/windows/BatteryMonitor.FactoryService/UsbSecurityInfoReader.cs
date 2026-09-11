@@ -26,10 +26,17 @@ internal sealed class UsbSecurityInfoReader
             try { port.DiscardOutBuffer(); } catch { }
 
             var pong = Send(port, "BATMON1 PING", log, cancellationToken, TimeSpan.FromSeconds(2));
-            if (!pong.StartsWith("BATMON1 OK PONG ", StringComparison.Ordinal))
+            const string pongPrefix = "BATMON1 OK PONG ";
+            if (!pong.StartsWith(pongPrefix, StringComparison.Ordinal))
                 throw new InvalidOperationException("The selected COM port did not respond as a Battery Monitor.");
+            var pongParts = pong.Substring(pongPrefix.Length).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (pongParts.Length < 2 || string.IsNullOrWhiteSpace(pongParts[0]))
+                throw new InvalidOperationException("Battery Monitor returned an invalid PING identity response.");
+            var deviceId = pongParts[0];
 
-            return Parse(Send(port, "BATMON1 SECURITYINFO", log, cancellationToken, TimeSpan.FromSeconds(3)));
+            return Parse(
+                Send(port, "BATMON1 SECURITYINFO", log, cancellationToken, TimeSpan.FromSeconds(3)),
+                deviceId);
         }, cancellationToken);
     }
 
@@ -55,7 +62,7 @@ internal sealed class UsbSecurityInfoReader
         throw new TimeoutException($"Timed out waiting for Battery Monitor response on {port.PortName}.");
     }
 
-    private static UsbSecurityInfo Parse(string response)
+    private static UsbSecurityInfo Parse(string response, string deviceId)
     {
         const string prefix = "BATMON1 OK SECURITYINFO ";
         if (!response.StartsWith(prefix, StringComparison.Ordinal))
@@ -82,6 +89,7 @@ internal sealed class UsbSecurityInfoReader
 
         return new UsbSecurityInfo
         {
+            DeviceId = deviceId,
             FlashEncryptionEnabled = encryption == "1",
             FlashEncryptionMode = mode,
             SecureBootEnabled = secureBoot == "1",
@@ -103,6 +111,7 @@ internal sealed class UsbSecurityInfoReader
 
 internal sealed class UsbSecurityInfo
 {
+    public string DeviceId { get; init; } = "";
     public bool FlashEncryptionEnabled { get; init; }
     public string FlashEncryptionMode { get; init; } = "";
     public bool SecureBootEnabled { get; init; }
