@@ -72,6 +72,7 @@ for required in \
   'CONFIG_SECURE_BOOT_V2_ENABLED=y' \
   'CONFIG_SECURE_FLASH_ENC_ENABLED=y' \
   'CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y' \
+  'CONFIG_SECURE_FLASH_REQUIRE_ALREADY_ENABLED=y' \
   'CONFIG_NVS_ENCRYPTION=y' \
   'CONFIG_NVS_SEC_KEY_PROTECT_USING_FLASH_ENC=y' \
   'CONFIG_PARTITION_TABLE_OFFSET=0xF000'; do
@@ -154,6 +155,7 @@ secure_boot=enabled-v2-rsa-remote-signing
 secure_boot_build_signed_binaries=disabled-protected-workflow-signs
 minimum_esp32_revision=3.0-ECO3
 flash_encryption=enabled-release-mode
+flash_encryption_must_preexist=yes
 nvs_encryption=enabled
 hardware_efuse_app_anti_rollback=disabled-during-migration-validation
 partition_table_offset=0xF000
