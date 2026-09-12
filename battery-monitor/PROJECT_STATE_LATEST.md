@@ -1,232 +1,266 @@
 # Battery Monitor Project State — Authoritative Live State
 
-**Updated:** 2026-09-08/09 (America/Chicago)  
+**Updated:** 2026-09-11 (America/Chicago)  
 **Repository:** `Lordofrealms/Lordofrealms.webapps`  
-**Branch:** `battery-monitor-dev`  
-**Prototype family:** `0.1.0`
+**Branch:** `battery-monitor-dev`
 
 ## A. Resolve live state first
 
-Always resolve the live `battery-monitor-dev` remote head before modifying source. Documentation/test-tool commits may be newer than the exact product source that passed CI or was signed.
+Always resolve the live `battery-monitor-dev` head before modifying source. The branch may move after any authority document is written.
 
-### Latest normal-CI validated product source
+Live head immediately before this state refresh:
 
-`cb96191f8e3c8c99771b044e7a0b2260e5f56b2f` — `Make monitoring identity mutex initialization race-free`
+`5be4f8fa4aad0cf2e997a6957a62c3fea3b213bf` — documentation refresh following the previously validated product head `e47f1f2185847d4466958b111c43666fc0515ce2`.
 
-- firmware version: `0.1.0.4`
-- software release sequence: `4`
-- workflow: `Battery Monitor Toolchain`
-- run: **#261**
-- run ID: **`34306473630`**
-- result: **SUCCESS**
+## B. Normal production firmware authority
 
-Exact evidence:
+Current normal production firmware:
 
-`battery-monitor/VALIDATED_CANDIDATE_0_1_0_4.md`
+- version: `0.1.0.11`;
+- release sequence: `11`;
+- authoritative version file: `battery-monitor/firmware/idf/version.txt`;
+- one production architecture: ESP-IDF;
+- Secure Boot: **disabled by default** in normal provisioning;
+- Flash Encryption: enabled, release mode;
+- NVS Encryption: enabled;
+- automatic application rollback: enabled;
+- hardware application anti-rollback eFuse: disabled;
+- software anti-downgrade floor: enforced in encrypted NVS;
+- normal USB/LAN firmware update authorization: RSA-3072-PSS-SHA256 detached signature plus release-policy checks.
 
-Run #261 passed authoritative ESP-IDF firmware, Android, exact firmware handoff to Windows, pinned esptool, pinned Espressif Security-2 helper, Windows .NET build, P0-3 protocol self-test, self-contained publish, bundle, and artifact upload.
+Latest fully green normal toolchain before the documentation-only refresh:
 
-### Current protected signed hardware release
+- source SHA: `e47f1f2185847d4466958b111c43666fc0515ce2`;
+- workflow: `Battery Monitor Toolchain`;
+- run: **#364**;
+- run ID: `34661160639`;
+- result: **SUCCESS**.
 
-The latest signed release already produced before the 0.1.0.4 responsiveness work is **0.1.0.3**:
+Run #364 artifacts:
 
-- workflow: `Battery Monitor Signed Firmware Release`
-- run: **#3**
-- run ID: **`34289366368`**
-- result: **SUCCESS**
-- exact signed source: `80c62dfe27b3b6f32fe8ce6fa2e30e79caea6b09`
-- version / release sequence: `0.1.0.3` / `3`
-- signed firmware artifact: `Battery-Monitor-Signed-Firmware-0.1.0.3`, ID `10080941336`, artifact digest `sha256:4ea8d004af478459632b46a094947a9b84600f378191a0cbd1592048aad3176f`
-- signed Windows artifact: `Battery-Monitor-Windows-Signed-0.1.0.3`, ID `10081008987`, artifact digest `sha256:b10981ba9d967ed18671d57ac5072123ac86df2168d6d9568589a5caa5e8ec69`
-- signed application image SHA-256: `3aeffa17c76158d28a10a6773556510b5e62cffe25ba5638eda2e274bf06aecc`
-- application signature SHA-256: `70aa68044a056005dd78bff3b2584696529d282725dd3b483308fb29bedc8315`
-- signed merged image SHA-256: `cfc1237388d5c11a988711e58219b08f7fae4d85a80a27822421562eb4677791`
-- merged signature SHA-256: `19ea86f176c0ab3d68cd9bb9a1cc4610a91559216b1345126171021fefa407fd`
+- firmware: ID `10287422334`, digest `sha256:6d11c114ee49f04cb1fb13e6bbf1d03bf2daf881839e0f1f9339f6ccf14559b9`;
+- Android setup: ID `10287088740`, digest `sha256:f62431a2044dff24680aa3217e5ae3121372da6317503c84289e3961eed3daa8`;
+- customer Windows: ID `10286879881`, digest `sha256:cf831040c5149b8b6d796ce328ec57f07ce0429fe4f790c4bc9cab957b1711b5`;
+- Factory Service: ID `10286739915`, digest `sha256:1bd0dd72cc2beffb87bde579e7470e0b4451d83046318bc6675a4b2ab8423da4`.
 
-`SIGNED_RELEASE.txt` in that artifact independently identifies source `80c62dfe...`, version `0.1.0.3`, release sequence `3`, RSA-3072-PSS-SHA256, the pinned ESP-IDF/Arduino toolchain, and production trust-root fingerprint.
+These normal-CI firmware outputs are intentionally unsigned and are not protected production release packages.
 
-0.1.0.3 is the hardware release on which issue #104's roughly 30-second intermittent WebUI/status stalls were observed.
+## C. Latest protected normal signed release
 
-## B. 0.1.0.4 normal-CI artifact authority
+Latest confirmed successful protected normal signing workflow:
 
-Run #261 artifacts:
+- version: `0.1.0.9`;
+- workflow: `Battery Monitor Signed Firmware Release`;
+- run: **#10**;
+- run ID: `34382911129`;
+- result: **SUCCESS**;
+- workflow head SHA: `a4019353c13592e8e688ff268bb4c05c3a67d35f`;
+- signed firmware artifact ID `10116819796`, digest `sha256:b6d457f30aafe84d619a15740c1bd276d99840e797861012a53e40da118d53e4`;
+- signed Windows artifact ID `10116909013`, digest `sha256:ade82c02d3863f10b87702928d160615f1a6659b88c53935f4dc4f1a47b54c32`.
 
-### Firmware
+Do not describe 0.1.0.11 as protected-signed unless a later signing run is explicitly verified.
 
-- `battery-monitor-esp32-CI-UNSIGNED-v0.1.0`
-- artifact ID `10086957353`
-- digest `sha256:737522aed36567fe9466da8b0d9a1bf4130cdeca81e6ad1e156b90fe15019397`
-- application SHA-256 `d330f96c328882b237c9a0e1c19417ea10188943bb1893966ef4d181bad0a2bf`
-- merged-image SHA-256 `f76404d33def7b2a4bd0ad45000ab9f2c0320867fb0fa237819ddec63f4fea93`
+## D. Secure Boot migration candidate authority
 
-### Android
+A separate Factory-only migration build now exists for already release-encrypted classic ESP32 ECO3+ Battery Monitor units.
 
-- `Battery-Monitor-Setup-Android-v0.1.0`
-- artifact ID `10086874559`
-- digest `sha256:f461633ef69746541cbd9327ae82e4591e37a2000a1c33f9a8db49f601d81bc8`
+Current migration candidate:
 
-### Windows
+- version: `0.1.0.12`;
+- release sequence: `12`;
+- version file: `battery-monitor/firmware/idf/version-secure-boot-migration.txt`;
+- build script: `battery-monitor/firmware/idf/build_secure_boot_migration.sh`;
+- config overlay: `battery-monitor/firmware/idf/sdkconfig.secure_boot_migration.defaults`;
+- same production source tree and runtime as normal firmware;
+- minimum chip revision: ESP32 ECO3 / revision 3.0;
+- Secure Boot v2 RSA enabled in the migration build;
+- CI builds unsigned Secure Boot-ready images for later remote/protected signing;
+- Flash Encryption release mode remains enabled;
+- NVS Encryption remains enabled;
+- hardware application anti-rollback remains disabled during migration validation;
+- normal production provisioning behavior remains unchanged.
 
-- `Battery-Monitor-Windows-CI-UNSIGNED-v0.1.0`
-- artifact ID `10087014995`
-- digest `sha256:53bc9563d847659e4b2ded8207d1b016259c223fca37eea1973b956f61d1c2df`
-- `BatteryMonitor.Client.exe` SHA-256 `63da8c5dde0c74cb2f50477bf4794d3bd27e118482ed1922b9be7dd79d092af5`
+Latest successful candidate CI:
 
-Independent extraction confirmed the Windows bundle contains the exact firmware-job application and merged images above.
+- workflow: `Battery Monitor Secure Boot Migration Candidate`;
+- run: **#15**;
+- run ID: `34661039477`;
+- source SHA: `925c71b51752ba354fbceaa63ace418468cf006d`;
+- result: **SUCCESS**.
 
-Normal-CI images are intentionally **unsigned**. Do not use them as a production/post-encryption OTA package.
+The later commits through `e47f1f...` hardened signer/Factory package enforcement without changing the migration firmware bytes validated by that candidate run.
 
-## C. Issue #104 — native HTTP responsiveness fix
+## E. Secure Boot build constraints now enforced
 
-Open GitHub issue:
+Classic ESP32 Secure Boot v2 constraints are encoded in CI/signing/Factory validation:
 
-`#104 Battery Monitor: WebUI intermittently stalls for tens of seconds`
+- unsigned bootloader hard limit: `0xC000` (48 KiB);
+- Secure Boot signature-sector growth: exactly `0x1000`;
+- signed bootloader envelope: `0xD000` maximum;
+- deployed primary bootloader region: `0xE000` bytes starting at `0x1000`;
+- temporary staging partition: existing `coredump` at `0x3F0000`, size `0x10000`;
+- deployed OTA app partition: `0x140000` bytes;
+- unsigned app must leave one `0x1000` signature sector before signing.
 
-Root cause in 0.1.0.3 was not low CPU frequency. The ESP32 was already at 240 MHz. The important problems were the old synchronous Arduino WebServer model, main-loop/WebServer mutex coupling, long request waits, and overlapping browser status requests.
+Current migration build is below the bootloader limit (about `0xB000` unsigned).
 
-0.1.0.4 changes:
+The earlier migration CI failure was not a compile/link failure. Firmware built successfully; the failing assertion incorrectly expected `CONFIG_ESP32_REV_MIN=300`. Under pinned ESP-IDF 5.5.5, classic ESP32 uses:
 
-- production Arduino `WebServer` dependency removed;
-- native ESP-IDF `esp_http_server` owns HTTP;
-- dedicated Core-0 HTTP task;
-- 10 client sessions, backlog 10, LRU purge, keepalive, 3-second socket receive/send waits;
-- `CONFIG_LWIP_MAX_SOCKETS=20` for HTTP plus networking headroom;
-- WebUI completion-based/single-flight polling;
-- `/api/runtime` CPU/heap/RSSI/request diagnostics;
-- coherent cached `BatterySnapshot` for all HTTP/monitoring reads;
-- ADC conversion/delays happen outside HTTP and synchronization locks;
-- configuration Strings/Preferences serialized across HTTP, USB, provisioning callbacks, discovery, and sampling;
-- hot-path configured-Wi-Fi presence and sampling interval atomically published;
-- discovery copies config once and does network/HMAC work after releasing config synchronization;
-- USB and LAN signed OTA serialized through one verifier/writer state;
-- secure-provisioning lifecycle atomically published across tasks;
-- Monitoring Identity first initialization uses race-free mutex publication and serialized NVS/key initialization;
-- trusted USB quiesces HTTP around credential operations that can replace shared credential material;
-- native HTTP stop terminates the HTTP task before invalidating management challenges/sessions;
-- native-HTTP CI guard prevents Arduino WebServer/obsolete modules from silently returning.
+- `CONFIG_ESP32_REV_MIN=3` for legacy major revision;
+- `CONFIG_ESP32_REV_MIN_FULL=300` for revision 3.0.
 
-Windows monitoring was audited too:
+That post-build assertion is corrected.
 
-- one shared `HttpClient`;
-- 5-second timeout;
-- per-device `PollInProgress` guard;
-- the 1-second UI timer does not stack polls for the same monitor.
+## F. Protected migration signing workflow
 
-Normal CI is complete. **Hardware responsiveness validation is still required; issue #104 remains open.**
+Workflow:
 
-Hardware authority:
+`.github/workflows/battery-monitor-secure-boot-migration-sign.yml`
 
-- `battery-monitor/HARDWARE_TEST_PLAN_0_1_0_4_HTTP_RESPONSIVENESS.md`
-- `battery-monitor/tools/Test-BatteryMonitorHttp.ps1`
+Inputs/authorization:
 
-## D. Issue #103 — saved Wi-Fi recovery
+- exact 40-character candidate `source_sha`;
+- exact successful migration candidate `ci_run_id`;
+- exact migration version;
+- protected `battery-monitor-production-signing` environment;
+- Secure Boot v2 RSA-3072 private key secret;
+- existing Battery Monitor detached RSA-3072 private key secret.
 
-Open issue #103 retains the agreed recovery policy:
+Before signing, workflow validates:
 
-- saved credentials remain authoritative;
-- boot attempts saved Wi-Fi for the normal connection window;
-- configured radio policy is applied before join attempts;
-- stale STA association state is cleared without erasing Battery Monitor's separately persisted credentials;
-- protected Security-2 setup is used when home Wi-Fi remains unavailable;
-- unattended fallback retries saved home Wi-Fi periodically;
-- an associated setup client defers retry rather than being interrupted;
-- successful retry restores normal HTTP, discovery, mDNS, monitoring, and radio policy.
+- exact candidate CI source/run/workflow success;
+- migration version and release sequence;
+- migration scope/minimum chip revision;
+- normal provisioning Secure Boot default unchanged;
+- unsigned app/bootloader sizes and SHA-256 exactly match CI authority;
+- unsigned app leaves signature-sector space;
+- unsigned bootloader is `<= 0xC000`.
 
-0.1.0.4 must exercise this during the hardware responsiveness test because reconnect transitions are a likely place for lifecycle regressions.
+After Secure Boot v2 signing, workflow validates:
 
-## E. Issue #102 — signed LAN OTA
+- Secure Boot signature verification succeeds;
+- app and bootloader each grow by exactly `0x1000`;
+- signed app is `<= 0x140000`;
+- signed bootloader is `<= 0xD000`, `<= 0xE000`, and `<= 0x10000`;
+- final signed app and bootloader are independently signed by the existing Battery Monitor detached RSA-3072-PSS-SHA256 key;
+- `MIGRATION_RELEASE.txt` records source/run/version/release sequence, trust fingerprints, limits, sizes, hashes, and the final-copy power-loss risk.
 
-Signed LAN OTA remains part of the source authority:
+No successful protected migration-signing run is asserted by this state file yet.
 
-- same OTA partitions and production RSA-3072-PSS-SHA256 trust root as signed USB OTA;
-- firmware independently verifies image hash, signature, app identity, and release sequence;
-- interrupted candidate transfer never selects an incomplete image;
-- LAN and trusted-USB OTA share synchronized verifier/writer state;
-- normal unsigned/generic HTTP BIN upload is not permitted.
+## G. Factory Service migration package contract
 
-Hardware signed-LAN-OTA testing remains required.
+Factory Service validates the signed migration bundle before device transfer.
 
-## F. Deferred management-auth review
+Key files:
 
-Issue #105 records a later review of offline-guess resistance / HTTP management confidentiality. Per user direction this is **deferred** and is not a blocker for the current native-HTTP responsiveness release.
+- `battery-monitor/windows/BatteryMonitor.FactoryService/SecureBootMigrationWorkflow.cs`;
+- `battery-monitor/windows/BatteryMonitor.FactoryService/UsbSecureBootMigrationProvisioner.cs`.
 
-Current management auth does not send the Device Password in plaintext; password rotation uses an authenticated encrypted envelope; plaintext LAN Wi-Fi credential writes remain removed in favor of Security-2 provisioning.
+Current host-side requirements include:
 
-Do not redesign this during the 0.1.0.4 responsiveness validation unless a new concrete defect directly affects correctness or safety.
+- correct migration release schema and scope;
+- minimum ESP32 revision authority;
+- `secure_boot=ESP32-Secure-Boot-v2-RSA-PSS`;
+- recorded `0xC000` unsigned and `0xD000` signed bootloader limits;
+- signed app/bootloader sizes exactly equal metadata;
+- signed app/bootloader SHA-256 exactly equal metadata;
+- detached signatures verify using the pinned Battery Monitor trust root;
+- signed bootloader transfer is rejected above `0xD000`.
 
-## G. Canonical production firmware architecture
+## H. Device-side migration state machine
 
-There is one production firmware build architecture:
+Implementation:
+
+`battery-monitor/firmware/BatteryMonitor/SecureBootMigration.ino`
+
+Normal 0.1.0.11 compiles fail-closed migration stubs. Migration 0.1.0.12 enables the Factory-only implementation.
+
+Required preconditions include:
+
+- classic ESP32 ECO3+;
+- Flash Encryption enabled in release mode;
+- Secure Boot not already enabled;
+- migration app no longer in pending rollback probation;
+- software release floor committed to the running migration sequence.
+
+Transfer/commit behavior:
+
+1. stage the final Secure Boot-signed bootloader in the existing coredump partition;
+2. SHA-256 the incoming bytes;
+3. verify the existing Battery Monitor detached RSA authorization;
+4. read back staged flash and re-hash it;
+5. check bootloader magic;
+6. require explicit final SHA confirmation;
+7. call `esp_ota_end()` on the staged image/final primary bootloader partition configuration;
+8. reboot only after successful final commit.
+
+Timeout/abort paths restore ESP-IDF's primary bootloader image offset after OTA abort so later image validation does not remain pointed at staging.
+
+## I. Critical remaining hardware risk
+
+The final primary bootloader erase/copy is not atomic.
+
+Power loss during the final commit window can leave the unit without a valid second-stage bootloader. No software-only change can eliminate this risk on the existing flash layout.
+
+Required operational controls:
+
+- test first on one controlled/sacrificial ECO3+ encrypted unit;
+- use highly stable external power during final commit;
+- present explicit irreversible-action confirmation immediately before commit;
+- do not reboot/remove power after a returned final-copy error while the migration application is still running;
+- do not treat CI/signature success as proof of physical migration safety.
+
+## J. Remaining validation sequence
+
+1. Keep normal Battery Monitor Toolchain green after any source change.
+2. Intentionally select the exact successful migration candidate source/run for protected signing.
+3. Run the protected migration signing workflow only after the Secure Boot v2 key is configured.
+4. Independently verify the signed migration bundle: metadata, source/run authority, both Secure Boot signatures, both detached signatures, hashes, and sizes.
+5. Load the bundle through Factory Service and confirm package validation succeeds.
+6. Install the 0.1.0.12 migration application through the existing signed application OTA path on one ECO3+ encrypted test unit.
+7. Allow rollback probation and release-floor commit to finish.
+8. Stage/verify the signed bootloader.
+9. Perform final commit under stable power.
+10. Reboot and verify Secure Boot is actually enabled.
+11. Verify signed application OTA still works after Secure Boot activation.
+12. Only then consider broader migration.
+
+## K. Canonical architecture authority
+
+Production architecture remains:
 
 - ESP-IDF 5.5.5;
 - exact ESP-IDF commit `b774170ff46c393eeb5e495ea37936038d3f4f4f`;
 - classic ESP32 / ESP32-WROOM-32;
-- Arduino-ESP32 compatibility component based on 3.3.11;
-- exact Arduino source commit `5cdf8975ae8d9e35888b724b01a444d22406424e`;
-- application wrapper `battery-monitor/firmware/idf/main/BatteryMonitorApp.cpp`;
-- runtime implementation under `battery-monitor/firmware/BatteryMonitor/`;
-- sole build entrypoint `battery-monitor/firmware/idf/build.sh`.
+- Arduino-ESP32 compatibility source commit `5cdf8975ae8d9e35888b724b01a444d22406424e`;
+- wrapper `battery-monitor/firmware/idf/main/BatteryMonitorApp.cpp`;
+- runtime under `battery-monitor/firmware/BatteryMonitor/`;
+- normal build entrypoint `battery-monitor/firmware/idf/build.sh`;
+- migration build entrypoint `battery-monitor/firmware/idf/build_secure_boot_migration.sh`.
 
-Do not restore PlatformIO, Arduino-CLI as a second production build, Arduino WebServer, or a second firmware runtime.
+The migration build is an isolated configuration/version authority over the same implementation, not a second production firmware architecture.
 
-## H. Device-at-rest and release security
-
-Production configuration retains:
-
-- Flash Encryption release mode enabled;
-- NVS Encryption enabled;
-- encrypted `nvs_keys` partition;
-- automatic application rollback enabled;
-- encrypted-NVS software release floor requiring strictly newer accepted releases;
-- Secure Boot intentionally OFF pending the full physical encrypted-device program;
-- irreversible eFuse application anti-rollback OFF pending the later production gate.
-
-Production signing public-key SPKI SHA-256:
+Production detached signing public-key SPKI SHA-256 remains:
 
 `69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e`
 
-The 4 MiB merged image is for genuinely blank, unencrypted first install only. Existing encrypted devices must use application-mediated signed OTA.
-
-## I. Immediate next action
-
-The next production action is **not another source edit** unless hardware testing exposes a defect.
-
-1. Run the protected `Battery Monitor Signed Firmware Release` workflow with:
-   - `source_sha = cb96191f8e3c8c99771b044e7a0b2260e5f56b2f`
-   - `version = 0.1.0.4`
-2. Verify the produced `SIGNED_RELEASE.txt`, signatures, source SHA, version, release sequence 4, and trust-root fingerprint.
-3. Install signed 0.1.0.4 on the already-encrypted test unit through the application-mediated updater.
-4. Execute `HARDWARE_TEST_PLAN_0_1_0_4_HTTP_RESPONSIVENESS.md` with the latency probe.
-5. Keep #104 open until hardware evidence shows the recurring multi-second/tens-of-seconds stalls are gone.
-6. Keep Secure Boot/eFuse anti-rollback activation deferred until the broader encrypted-device hardware matrix is complete.
-
-## J. Read-first authority for the next session
+## L. Read-first authority
 
 Resolve the live branch head, then read:
 
 1. `battery-monitor/PROJECT_HANDOFF_LATEST.md`
 2. `battery-monitor/PROJECT_STATE_LATEST.md`
-3. `battery-monitor/VALIDATED_CANDIDATE_0_1_0_4.md`
-4. `battery-monitor/HARDWARE_TEST_PLAN_0_1_0_4_HTTP_RESPONSIVENESS.md`
-5. `battery-monitor/tools/Test-BatteryMonitorHttp.ps1`
-6. GitHub issue #104
-7. GitHub issue #103
-8. GitHub issue #102
-9. GitHub issue #105
-10. `battery-monitor/firmware/README.md`
-11. `battery-monitor/firmware/idf/README.md`
-12. `.github/workflows/battery-monitor-ci.yml`
-13. `.github/workflows/battery-monitor-signed-release.yml`
-14. `battery-monitor/firmware/idf/main/BatteryMonitorApp.cpp`
-15. `battery-monitor/firmware/BatteryMonitor/BatteryMonitor.ino`
-16. `battery-monitor/firmware/BatteryMonitor/NativeHttpServer.ino`
-17. `battery-monitor/firmware/BatteryMonitor/NativeHttpSynchronization.ino`
-18. `battery-monitor/firmware/BatteryMonitor/ConfigurationSynchronization.ino`
-19. `battery-monitor/firmware/BatteryMonitor/BatterySnapshot.ino`
-20. `battery-monitor/firmware/BatteryMonitor/FirmwareUpdateSynchronization.ino`
-21. `battery-monitor/firmware/BatteryMonitor/SecureProvisioning.ino`
-22. `battery-monitor/firmware/BatteryMonitor/MonitoringIdentityCore.ino`
-23. `battery-monitor/windows/BatteryMonitor.Client/DeviceClient.cs`
-24. `battery-monitor/windows/BatteryMonitor.Client/MainForm.cs`
+3. `battery-monitor/firmware/README.md`
+4. `battery-monitor/firmware/idf/README.md`
+5. `.github/workflows/battery-monitor-ci.yml`
+6. `.github/workflows/battery-monitor-secure-boot-migration-ci.yml`
+7. `.github/workflows/battery-monitor-secure-boot-migration-sign.yml`
+8. `.github/workflows/battery-monitor-signed-release.yml`
+9. `battery-monitor/firmware/idf/build_secure_boot_migration.sh`
+10. `battery-monitor/firmware/idf/sdkconfig.secure_boot_migration.defaults`
+11. `battery-monitor/firmware/idf/main/BatteryMonitorApp.cpp`
+12. `battery-monitor/firmware/BatteryMonitor/SecureBootMigration.ino`
+13. `battery-monitor/windows/BatteryMonitor.FactoryService/SecureBootMigrationWorkflow.cs`
+14. `battery-monitor/windows/BatteryMonitor.FactoryService/UsbSecureBootMigrationProvisioner.cs`
 
-The exact normal-CI validated 0.1.0.4 product source remains `cb96191f8e3c8c99771b044e7a0b2260e5f56b2f` even when the live branch is later due only to documentation/test tooling.
+Key distinction: **0.1.0.11 is the normal production line with Secure Boot still off by default; 0.1.0.12 is the Factory-only Secure Boot retrofit candidate for already-encrypted ECO3+ units.**
