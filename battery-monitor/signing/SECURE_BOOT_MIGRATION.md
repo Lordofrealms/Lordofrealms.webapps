@@ -4,6 +4,12 @@ This document covers the Factory-only retrofit path for existing Battery Monitor
 units. It does **not** make Secure Boot the default for normal new-unit
 provisioning.
 
+Battery Monitor user-facing versions follow the repository-wide `AGENTS.md`
+rule: exactly three single-digit numeric components (`X.Y.Z`). The internal
+software anti-downgrade sequence is derived as `major*100 + minor*10 + patch`,
+so normal `0.1.1` maps to sequence `11` and migration `0.1.2` maps to sequence
+`12`.
+
 ## Two different RSA authorities are involved
 
 Do not confuse these keys.
@@ -102,9 +108,10 @@ Factory expects these exact files together:
 - `BatteryMonitor.secureboot.bootloader.bin.sig`
 - `MIGRATION_RELEASE.txt`
 
-Factory verifies detached signatures, exact metadata hashes, release sequence,
-hardware eligibility, release-mode Flash Encryption, device identity, staging
-readback, and post-reboot Secure Boot state before reporting success.
+Factory verifies detached signatures, exact metadata hashes, the three-component
+version/derived release sequence, hardware eligibility, release-mode Flash
+Encryption, device identity, staging readback, and post-reboot Secure Boot state
+before reporting success.
 
 ## First hardware qualification gate
 
@@ -112,11 +119,14 @@ Do not enable Secure Boot by default for new production units merely because the
 migration software builds successfully. Qualify the complete chain on an
 existing ECO3 unit first:
 
-1. Start with a normal release-encrypted `0.1.0.11` unit with Secure Boot off.
-2. Migrate it to Secure Boot migration release `0.1.0.12` using Factory & Service.
+1. Start with a normal release-encrypted `0.1.1` unit (internal release sequence
+   `11`) with Secure Boot off.
+2. Migrate it to Secure Boot migration release `0.1.2` (internal release
+   sequence `12`) using Factory & Service.
 3. Verify the unit itself reports Flash Encryption release mode and hardware
    Secure Boot enabled after reboot.
-4. Produce a strictly newer normal signed application release.
+4. Produce a strictly newer normal signed application release using the same
+   three-component/single-digit version rule.
 5. Install that release through the ordinary signed application OTA path.
 6. Verify the newer application boots, passes rollback probation, advances the
    encrypted release floor, and still reports hardware Secure Boot enabled.
