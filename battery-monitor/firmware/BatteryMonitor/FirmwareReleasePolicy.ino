@@ -1,8 +1,12 @@
 // Monotonic signed-release policy for Battery Monitor firmware.
 //
-// The ESP-IDF application version is authoritative and must use:
-//   major.minor.patch.release_sequence
-// The fourth component is a strictly increasing production release sequence.
+// The ESP-IDF application version is authoritative and must use exactly three
+// single-digit numeric components:
+//   major.minor.patch
+// No component may become two digits; carry to the next component instead.
+// The internal software release sequence is derived as:
+//   major*100 + minor*10 + patch
+// so 0.1.1 -> 11, 0.1.2 -> 12, 0.1.9 -> 19, and 0.2.0 -> 20.
 // The highest accepted sequence is persisted in the encrypted default NVS
 // partition. A correctly signed image is still rejected if its sequence is not
 // strictly newer than both the persisted floor and the currently running image.
@@ -19,22 +23,27 @@ static const char* BATMON_RELEASE_FLOOR_KEY = "fwseq";
 
 static bool batteryMonitorParseReleaseSequence(const char* version,
                                                uint32_t& sequenceOut) {
-  if (version == nullptr || *version == '\0') return false;
+  if (version == nullptr) return false;
 
-  unsigned long major = 0;
-  unsigned long minor = 0;
-  unsigned long patch = 0;
-  unsigned long sequence = 0;
-  char trailing = '\0';
-  int parsed = sscanf(version,
-                      "%lu.%lu.%lu.%lu%c",
-                      &major,
-                      &minor,
-                      &patch,
-                      &sequence,
-                      &trailing);
-  if (parsed != 4 || sequence == 0 || sequence > UINT32_MAX) return false;
-  sequenceOut = (uint32_t)sequence;
+  // Enforce exactly X.Y.Z where every component is one decimal digit. This is
+  // intentionally stricter than ordinary semantic versioning because the
+  // project-wide version rule forbids two-digit components.
+  if (version[0] < '0' || version[0] > '9' ||
+      version[1] != '.' ||
+      version[2] < '0' || version[2] > '9' ||
+      version[3] != '.' ||
+      version[4] < '0' || version[4] > '9' ||
+      version[5] != '\0') {
+    return false;
+  }
+
+  uint32_t major = (uint32_t)(version[0] - '0');
+  uint32_t minor = (uint32_t)(version[2] - '0');
+  uint32_t patch = (uint32_t)(version[4] - '0');
+  uint32_t sequence = major * 100U + minor * 10U + patch;
+  if (sequence == 0) return false;
+
+  sequenceOut = sequence;
   return true;
 }
 
