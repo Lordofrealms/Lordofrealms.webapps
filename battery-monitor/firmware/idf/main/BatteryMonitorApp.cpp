@@ -7,6 +7,8 @@
 #include <Arduino.h>
 #include <esp_ota_ops.h>
 #include <esp_image_format.h>
+#include <esp_flash.h>
+#include <esp_private/esp_flash_internal.h>
 
 // Cross-module declarations required before their implementation is included.
 static String percentEncode(const String& value);
@@ -101,18 +103,47 @@ esp_err_t batteryMonitorPolicySetBootPartition(const esp_partition_t* partition)
 // fail-closed stubs; only the isolated ECO3 Secure Boot migration build enables
 // the staged bootloader-copy implementation.
 //
-// ESP-IDF resets its temporary bootloader-image offset in esp_ota_end(), but not
-// in esp_ota_abort(). Wrap abort only while this module is included so every
-// cancellation/timeout restores later image validation to the primary 0x1000
-// bootloader rather than leaving it pointed at the staging partition.
+// ESP-IDF's bootloader-OTA helpers temporarily disable the main-flash dangerous-
+// write guard when a bootloader final partition is selected. That guard is a
+// persistent runtime flag in the pinned SDK, not an operation-scoped lock, and
+// esp_ota_end()/esp_ota_abort() do not restore it. Interpose the three migration
+// OTA calls so the guard is closed during the entire transfer/verification
+// interval, opened only around the final esp_ota_end() copy, and closed again
+// afterward. Abort also restores the bootloader image-validation offset because
+// ESP-IDF resets that offset in esp_ota_end(), but not esp_ota_abort().
+static void batteryMonitorSecureBootMigrationRestoreFlashWriteProtection() {
+  esp_flash_set_dangerous_write_protection(esp_flash_default_chip, true);
+}
+
+static esp_err_t batteryMonitorSecureBootMigrationSetFinalPartition(
+    esp_ota_handle_t handle,
+    const esp_partition_t* final,
+    bool finalizeWithCopy) {
+  esp_err_t result = esp_ota_set_final_partition(handle, final, finalizeWithCopy);
+  batteryMonitorSecureBootMigrationRestoreFlashWriteProtection();
+  return result;
+}
+
+static esp_err_t batteryMonitorSecureBootMigrationOtaEnd(esp_ota_handle_t handle) {
+  esp_flash_set_dangerous_write_protection(esp_flash_default_chip, false);
+  esp_err_t result = esp_ota_end(handle);
+  batteryMonitorSecureBootMigrationRestoreFlashWriteProtection();
+  return result;
+}
+
 static esp_err_t batteryMonitorSecureBootMigrationOtaAbort(esp_ota_handle_t handle) {
   esp_err_t result = esp_ota_abort(handle);
   esp_image_bootloader_offset_set(ESP_PRIMARY_BOOTLOADER_OFFSET);
+  batteryMonitorSecureBootMigrationRestoreFlashWriteProtection();
   return result;
 }
+#define esp_ota_set_final_partition batteryMonitorSecureBootMigrationSetFinalPartition
+#define esp_ota_end batteryMonitorSecureBootMigrationOtaEnd
 #define esp_ota_abort batteryMonitorSecureBootMigrationOtaAbort
 #include "../../BatteryMonitor/SecureBootMigration.ino"
 #undef esp_ota_abort
+#undef esp_ota_end
+#undef esp_ota_set_final_partition
 
 // During either application OTA or a staged Secure Boot migration, background
 // Wi-Fi roaming/recovery must not start competing work. Migration is deliberately
