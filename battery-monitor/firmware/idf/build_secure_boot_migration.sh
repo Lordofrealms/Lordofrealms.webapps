@@ -5,9 +5,9 @@ set -euo pipefail
 #
 # This reuses the one authoritative Battery Monitor ESP-IDF source tree but
 # overlays Secure Boot v2/ECO3 settings and uses a separate monotonically newer
-# release sequence. CI deliberately produces secure-padded *unsigned* app and
-# bootloader images. The Secure Boot private key belongs only in the protected
-# migration-signing workflow.
+# three-component migration version. CI deliberately produces secure-padded
+# *unsigned* app and bootloader images. The Secure Boot private key belongs only
+# in the protected migration-signing workflow.
 
 EXPECTED_IDF_COMMIT="b774170ff46c393eeb5e495ea37936038d3f4f4f" # ESP-IDF v5.5.5
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,13 +31,13 @@ for file in "$VERSION_FILE" "$BASE_DEFAULTS" "$MIGRATION_DEFAULTS" "$PARTITIONS"
 done
 
 APP_VERSION="$(tr -d '\r\n' < "$VERSION_FILE")"
-if [[ ! "$APP_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)\.([1-9][0-9]*)$ ]]; then
-  echo "Migration version must be major.minor.patch.release_sequence: $APP_VERSION" >&2
+if [[ ! "$APP_VERSION" =~ ^([0-9])\.([0-9])\.([0-9])$ ]]; then
+  echo "Migration version must use exactly three single-digit numeric components (major.minor.patch): $APP_VERSION" >&2
   exit 3
 fi
-APP_RELEASE_SEQUENCE="${BASH_REMATCH[4]}"
-if (( APP_RELEASE_SEQUENCE > 4294967295 )); then
-  echo "Migration release sequence exceeds uint32 range: $APP_RELEASE_SEQUENCE" >&2
+APP_RELEASE_SEQUENCE="$(( ${BASH_REMATCH[1]} * 100 + ${BASH_REMATCH[2]} * 10 + ${BASH_REMATCH[3]} ))"
+if (( APP_RELEASE_SEQUENCE == 0 )); then
+  echo 'Migration version 0.0.0 is reserved and cannot be released.' >&2
   exit 3
 fi
 
@@ -154,6 +154,7 @@ target=esp32
 migration_scope=existing-release-encrypted-ECO3-plus-units-only
 migration_version=$APP_VERSION
 release_sequence=$APP_RELEASE_SEQUENCE
+release_sequence_derivation=major*100+minor*10+patch
 normal_provisioning_default_secure_boot=unchanged-disabled
 secure_boot=enabled-v2-rsa-remote-signing
 secure_boot_build_signed_binaries=disabled-protected-workflow-signs
