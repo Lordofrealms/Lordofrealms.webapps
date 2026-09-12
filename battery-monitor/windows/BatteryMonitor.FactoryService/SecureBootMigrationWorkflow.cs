@@ -258,6 +258,12 @@ internal sealed class SecureBootMigrationWorkflow
             throw new InvalidOperationException("Secure Boot migration requires existing release-mode Flash Encryption.");
         if (security.SecureBootEnabled && !allowAlreadyMigrated)
             throw new InvalidOperationException("Secure Boot is already enabled on this unit; no migration is required.");
+        if (!security.SecureBootV2EligibilityReported)
+            throw new InvalidOperationException("Installed firmware does not report the Secure Boot v2 eFuse preflight state. Update to the current normal Battery Monitor firmware before attempting migration.");
+        if (!security.SecureBootV2EfuseEligible)
+            throw new InvalidOperationException(
+                $"Secure Boot v2 migration is not possible on this unit: eFuse coding scheme={security.SecureBootV2CodingScheme}, " +
+                $"Secure Boot key block unused={security.SecureBootV2KeyBlockUnused}. Classic ESP32 Secure Boot v2 requires coding scheme NONE and an unused/unprotected BLK2.");
     }
 
     private static void EnsureSameDevice(string expectedDeviceId, UsbSecurityInfo actual, string stage)
@@ -332,6 +338,7 @@ internal sealed class SecureBootMigrationPackage
         Require(values, "minimum_esp32_revision", "3.0-ECO3");
         Require(values, "secure_boot", "ESP32-Secure-Boot-v2-RSA-PSS");
         Require(values, "flash_encryption_required", "enabled-release-mode");
+        Require(values, "flash_encryption_must_preexist", "yes");
         Require(values, "normal_provisioning_default_secure_boot", "unchanged-disabled");
         Require(values, "secure_boot_v2_unsigned_bootloader_limit", "0xC000");
         Require(values, "secure_boot_v2_signed_bootloader_limit", "0xD000");
