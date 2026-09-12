@@ -8,7 +8,17 @@
 #include <esp_ota_ops.h>
 #include <esp_image_format.h>
 #include <esp_flash.h>
-#include <esp_private/esp_flash_internal.h>
+
+// The pinned ESP-IDF app_update component uses these SPI-flash symbols when
+// selecting a bootloader final partition, but their declaration lives in a
+// private header that is intentionally not exported to application components.
+// This project pins the exact ESP-IDF commit, so declare only the two stable
+// symbols needed to restore its dangerous-write guard without adding a private
+// component include path/dependency.
+extern "C" {
+extern esp_flash_t* esp_flash_default_chip;
+esp_err_t esp_flash_set_dangerous_write_protection(esp_flash_t* chip, bool protect);
+}
 
 // Cross-module declarations required before their implementation is included.
 static String percentEncode(const String& value);
