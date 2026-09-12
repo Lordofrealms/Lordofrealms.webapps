@@ -5,6 +5,8 @@
 
 #include <esp_flash_encrypt.h>
 #include <esp_secure_boot.h>
+#include <esp_efuse.h>
+#include <esp_efuse_table.h>
 
 static const char* batteryMonitorFlashEncryptionModeName() {
   switch (esp_get_flash_encryption_mode()) {
@@ -20,6 +22,16 @@ String trustedUsbSecurityStateSummary() {
   String releaseError;
   bool releaseSequenceValid = batteryMonitorRunningReleaseSequence(releaseSequence, releaseError);
 
+  // Classic ESP32 Secure Boot v2 can only use its dedicated BLK2 digest block
+  // when the global coding scheme resolves to NONE and that block is truly
+  // unused/unprotected. Report these prerequisites even in the normal
+  // Secure-Boot-disabled firmware so Factory can reject an incompatible unit
+  // before installing the monotonic migration release.
+  esp_efuse_coding_scheme_t sbv2CodingScheme = esp_efuse_get_coding_scheme(EFUSE_BLK_SECURE_BOOT);
+  bool sbv2KeyBlockUnused = esp_efuse_key_block_unused(EFUSE_BLK_SECURE_BOOT);
+  bool sbv2EfuseEligible =
+      sbv2CodingScheme == EFUSE_CODING_SCHEME_NONE && sbv2KeyBlockUnused;
+
   String reply = "SECURITYINFO ";
   reply += "flash_encryption=";
   reply += esp_flash_encryption_enabled() ? "1" : "0";
@@ -31,5 +43,11 @@ String trustedUsbSecurityStateSummary() {
   reply += String(FW_VERSION);
   reply += " release_sequence=";
   reply += releaseSequenceValid ? String(releaseSequence) : "0";
+  reply += " sbv2_coding_scheme=";
+  reply += String((int)sbv2CodingScheme);
+  reply += " sbv2_key_block_unused=";
+  reply += sbv2KeyBlockUnused ? "1" : "0";
+  reply += " sbv2_efuse_eligible=";
+  reply += sbv2EfuseEligible ? "1" : "0";
   return reply;
 }
