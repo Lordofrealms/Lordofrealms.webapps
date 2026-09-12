@@ -21,6 +21,10 @@ CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
 CONFIG_SECURE_FLASH_ENC_ENABLED=y
 CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y
 CONFIG_SECURE_FLASH_REQUIRE_ALREADY_ENABLED=y
+# The retrofit intentionally enables Secure Boot after Flash Encryption already
+# exists. Classic ESP32 must never select the factory-style mode which expects
+# both feature keys to be provisioned in the same first-boot transaction.
+# CONFIG_SECURE_BOOT_FLASH_ENC_KEYS_BURN_TOGETHER is not set
 CONFIG_NVS_ENCRYPTION=y
 CONFIG_NVS_SEC_KEY_PROTECT_USING_FLASH_ENC=y
 # CONFIG_BOOTLOADER_APP_ANTI_ROLLBACK is not set
