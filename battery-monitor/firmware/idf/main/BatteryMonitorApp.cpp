@@ -147,10 +147,26 @@ static esp_err_t batteryMonitorSecureBootMigrationOtaAbort(esp_ota_handle_t hand
   batteryMonitorSecureBootMigrationRestoreFlashWriteProtection();
   return result;
 }
+
+// Before Secure Boot is enabled, treat otherwise-correct Flash Encryption as
+// migration-ineligible if classic ESP32 BLK2 cannot accept the Secure Boot v2
+// digest (non-NONE coding scheme, existing contents, or protection bits). This
+// gives the device-side migration capability gate the same fail-closed eFuse
+// prerequisite that normal firmware reports to Factory before sequence 12 is
+// installed. Once Secure Boot is already enabled, preserve the real Flash
+// Encryption state so capability reporting reaches the explicit already-enabled
+// result instead of misclassifying the migrated device.
+static bool batteryMonitorSecureBootMigrationFlashEncryptionEligible() {
+  if (esp_secure_boot_enabled()) return esp_flash_encryption_enabled();
+  return esp_flash_encryption_enabled() && batteryMonitorSecureBootV2EfuseEligible();
+}
+
 #define esp_ota_set_final_partition batteryMonitorSecureBootMigrationSetFinalPartition
 #define esp_ota_end batteryMonitorSecureBootMigrationOtaEnd
 #define esp_ota_abort batteryMonitorSecureBootMigrationOtaAbort
+#define esp_flash_encryption_enabled batteryMonitorSecureBootMigrationFlashEncryptionEligible
 #include "../../BatteryMonitor/SecureBootMigration.ino"
+#undef esp_flash_encryption_enabled
 #undef esp_ota_abort
 #undef esp_ota_end
 #undef esp_ota_set_final_partition
