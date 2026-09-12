@@ -85,6 +85,10 @@ if grep -qx 'CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=y' sdkconfig; then
   echo 'CI migration build must remain remotely signed; private Secure Boot key must not be required here.' >&2
   exit 3
 fi
+if grep -qx 'CONFIG_SECURE_BOOT_FLASH_ENC_KEYS_BURN_TOGETHER=y' sdkconfig; then
+  echo 'Retrofit requires Flash Encryption to pre-exist; Secure Boot and Flash Encryption keys must not be burned together.' >&2
+  exit 3
+fi
 if grep -qx 'CONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=y' sdkconfig; then
   echo 'Hardware application anti-rollback stays disabled during Secure Boot migration validation.' >&2
   exit 3
@@ -156,6 +160,7 @@ secure_boot_build_signed_binaries=disabled-protected-workflow-signs
 minimum_esp32_revision=3.0-ECO3
 flash_encryption=enabled-release-mode
 flash_encryption_must_preexist=yes
+secure_boot_flash_enc_keys_burn_together=disabled
 nvs_encryption=enabled
 hardware_efuse_app_anti_rollback=disabled-during-migration-validation
 partition_table_offset=0xF000
