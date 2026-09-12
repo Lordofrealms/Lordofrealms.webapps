@@ -14,7 +14,7 @@ on:
       version:
         description: 'Exact firmware version from battery-monitor/firmware/idf/version.txt'
         required: true
-        default: '0.1.0.11'
+        default: '0.1.1'
         type: string
 
 permissions:
@@ -60,13 +60,13 @@ jobs:
             echo "Requested release version '${{ inputs.version }}' does not match authoritative source version '$source_version'." >&2
             exit 1
           fi
-          if [[ ! "$source_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)\.([1-9][0-9]*)$ ]]; then
-            echo "Authoritative version must be major.minor.patch.release_sequence: $source_version" >&2
+          if [[ ! "$source_version" =~ ^([0-9])\.([0-9])\.([0-9])$ ]]; then
+            echo "Authoritative version must use exactly three single-digit numeric components: $source_version" >&2
             exit 1
           fi
-          release_sequence="${BASH_REMATCH[4]}"
-          if (( release_sequence > 4294967295 )); then
-            echo "Release sequence exceeds uint32 range: $release_sequence" >&2
+          release_sequence="$(( ${BASH_REMATCH[1]} * 100 + ${BASH_REMATCH[2]} * 10 + ${BASH_REMATCH[3]} ))"
+          if (( release_sequence == 0 )); then
+            echo 'Version 0.0.0 is reserved and cannot be released.' >&2
             exit 1
           fi
           echo "BATMON_RELEASE_VERSION=$source_version" >> "$GITHUB_ENV"
@@ -111,7 +111,7 @@ jobs:
       - name: Download exact CI firmware artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: battery-monitor-esp32-CI-UNSIGNED-v0.1.0
+          name: battery-monitor-esp32-CI-UNSIGNED-v0.1.1
           path: /tmp/battery-monitor-signed-firmware
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
@@ -130,6 +130,7 @@ jobs:
           test "$(tr -d '\r\n' < "$dir/version.txt")" = "$BATMON_RELEASE_VERSION"
           grep -qx "app_version=$BATMON_RELEASE_VERSION" "$dir/BUILD_AUTHORITY.txt"
           grep -qx "software_release_sequence=$BATMON_RELEASE_SEQUENCE" "$dir/BUILD_AUTHORITY.txt"
+          grep -Fqx 'software_release_sequence_derivation=major*100+minor*10+patch' "$dir/BUILD_AUTHORITY.txt"
           grep -qx 'software_signed_release_floor=encrypted-nvs-strictly-newer' "$dir/BUILD_AUTHORITY.txt"
           grep -qx 'post_boot_ota_rollback=enabled' "$dir/BUILD_AUTHORITY.txt"
           grep -qx 'hardware_efuse_app_anti_rollback=disabled-pending-secure-boot-production-efuse-gate' "$dir/BUILD_AUTHORITY.txt"
@@ -228,6 +229,7 @@ jobs:
             echo 'source_sha=${{ inputs.source_sha }}'
             echo "version=$BATMON_RELEASE_VERSION"
             echo "software_release_sequence=$BATMON_RELEASE_SEQUENCE"
+            echo 'software_release_sequence_derivation=major*100+minor*10+patch'
             echo 'software_signed_release_floor=encrypted-nvs-strictly-newer'
             echo 'post_boot_ota_rollback=enabled'
             echo 'hardware_efuse_app_anti_rollback=disabled-pending-secure-boot-production-efuse-gate'
