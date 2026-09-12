@@ -42,5 +42,10 @@ message(STATUS "Battery Monitor authoritative app version: ${BATMON_APP_VERSION}
 message(STATUS "Battery Monitor version authority file: ${BATMON_VERSION_FILE}")
 message(STATUS "Battery Monitor sdkconfig defaults: ${SDKCONFIG_DEFAULTS}")
 
+# ESP-IDF gives a top-level version.txt precedence over project(... VERSION ...).
+# Set PROJECT_VER explicitly before project.cmake so the selected authority file
+# also controls esp_app_desc_t.version. Normal builds still select version.txt;
+# the isolated migration build selects version-secure-boot-migration.txt.
+set(PROJECT_VER "${BATMON_APP_VERSION}")
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(BatteryMonitor VERSION ${BATMON_APP_VERSION})
