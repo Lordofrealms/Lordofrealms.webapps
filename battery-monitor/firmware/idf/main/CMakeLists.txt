@@ -18,6 +18,7 @@ idf_component_register(
     REQUIRES
         arduino-esp32
         app_update
+        efuse
         esp_http_server
         mbedtls
 )
