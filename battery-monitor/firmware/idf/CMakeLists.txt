@@ -27,16 +27,17 @@ if(NOT IS_ABSOLUTE "${BATMON_VERSION_FILE}")
   set(BATMON_VERSION_FILE "${CMAKE_CURRENT_LIST_DIR}/${BATMON_VERSION_FILE}")
 endif()
 
-# Production app versions use four numeric components:
-#   major.minor.patch.release_sequence
-# The fourth component is a monotonic software anti-downgrade sequence. It must
-# never be reset or reused for a different production release. The firmware
-# persists the highest accepted sequence in encrypted NVS and rejects signed
-# candidates whose sequence is not strictly newer.
+# User-facing Battery Monitor versions use exactly three single-digit numeric
+# components: major.minor.patch. No component may become two digits; carry to
+# the next component instead (for example 0.1.9 -> 0.2.0).
+#
+# The software anti-downgrade sequence is derived from those digits as
+# major*100 + minor*10 + patch. This preserves the existing monotonic sequence
+# values (0.1.1 -> 11, 0.1.2 -> 12) without exposing a fourth version field.
 file(STRINGS "${BATMON_VERSION_FILE}" BATMON_APP_VERSION LIMIT_COUNT 1)
 string(STRIP "${BATMON_APP_VERSION}" BATMON_APP_VERSION)
-if(NOT BATMON_APP_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[1-9][0-9]*$")
-  message(FATAL_ERROR "Battery Monitor version must be major.minor.patch.release_sequence with a positive monotonic release sequence")
+if(NOT BATMON_APP_VERSION MATCHES "^[0-9]\\.[0-9]\\.[0-9]$")
+  message(FATAL_ERROR "Battery Monitor version must use exactly three single-digit numeric components: major.minor.patch")
 endif()
 message(STATUS "Battery Monitor authoritative app version: ${BATMON_APP_VERSION}")
 message(STATUS "Battery Monitor version authority file: ${BATMON_VERSION_FILE}")
