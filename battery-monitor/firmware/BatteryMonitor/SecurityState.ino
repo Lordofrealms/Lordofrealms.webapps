@@ -17,6 +17,19 @@ static const char* batteryMonitorFlashEncryptionModeName() {
   }
 }
 
+static esp_efuse_coding_scheme_t batteryMonitorSecureBootV2CodingScheme() {
+  return esp_efuse_get_coding_scheme(EFUSE_BLK_SECURE_BOOT);
+}
+
+static bool batteryMonitorSecureBootV2KeyBlockUnused() {
+  return esp_efuse_key_block_unused(EFUSE_BLK_SECURE_BOOT);
+}
+
+static bool batteryMonitorSecureBootV2EfuseEligible() {
+  return batteryMonitorSecureBootV2CodingScheme() == EFUSE_CODING_SCHEME_NONE &&
+         batteryMonitorSecureBootV2KeyBlockUnused();
+}
+
 String trustedUsbSecurityStateSummary() {
   uint32_t releaseSequence = 0;
   String releaseError;
@@ -27,8 +40,8 @@ String trustedUsbSecurityStateSummary() {
   // unused/unprotected. Report these prerequisites even in the normal
   // Secure-Boot-disabled firmware so Factory can reject an incompatible unit
   // before installing the monotonic migration release.
-  esp_efuse_coding_scheme_t sbv2CodingScheme = esp_efuse_get_coding_scheme(EFUSE_BLK_SECURE_BOOT);
-  bool sbv2KeyBlockUnused = esp_efuse_key_block_unused(EFUSE_BLK_SECURE_BOOT);
+  esp_efuse_coding_scheme_t sbv2CodingScheme = batteryMonitorSecureBootV2CodingScheme();
+  bool sbv2KeyBlockUnused = batteryMonitorSecureBootV2KeyBlockUnused();
   bool sbv2EfuseEligible =
       sbv2CodingScheme == EFUSE_CODING_SCHEME_NONE && sbv2KeyBlockUnused;
 
