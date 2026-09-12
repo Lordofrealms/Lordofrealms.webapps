@@ -87,6 +87,24 @@ internal sealed class UsbSecurityInfoReader
         if (!values.TryGetValue("release_sequence", out var sequenceText) || !uint.TryParse(sequenceText, out var releaseSequence) || releaseSequence == 0)
             throw new InvalidOperationException("Battery Monitor returned an invalid firmware release sequence.");
 
+        bool sbv2EligibilityReported = values.ContainsKey("sbv2_coding_scheme") ||
+                                       values.ContainsKey("sbv2_key_block_unused") ||
+                                       values.ContainsKey("sbv2_efuse_eligible");
+        int sbv2CodingScheme = -1;
+        bool sbv2KeyBlockUnused = false;
+        bool sbv2EfuseEligible = false;
+        if (sbv2EligibilityReported)
+        {
+            if (!values.TryGetValue("sbv2_coding_scheme", out var codingText) || !int.TryParse(codingText, out sbv2CodingScheme) || sbv2CodingScheme < 0)
+                throw new InvalidOperationException("Battery Monitor returned an invalid Secure Boot v2 eFuse coding scheme.");
+            if (!values.TryGetValue("sbv2_key_block_unused", out var unusedText) || (unusedText != "0" && unusedText != "1"))
+                throw new InvalidOperationException("Battery Monitor returned an invalid Secure Boot v2 key-block state.");
+            if (!values.TryGetValue("sbv2_efuse_eligible", out var eligibleText) || (eligibleText != "0" && eligibleText != "1"))
+                throw new InvalidOperationException("Battery Monitor returned an invalid Secure Boot v2 eFuse eligibility state.");
+            sbv2KeyBlockUnused = unusedText == "1";
+            sbv2EfuseEligible = eligibleText == "1";
+        }
+
         return new UsbSecurityInfo
         {
             DeviceId = deviceId,
@@ -94,7 +112,11 @@ internal sealed class UsbSecurityInfoReader
             FlashEncryptionMode = mode,
             SecureBootEnabled = secureBoot == "1",
             FirmwareVersion = firmware,
-            ReleaseSequence = releaseSequence
+            ReleaseSequence = releaseSequence,
+            SecureBootV2EligibilityReported = sbv2EligibilityReported,
+            SecureBootV2CodingScheme = sbv2CodingScheme,
+            SecureBootV2KeyBlockUnused = sbv2KeyBlockUnused,
+            SecureBootV2EfuseEligible = sbv2EfuseEligible
         };
     }
 
@@ -117,6 +139,10 @@ internal sealed class UsbSecurityInfo
     public bool SecureBootEnabled { get; init; }
     public string FirmwareVersion { get; init; } = "";
     public uint ReleaseSequence { get; init; }
+    public bool SecureBootV2EligibilityReported { get; init; }
+    public int SecureBootV2CodingScheme { get; init; } = -1;
+    public bool SecureBootV2KeyBlockUnused { get; init; }
+    public bool SecureBootV2EfuseEligible { get; init; }
 
     public bool ProductionFlashEncryptionReady =>
         FlashEncryptionEnabled && FlashEncryptionMode.Equals("release", StringComparison.OrdinalIgnoreCase);
