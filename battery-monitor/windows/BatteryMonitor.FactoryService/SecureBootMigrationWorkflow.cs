@@ -342,6 +342,7 @@ internal sealed class SecureBootMigrationPackage
         Require(values, "normal_provisioning_default_secure_boot", "unchanged-disabled");
         Require(values, "secure_boot_v2_unsigned_bootloader_limit", "0xC000");
         Require(values, "secure_boot_v2_signed_bootloader_limit", "0xD000");
+        Require(values, "release_sequence_derivation", "major*100+minor*10+patch");
 
         if (!values.TryGetValue("version", out var version) || string.IsNullOrWhiteSpace(version))
             throw new InvalidOperationException("Migration bundle metadata is missing version.");
@@ -388,12 +389,14 @@ internal sealed class SecureBootMigrationPackage
     {
         sequence = 0;
         var cleaned = version.Trim();
-        var dash = cleaned.IndexOf('-');
-        var plus = cleaned.IndexOf('+');
-        var separator = dash < 0 ? plus : plus < 0 ? dash : Math.Min(dash, plus);
-        if (separator >= 0) cleaned = cleaned[..separator];
-        var parts = cleaned.Split('.');
-        return parts.Length == 4 && uint.TryParse(parts[3], NumberStyles.None, CultureInfo.InvariantCulture, out sequence) && sequence > 0;
+        if (cleaned.Length != 5 || cleaned[1] != '.' || cleaned[3] != '.' ||
+            cleaned[0] < '0' || cleaned[0] > '9' ||
+            cleaned[2] < '0' || cleaned[2] > '9' ||
+            cleaned[4] < '0' || cleaned[4] > '9')
+            return false;
+
+        sequence = (uint)((cleaned[0] - '0') * 100 + (cleaned[2] - '0') * 10 + (cleaned[4] - '0'));
+        return sequence > 0;
     }
 
     private static void Require(IReadOnlyDictionary<string, string> values, string key, string expected)
