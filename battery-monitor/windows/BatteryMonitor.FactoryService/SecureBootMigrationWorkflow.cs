@@ -330,8 +330,11 @@ internal sealed class SecureBootMigrationPackage
         Require(values, "schema", "BATMON_SECURE_BOOT_MIGRATION_RELEASE_V1");
         Require(values, "migration_scope", "existing-release-encrypted-ECO3-plus-units-only");
         Require(values, "minimum_esp32_revision", "3.0-ECO3");
+        Require(values, "secure_boot", "ESP32-Secure-Boot-v2-RSA-PSS");
         Require(values, "flash_encryption_required", "enabled-release-mode");
         Require(values, "normal_provisioning_default_secure_boot", "unchanged-disabled");
+        Require(values, "secure_boot_v2_unsigned_bootloader_limit", "0xC000");
+        Require(values, "secure_boot_v2_signed_bootloader_limit", "0xD000");
 
         if (!values.TryGetValue("version", out var version) || string.IsNullOrWhiteSpace(version))
             throw new InvalidOperationException("Migration bundle metadata is missing version.");
@@ -339,6 +342,12 @@ internal sealed class SecureBootMigrationPackage
             throw new InvalidOperationException("Migration bundle metadata has invalid release_sequence.");
         if (!TryParseReleaseSequence(version, out var versionSequence) || versionSequence != sequence)
             throw new InvalidOperationException("Migration bundle version and release sequence do not agree.");
+
+        if (!values.TryGetValue("signed_application_size", out var expectedAppSizeText) ||
+            !long.TryParse(expectedAppSizeText, NumberStyles.None, CultureInfo.InvariantCulture, out var expectedAppSize) || expectedAppSize <= 0 ||
+            !values.TryGetValue("signed_bootloader_size", out var expectedBootSizeText) ||
+            !long.TryParse(expectedBootSizeText, NumberStyles.None, CultureInfo.InvariantCulture, out var expectedBootSize) || expectedBootSize <= 0)
+            throw new InvalidOperationException("Migration bundle metadata is missing valid signed image sizes.");
 
         if (!values.TryGetValue("signed_application_sha256", out var expectedApp) || !IsSha256(expectedApp) ||
             !values.TryGetValue("signed_bootloader_sha256", out var expectedBoot) || !IsSha256(expectedBoot))
@@ -353,7 +362,12 @@ internal sealed class SecureBootMigrationPackage
 
         var appSize = new FileInfo(ApplicationPath).Length;
         var bootSize = new FileInfo(BootloaderPath).Length;
+        if (appSize != expectedAppSize)
+            throw new InvalidOperationException("Migration application size does not match signed release metadata.");
+        if (bootSize != expectedBootSize)
+            throw new InvalidOperationException("Migration bootloader size does not match signed release metadata.");
         if (appSize > 0x140000) throw new InvalidOperationException("Migration application exceeds deployed OTA slot size.");
+        if (bootSize > 0xD000) throw new InvalidOperationException("Migration bootloader exceeds the classic ESP32 Secure Boot v2 signed-image envelope.");
         if (bootSize > 0xE000) throw new InvalidOperationException("Migration bootloader exceeds deployed primary bootloader region.");
 
         Version = version;
