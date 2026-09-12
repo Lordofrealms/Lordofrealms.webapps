@@ -98,8 +98,18 @@ jobs:
           grep -qx 'secure_boot=enabled-v2-rsa-remote-signing' "$authority"
           grep -qx 'minimum_esp32_revision=3.0-ECO3' "$authority"
           grep -qx 'normal_provisioning_default_secure_boot=unchanged-disabled' "$authority"
+          grep -qx 'secure_boot_v2_unsigned_bootloader_limit=0xC000' "$authority"
+
+          expected_app_size="$(awk -F= '$1=="unsigned_application_size"{print $2}' "$authority")"
+          expected_boot_size="$(awk -F= '$1=="unsigned_bootloader_size"{print $2}' "$authority")"
           expected_app="$(awk -F= '$1=="unsigned_application_sha256"{print $2}' "$authority")"
           expected_boot="$(awk -F= '$1=="unsigned_bootloader_sha256"{print $2}' "$authority")"
+          [[ "$expected_app_size" =~ ^[0-9]+$ ]] || { echo 'Invalid unsigned application size authority.' >&2; exit 1; }
+          [[ "$expected_boot_size" =~ ^[0-9]+$ ]] || { echo 'Invalid unsigned bootloader size authority.' >&2; exit 1; }
+          test "$(stat -c %s "$app")" -eq "$expected_app_size" || { echo 'Unsigned application size does not match CI authority.' >&2; exit 1; }
+          test "$(stat -c %s "$boot")" -eq "$expected_boot_size" || { echo 'Unsigned bootloader size does not match CI authority.' >&2; exit 1; }
+          (( expected_app_size <= 0x13F000 )) || { echo "Unsigned app leaves no room for Secure Boot signature sector: $expected_app_size" >&2; exit 1; }
+          (( expected_boot_size <= 0xC000 )) || { echo "Unsigned bootloader exceeds classic ESP32 Secure Boot v2 48 KiB limit: $expected_boot_size" >&2; exit 1; }
           test -n "$expected_app" && test "$(sha256sum "$app" | awk '{print $1}')" = "$expected_app"
           test -n "$expected_boot" && test "$(sha256sum "$boot" | awk '{print $1}')" = "$expected_boot"
 
@@ -150,6 +160,8 @@ jobs:
           unsigned_boot="$dir/BatteryMonitor.secureboot.bootloader.unsigned.bin"
           app="$dir/BatteryMonitor.secureboot.app.bin"
           boot="$dir/BatteryMonitor.secureboot.bootloader.bin"
+          unsigned_app_size="$(stat -c %s "$unsigned_app")"
+          unsigned_boot_size="$(stat -c %s "$unsigned_boot")"
 
           python "$espsecure" sign_data --version 2 --keyfile "$sbkey" --output "$app" "$unsigned_app"
           python "$espsecure" sign_data --version 2 --keyfile "$sbkey" --output "$boot" "$unsigned_boot"
@@ -158,7 +170,10 @@ jobs:
 
           app_size="$(stat -c %s "$app")"
           boot_size="$(stat -c %s "$boot")"
+          (( app_size == unsigned_app_size + 0x1000 )) || { echo "Unexpected Secure Boot app signature size growth: unsigned=$unsigned_app_size signed=$app_size" >&2; exit 1; }
+          (( boot_size == unsigned_boot_size + 0x1000 )) || { echo "Unexpected Secure Boot bootloader signature size growth: unsigned=$unsigned_boot_size signed=$boot_size" >&2; exit 1; }
           (( app_size <= 0x140000 )) || { echo "Signed app exceeds deployed OTA slot: $app_size" >&2; exit 1; }
+          (( boot_size <= 0xD000 )) || { echo "Signed bootloader exceeds classic ESP32 Secure Boot v2 48 KiB + 4 KiB signature envelope: $boot_size" >&2; exit 1; }
           (( boot_size <= 0xE000 )) || { echo "Signed bootloader exceeds primary bootloader region: $boot_size" >&2; exit 1; }
           (( boot_size <= 0x10000 )) || { echo "Signed bootloader exceeds temporary coredump staging partition: $boot_size" >&2; exit 1; }
 
@@ -196,6 +211,8 @@ jobs:
           flash_encryption_required=enabled-release-mode
           primary_bootloader_offset=0x1000
           primary_bootloader_region_size=0xE000
+          secure_boot_v2_unsigned_bootloader_limit=0xC000
+          secure_boot_v2_signed_bootloader_limit=0xD000
           bootloader_staging_partition=coredump@0x3F0000+0x10000
           signed_application_size=$app_size
           signed_bootloader_size=$boot_size
