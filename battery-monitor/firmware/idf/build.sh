@@ -31,13 +31,13 @@ if [[ ! -f "$VERSION_FILE" ]]; then
   exit 3
 fi
 APP_VERSION="$(tr -d '\r\n' < "$VERSION_FILE")"
-if [[ ! "$APP_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)\.([1-9][0-9]*)$ ]]; then
-  echo "Battery Monitor app version must be major.minor.patch.release_sequence with a positive monotonic release sequence: $APP_VERSION" >&2
+if [[ ! "$APP_VERSION" =~ ^([0-9])\.([0-9])\.([0-9])$ ]]; then
+  echo "Battery Monitor app version must use exactly three single-digit numeric components (major.minor.patch): $APP_VERSION" >&2
   exit 3
 fi
-APP_RELEASE_SEQUENCE="${BASH_REMATCH[4]}"
-if (( APP_RELEASE_SEQUENCE > 4294967295 )); then
-  echo "Battery Monitor software release sequence exceeds uint32 range: $APP_RELEASE_SEQUENCE" >&2
+APP_RELEASE_SEQUENCE="$(( ${BASH_REMATCH[1]} * 100 + ${BASH_REMATCH[2]} * 10 + ${BASH_REMATCH[3]} ))"
+if (( APP_RELEASE_SEQUENCE == 0 )); then
+  echo 'Battery Monitor version 0.0.0 is reserved and cannot be released.' >&2
   exit 3
 fi
 
@@ -215,6 +215,7 @@ lwip_max_sockets=30
 target=esp32
 app_version=$APP_VERSION
 software_release_sequence=$APP_RELEASE_SEQUENCE
+software_release_sequence_derivation=major*100+minor*10+patch
 software_signed_release_floor=encrypted-nvs-strictly-newer
 software_release_floor_namespace=batmon
 software_release_floor_key=fwseq
