@@ -61,9 +61,13 @@ cd "$PROJECT_DIR"
 idf.py set-target esp32
 idf.py build
 
+# ESP-IDF keeps both the legacy major-revision value and the full MXX value.
+# For classic ESP32 ECO3/v3.0 these must resolve to 3 and 300 respectively.
 for required in \
   'CONFIG_ESP32_REV_MIN_3=y' \
-  'CONFIG_ESP32_REV_MIN=300' \
+  'CONFIG_ESP32_REV_MIN=3' \
+  'CONFIG_ESP32_REV_MIN_FULL=300' \
+  'CONFIG_ESP_REV_MIN_FULL=300' \
   'CONFIG_SECURE_BOOT=y' \
   'CONFIG_SECURE_BOOT_V2_ENABLED=y' \
   'CONFIG_SECURE_FLASH_ENC_ENABLED=y' \
@@ -92,18 +96,25 @@ test -f "$BOOT_BIN" || { echo 'Secure Boot migration bootloader binary missing.'
 
 # Remote Secure Boot v2 signing appends one 4 KiB signature sector. Prove the
 # final signed images can still fit the already-deployed partitions before they
-# ever reach the protected signer.
+# ever reach the protected signer. Classic ESP32 Secure Boot v2 additionally
+# limits the unsigned bootloader image itself to 48 KiB (0xC000), independent
+# of the larger physical region available before the partition table.
 app_size="$(stat -c %s "$APP_BIN")"
 boot_size="$(stat -c %s "$BOOT_BIN")"
 app_limit=$((0x140000 - 0x1000))
-boot_limit=$((0xE000 - 0x1000))
+boot_physical_limit=$((0xE000 - 0x1000))
 staging_limit=$((0x10000 - 0x1000))
+secure_boot_v2_boot_limit=$((0xC000))
 if (( app_size > app_limit )); then
   echo "Secure Boot migration app leaves no room for signature sector: $app_size > $app_limit" >&2
   exit 3
 fi
-if (( boot_size > boot_limit )); then
-  echo "Secure Boot migration bootloader leaves no room for signature sector in primary region: $boot_size > $boot_limit" >&2
+if (( boot_size > secure_boot_v2_boot_limit )); then
+  echo "Secure Boot v2 bootloader exceeds classic ESP32 48 KiB verification limit: $boot_size > $secure_boot_v2_boot_limit" >&2
+  exit 3
+fi
+if (( boot_size > boot_physical_limit )); then
+  echo "Secure Boot migration bootloader leaves no room for signature sector in primary region: $boot_size > $boot_physical_limit" >&2
   exit 3
 fi
 if (( boot_size > staging_limit )); then
@@ -148,6 +159,7 @@ hardware_efuse_app_anti_rollback=disabled-during-migration-validation
 partition_table_offset=0xF000
 primary_bootloader_offset=0x1000
 primary_bootloader_region_size=0xE000
+secure_boot_v2_unsigned_bootloader_limit=0xC000
 bootloader_staging_partition=coredump@0x3F0000+0x10000
 app_partition_size=0x140000
 unsigned_application_size=$app_size
