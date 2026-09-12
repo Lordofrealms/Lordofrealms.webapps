@@ -8,6 +8,7 @@ internal sealed class UsbSecureBootMigrationProvisioner
 {
     private const int BaudRate = 115200;
     private const int HostChunkLimit = 4096;
+    private const long SignedBootloaderLimit = 0xD000;
 
     public async Task<SecureBootMigrationCapabilities> ReadCapabilitiesAsync(
         string portName,
@@ -36,8 +37,8 @@ internal sealed class UsbSecureBootMigrationProvisioner
         {
             FirmwareSignatureVerifier.VerifyOrThrow(bootloaderPath, signaturePath);
             var image = new FileInfo(bootloaderPath);
-            if (!image.Exists || image.Length < 1024 || image.Length > 0xE000)
-                throw new InvalidOperationException("Secure Boot migration bootloader is missing or does not fit the deployed primary bootloader region.");
+            if (!image.Exists || image.Length < 1024 || image.Length > SignedBootloaderLimit)
+                throw new InvalidOperationException("Secure Boot migration bootloader is missing or exceeds the classic ESP32 Secure Boot v2 signed-image envelope.");
 
             var signature = File.ReadAllBytes(signaturePath);
             byte[] digest;
