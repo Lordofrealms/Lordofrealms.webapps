@@ -14,9 +14,13 @@ CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
 # CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES is not set
 
 # Keep existing release-mode Flash Encryption/NVS encryption and leave hardware
-# application anti-rollback disabled during the retrofit validation phase.
+# application anti-rollback disabled during the retrofit validation phase. This
+# candidate is only for units that are already permanently encrypted; make the
+# bootloader refuse to enter ESP-IDF's first-time flash-encryption provisioning
+# path if that prerequisite is unexpectedly absent at reboot.
 CONFIG_SECURE_FLASH_ENC_ENABLED=y
 CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y
+CONFIG_SECURE_FLASH_REQUIRE_ALREADY_ENABLED=y
 CONFIG_NVS_ENCRYPTION=y
 CONFIG_NVS_SEC_KEY_PROTECT_USING_FLASH_ENC=y
 # CONFIG_BOOTLOADER_APP_ANTI_ROLLBACK is not set
