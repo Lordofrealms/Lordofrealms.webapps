@@ -55,6 +55,7 @@ jobs:
             grep -qx 'release_sequence=12' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
             grep -qx 'secure_boot=enabled-v2-rsa-remote-signing' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
             grep -qx 'minimum_esp32_revision=3.0-ECO3' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
+            grep -qx 'secure_boot_v2_unsigned_bootloader_limit=0xC000' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
           ) 2>&1 | tee /tmp/battery-monitor-secure-boot-migration-build.log
           build_status=${PIPESTATUS[0]}
           set -e
