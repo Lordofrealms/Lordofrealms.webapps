@@ -14,7 +14,7 @@ on:
       version:
         description: 'Exact migration firmware version'
         required: true
-        default: '0.1.0.12'
+        default: '0.1.2'
         type: string
 
 permissions:
@@ -53,9 +53,11 @@ jobs:
           test -f "$version_file"
           source_version="$(tr -d '\r\n' < "$version_file")"
           test "$source_version" = '${{ inputs.version }}' || { echo "Requested version does not match migration authority: $source_version" >&2; exit 1; }
-          [[ "$source_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)\.([1-9][0-9]*)$ ]] || exit 1
+          [[ "$source_version" =~ ^([0-9])\.([0-9])\.([0-9])$ ]] || { echo "Migration version must use exactly three single-digit numeric components: $source_version" >&2; exit 1; }
+          migration_sequence="$(( ${BASH_REMATCH[1]} * 100 + ${BASH_REMATCH[2]} * 10 + ${BASH_REMATCH[3]} ))"
+          (( migration_sequence > 0 )) || { echo 'Migration version 0.0.0 is reserved.' >&2; exit 1; }
           echo "MIGRATION_VERSION=$source_version" >> "$GITHUB_ENV"
-          echo "MIGRATION_SEQUENCE=${BASH_REMATCH[4]}" >> "$GITHUB_ENV"
+          echo "MIGRATION_SEQUENCE=$migration_sequence" >> "$GITHUB_ENV"
 
       - name: Validate exact successful migration CI run
         shell: bash
@@ -78,7 +80,7 @@ jobs:
       - name: Download exact unsigned migration candidate
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: Battery-Monitor-Secure-Boot-Migration-CI-UNSIGNED-0.1.0.12
+          name: Battery-Monitor-Secure-Boot-Migration-CI-UNSIGNED-0.1.2
           path: /tmp/migration
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
@@ -95,6 +97,7 @@ jobs:
           test -f "$app" && test -f "$boot" && test -f "$authority"
           grep -qx "migration_version=$MIGRATION_VERSION" "$authority"
           grep -qx "release_sequence=$MIGRATION_SEQUENCE" "$authority"
+          grep -Fqx 'release_sequence_derivation=major*100+minor*10+patch' "$authority"
           grep -qx 'secure_boot=enabled-v2-rsa-remote-signing' "$authority"
           grep -qx 'minimum_esp32_revision=3.0-ECO3' "$authority"
           grep -qx 'flash_encryption=enabled-release-mode' "$authority"
@@ -204,6 +207,7 @@ jobs:
           promoted_ci_run_id=${{ inputs.ci_run_id }}
           version=$MIGRATION_VERSION
           release_sequence=$MIGRATION_SEQUENCE
+          release_sequence_derivation=major*100+minor*10+patch
           migration_scope=existing-release-encrypted-ECO3-plus-units-only
           minimum_esp32_revision=3.0-ECO3
           secure_boot=ESP32-Secure-Boot-v2-RSA-PSS
