@@ -53,7 +53,7 @@ jobs:
             test -f /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
             grep -qx 'migration_version=0.1.2' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
             grep -qx 'release_sequence=12' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
-            grep -qx 'release_sequence_derivation=major*100+minor*10+patch' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
+            grep -Fqx 'release_sequence_derivation=major*100+minor*10+patch' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
             grep -qx 'secure_boot=enabled-v2-rsa-remote-signing' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
             grep -qx 'minimum_esp32_revision=3.0-ECO3' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
             grep -qx 'flash_encryption=enabled-release-mode' /tmp/battery-monitor-secure-boot-migration/MIGRATION_BUILD_AUTHORITY.txt
