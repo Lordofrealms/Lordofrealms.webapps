@@ -54,12 +54,17 @@ jobs:
           bash battery-monitor/firmware/idf/build.sh /tmp/battery-monitor-firmware
           test -f /tmp/battery-monitor-firmware/BatteryMonitor.ino.bin
           test -f /tmp/battery-monitor-firmware/BatteryMonitor.ino.merged.bin
+          test -f /tmp/battery-monitor-firmware/BUILD_AUTHORITY.txt
           test "$(stat -c %s /tmp/battery-monitor-firmware/BatteryMonitor.ino.merged.bin)" -eq 4194304
+          test "$(tr -d '\r\n' < /tmp/battery-monitor-firmware/version.txt)" = '0.1.1'
+          grep -qx 'app_version=0.1.1' /tmp/battery-monitor-firmware/BUILD_AUTHORITY.txt
+          grep -qx 'software_release_sequence=11' /tmp/battery-monitor-firmware/BUILD_AUTHORITY.txt
+          grep -Fqx 'software_release_sequence_derivation=major*100+minor*10+patch' /tmp/battery-monitor-firmware/BUILD_AUTHORITY.txt
 
       - name: Upload unsigned CI firmware binaries
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: battery-monitor-esp32-CI-UNSIGNED-v0.1.0
+          name: battery-monitor-esp32-CI-UNSIGNED-v0.1.1
           path: /tmp/battery-monitor-firmware
 
   windows:
@@ -80,7 +85,7 @@ jobs:
       - name: Download exact unsigned CI firmware built by firmware job
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: battery-monitor-esp32-CI-UNSIGNED-v0.1.0
+          name: battery-monitor-esp32-CI-UNSIGNED-v0.1.1
           path: battery-monitor/windows/staging/firmware
 
       - name: Download and verify Espressif esptool 5.3.1
@@ -236,13 +241,13 @@ jobs:
       - name: Upload unsigned CI customer app
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: Battery-Monitor-Windows-Customer-CI-UNSIGNED-v0.1.0
+          name: Battery-Monitor-Windows-Customer-CI-UNSIGNED-v0.1.1
           path: battery-monitor/windows/publish/customer
 
       - name: Upload unsigned CI Factory Service app
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: Battery-Monitor-Factory-Service-CI-UNSIGNED-v0.1.0
+          name: Battery-Monitor-Factory-Service-CI-UNSIGNED-v0.1.1
           path: battery-monitor/windows/publish/factory
 
   android:
@@ -269,10 +274,10 @@ jobs:
         run: gradle -p battery-monitor/android :app:assembleDebug --stacktrace
 
       - name: Stage APK
-        run: cp battery-monitor/android/app/build/outputs/apk/debug/app-debug.apk /tmp/Battery-Monitor-Setup-v0.1.0.apk
+        run: cp battery-monitor/android/app/build/outputs/apk/debug/app-debug.apk /tmp/Battery-Monitor-Setup-v0.1.1.apk
 
       - name: Upload Android APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: Battery-Monitor-Setup-Android-v0.1.0
-          path: /tmp/Battery-Monitor-Setup-v0.1.0.apk
+          name: Battery-Monitor-Setup-Android-v0.1.1
+          path: /tmp/Battery-Monitor-Setup-v0.1.1.apk
