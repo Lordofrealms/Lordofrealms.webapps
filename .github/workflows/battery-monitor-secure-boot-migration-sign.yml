@@ -97,6 +97,8 @@ jobs:
           grep -qx "release_sequence=$MIGRATION_SEQUENCE" "$authority"
           grep -qx 'secure_boot=enabled-v2-rsa-remote-signing' "$authority"
           grep -qx 'minimum_esp32_revision=3.0-ECO3' "$authority"
+          grep -qx 'flash_encryption=enabled-release-mode' "$authority"
+          grep -qx 'flash_encryption_must_preexist=yes' "$authority"
           grep -qx 'normal_provisioning_default_secure_boot=unchanged-disabled' "$authority"
           grep -qx 'secure_boot_v2_unsigned_bootloader_limit=0xC000' "$authority"
 
@@ -209,6 +211,7 @@ jobs:
           secondary_detached_authorization=RSA-3072-PSS-SHA256
           detached_public_key_spki_sha256=$EXPECTED_DETACHED_KEY_FINGERPRINT
           flash_encryption_required=enabled-release-mode
+          flash_encryption_must_preexist=yes
           primary_bootloader_offset=0x1000
           primary_bootloader_region_size=0xE000
           secure_boot_v2_unsigned_bootloader_limit=0xC000
