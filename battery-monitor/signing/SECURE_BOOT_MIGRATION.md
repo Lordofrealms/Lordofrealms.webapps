@@ -98,6 +98,33 @@ replacement for the ESP32 eFuse digest.
 The resulting protected artifact is the only migration payload that should be
 presented to Factory & Service.
 
+## Pre-existing Flash Encryption guard
+
+The migration build must remain Flash Encryption **release mode** and is valid
+only for units that are already permanently release-encrypted. ESP-IDF 5.5.5's
+`CONFIG_SECURE_FLASH_REQUIRE_ALREADY_ENABLED` option is exposed only for Flash
+Encryption development mode, so it cannot be used as the retrofit guard without
+weakening the required release-mode configuration.
+
+Instead, the migration bootloader contains a project `bootloader_after_init`
+hook. After bootloader/eFuse initialization, but before partition/application
+loading and before Secure Boot v2 can permanently activate, the hook reads the
+existing Flash Encryption eFuse state. If it is not already RELEASE mode, the
+bootloader refuses migration and resets rather than proceeding toward Secure
+Boot activation.
+
+Migration CI proves this guard is linked into the exact unsigned bootloader and
+records:
+
+`flash_encryption_preexist_guard=bootloader-after-init-release-mode-efuse-check`
+
+in `MIGRATION_BUILD_AUTHORITY.txt`. Protected signing must require that exact
+authority before signing the candidate, propagate it into `MIGRATION_RELEASE.txt`,
+and Factory & Service must require the same field when loading the signed bundle.
+These checks are defense in depth; Factory still independently verifies
+release-mode Flash Encryption before staging and again before irreversible
+commit.
+
 ## Factory migration bundle
 
 Factory expects these exact files together:

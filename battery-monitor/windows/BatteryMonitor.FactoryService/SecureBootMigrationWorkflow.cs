@@ -339,6 +339,7 @@ internal sealed class SecureBootMigrationPackage
         Require(values, "secure_boot", "ESP32-Secure-Boot-v2-RSA-PSS");
         Require(values, "flash_encryption_required", "enabled-release-mode");
         Require(values, "flash_encryption_must_preexist", "yes");
+        Require(values, "flash_encryption_preexist_guard", "bootloader-after-init-release-mode-efuse-check");
         Require(values, "normal_provisioning_default_secure_boot", "unchanged-disabled");
         Require(values, "secure_boot_v2_unsigned_bootloader_limit", "0xC000");
         Require(values, "secure_boot_v2_signed_bootloader_limit", "0xD000");
