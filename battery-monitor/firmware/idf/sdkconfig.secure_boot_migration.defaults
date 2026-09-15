@@ -1,6 +1,6 @@
 # Factory-only Secure Boot retrofit build overlay.
 #
-# This overlays sdkconfig.defaults and is never used by normal 0.1.0.11
+# This overlays sdkconfig.defaults and is never used by normal 0.1.1
 # production provisioning. It builds an ECO3+ ESP32 Secure Boot v2 candidate
 # while keeping remote signing: CI has no Secure Boot private key.
 CONFIG_ESP32_REV_MIN_3=y
@@ -15,12 +15,14 @@ CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
 
 # Keep existing release-mode Flash Encryption/NVS encryption and leave hardware
 # application anti-rollback disabled during the retrofit validation phase. This
-# candidate is only for units that are already permanently encrypted; make the
-# bootloader refuse to enter ESP-IDF's first-time flash-encryption provisioning
-# path if that prerequisite is unexpectedly absent at reboot.
+# candidate is only for units that are already permanently encrypted.
 CONFIG_SECURE_FLASH_ENC_ENABLED=y
 CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y
-CONFIG_SECURE_FLASH_REQUIRE_ALREADY_ENABLED=y
+# ESP-IDF 5.5.5 only exposes CONFIG_SECURE_FLASH_REQUIRE_ALREADY_ENABLED when
+# Flash Encryption DEVELOPMENT mode is selected, so that option cannot be used
+# here. The project bootloader component batmon_migration_guard enforces the
+# stronger migration prerequisite directly from the existing eFuses before
+# Secure Boot activation: Flash Encryption must already be in RELEASE mode.
 # The retrofit intentionally enables Secure Boot after Flash Encryption already
 # exists. Classic ESP32 must never select the factory-style mode which expects
 # both feature keys to be provisioned in the same first-boot transaction.

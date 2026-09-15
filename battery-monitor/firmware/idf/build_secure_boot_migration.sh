@@ -72,7 +72,6 @@ for required in \
   'CONFIG_SECURE_BOOT_V2_ENABLED=y' \
   'CONFIG_SECURE_FLASH_ENC_ENABLED=y' \
   'CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y' \
-  'CONFIG_SECURE_FLASH_REQUIRE_ALREADY_ENABLED=y' \
   'CONFIG_NVS_ENCRYPTION=y' \
   'CONFIG_NVS_SEC_KEY_PROTECT_USING_FLASH_ENC=y' \
   'CONFIG_PARTITION_TABLE_OFFSET=0xF000'; do
@@ -81,6 +80,14 @@ for required in \
     exit 3
   fi
 done
+# CONFIG_SECURE_FLASH_REQUIRE_ALREADY_ENABLED cannot coexist with Release mode
+# in ESP-IDF 5.5.5: Kconfig exposes it only in Development mode. The migration
+# therefore enforces the pre-existing RELEASE-mode prerequisite in a custom
+# bootloader after-init hook, before ESP-IDF reaches Secure Boot activation.
+if grep -qx 'CONFIG_SECURE_FLASH_REQUIRE_ALREADY_ENABLED=y' sdkconfig; then
+  echo 'Unexpected ESP-IDF configuration: REQUIRE_ALREADY_ENABLED must not replace the release-mode migration guard.' >&2
+  exit 3
+fi
 if grep -qx 'CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=y' sdkconfig; then
   echo 'CI migration build must remain remotely signed; private Secure Boot key must not be required here.' >&2
   exit 3
@@ -96,8 +103,23 @@ fi
 
 APP_BIN="$PROJECT_DIR/build/BatteryMonitor.bin"
 BOOT_BIN="$PROJECT_DIR/build/bootloader/bootloader.bin"
+BOOT_ELF="$PROJECT_DIR/build/bootloader/bootloader.elf"
 test -f "$APP_BIN" || { echo 'Secure Boot migration application binary missing.' >&2; exit 3; }
 test -f "$BOOT_BIN" || { echo 'Secure Boot migration bootloader binary missing.' >&2; exit 3; }
+test -f "$BOOT_ELF" || { echo 'Secure Boot migration bootloader ELF missing.' >&2; exit 3; }
+
+# Prove the custom fail-closed migration hook was linked into the exact
+# bootloader being handed to the protected signer. This hook reads the existing
+# eFuse state after bootloader initialization and resets before partition/app
+# loading unless Flash Encryption is already in RELEASE mode.
+if ! xtensa-esp32-elf-nm "$BOOT_ELF" | grep -Eq '[[:space:]]T[[:space:]]+bootloader_after_init$'; then
+  echo 'Secure Boot migration fail-closed bootloader_after_init hook is not linked.' >&2
+  exit 3
+fi
+if ! grep -aFq 'Battery Monitor migration requires pre-existing release-mode Flash Encryption' "$BOOT_BIN"; then
+  echo 'Secure Boot migration bootloader is missing the pre-existing release-mode Flash Encryption guard.' >&2
+  exit 3
+fi
 
 # Remote Secure Boot v2 signing appends one 4 KiB signature sector. Prove the
 # final signed images can still fit the already-deployed partitions before they
@@ -161,6 +183,7 @@ secure_boot_build_signed_binaries=disabled-protected-workflow-signs
 minimum_esp32_revision=3.0-ECO3
 flash_encryption=enabled-release-mode
 flash_encryption_must_preexist=yes
+flash_encryption_preexist_guard=bootloader-after-init-release-mode-efuse-check
 secure_boot_flash_enc_keys_burn_together=disabled
 nvs_encryption=enabled
 hardware_efuse_app_anti_rollback=disabled-during-migration-validation
