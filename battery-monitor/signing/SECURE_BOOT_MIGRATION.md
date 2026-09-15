@@ -121,6 +121,10 @@ records:
 in `MIGRATION_BUILD_AUTHORITY.txt`. Protected signing must require that exact
 authority before signing the candidate, propagate it into `MIGRATION_RELEASE.txt`,
 and Factory & Service must require the same field when loading the signed bundle.
+The protected signer also searches the exact unsigned bootloader for the guard's
+refusal marker before signing, and Factory repeats that byte-level marker check
+on the detached-signature-verified signed bootloader. This binds the requirement
+to the actual bootloader bytes instead of trusting editable metadata alone.
 These checks are defense in depth; Factory still independently verifies
 release-mode Flash Encryption before staging and again before irreversible
 commit.

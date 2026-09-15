@@ -326,6 +326,11 @@ internal sealed class SecureBootMigrationPackage
         FirmwareSignatureVerifier.VerifyOrThrow(ApplicationPath, ApplicationSignaturePath);
         FirmwareSignatureVerifier.VerifyOrThrow(BootloaderPath, BootloaderSignaturePath);
 
+        var bootloaderBytes = File.ReadAllBytes(BootloaderPath);
+        var flashEncryptionGuardMarker = System.Text.Encoding.ASCII.GetBytes("Battery Monitor migration requires pre-existing release-mode Flash Encryption; refusing before Secure Boot activation.");
+        if (bootloaderBytes.AsSpan().IndexOf(flashEncryptionGuardMarker) < 0)
+            throw new CryptographicException("Migration bootloader is missing the fail-closed pre-existing release-mode Flash Encryption guard.");
+
         var values = File.ReadAllLines(MetadataPath)
             .Select(line => line.Trim())
             .Where(line => line.Length > 0 && !line.StartsWith('#'))

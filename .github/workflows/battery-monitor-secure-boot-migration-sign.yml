@@ -103,6 +103,7 @@ jobs:
           grep -qx 'flash_encryption=enabled-release-mode' "$authority"
           grep -qx 'flash_encryption_must_preexist=yes' "$authority"
           grep -qx 'flash_encryption_preexist_guard=bootloader-after-init-release-mode-efuse-check' "$authority"
+          grep -aFq 'Battery Monitor migration requires pre-existing release-mode Flash Encryption; refusing before Secure Boot activation.' "$boot"
           grep -qx 'normal_provisioning_default_secure_boot=unchanged-disabled' "$authority"
           grep -qx 'secure_boot_v2_unsigned_bootloader_limit=0xC000' "$authority"
 
