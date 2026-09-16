@@ -8,7 +8,7 @@
 
 Always resolve the live `battery-monitor-dev` head before modifying source. Read root `AGENTS.md` first; it contains repository-wide design criteria.
 
-Do not assume a SHA in this file is the current branch head. The SHAs below identify exact validated source/artifact authorities.
+Do not assume a SHA in this file is the current branch head. The SHAs below identify exact validated source/artifact authorities. Later documentation or protected-workflow hardening commits do not invalidate an earlier exact CI artifact unless relevant build/runtime source changed.
 
 ## B. Mandatory version authority
 
@@ -183,7 +183,7 @@ Classic ESP32 Secure Boot v2 constraints remain:
 
 The migration build uses remote/protected Secure Boot signing. CI must not require the Secure Boot private key. Retrofit requires Flash Encryption to pre-exist and explicitly forbids burning Secure Boot and Flash Encryption keys together.
 
-## H. Protected signing status
+## H. Protected signing status and key authority
 
 Normal protected signer:
 
@@ -196,6 +196,23 @@ Migration protected signer:
 - workflow: `.github/workflows/battery-monitor-secure-boot-migration-sign.yml`;
 - intended candidate inputs: source SHA `ec4c7200debd2fb27a5e63e45670110cb7d9065d`, migration CI run ID `35011782807`, version `0.1.2`;
 - status: **not yet protected-signed/verified as the final migration bundle**.
+
+The migration signer was hardened after candidate CI without changing the candidate bytes. Protected signing now additionally requires:
+
+- `BATMON_SECURE_BOOT_V2_SIGNING_KEY_B64`;
+- `BATMON_SECURE_BOOT_V2_SIGNING_KEY_PASSWORD`;
+- `BATMON_SECURE_BOOT_V2_EXPECTED_SPKI_SHA256` containing the offline-recorded 64-hex SHA-256 fingerprint of the hardware Secure Boot key's DER SubjectPublicKeyInfo;
+- existing detached firmware signing secrets.
+
+Before signing any migration image, the workflow now:
+
+- proves the Secure Boot key is RSA-3072;
+- recomputes its SPKI SHA-256 fingerprint and requires exact match to `BATMON_SECURE_BOOT_V2_EXPECTED_SPKI_SHA256`;
+- requires the hardware Secure Boot key fingerprint to differ from the detached firmware-authorization key fingerprint;
+- accepts migration candidate CI only from successful `push` or `workflow_dispatch` runs;
+- still verifies exact source SHA, workflow path, candidate bytes, authority metadata, guard marker, hashes and size limits.
+
+This closes the accidental-key-substitution risk before irreversible hardware Secure Boot identity is established. See `battery-monitor/signing/SECURE_BOOT_MIGRATION.md`.
 
 No `0.1.1` or `0.1.2` production signed release should be claimed until the corresponding protected workflow succeeds and the resulting exact bytes/signatures are independently verified.
 
@@ -216,6 +233,8 @@ Host-side requirements include:
 - detached signature verification using the pinned Battery Monitor trust root;
 - signed bootloader transfer rejection above `0xD000`;
 - stable device identity binding through preflight, staging, commit and post-reboot verification.
+
+Factory verifies actual detached-signed image bytes before using release metadata, checks metadata hashes/sizes against those bytes, and later requires the device-reported installed version and release sequence to match the selected package before bootloader staging and irreversible commit.
 
 ## J. Device-side migration state machine
 
@@ -256,21 +275,22 @@ Operational requirements:
 
 ## L. Remaining validation sequence
 
-Software CI candidate validation is now green for both normal `0.1.1` and migration `0.1.2` exact authorities listed above.
+Software CI candidate validation is green for both normal `0.1.1` and migration `0.1.2` exact authorities listed above.
 
 Remaining gates:
 
 1. run protected normal signing for exact source `8b915af1e1e9f2e501eea92b4b51f78693d3293a` / CI run `35041162169` / version `0.1.1`;
 2. independently verify signed normal firmware metadata, signatures, hashes and package separation, including the packaged Security-2 helper;
-3. run protected migration signing for exact source `ec4c7200debd2fb27a5e63e45670110cb7d9065d` / migration CI run `35011782807` / version `0.1.2`;
-4. independently verify the signed migration bundle metadata, Secure Boot signatures, detached signatures, hashes and sizes;
-5. load the final migration bundle through Factory Service;
-6. install `0.1.2` on one eligible already-encrypted ECO3+ unit under stable power;
-7. allow rollback probation and sequence-12 floor commit to finish;
-8. stage/verify/commit the signed bootloader;
-9. reboot and verify Secure Boot is enabled while Flash Encryption remains release mode;
-10. verify a later strictly newer normal signed application OTA still works with Secure Boot active;
-11. only then consider broader migration or Secure Boot as a normal factory default.
+3. confirm the protected environment contains the correct offline-recorded `BATMON_SECURE_BOOT_V2_EXPECTED_SPKI_SHA256` value for the intended long-term hardware Secure Boot key;
+4. run protected migration signing for exact source `ec4c7200debd2fb27a5e63e45670110cb7d9065d` / migration CI run `35011782807` / version `0.1.2`;
+5. independently verify the signed migration bundle metadata, verified Secure Boot key fingerprint, Secure Boot signatures, detached signatures, hashes and sizes;
+6. load the final migration bundle through Factory Service;
+7. install `0.1.2` on one eligible already-encrypted ECO3+ unit under stable power;
+8. allow rollback probation and sequence-12 floor commit to finish;
+9. stage/verify/commit the signed bootloader;
+10. reboot and verify Secure Boot is enabled while Flash Encryption remains release mode;
+11. verify a later strictly newer normal signed application OTA still works with Secure Boot active;
+12. only then consider broader migration or Secure Boot as a normal factory default.
 
 ## M. Canonical architecture authority
 
@@ -303,14 +323,14 @@ Resolve the live branch head, then read:
 7. `.github/workflows/battery-monitor-secure-boot-migration-ci.yml`
 8. `.github/workflows/battery-monitor-secure-boot-migration-sign.yml`
 9. `battery-monitor/windows/esp_provision_helper.py`
-10. `battery-monitor/firmware/idf/build.sh`
-11. `battery-monitor/firmware/idf/build_secure_boot_migration.sh`
-12. `battery-monitor/firmware/BatteryMonitor/FirmwareReleasePolicy.ino`
-13. `battery-monitor/firmware/idf/sdkconfig.secure_boot_migration.defaults`
-14. `battery-monitor/firmware/idf/main/BatteryMonitorApp.cpp`
-15. `battery-monitor/firmware/BatteryMonitor/SecureBootMigration.ino`
-16. `battery-monitor/windows/BatteryMonitor.FactoryService/SecureBootMigrationWorkflow.cs`
-17. `battery-monitor/windows/BatteryMonitor.FactoryService/UsbSecureBootMigrationProvisioner.cs`
-18. `battery-monitor/signing/SECURE_BOOT_MIGRATION.md`
+10. `battery-monitor/signing/SECURE_BOOT_MIGRATION.md`
+11. `battery-monitor/firmware/idf/build.sh`
+12. `battery-monitor/firmware/idf/build_secure_boot_migration.sh`
+13. `battery-monitor/firmware/BatteryMonitor/FirmwareReleasePolicy.ino`
+14. `battery-monitor/firmware/idf/sdkconfig.secure_boot_migration.defaults`
+15. `battery-monitor/firmware/idf/main/BatteryMonitorApp.cpp`
+16. `battery-monitor/firmware/BatteryMonitor/SecureBootMigration.ino`
+17. `battery-monitor/windows/BatteryMonitor.FactoryService/SecureBootMigrationWorkflow.cs`
+18. `battery-monitor/windows/BatteryMonitor.FactoryService/UsbSecureBootMigrationProvisioner.cs`
 
 Key distinction: **`0.1.1` is the validated normal CI candidate with Secure Boot off by default; `0.1.2` is the validated Factory-only Secure Boot retrofit CI candidate for eligible already-encrypted ECO3+ units. Neither is yet the final verified protected-signed production release.**
