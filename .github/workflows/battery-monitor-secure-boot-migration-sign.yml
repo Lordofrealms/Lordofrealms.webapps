@@ -27,12 +27,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: battery-monitor-production-signing
     env:
-      BATMON_SECURE_BOOT_V2_SIGNING_KEY_B64: ${{ secrets.BATMON_SECURE_BOOT_V2_SIGNING_KEY_B64 }}
-      BATMON_SECURE_BOOT_V2_SIGNING_KEY_PASSWORD: ${{ secrets.BATMON_SECURE_BOOT_V2_SIGNING_KEY_PASSWORD }}
-      EXPECTED_SECURE_BOOT_KEY_FINGERPRINT: ${{ secrets.BATMON_SECURE_BOOT_V2_EXPECTED_SPKI_SHA256 }}
       BATMON_FIRMWARE_SIGNING_KEY_B64: ${{ secrets.BATMON_FIRMWARE_SIGNING_KEY_B64 }}
       BATMON_FIRMWARE_SIGNING_KEY_PASSWORD: ${{ secrets.BATMON_FIRMWARE_SIGNING_KEY_PASSWORD }}
-      EXPECTED_DETACHED_KEY_FINGERPRINT: 69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e
+      EXPECTED_KEY_FINGERPRINT: 69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e
     steps:
       - name: Validate requested source/run
         shell: bash
@@ -142,34 +139,25 @@ jobs:
           "$idf/install.sh" esp32
           echo "IDF_PATH=$idf" >> "$GITHUB_ENV"
 
-      - name: Secure-Boot-v2 sign and independently detached-sign migration images
+      - name: Secure-Boot-v2 sign and detached-sign migration images with existing Battery Monitor key
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$BATMON_SECURE_BOOT_V2_SIGNING_KEY_B64" || { echo 'BATMON_SECURE_BOOT_V2_SIGNING_KEY_B64 is not configured.' >&2; exit 1; }
-          test -n "$BATMON_SECURE_BOOT_V2_SIGNING_KEY_PASSWORD" || { echo 'BATMON_SECURE_BOOT_V2_SIGNING_KEY_PASSWORD is not configured.' >&2; exit 1; }
-          test -n "$EXPECTED_SECURE_BOOT_KEY_FINGERPRINT" || { echo 'BATMON_SECURE_BOOT_V2_EXPECTED_SPKI_SHA256 is not configured.' >&2; exit 1; }
-          [[ "$EXPECTED_SECURE_BOOT_KEY_FINGERPRINT" =~ ^[0-9a-fA-F]{64}$ ]] || { echo 'Expected Secure Boot key fingerprint must be exactly 64 hexadecimal characters.' >&2; exit 1; }
-          EXPECTED_SECURE_BOOT_KEY_FINGERPRINT="${EXPECTED_SECURE_BOOT_KEY_FINGERPRINT,,}"
-          test -n "$BATMON_FIRMWARE_SIGNING_KEY_B64" || { echo 'Detached firmware signing key is not configured.' >&2; exit 1; }
-          test -n "$BATMON_FIRMWARE_SIGNING_KEY_PASSWORD" || { echo 'Detached firmware signing key password is not configured.' >&2; exit 1; }
+          test -n "$BATMON_FIRMWARE_SIGNING_KEY_B64" || { echo 'BATMON_FIRMWARE_SIGNING_KEY_B64 is not configured.' >&2; exit 1; }
+          test -n "$BATMON_FIRMWARE_SIGNING_KEY_PASSWORD" || { echo 'BATMON_FIRMWARE_SIGNING_KEY_PASSWORD is not configured.' >&2; exit 1; }
 
-          encrypted_sb=/tmp/secure-boot-v2-key.encrypted.pem
-          sbkey=/tmp/secure-boot-v2-key.pem
-          detached=/tmp/batmon-detached-key.pem
-          trap 'rm -f "$encrypted_sb" "$sbkey" "$detached"' EXIT
-          printf '%s' "$BATMON_SECURE_BOOT_V2_SIGNING_KEY_B64" | base64 --decode > "$encrypted_sb"
-          chmod 600 "$encrypted_sb"
-          openssl pkey -in "$encrypted_sb" -passin env:BATMON_SECURE_BOOT_V2_SIGNING_KEY_PASSWORD -out "$sbkey"
-          chmod 600 "$sbkey"
-          openssl pkey -in "$sbkey" -text -noout | grep -Fq 'Private-Key: (3072 bit' || { echo 'Secure Boot v2 key must be RSA-3072.' >&2; exit 1; }
-          sb_fingerprint="$(openssl pkey -in "$sbkey" -pubout -outform DER | sha256sum | awk '{print $1}')"
-          test "$sb_fingerprint" = "$EXPECTED_SECURE_BOOT_KEY_FINGERPRINT" || { echo "Secure Boot signing key fingerprint mismatch: $sb_fingerprint" >&2; exit 1; }
-          test "$sb_fingerprint" != "$EXPECTED_DETACHED_KEY_FINGERPRINT" || { echo 'Secure Boot v2 key must be distinct from the detached firmware authorization key.' >&2; exit 1; }
-
-          printf '%s' "$BATMON_FIRMWARE_SIGNING_KEY_B64" | base64 --decode > "$detached"
-          detached_fingerprint="$(openssl pkey -in "$detached" -passin env:BATMON_FIRMWARE_SIGNING_KEY_PASSWORD -pubout -outform DER | sha256sum | awk '{print $1}')"
-          test "$detached_fingerprint" = "$EXPECTED_DETACHED_KEY_FINGERPRINT" || { echo "Detached signing key mismatch: $detached_fingerprint" >&2; exit 1; }
+          encrypted_key=/tmp/batmon-signing-key.encrypted.pem
+          signing_key=/tmp/batmon-signing-key.pem
+          trap 'rm -f "$encrypted_key" "$signing_key"' EXIT
+          printf '%s' "$BATMON_FIRMWARE_SIGNING_KEY_B64" | base64 --decode > "$encrypted_key"
+          chmod 600 "$encrypted_key"
+          openssl pkey -in "$encrypted_key" -passin env:BATMON_FIRMWARE_SIGNING_KEY_PASSWORD -out "$signing_key"
+          chmod 600 "$signing_key"
+          openssl pkey -in "$signing_key" -text -noout | grep -Fq 'Private-Key: (3072 bit' || { echo 'Battery Monitor signing key must be RSA-3072.' >&2; exit 1; }
+          key_fingerprint="$(openssl pkey -in "$signing_key" -pubout -outform DER | sha256sum | awk '{print $1}')"
+          test "$key_fingerprint" = "$EXPECTED_KEY_FINGERPRINT" || { echo "Battery Monitor signing key fingerprint mismatch: $key_fingerprint" >&2; exit 1; }
+          public_fingerprint="$(openssl pkey -pubin -in battery-monitor/signing/battery_monitor_secureboot_rsa3072_public.pem -outform DER | sha256sum | awk '{print $1}')"
+          test "$public_fingerprint" = "$EXPECTED_KEY_FINGERPRINT" || { echo "Repository Battery Monitor public key fingerprint mismatch: $public_fingerprint" >&2; exit 1; }
 
           . "$IDF_PATH/export.sh"
           espsecure="$IDF_PATH/components/esptool_py/esptool/espsecure.py"
@@ -181,10 +169,10 @@ jobs:
           unsigned_app_size="$(stat -c %s "$unsigned_app")"
           unsigned_boot_size="$(stat -c %s "$unsigned_boot")"
 
-          python "$espsecure" sign_data --version 2 --keyfile "$sbkey" --output "$app" "$unsigned_app"
-          python "$espsecure" sign_data --version 2 --keyfile "$sbkey" --output "$boot" "$unsigned_boot"
-          python "$espsecure" verify_signature --version 2 --keyfile "$sbkey" "$app"
-          python "$espsecure" verify_signature --version 2 --keyfile "$sbkey" "$boot"
+          python "$espsecure" sign_data --version 2 --keyfile "$signing_key" --output "$app" "$unsigned_app"
+          python "$espsecure" sign_data --version 2 --keyfile "$signing_key" --output "$boot" "$unsigned_boot"
+          python "$espsecure" verify_signature --version 2 --keyfile "$signing_key" "$app"
+          python "$espsecure" verify_signature --version 2 --keyfile "$signing_key" "$boot"
 
           app_size="$(stat -c %s "$app")"
           boot_size="$(stat -c %s "$boot")"
@@ -197,8 +185,7 @@ jobs:
 
           for image in "$app" "$boot"; do
             openssl dgst -sha256 \
-              -sign "$detached" \
-              -passin env:BATMON_FIRMWARE_SIGNING_KEY_PASSWORD \
+              -sign "$signing_key" \
               -sigopt rsa_padding_mode:pss \
               -sigopt rsa_pss_saltlen:-1 \
               -out "$image.sig" \
@@ -224,9 +211,10 @@ jobs:
           migration_scope=existing-release-encrypted-ECO3-plus-units-only
           minimum_esp32_revision=3.0-ECO3
           secure_boot=ESP32-Secure-Boot-v2-RSA-PSS
-          secure_boot_public_key_spki_sha256=$sb_fingerprint
+          signing_key_authority=shared-existing-battery-monitor-rsa3072
+          secure_boot_public_key_spki_sha256=$key_fingerprint
           secondary_detached_authorization=RSA-3072-PSS-SHA256
-          detached_public_key_spki_sha256=$EXPECTED_DETACHED_KEY_FINGERPRINT
+          detached_public_key_spki_sha256=$key_fingerprint
           flash_encryption_required=enabled-release-mode
           flash_encryption_must_preexist=yes
           flash_encryption_preexist_guard=bootloader-after-init-release-mode-efuse-check
