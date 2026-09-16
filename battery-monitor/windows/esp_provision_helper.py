@@ -8,10 +8,12 @@ printed. Espressif's pinned esp_prov implementation supplies SRP6a + AES-GCM.
 
 import asyncio
 import contextlib
+import importlib.util
 import io
 import json
 import os
 import sys
+import types
 
 # Espressif's esp_prov package loads generated protocomm protobuf modules from
 # IDF_PATH at import time. The packaged Windows helper carries only the pinned
@@ -23,6 +25,63 @@ if "IDF_PATH" not in os.environ:
         bundled_idf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "idf")
         if os.path.isdir(bundled_idf):
             os.environ["IDF_PATH"] = bundled_idf
+
+
+def _load_generated_proto(name: str, path: str):
+    """Load one pinned generated protobuf module from an explicit bundled path."""
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not load required provisioning protobuf module {name}.")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _install_frozen_proto_shim() -> None:
+    """Preserve Espressif's proto-module contract inside a PyInstaller bundle.
+
+    The pinned upstream ``proto/__init__.py`` finds the network provisioning
+    generated modules by walking ``../../python`` from its source-tree location.
+    PyInstaller intentionally flattens that package into ``_MEIPASS/proto``, so
+    the same relative walk points outside the extraction directory. In frozen
+    builds we preload the exact modules that upstream exposes on ``proto`` from
+    the two pinned data roots instead. Non-frozen execution continues to use the
+    unmodified upstream loader.
+    """
+    if not (getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")):
+        return
+
+    bundle_root = sys._MEIPASS
+    idf_proto = os.path.join(bundle_root, "idf", "components", "protocomm", "python")
+    network_proto = os.path.join(bundle_root, "python")
+
+    proto = types.ModuleType("proto")
+    proto.__file__ = os.path.join(bundle_root, "proto-shim")
+    proto.__package__ = "proto"
+    proto.__path__ = []
+    sys.modules["proto"] = proto
+
+    # Match the pinned Espressif proto/__init__.py load order. Generated modules
+    # can import modules loaded earlier in this sequence by their top-level name.
+    module_paths = [
+        ("constants_pb2", os.path.join(idf_proto, "constants_pb2.py")),
+        ("sec0_pb2", os.path.join(idf_proto, "sec0_pb2.py")),
+        ("sec1_pb2", os.path.join(idf_proto, "sec1_pb2.py")),
+        ("sec2_pb2", os.path.join(idf_proto, "sec2_pb2.py")),
+        ("session_pb2", os.path.join(idf_proto, "session_pb2.py")),
+        ("network_constants_pb2", os.path.join(network_proto, "network_constants_pb2.py")),
+        ("network_config_pb2", os.path.join(network_proto, "network_config_pb2.py")),
+        ("network_scan_pb2", os.path.join(network_proto, "network_scan_pb2.py")),
+        ("network_ctrl_pb2", os.path.join(network_proto, "network_ctrl_pb2.py")),
+    ]
+    for name, path in module_paths:
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"Required provisioning protobuf module is missing: {name}")
+        setattr(proto, name, _load_generated_proto(name, path))
+
+
+_install_frozen_proto_shim()
 
 import esp_prov
 
