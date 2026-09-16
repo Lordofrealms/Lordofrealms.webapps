@@ -147,6 +147,7 @@ jobs:
             --onefile `
             --name BatteryMonitorEspProv `
             --paths $provDir `
+            --collect-all google.protobuf `
             --add-data "$idfProto;idf/components/protocomm/python" `
             --add-data "$networkProto;python" `
             battery-monitor/windows/esp_provision_helper.py
@@ -166,11 +167,23 @@ jobs:
           source license: Apache-2.0
           "@ | Set-Content "$helperDir/PINNED-SOURCE.txt"
 
-          $helperOutput = '{"protocol":"INVALID"}' | & "$helperDir/BatteryMonitorEspProv.exe"
-          $helperExit = $LASTEXITCODE
-          if ($helperExit -ne 1) { throw "Provisioning helper smoke test returned unexpected exit code $helperExit" }
-          if ($helperOutput -notmatch 'BATMONPROV1') { throw 'Standalone provisioning helper did not start correctly' }
-          $global:LASTEXITCODE = 0
+          $smokeDir = Join-Path $env:RUNNER_TEMP 'batmon-esp-prov-smoke'
+          New-Item -ItemType Directory -Force -Path $smokeDir | Out-Null
+          $stdinPath = Join-Path $smokeDir 'stdin.txt'
+          $stdoutPath = Join-Path $smokeDir 'stdout.txt'
+          $stderrPath = Join-Path $smokeDir 'stderr.txt'
+          Set-Content -Path $stdinPath -Value '{"protocol":"INVALID"}' -NoNewline
+          $helperExe = (Resolve-Path "$helperDir/BatteryMonitorEspProv.exe").Path
+          $proc = Start-Process -FilePath $helperExe -RedirectStandardInput $stdinPath -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -Wait -PassThru
+          $helperError = [string](Get-Content $stderrPath -Raw)
+          if ($proc.ExitCode -ne 1) { throw "Provisioning helper smoke test returned unexpected exit code $($proc.ExitCode)" }
+          if (-not [string]::IsNullOrWhiteSpace($helperError)) { throw "Provisioning helper wrote unexpected stderr: $helperError" }
+          $helperLines = @(Get-Content $stdoutPath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+          if ($helperLines.Count -ne 1) { throw "Provisioning helper smoke test expected one JSON response, got $($helperLines.Count) lines" }
+          $response = $helperLines[0] | ConvertFrom-Json
+          if ($response.protocol -ne 'BATMONPROV1' -or $response.kind -ne 'result' -or $response.ok -ne $false -or $response.message -ne 'Unsupported provisioning helper protocol.') {
+            throw "Provisioning helper returned unexpected smoke-test response: $($helperLines[0])"
+          }
 
       - name: Restore and build both Windows applications
         shell: pwsh
