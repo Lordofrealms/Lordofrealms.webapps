@@ -29,6 +29,7 @@ jobs:
     env:
       BATMON_SECURE_BOOT_V2_SIGNING_KEY_B64: ${{ secrets.BATMON_SECURE_BOOT_V2_SIGNING_KEY_B64 }}
       BATMON_SECURE_BOOT_V2_SIGNING_KEY_PASSWORD: ${{ secrets.BATMON_SECURE_BOOT_V2_SIGNING_KEY_PASSWORD }}
+      EXPECTED_SECURE_BOOT_KEY_FINGERPRINT: ${{ secrets.BATMON_SECURE_BOOT_V2_EXPECTED_SPKI_SHA256 }}
       BATMON_FIRMWARE_SIGNING_KEY_B64: ${{ secrets.BATMON_FIRMWARE_SIGNING_KEY_B64 }}
       BATMON_FIRMWARE_SIGNING_KEY_PASSWORD: ${{ secrets.BATMON_FIRMWARE_SIGNING_KEY_PASSWORD }}
       EXPECTED_DETACHED_KEY_FINGERPRINT: 69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e
@@ -76,6 +77,11 @@ jobs:
           test "$(jq -r '.head_sha' <<<"$run_json")" = "$EXPECTED_SOURCE_SHA" || { echo 'CI source SHA mismatch.' >&2; exit 1; }
           test "$(jq -r '.conclusion' <<<"$run_json")" = 'success' || { echo 'Migration CI run was not successful.' >&2; exit 1; }
           test "$(jq -r '.path' <<<"$run_json")" = '.github/workflows/battery-monitor-secure-boot-migration-ci.yml' || { echo 'Unexpected CI workflow.' >&2; exit 1; }
+          event="$(jq -r '.event' <<<"$run_json")"
+          if [[ "$event" != 'push' && "$event" != 'workflow_dispatch' ]]; then
+            echo "Migration CI run event '$event' is not an accepted release-promotion source." >&2
+            exit 1
+          fi
 
       - name: Download exact unsigned migration candidate
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -142,6 +148,9 @@ jobs:
           set -euo pipefail
           test -n "$BATMON_SECURE_BOOT_V2_SIGNING_KEY_B64" || { echo 'BATMON_SECURE_BOOT_V2_SIGNING_KEY_B64 is not configured.' >&2; exit 1; }
           test -n "$BATMON_SECURE_BOOT_V2_SIGNING_KEY_PASSWORD" || { echo 'BATMON_SECURE_BOOT_V2_SIGNING_KEY_PASSWORD is not configured.' >&2; exit 1; }
+          test -n "$EXPECTED_SECURE_BOOT_KEY_FINGERPRINT" || { echo 'BATMON_SECURE_BOOT_V2_EXPECTED_SPKI_SHA256 is not configured.' >&2; exit 1; }
+          [[ "$EXPECTED_SECURE_BOOT_KEY_FINGERPRINT" =~ ^[0-9a-fA-F]{64}$ ]] || { echo 'Expected Secure Boot key fingerprint must be exactly 64 hexadecimal characters.' >&2; exit 1; }
+          EXPECTED_SECURE_BOOT_KEY_FINGERPRINT="${EXPECTED_SECURE_BOOT_KEY_FINGERPRINT,,}"
           test -n "$BATMON_FIRMWARE_SIGNING_KEY_B64" || { echo 'Detached firmware signing key is not configured.' >&2; exit 1; }
           test -n "$BATMON_FIRMWARE_SIGNING_KEY_PASSWORD" || { echo 'Detached firmware signing key password is not configured.' >&2; exit 1; }
 
@@ -155,6 +164,8 @@ jobs:
           chmod 600 "$sbkey"
           openssl pkey -in "$sbkey" -text -noout | grep -Fq 'Private-Key: (3072 bit' || { echo 'Secure Boot v2 key must be RSA-3072.' >&2; exit 1; }
           sb_fingerprint="$(openssl pkey -in "$sbkey" -pubout -outform DER | sha256sum | awk '{print $1}')"
+          test "$sb_fingerprint" = "$EXPECTED_SECURE_BOOT_KEY_FINGERPRINT" || { echo "Secure Boot signing key fingerprint mismatch: $sb_fingerprint" >&2; exit 1; }
+          test "$sb_fingerprint" != "$EXPECTED_DETACHED_KEY_FINGERPRINT" || { echo 'Secure Boot v2 key must be distinct from the detached firmware authorization key.' >&2; exit 1; }
 
           printf '%s' "$BATMON_FIRMWARE_SIGNING_KEY_B64" | base64 --decode > "$detached"
           detached_fingerprint="$(openssl pkey -in "$detached" -passin env:BATMON_FIRMWARE_SIGNING_KEY_PASSWORD -pubout -outform DER | sha256sum | awk '{print $1}')"
