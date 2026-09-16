@@ -321,11 +321,29 @@ jobs:
           $provDir = Join-Path $vendor 'network_provisioning/tool/esp_prov'
           $networkProto = Join-Path $vendor 'network_provisioning/python'
           $idfProto = Join-Path $idf 'components/protocomm/python'
-          python -m PyInstaller --noconfirm --clean --onefile --name BatteryMonitorEspProv --paths $provDir --add-data "$idfProto;idf/components/protocomm/python" --add-data "$networkProto;python" battery-monitor/windows/esp_provision_helper.py
+          python -m PyInstaller --noconfirm --clean --onefile --name BatteryMonitorEspProv --paths $provDir --collect-all google.protobuf --add-data "$idfProto;idf/components/protocomm/python" --add-data "$networkProto;python" battery-monitor/windows/esp_provision_helper.py
           $helperDir = 'battery-monitor/windows/staging/esp-provisioner'
           New-Item -ItemType Directory -Force -Path $helperDir | Out-Null
           Copy-Item dist/BatteryMonitorEspProv.exe "$helperDir/BatteryMonitorEspProv.exe"
           Copy-Item "$vendor/json_parser/LICENSE" "$helperDir/APACHE-2.0.txt"
+
+          $smokeDir = Join-Path $env:RUNNER_TEMP 'batmon-esp-prov-smoke'
+          New-Item -ItemType Directory -Force -Path $smokeDir | Out-Null
+          $stdinPath = Join-Path $smokeDir 'stdin.txt'
+          $stdoutPath = Join-Path $smokeDir 'stdout.txt'
+          $stderrPath = Join-Path $smokeDir 'stderr.txt'
+          Set-Content -Path $stdinPath -Value '{"protocol":"INVALID"}' -NoNewline
+          $helperExe = (Resolve-Path "$helperDir/BatteryMonitorEspProv.exe").Path
+          $proc = Start-Process -FilePath $helperExe -RedirectStandardInput $stdinPath -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -Wait -PassThru
+          $helperError = [string](Get-Content $stderrPath -Raw)
+          if ($proc.ExitCode -ne 1) { throw "Provisioning helper smoke test returned unexpected exit code $($proc.ExitCode)" }
+          if (-not [string]::IsNullOrWhiteSpace($helperError)) { throw "Provisioning helper wrote unexpected stderr: $helperError" }
+          $helperLines = @(Get-Content $stdoutPath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+          if ($helperLines.Count -ne 1) { throw "Provisioning helper smoke test expected one JSON response, got $($helperLines.Count) lines" }
+          $response = $helperLines[0] | ConvertFrom-Json
+          if ($response.protocol -ne 'BATMONPROV1' -or $response.kind -ne 'result' -or $response.ok -ne $false -or $response.message -ne 'Unsupported provisioning helper protocol.') {
+            throw "Provisioning helper returned unexpected smoke-test response: $($helperLines[0])"
+          }
 
       - name: Build both Windows applications
         shell: pwsh
