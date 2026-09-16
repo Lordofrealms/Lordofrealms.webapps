@@ -44,14 +44,24 @@ This is a separate RSA-3072 private key used by Espressif Secure Boot v2. It is
 not the detached firmware key above and its private or public key is not stored
 in the repository.
 
-The protected migration-signing workflow expects:
+The protected migration-signing workflow expects these protected-environment
+secrets:
 
 - `BATMON_SECURE_BOOT_V2_SIGNING_KEY_B64`
 - `BATMON_SECURE_BOOT_V2_SIGNING_KEY_PASSWORD`
+- `BATMON_SECURE_BOOT_V2_EXPECTED_SPKI_SHA256`
 
 `BATMON_SECURE_BOOT_V2_SIGNING_KEY_B64` must decode to the encrypted PEM private
 key. The password secret decrypts it only inside the protected
 `battery-monitor-production-signing` environment.
+
+`BATMON_SECURE_BOOT_V2_EXPECTED_SPKI_SHA256` must contain the exact 64-hex
+SHA-256 fingerprint of the DER-encoded SubjectPublicKeyInfo for that same
+hardware Secure Boot key. The workflow recomputes the fingerprint from the
+private key and refuses to sign if it differs. It also refuses to use the same
+key identity as the detached firmware-authorization key. This prevents an
+accidentally substituted RSA-3072 key from becoming the irreversible hardware
+Secure Boot authority merely because its key size is valid.
 
 A one-time RSA-3072 key can be generated offline with OpenSSL, for example:
 
@@ -63,40 +73,62 @@ Store the original private key offline as the long-term recovery/signing
 authority. Do not commit it, upload it as an ordinary workflow artifact, place
 it in a Factory package, or copy it to a Battery Monitor unit.
 
-Before storing the base64 secret, verify that the key is RSA-3072 and record its
-public SPKI SHA-256 fingerprint offline:
+Before storing the base64 and fingerprint secrets, verify that the key is
+RSA-3072 and record its public SPKI SHA-256 fingerprint offline:
 
 ```text
 openssl pkey -in battery-monitor-secure-boot-v2.pem -text -noout
 openssl pkey -in battery-monitor-secure-boot-v2.pem -pubout -outform DER | sha256sum
 ```
 
-The protected migration workflow records that public fingerprint in
-`MIGRATION_RELEASE.txt` for traceability. Hardware Secure Boot itself derives
-and burns the target-specific Secure Boot digest during activation; the SPKI
-fingerprint in release metadata is an operator/audit identifier, not a
-replacement for the ESP32 eFuse digest.
+Store the lowercase 64-hex digest from the second command as
+`BATMON_SECURE_BOOT_V2_EXPECTED_SPKI_SHA256`. The protected migration workflow
+requires that value before any image signing occurs and then records the same
+verified public fingerprint in `MIGRATION_RELEASE.txt` for traceability.
+Hardware Secure Boot itself derives and burns the target-specific Secure Boot
+digest during activation; the SPKI fingerprint in release metadata is an
+operator/audit identifier, not a replacement for the ESP32 eFuse digest.
 
 ## Required build/signing sequence
 
 1. Build the exact migration candidate with
    `.github/workflows/battery-monitor-secure-boot-migration-ci.yml`.
 2. Require that run to complete successfully and retain its exact source SHA and
-   workflow run ID.
+   workflow run ID. Protected promotion accepts only successful push or manual
+   workflow-dispatch candidate runs.
 3. Invoke `.github/workflows/battery-monitor-secure-boot-migration-sign.yml`
    with that exact source SHA, CI run ID, and migration version.
 4. The protected signer downloads the exact CI-tested unsigned application and
    bootloader bytes rather than rebuilding them.
-5. It Secure-Boot-v2 signs both images with the protected hardware Secure Boot
+5. Before signing, it proves the hardware Secure Boot key is RSA-3072, proves
+   its SPKI fingerprint matches the protected expected fingerprint, and proves
+   it is distinct from the detached firmware key.
+6. It Secure-Boot-v2 signs both images with the protected hardware Secure Boot
    key.
-6. It independently verifies those Secure Boot signatures.
-7. It detached-signs the resulting exact bytes with the existing Battery Monitor
+7. It independently verifies those Secure Boot signatures.
+8. It detached-signs the resulting exact bytes with the existing Battery Monitor
    firmware authorization key.
-8. It emits only the signed migration bundle; unsigned migration images are
+9. It emits only the signed migration bundle; unsigned migration images are
    deleted before artifact upload.
 
 The resulting protected artifact is the only migration payload that should be
 presented to Factory & Service.
+
+## Current exact validated migration CI authority
+
+The current unsigned migration candidate that is eligible for protected
+promotion is:
+
+- source SHA: `ec4c7200debd2fb27a5e63e45670110cb7d9065d`;
+- migration CI run ID: `35011782807`;
+- migration version: `0.1.2`;
+- app SHA-256: `3b981369d0ecd0c2ca4cf9d340eb93193e1c8b82908d06a650fa3c0000bbc7d4`;
+- bootloader SHA-256: `edf4824614315152b92a608d52586dbabc71ec9a91768915dd7207acd69510df`;
+- unsigned bootloader size: `45,056` bytes (`0xB000`).
+
+Do not substitute a different CI run merely because it has the same displayed
+version. Protected signing must remain bound to an exact successful run and
+exact source SHA.
 
 ## Pre-existing Flash Encryption guard
 
@@ -119,15 +151,18 @@ records:
 `flash_encryption_preexist_guard=bootloader-after-init-release-mode-efuse-check`
 
 in `MIGRATION_BUILD_AUTHORITY.txt`. Protected signing must require that exact
-authority before signing the candidate, propagate it into `MIGRATION_RELEASE.txt`,
-and Factory & Service must require the same field when loading the signed bundle.
-The protected signer also searches the exact unsigned bootloader for the guard's
-refusal marker before signing, and Factory repeats that byte-level marker check
-on the detached-signature-verified signed bootloader. This binds the requirement
-to the actual bootloader bytes instead of trusting editable metadata alone.
-These checks are defense in depth; Factory still independently verifies
-release-mode Flash Encryption before staging and again before irreversible
-commit.
+authority before signing the candidate, propagate it into
+`MIGRATION_RELEASE.txt`, and Factory & Service must require the same field when
+loading the signed bundle. The protected signer also searches the exact
+unsigned bootloader for the guard's refusal marker before signing, and Factory
+repeats that byte-level marker check on the detached-signature-verified signed
+bootloader. This binds the requirement to the actual bootloader bytes instead
+of trusting editable metadata alone. These checks are defense in depth; Factory
+still independently verifies release-mode Flash Encryption before staging and
+again before irreversible commit.
+
+The current validated unsigned bootloader contains the refusal marker beginning
+at byte offset `473`.
 
 ## Factory migration bundle
 
