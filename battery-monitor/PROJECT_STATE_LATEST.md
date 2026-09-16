@@ -1,12 +1,14 @@
 # Battery Monitor Project State — Authoritative Live State
 
-**Updated:** 2026-09-11 (America/Chicago)  
+**Updated:** 2026-09-15 (America/Chicago)  
 **Repository:** `Lordofrealms/Lordofrealms.webapps`  
 **Branch:** `battery-monitor-dev`
 
 ## A. Resolve live state first
 
 Always resolve the live `battery-monitor-dev` head before modifying source. Read root `AGENTS.md` first; it contains repository-wide design criteria.
+
+Do not assume a SHA in this file is the current branch head. The SHAs below identify exact validated source/artifact authorities.
 
 ## B. Mandatory version authority
 
@@ -26,39 +28,62 @@ Current mappings:
 - normal production candidate `0.1.1` -> internal sequence `11`;
 - Secure Boot migration candidate `0.1.2` -> internal sequence `12`.
 
-This preserves the previously established encrypted-NVS release-floor sequence values while removing the invalid four-component display version.
+The old temporary four-component labels `0.1.0.11` and `0.1.0.12` are not current release identifiers and must not be reintroduced.
 
-## C. Normal production firmware authority
+## C. Normal production firmware authority — VALIDATED CI CANDIDATE
 
 Current normal production candidate:
 
 - version: `0.1.1`;
 - internal release sequence: `11`;
 - authoritative version file: `battery-monitor/firmware/idf/version.txt`;
-- one production architecture: ESP-IDF;
-- Secure Boot: disabled by default;
+- architecture: ESP-IDF with Arduino component compatibility;
+- Secure Boot: disabled in the normal build;
 - Flash Encryption: enabled, release mode;
 - NVS Encryption: enabled;
-- automatic application rollback: enabled;
+- application rollback: enabled;
 - hardware application anti-rollback eFuse: disabled;
 - software anti-downgrade floor: encrypted NVS, strictly-newer policy;
-- normal USB/LAN update authorization: RSA-3072-PSS-SHA256 detached signature plus release-policy checks.
+- signed USB/LAN application update authorization: RSA-3072-PSS-SHA256 detached signature plus release-policy checks.
 
-The source previously called `0.1.0.11` is now correctly named `0.1.1`. Do not reintroduce `0.1.0.11` as a current release identifier.
+Latest fully green normal Toolchain authority:
 
-Latest fully green normal Toolchain known before the renumbering pass:
-
-- source SHA: `e47f1f2185847d4466958b111c43666fc0515ce2`;
 - workflow: `Battery Monitor Toolchain`;
-- run: #364;
-- run ID: `34661160639`;
-- result: SUCCESS.
+- run number: `#393`;
+- run ID: `35041162169`;
+- result: `SUCCESS`;
+- exact source SHA: `8b915af1e1e9f2e501eea92b4b51f78693d3293a`;
+- source commit message: `Preserve pinned protobuf paths in frozen helper`.
 
-That green result predates the version-format conversion. A new green Toolchain run is required for the corrected `0.1.1` source before it is treated as validated.
+All three jobs passed at that exact SHA:
 
-Normal-CI firmware remains intentionally unsigned. The latest previously confirmed protected normal signed release was historical `0.1.0.9`; do not claim `0.1.1` is protected-signed until a new protected signing run succeeds and is verified.
+- ESP32 ESP-IDF + Arduino firmware: success;
+- Android provisioning APK: success;
+- Windows customer + Factory Service apps: success.
 
-## D. Secure Boot migration candidate authority
+The Windows job also passed the hardened standalone Security-2 provisioner smoke test described in section E.
+
+Exact unsigned normal firmware artifact from run `35041162169`:
+
+- artifact: `battery-monitor-esp32-CI-UNSIGNED-v0.1.1`;
+- artifact ID: `10424564433`;
+- artifact archive digest: `sha256:9298d29c7352ac11f3837ecfb5a57539de6597bc75c69406cccde5c84c253ae1`;
+- `BatteryMonitor.ino.bin` size: `1,090,976` bytes;
+- `BatteryMonitor.ino.bin` SHA-256: `732427546be458393a44efdbac5dc0cf5a7e35871c1c1cc30f2deb1f3fbee606`;
+- `BatteryMonitor.ino.merged.bin` size: `4,194,304` bytes;
+- `BatteryMonitor.ino.merged.bin` SHA-256: `01278706fbce36f0655d0beccb22db99b4edebf9798d53433d9990424f7d58be`;
+- `bootloader.bin` size: `37,104` bytes;
+- `bootloader.bin` SHA-256: `6896d2e053939e92015375e60de3ca98b5f21f33d6d998a51bd794acd2e2f0f6`.
+
+Other run `35041162169` artifact authorities:
+
+- Windows customer unsigned CI package: artifact ID `10425378044`, archive digest `sha256:e80de45455a49803f820cb68ce0cb16efd36c21d57977ad14998b1bb82e9f024`;
+- Factory Service unsigned CI package: artifact ID `10425746266`, archive digest `sha256:195107f7615fb9324e9d61986b74e3051051ff10f88a763c79192ccfc4451e86`;
+- Android setup APK: artifact ID `10424743293`, archive digest `sha256:130d645a8099f1ee6d0763e21f35028ad98c1c3d8a0dc1118daf5092de5b90d5`.
+
+These are intentionally unsigned CI artifacts. Do not treat them as customer-production signed releases.
+
+## D. Secure Boot migration candidate authority — VALIDATED CI CANDIDATE
 
 A separate Factory-only migration build exists for already release-encrypted classic ESP32 ECO3+ units.
 
@@ -77,16 +102,64 @@ Current migration candidate:
 - hardware application anti-rollback remains disabled during migration validation;
 - normal production provisioning remains Secure-Boot-disabled.
 
-The migration source previously called `0.1.0.12` is now correctly named `0.1.2`. Its design scope remains narrowly focused on creating a path to enable Secure Boot on eligible existing encrypted units.
+Latest fully green migration candidate authority:
 
-The last successful migration candidate CI known before the later hardening/renumbering work was run #15, run ID `34661039477`, at source `925c71b51752ba354fbceaa63ace418468cf006d`. A new green migration CI run is required for `0.1.2` before protected signing.
+- workflow: `Battery Monitor Secure Boot Migration Candidate`;
+- run number: `#40`;
+- run ID: `35011782807`;
+- result: `SUCCESS`;
+- exact source SHA: `ec4c7200debd2fb27a5e63e45670110cb7d9065d`;
+- source commit message: `Bind migration guard to signed bootloader bytes`.
 
-## E. Version enforcement implementation
+Exact unsigned migration artifact:
 
-Current source enforces the rule in multiple layers:
+- artifact: `Battery-Monitor-Secure-Boot-Migration-CI-UNSIGNED-0.1.2`;
+- artifact ID: `10413694223`;
+- artifact archive digest: `sha256:d19730589841231d0128b2cdec7cfacb5514b6b45d7d283e00a4c24549634574`;
+- `BatteryMonitor.secureboot.app.unsigned.bin` size: `1,114,112` bytes;
+- app SHA-256: `3b981369d0ecd0c2ca4cf9d340eb93193e1c8b82908d06a650fa3c0000bbc7d4`;
+- `BatteryMonitor.secureboot.bootloader.unsigned.bin` size: `45,056` bytes (`0xB000`), below the unsigned `0xC000` limit;
+- bootloader SHA-256: `edf4824614315152b92a608d52586dbabc71ec9a91768915dd7207acd69510df`.
+
+Independent artifact inspection also confirmed the fail-closed bootloader guard text is physically embedded beginning at byte offset `473`:
+
+`Battery Monitor migration requires pre-existing release-mode Flash Encryption; refusing before Secure Boot activation.`
+
+This matters because the migration guard is therefore bound into the exact bootloader bytes that the protected Secure Boot signer would sign, rather than existing only as an external workflow assertion.
+
+## E. Windows Security-2 helper packaging authority
+
+A false-positive CI condition was discovered during final validation. The previously packaged `BatteryMonitorEspProv.exe` could terminate with a Python import traceback while the old smoke test accepted exit code `1` as if it were the expected invalid-protocol result.
+
+The failure sequence found and corrected was:
+
+1. packaged helper initially failed with `ModuleNotFoundError: No module named 'google'`;
+2. CI and the protected normal signed-release workflow were hardened to bundle `google.protobuf` and to execute the helper as a separate process with redirected stdin/stdout/stderr;
+3. the stricter test then correctly exposed Espressif's dynamic protobuf-loader source-tree path assumption (`../../python/...`) inside PyInstaller;
+4. `battery-monitor/windows/esp_provision_helper.py` was updated so frozen builds preload the exact pinned generated protobuf modules into an in-memory `proto` shim from the bundled `_MEIPASS` data roots, preserving Espressif's load order without modifying the pinned vendor checkout or writing outside the extraction directory;
+5. run `35041162169` at source `8b915af1e1e9f2e501eea92b4b51f78693d3293a` passed the hardened smoke test and then completed the Windows builds, protocol self-test, publishing, bundling and artifact uploads.
+
+The hardened smoke gate now requires all of the following:
+
+- helper process exit code exactly `1` for an intentionally invalid request;
+- stderr empty;
+- exactly one non-empty stdout line;
+- valid JSON;
+- `protocol == BATMONPROV1`;
+- `kind == result`;
+- `ok == false`;
+- exact controlled message `Unsupported provisioning helper protocol.`
+
+Do not weaken this gate back to exit-code-only validation.
+
+The protected normal signed-release workflow contains the same helper packaging and strict smoke-test logic, but it has not yet been exercised in a new protected signed release after this fix. Do not infer protected-release success from normal CI alone.
+
+## F. Version enforcement implementation
+
+Current source enforces the version rule in multiple layers:
 
 - `firmware/idf/CMakeLists.txt`: exact three single-digit components only;
-- `firmware/idf/build.sh`: same validation, derives sequence `major*100+minor*10+patch`;
+- `firmware/idf/build.sh`: same validation and sequence derivation;
 - `firmware/idf/build_secure_boot_migration.sh`: same validation/derivation;
 - `firmware/BatteryMonitor/FirmwareReleasePolicy.ino`: same on-device parser/derivation for OTA anti-downgrade;
 - `.github/workflows/battery-monitor-ci.yml`: asserts normal `0.1.1`, sequence `11` and derivation metadata;
@@ -96,7 +169,7 @@ Current source enforces the rule in multiple layers:
 - Factory `SecureBootMigrationWorkflow.cs`: validates three-component migration version against the separately recorded sequence;
 - Android setup: `versionName 0.1.1`, separate `versionCode 11`.
 
-## F. Secure Boot build constraints
+## G. Secure Boot build constraints
 
 Classic ESP32 Secure Boot v2 constraints remain:
 
@@ -110,24 +183,23 @@ Classic ESP32 Secure Boot v2 constraints remain:
 
 The migration build uses remote/protected Secure Boot signing. CI must not require the Secure Boot private key. Retrofit requires Flash Encryption to pre-exist and explicitly forbids burning Secure Boot and Flash Encryption keys together.
 
-## G. Protected migration signing
+## H. Protected signing status
 
-Workflow: `.github/workflows/battery-monitor-secure-boot-migration-sign.yml`.
+Normal protected signer:
 
-Inputs/authorization:
+- workflow: `.github/workflows/battery-monitor-signed-release.yml`;
+- intended next promotion inputs: source SHA `8b915af1e1e9f2e501eea92b4b51f78693d3293a`, CI run ID `35041162169`, version `0.1.1`;
+- status: **not yet re-run/verified after the final helper packaging fix**.
 
-- exact candidate source SHA;
-- exact successful migration candidate CI run ID;
-- exact migration version `0.1.2`;
-- protected `battery-monitor-production-signing` environment;
-- separate Secure Boot v2 RSA-3072 private key secret;
-- existing Battery Monitor detached RSA-3072 private key secret.
+Migration protected signer:
 
-The workflow promotes exact CI-tested unsigned bytes, verifies source/run/version/sequence/scope/configuration/size/hash authorities, Secure-Boot-signs the app and bootloader, independently verifies those Secure Boot signatures, then detached-signs the final exact bytes with the existing Battery Monitor authorization key.
+- workflow: `.github/workflows/battery-monitor-secure-boot-migration-sign.yml`;
+- intended candidate inputs: source SHA `ec4c7200debd2fb27a5e63e45670110cb7d9065d`, migration CI run ID `35011782807`, version `0.1.2`;
+- status: **not yet protected-signed/verified as the final migration bundle**.
 
-No protected `0.1.2` migration bundle should be claimed until this workflow succeeds for an intentionally selected new green candidate run.
+No `0.1.1` or `0.1.2` production signed release should be claimed until the corresponding protected workflow succeeds and the resulting exact bytes/signatures are independently verified.
 
-## H. Factory Service migration contract
+## I. Factory Service migration contract
 
 Key files:
 
@@ -145,7 +217,7 @@ Host-side requirements include:
 - signed bootloader transfer rejection above `0xD000`;
 - stable device identity binding through preflight, staging, commit and post-reboot verification.
 
-## I. Device-side migration state machine
+## J. Device-side migration state machine
 
 Implementation: `battery-monitor/firmware/BatteryMonitor/SecureBootMigration.ino`.
 
@@ -170,7 +242,7 @@ Migration behavior:
 6. reboot only after successful commit;
 7. verify release-mode Flash Encryption and hardware Secure Boot after reboot.
 
-## J. Critical physical risk
+## K. Critical physical risk
 
 The final primary bootloader erase/copy is not atomic. Power loss during that final window can leave the unit without a valid second-stage bootloader.
 
@@ -182,28 +254,32 @@ Operational requirements:
 - if final copy returns an error while the migration app remains alive, do not reboot/remove power until retry/recovery is resolved;
 - do not treat CI/signing success as hardware proof.
 
-## K. Remaining validation sequence
+## L. Remaining validation sequence
 
-1. Resolve live branch and inspect the newest normal Toolchain result for `0.1.1`.
-2. Inspect the newest Secure Boot Migration Candidate result for `0.1.2`.
-3. Diagnose any failure from the first real failing log/artifact rather than guessing.
-4. Protected-sign exact green CI bytes only after both relevant source authorities are validated.
-5. Independently verify the signed migration bundle metadata, both Secure Boot signatures, both detached signatures, hashes and sizes.
-6. Load the bundle through Factory Service.
-7. Install `0.1.2` on one eligible encrypted ECO3+ unit.
-8. Allow rollback probation and sequence-12 floor commit to finish.
-9. Stage/verify/commit the signed bootloader under stable power.
-10. Reboot and verify Secure Boot is enabled.
-11. Verify a later strictly newer normal signed application OTA still works with Secure Boot active.
-12. Only then consider broader migration or Secure Boot as a normal factory default.
+Software CI candidate validation is now green for both normal `0.1.1` and migration `0.1.2` exact authorities listed above.
 
-## L. Canonical architecture authority
+Remaining gates:
+
+1. run protected normal signing for exact source `8b915af1e1e9f2e501eea92b4b51f78693d3293a` / CI run `35041162169` / version `0.1.1`;
+2. independently verify signed normal firmware metadata, signatures, hashes and package separation, including the packaged Security-2 helper;
+3. run protected migration signing for exact source `ec4c7200debd2fb27a5e63e45670110cb7d9065d` / migration CI run `35011782807` / version `0.1.2`;
+4. independently verify the signed migration bundle metadata, Secure Boot signatures, detached signatures, hashes and sizes;
+5. load the final migration bundle through Factory Service;
+6. install `0.1.2` on one eligible already-encrypted ECO3+ unit under stable power;
+7. allow rollback probation and sequence-12 floor commit to finish;
+8. stage/verify/commit the signed bootloader;
+9. reboot and verify Secure Boot is enabled while Flash Encryption remains release mode;
+10. verify a later strictly newer normal signed application OTA still works with Secure Boot active;
+11. only then consider broader migration or Secure Boot as a normal factory default.
+
+## M. Canonical architecture authority
 
 Production architecture remains:
 
 - ESP-IDF 5.5.5;
 - exact ESP-IDF commit `b774170ff46c393eeb5e495ea37936038d3f4f4f`;
 - classic ESP32 / ESP32-WROOM-32;
+- Arduino-ESP32 compatibility base release `3.3.11`;
 - Arduino-ESP32 compatibility source commit `5cdf8975ae8d9e35888b724b01a444d22406424e`;
 - wrapper `battery-monitor/firmware/idf/main/BatteryMonitorApp.cpp`;
 - runtime under `battery-monitor/firmware/BatteryMonitor/`;
@@ -214,7 +290,7 @@ Production detached signing public-key SPKI SHA-256 remains:
 
 `69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e`
 
-## M. Read-first authority
+## N. Read-first authority
 
 Resolve the live branch head, then read:
 
@@ -226,14 +302,15 @@ Resolve the live branch head, then read:
 6. `.github/workflows/battery-monitor-signed-release.yml`
 7. `.github/workflows/battery-monitor-secure-boot-migration-ci.yml`
 8. `.github/workflows/battery-monitor-secure-boot-migration-sign.yml`
-9. `battery-monitor/firmware/idf/build.sh`
-10. `battery-monitor/firmware/idf/build_secure_boot_migration.sh`
-11. `battery-monitor/firmware/BatteryMonitor/FirmwareReleasePolicy.ino`
-12. `battery-monitor/firmware/idf/sdkconfig.secure_boot_migration.defaults`
-13. `battery-monitor/firmware/idf/main/BatteryMonitorApp.cpp`
-14. `battery-monitor/firmware/BatteryMonitor/SecureBootMigration.ino`
-15. `battery-monitor/windows/BatteryMonitor.FactoryService/SecureBootMigrationWorkflow.cs`
-16. `battery-monitor/windows/BatteryMonitor.FactoryService/UsbSecureBootMigrationProvisioner.cs`
-17. `battery-monitor/signing/SECURE_BOOT_MIGRATION.md`
+9. `battery-monitor/windows/esp_provision_helper.py`
+10. `battery-monitor/firmware/idf/build.sh`
+11. `battery-monitor/firmware/idf/build_secure_boot_migration.sh`
+12. `battery-monitor/firmware/BatteryMonitor/FirmwareReleasePolicy.ino`
+13. `battery-monitor/firmware/idf/sdkconfig.secure_boot_migration.defaults`
+14. `battery-monitor/firmware/idf/main/BatteryMonitorApp.cpp`
+15. `battery-monitor/firmware/BatteryMonitor/SecureBootMigration.ino`
+16. `battery-monitor/windows/BatteryMonitor.FactoryService/SecureBootMigrationWorkflow.cs`
+17. `battery-monitor/windows/BatteryMonitor.FactoryService/UsbSecureBootMigrationProvisioner.cs`
+18. `battery-monitor/signing/SECURE_BOOT_MIGRATION.md`
 
-Key distinction: **`0.1.1` is the normal production candidate with Secure Boot off by default; `0.1.2` is the Factory-only Secure Boot retrofit candidate for eligible already-encrypted ECO3+ units.**
+Key distinction: **`0.1.1` is the validated normal CI candidate with Secure Boot off by default; `0.1.2` is the validated Factory-only Secure Boot retrofit CI candidate for eligible already-encrypted ECO3+ units. Neither is yet the final verified protected-signed production release.**
