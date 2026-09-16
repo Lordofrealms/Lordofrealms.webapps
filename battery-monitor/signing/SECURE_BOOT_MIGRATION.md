@@ -10,84 +10,52 @@ software anti-downgrade sequence is derived as `major*100 + minor*10 + patch`,
 so normal `0.1.1` maps to sequence `11` and migration `0.1.2` maps to sequence
 `12`.
 
-## Two different RSA authorities are involved
+## One existing RSA authority is used in two signing roles
 
-Do not confuse these keys.
+Battery Monitor intentionally uses the existing protected RSA-3072 signing key
+for both:
 
-### 1. Existing detached firmware-authorization key
+1. Espressif Secure Boot v2 signatures on the migration application and
+   bootloader; and
+2. the existing Battery Monitor RSA-3072-PSS-SHA256 detached `.sig`
+   authorization on those exact Secure-Boot-signed bytes.
 
-The repository contains only its public key:
+This is a deliberate project design choice. ESP32 Secure Boot v2 does not
+require a separate RSA key from the application/update authorization key.
+Using one authority keeps the product on the already established and protected
+Battery Monitor signing root instead of introducing a second long-term key.
+
+The repository contains only the corresponding public key:
 
 `battery_monitor_secureboot_rsa3072_public.pem`
 
-Despite the historical filename, this key is the Battery Monitor application
-update / detached migration authorization trust root. Firmware already embeds
-this public key and accepts only RSA-3072-PSS-SHA256 detached signatures made by
-the corresponding protected private key.
-
-Expected SPKI SHA-256 fingerprint:
+Expected DER SubjectPublicKeyInfo SHA-256 fingerprint:
 
 `69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e`
 
-The existing protected signing secrets are:
+The protected signing environment uses the existing secrets only:
 
 - `BATMON_FIRMWARE_SIGNING_KEY_B64`
 - `BATMON_FIRMWARE_SIGNING_KEY_PASSWORD`
 
-The Secure Boot migration signer uses this authority to detached-sign the exact
-Secure-Boot-signed application and bootloader bytes. Factory & Service verifies
-those signatures before it will stage anything.
+The protected migration workflow decrypts that key only inside the protected
+`battery-monitor-production-signing` environment, proves it is RSA-3072, and
+requires its SPKI SHA-256 fingerprint to equal the pinned value above before
+any Secure Boot or detached signature is produced. It also recomputes the
+repository public-key fingerprint and requires the same value.
 
-### 2. Hardware Secure Boot v2 signing key
+The same verified private key is then passed to Espressif `espsecure.py` for
+Secure Boot v2 signing and to OpenSSL for the detached Battery Monitor
+signatures. `MIGRATION_RELEASE.txt` records the same fingerprint for both roles
+and records:
 
-This is a separate RSA-3072 private key used by Espressif Secure Boot v2. It is
-not the detached firmware key above and its private or public key is not stored
-in the repository.
+`signing_key_authority=shared-existing-battery-monitor-rsa3072`
 
-The protected migration-signing workflow expects these protected-environment
-secrets:
-
-- `BATMON_SECURE_BOOT_V2_SIGNING_KEY_B64`
-- `BATMON_SECURE_BOOT_V2_SIGNING_KEY_PASSWORD`
-- `BATMON_SECURE_BOOT_V2_EXPECTED_SPKI_SHA256`
-
-`BATMON_SECURE_BOOT_V2_SIGNING_KEY_B64` must decode to the encrypted PEM private
-key. The password secret decrypts it only inside the protected
-`battery-monitor-production-signing` environment.
-
-`BATMON_SECURE_BOOT_V2_EXPECTED_SPKI_SHA256` must contain the exact 64-hex
-SHA-256 fingerprint of the DER-encoded SubjectPublicKeyInfo for that same
-hardware Secure Boot key. The workflow recomputes the fingerprint from the
-private key and refuses to sign if it differs. It also refuses to use the same
-key identity as the detached firmware-authorization key. This prevents an
-accidentally substituted RSA-3072 key from becoming the irreversible hardware
-Secure Boot authority merely because its key size is valid.
-
-A one-time RSA-3072 key can be generated offline with OpenSSL, for example:
-
-```text
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -aes-256-cbc -out battery-monitor-secure-boot-v2.pem
-```
-
-Store the original private key offline as the long-term recovery/signing
-authority. Do not commit it, upload it as an ordinary workflow artifact, place
-it in a Factory package, or copy it to a Battery Monitor unit.
-
-Before storing the base64 and fingerprint secrets, verify that the key is
-RSA-3072 and record its public SPKI SHA-256 fingerprint offline:
-
-```text
-openssl pkey -in battery-monitor-secure-boot-v2.pem -text -noout
-openssl pkey -in battery-monitor-secure-boot-v2.pem -pubout -outform DER | sha256sum
-```
-
-Store the lowercase 64-hex digest from the second command as
-`BATMON_SECURE_BOOT_V2_EXPECTED_SPKI_SHA256`. The protected migration workflow
-requires that value before any image signing occurs and then records the same
-verified public fingerprint in `MIGRATION_RELEASE.txt` for traceability.
-Hardware Secure Boot itself derives and burns the target-specific Secure Boot
-digest during activation; the SPKI fingerprint in release metadata is an
-operator/audit identifier, not a replacement for the ESP32 eFuse digest.
+The security tradeoff is intentional: compromise of this one protected key
+would affect both normal firmware authorization and Secure Boot signing. The
+project accepts that tradeoff in exchange for one established production
+signing authority rather than maintaining two independent long-term private
+keys.
 
 ## Required build/signing sequence
 
@@ -100,14 +68,12 @@ operator/audit identifier, not a replacement for the ESP32 eFuse digest.
    with that exact source SHA, CI run ID, and migration version.
 4. The protected signer downloads the exact CI-tested unsigned application and
    bootloader bytes rather than rebuilding them.
-5. Before signing, it proves the hardware Secure Boot key is RSA-3072, proves
-   its SPKI fingerprint matches the protected expected fingerprint, and proves
-   it is distinct from the detached firmware key.
-6. It Secure-Boot-v2 signs both images with the protected hardware Secure Boot
-   key.
+5. Before signing, it proves the existing Battery Monitor key is RSA-3072 and
+   its SPKI fingerprint matches the pinned production fingerprint.
+6. It Secure-Boot-v2 signs both images with that existing Battery Monitor key.
 7. It independently verifies those Secure Boot signatures.
-8. It detached-signs the resulting exact bytes with the existing Battery Monitor
-   firmware authorization key.
+8. It detached-signs the resulting exact bytes with the same existing Battery
+   Monitor key and verifies those signatures using the repository public key.
 9. It emits only the signed migration bundle; unsigned migration images are
    deleted before artifact upload.
 
