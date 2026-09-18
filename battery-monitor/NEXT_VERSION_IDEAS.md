@@ -11,6 +11,8 @@ Preferred direction to evaluate:
 - keep the long-term history database local to the Windows application, using a lightweight embedded database with SQLite as the leading candidate;
 - use **one hour as the default history interval both on-device and on the PC**;
 - allow the user to configure a shorter logging interval if desired, but hourly logging should be sufficient for most users;
+- make **PC-side retention configurable by the user** rather than imposing a short fixed retention period;
+- because hourly history is very small, allow very long retention (including multi-year/decade-scale or effectively unlimited retention) without aggressive automatic pruning;
 - add a small volatile history buffer on each ESP32 so PC/app outages do not immediately create gaps;
 - at the default one-hour interval, use a fixed-size RAM ring buffer of approximately one week: 168 entries per device;
 - losing the on-device buffer on power loss/reboot is acceptable by design; do not write this history to ESP32 flash merely for persistence;
@@ -55,6 +57,27 @@ The Windows client may expose a user setting for a shorter interval for users wh
 
 If shorter intervals are supported, decide whether the ESP32 ring buffer should remain a fixed one-week time horizon (which increases record count as the interval shrinks) or remain a fixed maximum record count (which reduces its offline time horizon). One week at the default hourly interval remains the baseline requirement.
 
+### Configurable PC retention
+
+Retention should be user-configurable. Because hourly records are small, defaults can be generous rather than optimizing prematurely for storage.
+
+At a one-hour interval:
+
+- one device produces about 8,766 records per year;
+- 10 devices for 10 years produce about **876,600 records total**.
+
+Approximate storage for 876,600 records:
+
+- 16 bytes/record raw payload: about **14.0 MB decimal / 13.4 MiB**;
+- 24 bytes/record raw payload: about **21.0 MB / 20.1 MiB**;
+- 64 bytes/record effective size: about **56.1 MB / 53.5 MiB**;
+- 100 bytes/record effective size: about **87.7 MB / 83.6 MiB**;
+- even 128 bytes/record including generous row/index overhead: about **112.2 MB / 107 MiB**.
+
+Actual SQLite size will depend on schema, page fill, indexes, and any additional telemetry fields, but even a conservative roughly 100–128 bytes per hourly row keeps a decade of history for 10 devices around only 0.1 GB.
+
+Therefore retention options can reasonably include long periods such as 1 year, 5 years, 10 years, and/or unlimited/keep forever. A database-size display and optional manual purge are likely more useful than a restrictive default retention cap.
+
 Design questions to settle before implementation:
 
 1. exact record contents (single reading vs min/max/average/count);
@@ -62,10 +85,11 @@ Design questions to settle before implementation:
 3. whether device RAM capacity preserves seven days at every interval or only at the default one-hour interval;
 4. how the device obtains wall-clock timestamps and handles periods before time synchronization;
 5. exact reconnect/history-transfer protocol and acknowledgement/deduplication behavior;
-6. PC-side retention period and/or maximum database size;
-7. downsampling/aggregation policy for very long graph ranges;
-8. whether to record derived battery percentage, battery profile, alert state, connectivity/RSSI, and other useful telemetry in SQLite;
-9. graph ranges and UX (hours, day, week, month, custom range);
-10. whether history remains strictly local or later supports backup/sync.
+6. PC-side retention choices/default and whether to offer unlimited retention;
+7. whether to show current database size and provide manual purge/export controls;
+8. downsampling/aggregation policy for very long graph ranges;
+9. whether to record derived battery percentage, battery profile, alert state, connectivity/RSSI, and other useful telemetry in SQLite;
+10. graph ranges and UX (hours, day, week, month, year, custom range);
+11. whether history remains strictly local or later supports backup/sync.
 
-Initial architectural preference: SQLite in the Windows client for durable history, plus a small volatile ESP32 RAM ring buffer. The default history interval is one hour, giving approximately seven days of device-side gap-fill history with 168 records. This avoids ESP32 flash wear and avoids storing unnecessarily high-frequency telemetry on the PC while still allowing a user-selectable shorter interval if desired.
+Initial architectural preference: SQLite in the Windows client for durable history, plus a small volatile ESP32 RAM ring buffer. The default history interval is one hour, giving approximately seven days of device-side gap-fill history with 168 records. PC retention is user-configurable and can be very long because hourly history remains small even across many devices and many years.
