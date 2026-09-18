@@ -78,6 +78,25 @@ Actual SQLite size will depend on schema, page fill, indexes, and any additional
 
 Therefore retention options can reasonably include long periods such as 1 year, 5 years, 10 years, and/or unlimited/keep forever. A database-size display and optional manual purge are likely more useful than a restrictive default retention cap.
 
+
+### Retention purge behavior
+
+Retention cleanup must be designed to avoid long-running write locks when a user substantially reduces retention (for example, changing from 10 years to 1 year).
+
+Requirements:
+
+- history rows must have a stable integer primary key suitable for bounded deletion;
+- purge by primary key, not by one giant unbounded `DELETE` against the timestamp predicate;
+- select eligible primary keys using the retention cutoff and delete in bounded chunks;
+- default purge batch size should be approximately **10,000 rows per transaction**;
+- commit after each batch so the database is available between chunks rather than holding one transaction for the entire purge;
+- continue batches until no eligible rows remain;
+- allow cancellation/interruption between batches and safely resume later;
+- keep an index supporting the retention cutoff lookup (for example timestamp, with device identity as appropriate);
+- do not run `VACUUM` automatically as part of the retention purge, because that can itself create a long exclusive maintenance operation; expose compaction separately if it is ever needed.
+
+A representative SQLite pattern is to identify up to 10,000 old row IDs, delete those IDs in one transaction, commit, then repeat. The exact SQL can use the integer primary key plus an indexed timestamp cutoff. The important rule is that no retention change should translate into one enormous delete transaction.
+
 Design questions to settle before implementation:
 
 1. exact record contents (single reading vs min/max/average/count);
