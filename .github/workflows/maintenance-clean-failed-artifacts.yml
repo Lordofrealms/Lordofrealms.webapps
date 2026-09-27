@@ -1,0 +1,85 @@
+name: Maintenance - purge failed-run artifacts
+
+permissions:
+  actions: write
+  contents: read
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/maintenance-clean-failed-artifacts.yml'
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete retained artifacts from failed workflow runs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          repo="$GITHUB_REPOSITORY"
+          failed_ids="$(mktemp)"
+          artifact_rows="$(mktemp)"
+
+          page=1
+          while :; do
+            json="$(gh api --method GET "/repos/$repo/actions/runs?status=failure&per_page=100&page=$page")"
+            count="$(jq '.workflow_runs | length' <<<"$json")"
+            jq -r '.workflow_runs[].id' <<<"$json" >> "$failed_ids"
+            if [ "$count" -lt 100 ]; then
+              break
+            fi
+            page=$((page + 1))
+          done
+          sort -u "$failed_ids" -o "$failed_ids"
+          failed_count="$(wc -l < "$failed_ids" | tr -d ' ')"
+
+          page=1
+          while :; do
+            json="$(gh api --method GET "/repos/$repo/actions/artifacts?per_page=100&page=$page")"
+            count="$(jq '.artifacts | length' <<<"$json")"
+            jq -r '.artifacts[] | [
+              (.id|tostring),
+              (.size_in_bytes|tostring),
+              (.expired|tostring),
+              ((.workflow_run.id // 0)|tostring),
+              (.name|@base64)
+            ] | @tsv' <<<"$json" >> "$artifact_rows"
+            if [ "$count" -lt 100 ]; then
+              break
+            fi
+            page=$((page + 1))
+          done
+
+          deleted_count=0
+          deleted_bytes=0
+
+          while IFS=$'\t' read -r artifact_id size_bytes expired run_id name_b64; do
+            [ -n "${artifact_id:-}" ] || continue
+            [ "$expired" = "false" ] || continue
+
+            if grep -Fxq "$run_id" "$failed_ids"; then
+              name="$(printf '%s' "$name_b64" | base64 --decode)"
+              gh api --method DELETE "/repos/$repo/actions/artifacts/$artifact_id"
+              deleted_count=$((deleted_count + 1))
+              deleted_bytes=$((deleted_bytes + size_bytes))
+              echo "DELETED artifact_id=$artifact_id run_id=$run_id bytes=$size_bytes name=$name"
+            fi
+          done < "$artifact_rows"
+
+          deleted_mib="$(awk -v b="$deleted_bytes" 'BEGIN { printf "%.2f", b/1048576 }')"
+          deleted_gib="$(awk -v b="$deleted_bytes" 'BEGIN { printf "%.3f", b/1073741824 }')"
+
+          echo "CLEANUP_RESULT repo=$repo failed_runs=$failed_count deleted_artifacts=$deleted_count deleted_bytes=$deleted_bytes deleted_mib=$deleted_mib deleted_gib=$deleted_gib"
+          {
+            echo "## Failed-run artifact cleanup"
+            echo ""
+            echo "- Failed runs scanned: $failed_count"
+            echo "- Artifacts deleted: $deleted_count"
+            echo "- Bytes deleted: $deleted_bytes"
+            echo "- Space reclaimed: $deleted_mib MiB ($deleted_gib GiB)"
+          } >> "$GITHUB_STEP_SUMMARY"
