@@ -27,9 +27,9 @@ jobs:
 
           page=1
           while :; do
-            json="$(gh api --method GET "/repos/$repo/actions/runs?status=failure&per_page=100&page=$page")"
+            json="$(gh api --method GET "/repos/$repo/actions/runs?per_page=100&page=$page")"
             count="$(jq '.workflow_runs | length' <<<"$json")"
-            jq -r '.workflow_runs[].id' <<<"$json" >> "$failed_ids"
+            jq -r '.workflow_runs[] | select(.conclusion == "failure") | .id' <<<"$json" >> "$failed_ids"
             if [ "$count" -lt 100 ]; then
               break
             fi
