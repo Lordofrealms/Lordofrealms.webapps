@@ -625,7 +625,8 @@ public sealed class MainForm : Form
         if (current != device.LastAlertState)
         {
             LogEvent(device, current, $"{current.ToUpperInvariant()} at {device.Voltage:0.00} V");
-            ClearNotification(device, current == "critical" ? "low" : "critical");
+            // Low and Critical belong to the same discharge incident: keep both
+            // notification latches until a sustained return to a non-alert state.
         }
         if (device.AlertsAreSnoozed(DateTime.UtcNow)) { device.LastAlertState = current; return; }
 
