@@ -275,3 +275,20 @@ Resolve both live branch heads, then read:
 12. `battery-monitor/firmware/BatteryMonitor/SecureBootMigration.ino`
 
 Key distinction: **`0.1.1` and `0.1.2` are green exact CI candidates. Secure Boot v2 and detached authorization intentionally use the same existing Battery Monitor RSA-3072 authority. Protected signing is the next software gate; controlled hardware migration is the next system gate.**
+
+
+## Normal 0.1.3 — voltage history / smoothing / notifications (validation pending)
+
+As of October 12, 2026, the implemented 0.1.3 normal-release candidate is on the Battery Monitor development branch. Functional source SHA: `638d7387eadcac579fc8a3b6c609d94e5b4f1e62`. The later protected-signing workflow-only commit does not change application binaries.
+
+- Normal Toolchain run `38309661675`: ESP-IDF and full packaging validation pending when this note was written; Android already green.
+- Independent Windows-only run `38309661683`: **SUCCESS**, covering customer and Factory builds, monitoring security self-test, and a real temporary SQLite database test of insert/deduplication, graph queries, events, online backup, persisted retention selection, and PK-based purge.
+- A migration-overlay build of the new firmware changes also compiled successfully, but it does **not** replace the previously validated exact 0.1.2 Secure Boot migration release authority.
+- ESP32: time-weighted, configurable 10-600-second Low/Critical alert rolling windows (defaults Low 300 s, Critical 60 s); 0.10 V recovery hysteresis; one-week hourly volatile history ring (168 records default); configurable 1-60-minute history bucket size; separate 5-minute/etc. alert averaging from history aggregation; history endpoint protected by device monitoring HMAC request proof and response.
+- Windows: per-device smoothing/history interval controls in Device Settings; SQLite voltage history and min/max/average graph; authenticated history reconciliation by immutable BM identity, boot ID, sequence; event history, one Windows notification per device/category/incident, repeat sounds/history rather than OS notification piles; actual X.Y.Z app version in About.
+- Configurable PC retention (keep forever default, 1/5/10 year choices). Maintenance runs with indexed, integer-PK-selected deletes of at most 10,000 rows per transaction; SQLite WAL; cancellable between batches; no automatic VACUUM; user-confirmed purge offers online SQLite backup and CSV export.
+- There is no retrospective voltage history before 0.1.3 starts collecting it. First hourly record appears after the first completed interval. RAM history is intentionally lost on ESP32 reboot or power loss.
+- 0.1.3 is **not protected-signed or hardware-qualified** at this stage. Never flash unsigned CI firmware onto release-encrypted production units.
+- **Downgrade/retrofit dependency:** 0.1.3 maps to release sequence 13. A device updated to 0.1.3 cannot later install 0.1.2 (sequence 12) under the encrypted-NVS software floor. Perform the 0.1.2 retrofit first or build/qualify a newer migration candidate. Normal Secure-Boot-OFF 0.1.3 binaries also cannot be installed as post-retrofit OTA on Secure-Boot-ON units without Secure Boot v2 signatures.
+
+Release signing: the normal protected signer is now version-aware for CI artifact lookup, defaults to 0.1.3, and is mirrored byte-identically on `main` and `battery-monitor-dev`. Manual protected signing must only use the exact successfully validated 0.1.3 Toolchain run and its source SHA.

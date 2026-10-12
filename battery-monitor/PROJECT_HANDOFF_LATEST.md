@@ -194,3 +194,14 @@ If final bootloader copy returns an error while the migration app remains alive,
 - migration build `battery-monitor/firmware/idf/build_secure_boot_migration.sh`.
 
 Key distinction: **normal `0.1.1` and migration `0.1.2` are green exact CI candidates. Both signing mechanisms intentionally use the same existing Battery Monitor RSA-3072 authority. Protected signing + artifact verification is the next software gate; controlled hardware migration is the next system gate.**
+
+
+## October 12, 2026 addendum: normal 0.1.3 implementation
+
+The user approved building the next normal Battery Monitor version with on-device hourly RAM history, PC SQLite/graphs, configurable per-device Low/Critical smoothing windows, notification de-duplication, event history, long configurable retention with PK 10k-row batch purging and backup/export, and display of the Windows app version in About.
+
+Functional source candidate `638d7387eadcac579fc8a3b6c609d94e5b4f1e62`; normal Toolchain run `38309661675` is pending ESP-IDF/full packaging qualification when recorded. The independent Windows-only validation run `38309661683` passed compilation of both Windows apps and real SQLite tests. Android passed the normal candidate compile. The migration-overlay firmware build also compiled successfully, but the previously validated 0.1.2 signing inputs remain authoritative and untouched.
+
+Normal 0.1.3 = release sequence 13. Do NOT install it onto units before applying 0.1.2 Secure Boot retrofit if the intention is to use the sequence-12 migration: rollback floor prevents downgrading 13 to 12. Secure-Boot-ON units need Secure-Boot-v2-signed successor firmware; the normal Secure-Boot-OFF candidate is not a compatible OTA payload. CI artifacts are unsigned and cannot be treated as production installable.
+
+The release signer workflow exists identically on default main and dev, and now uses a version-parametrized CI firmware artifact name so exact 0.1.1 and 0.1.3 candidates remain selectable. Protected workflow must be manually dispatched after exact green CI evidence. See project state and `NEXT_VERSION_IDEAS.md` for implementation parameters and open hardware validation.

@@ -161,3 +161,14 @@ Proposed initial policy to validate before implementation:
 - recovery/clear should require the smoothed voltage to rise above the relevant threshold with a small hysteresis margin and remain there long enough to avoid chatter.
 
 The exact Critical timing and hysteresis values should be validated against real voltage behavior before they become defaults. The key requirement is that ordinary momentary load/cranking dips must not produce nuisance Low/Critical notifications.
+
+
+## 0.1.3 implementation status (October 12, 2026)
+
+The previously proposed history, graph, smoothing, notification, retention, and About-version features have now been **implemented in the normal 0.1.3 source candidate** (functional source SHA `638d7387eadcac579fc8a3b6c609d94e5b4f1e62`). They are no longer merely unimplemented ideas. Windows compilation and a real temporary-database self-test passed in run `38309661683`. Full normal ESP-IDF/toolchain/signing and real hardware validation remain separate gates.
+
+Implementation details: configurable 10-600 s smoothing windows per device (Low 300 s, Critical 60 s defaults), 0.10 V recovery hysteresis; 168 records of volatile on-device interval min/max/average/count (60-minute default, 1-60 minute configurable); HMAC-authenticated paired-PC retrieval; Windows SQLite history, chart and event log; one Windows notification per active device/category/incident with repeat sounds/events; configurable PC retention keep forever/1/5/10 years with user confirmation, online backup, CSV export, indexed-PK chunk purges (10k rows/transaction) and low-lock WAL; Windows About shows X.Y.Z assembly version.
+
+Remember that an ESP32 reboot erases its RAM backlog. The first retained record is available only after the first configured interval closes. Device firmware must be upgraded to 0.1.3 to produce history; installing only the new PC app cannot reconstruct past telemetry from previous firmware.
+
+Compatibility warning: software release floor 13 for 0.1.3 prevents subsequently installing sequence-12 0.1.2 Secure Boot retrofit. Retrofit first or qualify a newer migration candidate; never install unsigned Secure-Boot-OFF firmware onto a Secure-Boot-ON unit.
