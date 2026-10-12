@@ -112,3 +112,52 @@ Design questions to settle before implementation:
 11. whether history remains strictly local or later supports backup/sync.
 
 Initial architectural preference: SQLite in the Windows client for durable history, plus a small volatile ESP32 RAM ring buffer. The default history interval is one hour, giving approximately seven days of device-side gap-fill history with 168 records. PC retention is user-configurable and can be very long because hourly history remains small even across many devices and many years.
+
+
+## Windows app version display
+
+Current gap: the customer application's About content does not display the application version, and the Windows project does not currently derive its assembly/product version from the Battery Monitor release authority.
+
+Next normal release requirement:
+
+- set the Windows customer application version from the same authoritative three-component `X.Y.Z` release version used for that normal Battery Monitor release;
+- display the application version prominently in Help > About Battery Monitor;
+- avoid maintaining a second manually typed version string that can drift from the release;
+- optionally display the source/build SHA in a secondary diagnostic line, but the user-facing version remains the three-component `X.Y.Z` value.
+
+## Notification coalescing and alert history
+
+Current behavior can create multiple Windows notifications for the same device/category because repeat alerts generate another notification each time.
+
+Preferred behavior:
+
+- show at most **one Windows notification per device, per alert category, per active incident**;
+- categories include at least Low battery, Critical battery, Device offline, Device back online, and security/identity failure;
+- escalating from Low to Critical may produce one new Critical notification even if a Low notification was already shown;
+- while the same incident/category remains active, configured repeat behavior may still replay the alert sound if desired, but must not keep adding duplicate OS notifications;
+- reset the notification-coalescing latch when that condition genuinely clears so a later separate incident can notify again;
+- record alert transitions and useful reminder/repeat events in the local history/event log so the user can review what happened without retaining a stack of duplicate Windows notifications;
+- snooze semantics remain separate from notification coalescing.
+
+## Voltage alert smoothing
+
+Current behavior uses the device's current instantaneous voltage-derived state directly, so a brief voltage sag can transition to Low/Critical and immediately generate an alert.
+
+Preferred architecture:
+
+- continue showing the **instantaneous measured voltage** to the user;
+- use a separate smoothed/sustained value/state for alert triggering;
+- keep alert smoothing independent from the much slower history-log interval;
+- default history interval remains one hour;
+- normal device voltage sampling can remain much faster (for example the current approximately 10-second default);
+- calculate alert state from a time-based sample window rather than a fixed sample count so changing sample cadence does not silently change the intended time behavior;
+- add hysteresis for clearing alerts so voltage hovering at a threshold does not repeatedly enter/leave the same state.
+
+Proposed initial policy to validate before implementation:
+
+- **Low warning:** trigger from an approximately 5-minute rolling average below the configured Low threshold;
+- **Critical:** do not rely on a single instantaneous sample, but consider a faster sustained gate (for example approximately 60 seconds below Critical) rather than forcing every genuine critical condition to wait for a full 5-minute average;
+- optionally retain an immediate/faster emergency path only for a voltage substantially below the configured Critical threshold, if hardware testing shows that is useful;
+- recovery/clear should require the smoothed voltage to rise above the relevant threshold with a small hysteresis margin and remain there long enough to avoid chatter.
+
+The exact Critical timing and hysteresis values should be validated against real voltage behavior before they become defaults. The key requirement is that ordinary momentary load/cranking dips must not produce nuisance Low/Critical notifications.
