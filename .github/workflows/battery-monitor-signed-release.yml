@@ -14,7 +14,7 @@ on:
       version:
         description: 'Exact firmware version from battery-monitor/firmware/idf/version.txt'
         required: true
-        default: '0.1.1'
+        default: '0.1.3'
         type: string
 
 permissions:
@@ -111,7 +111,7 @@ jobs:
       - name: Download exact CI firmware artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: battery-monitor-esp32-CI-UNSIGNED-v0.1.1
+          name: battery-monitor-esp32-CI-UNSIGNED-v${{ inputs.version }}
           path: /tmp/battery-monitor-signed-firmware
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
