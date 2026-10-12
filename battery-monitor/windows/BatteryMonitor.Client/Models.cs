@@ -101,6 +101,7 @@ public sealed class MonitorEntry
     [JsonIgnore] public DateTime LastAlertUtc { get; set; } = DateTime.MinValue;
     [JsonIgnore] public bool IsCandidate { get; set; }
     [JsonIgnore] public bool IdentityFailure { get; set; }
+    [JsonIgnore] public bool SmoothingFallback { get; set; }
     [JsonIgnore] public string MonitoringTrustState { get; set; } = "Unpaired";
 
     [JsonIgnore]
@@ -157,6 +158,7 @@ public sealed class DeviceStatus
     public int HistoryIntervalMinutes { get; set; }
     public double LowAverage { get; set; }
     public double CriticalAverage { get; set; }
+    public bool SmoothingFallback { get; set; }
     public long UptimeSec { get; set; }
     public long LastSampleAgeMs { get; set; }
 }

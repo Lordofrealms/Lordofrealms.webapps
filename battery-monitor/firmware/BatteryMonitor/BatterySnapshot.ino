@@ -24,6 +24,7 @@ struct BatterySnapshot {
   uint32_t historyIntervalMinutes;
   float lowAverage;
   float criticalAverage;
+  bool smoothingFallback;
   char state[10];
 };
 
@@ -76,6 +77,18 @@ static bool ensureBatterySnapshotMutex() {
 }
 
 static void classifyBatterySnapshot(BatterySnapshot& snapshot) {
+  // Legacy configurations can sample less often than the requested averaging
+  // windows. Never silently leave such a device in WARMING forever: preserve
+  // alerts with instantaneous threshold fallback, and report the condition.
+  snapshot.smoothingFallback = snapshot.sampleIntervalSec > snapshot.lowSmoothingSec ||
+                               snapshot.sampleIntervalSec > snapshot.criticalSmoothingSec;
+  if (snapshot.smoothingFallback) {
+    snapshot.lowAverage = snapshot.criticalAverage = snapshot.voltage;
+    const char* raw = snapshot.voltage <= snapshot.criticalVoltage ? "critical" :
+                      snapshot.voltage <= snapshot.lowVoltage ? "low" : "good";
+    strlcpy(snapshot.state, raw, sizeof(snapshot.state));
+    return;
+  }
   float lowAverage = 0, criticalAverage = 0;
   bool lowReady = timeWeightedVoltageAverage(snapshot.sampleTimeMs, snapshot.lowSmoothingSec, lowAverage);
   bool criticalReady = timeWeightedVoltageAverage(snapshot.sampleTimeMs, snapshot.criticalSmoothingSec, criticalAverage);
@@ -279,6 +292,7 @@ String batterySnapshotStatusJson(HttpStatusBuildTiming* timing) {
   json += "\"state\":\"" + String(snapshot.state) + "\",";
   json += "\"lowAverage\":" + String(snapshot.lowAverage, 3) + ",";
   json += "\"criticalAverage\":" + String(snapshot.criticalAverage, 3) + ",";
+  json += "\"smoothingFallback\":" + String(snapshot.smoothingFallback ? "true" : "false") + ",";
   json += "\"lowSmoothingSec\":" + String(snapshot.lowSmoothingSec) + ",";
   json += "\"criticalSmoothingSec\":" + String(snapshot.criticalSmoothingSec) + ",";
   json += "\"historyIntervalMinutes\":" + String(snapshot.historyIntervalMinutes) + ",";

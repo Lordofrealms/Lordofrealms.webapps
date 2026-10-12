@@ -456,6 +456,7 @@ public sealed class MainForm : Form
             if (status.HistoryIntervalMinutes > 0 && _history is not null &&
                 (DateTime.UtcNow - device.LastHistorySyncUtc).TotalMinutes >= 5)
             {
+                device.LastHistorySyncUtc = DateTime.UtcNow; // Throttle even failed history retries.
                 try { history = await _deviceClient.GetAuthenticatedHistoryAsync(device, key); }
                 catch (HttpRequestException) { /* Older firmware may not provide history. */ }
                 catch (TaskCanceledException) { }
@@ -491,6 +492,11 @@ public sealed class MainForm : Form
         device.MonitoringTrustState = "Trusted";
         device.Voltage = status.Voltage;
         device.State = status.State;
+        if (device.SmoothingFallback != status.SmoothingFallback)
+            LogEvent(device, "configuration", status.SmoothingFallback
+                ? "Alert smoothing unavailable: unit samples less often than the configured averaging windows. Using instantaneous voltage thresholds."
+                : "Alert smoothing restored.");
+        device.SmoothingFallback = status.SmoothingFallback;
         if (history is not null && _history is not null)
         {
             try { _history.AddHistory(device.DeviceId, history, now); device.LastHistorySyncUtc = now; }
@@ -832,6 +838,8 @@ public sealed class MainForm : Form
                         : unreachable
                             ? $"UNREACHABLE {FormatDuration((int)Math.Max(0, (now - device.FailureStartedUtc!.Value).TotalSeconds))}/{FormatDuration(device.OfflineTimeoutSec)}"
                             : device.State.ToUpperInvariant();
+            if (device.SmoothingFallback && device.MonitoringTrustState == "Trusted" && !device.IdentityFailure)
+                stateText += " (UNSMOOTHED)";
             var installedFirmware = string.IsNullOrWhiteSpace(device.FirmwareVersion) ? "--" : device.FirmwareVersion;
             var firmwareState = FirmwareVersionInfo.ComparisonLabel(device.FirmwareVersion, _availableFirmwareVersion);
             var alertState = device.AlertsAreSnoozed(now)
