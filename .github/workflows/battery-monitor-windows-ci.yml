@@ -32,3 +32,6 @@ jobs:
       - name: Protocol security self-test
         shell: pwsh
         run: dotnet run --project battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release --no-build -- --protocol-self-test
+      - name: Voltage history SQLite self-test
+        shell: pwsh
+        run: dotnet run --project battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release --no-build -- --history-self-test

@@ -588,6 +588,7 @@ public sealed class MainForm : Form
         if (!profile.Enabled) return;
 
         AlertSoundPlayer.Play(profile);
+        if (repeatDue) LogEvent(device, "repeat:offline", "Device still offline");
         NotifyIncident(device, "offline", "Battery Monitor Offline",
             $"{device.DisplayName} has been unreachable for {FormatDuration(device.OfflineTimeoutSec)}.",
             ToolTipIcon.Warning);
@@ -631,6 +632,7 @@ public sealed class MainForm : Form
         if (profile.Enabled && (changed || neverAlerted || repeatDue))
         {
             AlertSoundPlayer.Play(profile);
+            if (repeatDue && !changed) LogEvent(device, "repeat:" + current, $"Still {current}: {device.Voltage:0.00} V");
             var title = current == "critical" ? "CRITICAL Battery" : "Low Battery";
             NotifyIncident(device, current, title, $"{device.DisplayName}: {device.Voltage:0.00} V",
                 current == "critical" ? ToolTipIcon.Error : ToolTipIcon.Warning);

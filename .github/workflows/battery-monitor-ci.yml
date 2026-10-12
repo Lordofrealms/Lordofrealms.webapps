@@ -193,6 +193,11 @@ jobs:
           dotnet build battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release --no-restore
           dotnet build battery-monitor/windows/BatteryMonitor.FactoryService/BatteryMonitor.FactoryService.csproj -c Release --no-restore
 
+      - name: Voltage history SQLite self-test
+        shell: pwsh
+        run: |
+          dotnet run --project battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release --no-build -- --history-self-test
+
       - name: Run P0-3 protocol self-test
         shell: pwsh
         run: |

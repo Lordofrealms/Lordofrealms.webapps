@@ -16,9 +16,9 @@ public sealed class VoltageHistoryStore : IDisposable
     public string DatabasePath { get; }
     public long DatabaseBytes => File.Exists(DatabasePath) ? new FileInfo(DatabasePath).Length : 0;
 
-    public VoltageHistoryStore()
+    public VoltageHistoryStore(string? directoryOverride = null)
     {
-        var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BatteryMonitor");
+        var directory = directoryOverride ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BatteryMonitor");
         Directory.CreateDirectory(directory);
         DatabasePath = Path.Combine(directory, "voltage-history.sqlite");
         _db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = DatabasePath, Pooling = false, DefaultTimeout = 5 }.ToString());

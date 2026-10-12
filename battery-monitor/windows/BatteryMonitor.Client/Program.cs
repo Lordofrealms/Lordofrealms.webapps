@@ -15,10 +15,61 @@ internal static class Program
             return;
         }
 
+        if (args.Any(a => string.Equals(a, "--history-self-test", StringComparison.OrdinalIgnoreCase)))
+        {
+            RunHistorySelfTest();
+            return;
+        }
         ApplicationConfiguration.Initialize();
         var form = new MainForm();
         ClientEnhancements.Attach(form, args.Any(a => string.Equals(a, "--startup", StringComparison.OrdinalIgnoreCase)));
         Application.Run(form);
+    }
+
+    private static void RunHistorySelfTest()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "battery-monitor-history-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            using var history = new VoltageHistoryStore(dir);
+            var now = DateTime.UtcNow;
+            var batch = new DeviceHistoryBatch
+            {
+                DeviceId = "BM-TEST",
+                BootId = "cafebabe",
+                Records = new List<double[]>
+                {
+                    new double[] { 1, 3600, 12, 13, 12.5, 360 },
+                    new double[] { 2, 60, 13, 14, 13.5, 360 }
+                }
+            };
+            if (history.AddHistory(batch.DeviceId, batch, now) != 2 ||
+                history.AddHistory(batch.DeviceId, batch, now) != 0)
+                throw new InvalidOperationException("History insert/idempotency self-test failed.");
+            if (history.Query("BM-TEST", now.AddHours(-2)).Count != 2)
+                throw new InvalidOperationException("History query self-test failed.");
+            history.RecordEvent("BM-TEST", "low", "Test low threshold event");
+            if (history.Events("BM-TEST").Count != 1)
+                throw new InvalidOperationException("History event self-test failed.");
+            var backup = Path.Combine(dir, "backup.sqlite");
+            history.BackupDatabase(backup);
+            if (!File.Exists(backup) || new FileInfo(backup).Length == 0)
+                throw new InvalidOperationException("History backup self-test failed.");
+            history.SetRetentionYears(1);
+            if (history.RetentionYears != 1)
+                throw new InvalidOperationException("History retention setting self-test failed.");
+            var deleted = VoltageHistoryStore.PurgeOlderThanAsync(history.DatabasePath,
+                now.AddMinutes(-30), null, CancellationToken.None).GetAwaiter().GetResult();
+            if (deleted != 1 || history.Query("BM-TEST", now.AddHours(-2)).Count != 1)
+                throw new InvalidOperationException("PK-batched history retention self-test failed.");
+        }
+        finally
+        {
+            // Self-test uses its own disposable temporary directory; production
+            // history and device settings are never opened or touched.
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
     }
 
     private static void RunDevicePasswordCompatibilitySelfTest()
