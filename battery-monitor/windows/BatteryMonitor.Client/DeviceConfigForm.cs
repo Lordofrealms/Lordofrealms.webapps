@@ -126,6 +126,10 @@ public sealed class DeviceConfigForm : Form
         timeoutPanel.Controls.Add(_offlineTimeoutUnit, 1, 0);
         AddRow(table, 8, "Offline timeout", timeoutPanel);
 
+        AddRow(table, 9, "Low alert average window (seconds)", _lowSmoothing);
+        AddRow(table, 10, "Critical average window (seconds)", _criticalSmoothing);
+        AddRow(table, 11, "Device RAM history interval (minutes)", _historyMinutes);
+
         var alertButton = new Button { Text = "Configure Alerts", AutoSize = true };
         alertButton.Click += (_, _) => ConfigureAlerts();
         table.Controls.Add(new Label
@@ -134,8 +138,8 @@ public sealed class DeviceConfigForm : Form
             AutoSize = true,
             Anchor = AnchorStyles.Left,
             Margin = new Padding(3, 9, 3, 3)
-        }, 0, 9);
-        table.Controls.Add(alertButton, 1, 9);
+        }, 0, 12);
+        table.Controls.Add(alertButton, 1, 12);
 
         var securityHeader = new Label
         {
@@ -144,11 +148,11 @@ public sealed class DeviceConfigForm : Form
             Font = new Font(Font, FontStyle.Bold),
             Margin = new Padding(3, 14, 3, 3)
         };
-        table.Controls.Add(securityHeader, 0, 10);
+        table.Controls.Add(securityHeader, 0, 13);
         table.SetColumnSpan(securityHeader, 2);
 
-        AddRow(table, 11, "Current Device Password", _devicePassword);
-        table.Controls.Add(_rememberPassword, 1, 12);
+        AddRow(table, 14, "Current Device Password", _devicePassword);
+        table.Controls.Add(_rememberPassword, 1, 15);
 
         var forget = new Button { Text = "Forget Saved Password", AutoSize = true };
         forget.Click += (_, _) =>
@@ -160,11 +164,11 @@ public sealed class DeviceConfigForm : Form
                 "The saved password will be removed when you save/close this dialog.",
                 "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
         };
-        table.Controls.Add(forget, 1, 13);
+        table.Controls.Add(forget, 1, 16);
 
-        AddRow(table, 14, "New Device Password", _newPassword);
-        AddRow(table, 15, "Confirm new password", _confirmPassword);
-        table.Controls.Add(_showPasswords, 1, 16);
+        AddRow(table, 17, "New Device Password", _newPassword);
+        AddRow(table, 18, "Confirm new password", _confirmPassword);
+        table.Controls.Add(_showPasswords, 1, 19);
         _showPasswords.CheckedChanged += (_, _) =>
         {
             var hide = !_showPasswords.Checked;
@@ -179,7 +183,7 @@ public sealed class DeviceConfigForm : Form
             MaximumSize = new Size(560, 0),
             Text = "Save + Apply authenticates with the Device Password before changing the unit. Battery profile and active voltage thresholds are stored on the unit; custom profile definitions remain Windows-side. Applying profile defaults is explicit. Calibration is a factory/service function and is intentionally not changed here. Alert settings, local alias, PC poll interval, and offline timeout are Windows-only settings. Smoothing windows and RAM history interval require Save + Apply to Unit."
         };
-        table.Controls.Add(info, 0, 17);
+        table.Controls.Add(info, 0, 20);
         table.SetColumnSpan(info, 2);
 
         var buttons = new FlowLayoutPanel
@@ -196,12 +200,8 @@ public sealed class DeviceConfigForm : Form
         buttons.Controls.Add(cancel);
         buttons.Controls.Add(saveBoth);
         buttons.Controls.Add(saveLocal);
-        table.Controls.Add(buttons, 0, 18);
+        table.Controls.Add(buttons, 0, 21);
         table.SetColumnSpan(buttons, 2);
-
-        AddRow(table, 19, "Low alert average window (seconds)", _lowSmoothing);
-        AddRow(table, 20, "Critical average window (seconds)", _criticalSmoothing);
-        AddRow(table, 21, "Device RAM history interval (minutes)", _historyMinutes);
 
         AcceptButton = saveBoth;
         CancelButton = cancel;

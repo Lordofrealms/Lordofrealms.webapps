@@ -12,6 +12,7 @@ public sealed record BatteryHistoryEvent(DateTime Utc, string Category, string M
 public sealed class VoltageHistoryStore : IDisposable
 {
     private readonly SqliteConnection _db;
+    public int RetentionYears { get; private set; }
     public string DatabasePath { get; }
     public long DatabaseBytes => File.Exists(DatabasePath) ? new FileInfo(DatabasePath).Length : 0;
 
@@ -45,6 +46,11 @@ public sealed class VoltageHistoryStore : IDisposable
             message TEXT NOT NULL);");
         Execute("CREATE INDEX IF NOT EXISTS idx_events_device_date ON battery_events(device_id,utc_ticks);");
         Execute("CREATE INDEX IF NOT EXISTS idx_events_age ON battery_events(utc_ticks,id);");
+        Execute("CREATE TABLE IF NOT EXISTS history_settings(key TEXT PRIMARY KEY,value INTEGER NOT NULL);");
+        using var retention = _db.CreateCommand();
+        retention.CommandText = "SELECT value FROM history_settings WHERE key = 'retention_years'";
+        var raw = retention.ExecuteScalar();
+        RetentionYears = raw is long years && years is >= 0 and <= 100 ? (int)years : 0;
     }
 
     private void Execute(string sql)
@@ -187,6 +193,24 @@ public sealed class VoltageHistoryStore : IDisposable
             }
         }
         return removed;
+    }
+
+    public void SetRetentionYears(int years)
+    {
+        if (years is not (0 or 1 or 5 or 10)) throw new ArgumentOutOfRangeException(nameof(years));
+        using var command = _db.CreateCommand();
+        command.CommandText = "INSERT INTO history_settings(key,value) VALUES ('retention_years',$n) ON CONFLICT(key) DO UPDATE SET value=excluded.value";
+        command.Parameters.AddWithValue("$n", years);
+        command.ExecuteNonQuery();
+        RetentionYears = years;
+    }
+
+    public void BackupDatabase(string destination)
+    {
+        if (File.Exists(destination)) throw new IOException("Backup destination already exists.");
+        using var backup = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = destination, Pooling = false }.ToString());
+        backup.Open();
+        _db.BackupDatabase(backup);
     }
 
     public void Dispose() => _db.Dispose();

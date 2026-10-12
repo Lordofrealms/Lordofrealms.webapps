@@ -25,6 +25,9 @@ public sealed class MainForm : Form
     private DateTime _lastDiscoveryUtc = DateTime.MinValue;
     private AppIconState? _lastAppIconState;
     private bool _allowClose;
+    private bool _historySweepRunning;
+    private DateTime _lastHistorySweepUtc = DateTime.MinValue;
+    private readonly CancellationTokenSource _historySweepCancellation = new();
 
     public MainForm()
     {
@@ -255,6 +258,12 @@ public sealed class MainForm : Form
             }
         }
         if (snoozeExpired) _settings.Save(_devices);
+        if (_history is not null && _history.RetentionYears > 0 && !_historySweepRunning &&
+            (now - _lastHistorySweepUtc).TotalHours >= 24)
+        {
+            _lastHistorySweepUtc = now;
+            _ = SweepRetentionAsync();
+        }
 
         if ((now - _lastDiscoveryUtc).TotalSeconds >= 30)
             await DiscoverNowAsync();
@@ -270,6 +279,20 @@ public sealed class MainForm : Form
         }
 
         RenderGrid();
+    }
+
+    private async Task SweepRetentionAsync()
+    {
+        if (_history is null) return;
+        _historySweepRunning = true;
+        try
+        {
+            await VoltageHistoryStore.PurgeOlderThanAsync(_history.DatabasePath,
+                DateTime.UtcNow.AddYears(-_history.RetentionYears), null, _historySweepCancellation.Token);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { Debug.WriteLine("Retention sweep failed: " + ex); }
+        finally { _historySweepRunning = false; }
     }
 
     private async Task DiscoverNowAsync()
@@ -504,6 +527,7 @@ public sealed class MainForm : Form
         if (status.HistoryIntervalMinutes is >= 1 and <= 60) device.HistoryIntervalMinutes = status.HistoryIntervalMinutes;
         if (persistentChanged) _settings.Save(_devices);
 
+        if (wasOffline) LogEvent(device, "online", $"Device online at {device.Voltage:0.00} V");
         if (wasOffline && device.RecoveryAlert.Enabled && !device.AlertsAreSnoozed(now))
         {
             AlertSoundPlayer.Play(device.RecoveryAlert);
@@ -560,6 +584,7 @@ public sealed class MainForm : Form
         if (!first && !repeatDue) return;
 
         device.LastOfflineAlertUtc = now;
+        if (first) LogEvent(device, "offline", $"Device unreachable for {FormatDuration(device.OfflineTimeoutSec)}");
         if (!profile.Enabled) return;
 
         AlertSoundPlayer.Play(profile);
@@ -986,6 +1011,7 @@ public sealed class MainForm : Form
         AlertSoundPlayer.Stop();
         _tray.Visible = false;
         _tray.Dispose();
+        _historySweepCancellation.Cancel();
         _history?.Dispose();
     }
 }

@@ -11,6 +11,7 @@ public sealed class VoltageHistoryForm : Form
     private readonly VoltagePlot _plot = new() { Dock = DockStyle.Fill, BackColor = Color.White };
     private readonly ListView _events = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true };
     private readonly Label _info = new() { AutoSize = true };
+    private CancellationTokenSource? _purgeCts;
 
     private sealed record RangeChoice(string Name, TimeSpan Period)
     {
@@ -55,6 +56,9 @@ public sealed class VoltageHistoryForm : Form
         var export = new Button { Text = "Export CSV...", AutoSize = true };
         export.Click += (_, _) => ExportCsv();
         controls.Controls.Add(export);
+        var backup = new Button { Text = "Backup database...", AutoSize = true };
+        backup.Click += (_, _) => BackupDatabase();
+        controls.Controls.Add(backup);
         controls.Controls.Add(new Label { Text = "Retention", AutoSize = true, Margin = new Padding(14, 9, 2, 0) });
         foreach (var choice in new[] {
             new RetentionChoice("Keep forever", 0),
@@ -62,11 +66,16 @@ public sealed class VoltageHistoryForm : Form
             new RetentionChoice("5 years", 5),
             new RetentionChoice("10 years", 10) })
             _retention.Items.Add(choice);
-        _retention.SelectedIndex = 0;
+        for (var i = 0; i < _retention.Items.Count; i++)
+            if (_retention.Items[i] is RetentionChoice c && c.Years == _store.RetentionYears) _retention.SelectedIndex = i;
+        if (_retention.SelectedIndex < 0) _retention.SelectedIndex = 0;
         controls.Controls.Add(_retention);
-        var purge = new Button { Text = "Purge older records...", AutoSize = true };
-        purge.Click += async (_, _) => await PurgeAsync(purge);
+        var purge = new Button { Text = "Apply retention policy...", AutoSize = true };
+        var cancelPurge = new Button { Text = "Cancel purge", AutoSize = true, Enabled = false };
+        cancelPurge.Click += (_, _) => _purgeCts?.Cancel();
+        purge.Click += async (_, _) => await PurgeAsync(purge, cancelPurge);
         controls.Controls.Add(purge);
+        controls.Controls.Add(cancelPurge);
         root.Controls.Add(controls, 0, 0);
 
         var tabs = new TabControl { Dock = DockStyle.Fill };
@@ -81,7 +90,7 @@ public sealed class VoltageHistoryForm : Form
         tabs.TabPages.Add(events);
         root.Controls.Add(tabs, 0, 1);
         root.Controls.Add(_info, 0, 2);
-        FormClosed += (_, _) => { };
+        FormClosing += (_, _) => _purgeCts?.Cancel();
         RefreshAll();
     }
 
@@ -120,25 +129,51 @@ public sealed class VoltageHistoryForm : Form
         }
     }
 
-    private async Task PurgeAsync(Button button)
+    private void BackupDatabase()
     {
-        if (_retention.SelectedItem is not RetentionChoice choice || choice.Years == 0)
+        using var save = new SaveFileDialog { Filter = "SQLite database (*.sqlite)|*.sqlite", FileName = "BatteryMonitor-history-backup.sqlite", OverwritePrompt = false };
+        if (save.ShowDialog(this) != DialogResult.OK) return;
+        if (File.Exists(save.FileName))
         {
-            MessageBox.Show(this, "Keep forever does not remove any records.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "Choose a new filename. Existing backups are never overwritten.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        try { _store.BackupDatabase(save.FileName); MessageBox.Show(this, "Database backup complete (voltages and events).", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information); }
+        catch (Exception ex) { MessageBox.Show(this, "Backup failed: " + ex.Message, "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+    }
+
+    private async Task PurgeAsync(Button button, Button cancel)
+    {
+        if (_retention.SelectedItem is not RetentionChoice choice) return;
+        if (choice.Years == 0)
+        {
+            _store.SetRetentionYears(0);
+            MessageBox.Show(this, "Retention set to keep forever. No records were deleted.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
         var confirm = MessageBox.Show(this,
-            $"Permanently delete voltage AND event history older than {choice.Years} year(s) across ALL devices?\n\n" +
-            "This cannot be undone without a backup. Export each device's history or copy a consistent SQLite backup before proceeding.\n\n" +
-            "Deletion is limited to batches of 10,000 rows, with a commit between batches. Continue?",
-            "Permanent history deletion", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
-        if (confirm != DialogResult.Yes) return;
+            $"Setting {choice.Years}-year retention will permanently delete voltage AND event history older than that period across ALL devices, now and during future maintenance.\n\n" +
+            "Deleted records cannot be recovered without a backup. YES: make a SQLite backup first. NO: delete without backup. CANCEL: keep existing policy.\n\n" +
+            "Deletion uses indexed PK batches of 10,000 rows, with commits between batches.",
+            "Permanent history deletion", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button3);
+        if (confirm == DialogResult.Cancel) return;
+        if (confirm == DialogResult.Yes)
+        {
+            using var backup = new SaveFileDialog { Filter = "SQLite database (*.sqlite)|*.sqlite", FileName = "BatteryMonitor-history-backup.sqlite", OverwritePrompt = false };
+            if (backup.ShowDialog(this) != DialogResult.OK) return;
+            if (File.Exists(backup.FileName)) { MessageBox.Show(this, "Choose a new backup filename."); return; }
+            try { _store.BackupDatabase(backup.FileName); }
+            catch (Exception ex) { MessageBox.Show(this, "Backup failed; no records removed. " + ex.Message); return; }
+        }
+        _store.SetRetentionYears(choice.Years);
         button.Enabled = false;
+        cancel.Enabled = true;
+        _purgeCts = new CancellationTokenSource();
         var cutoff = DateTime.UtcNow.AddYears(-choice.Years);
         try
         {
             var progress = new Progress<int>(n => _info.Text = $" Purged {n:N0} old rows...");
-            var removed = await VoltageHistoryStore.PurgeOlderThanAsync(_store.DatabasePath, cutoff, progress, CancellationToken.None);
+            var removed = await VoltageHistoryStore.PurgeOlderThanAsync(_store.DatabasePath, cutoff, progress, _purgeCts.Token);
             MessageBox.Show(this, $"Purge complete: {removed:N0} rows removed.", "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
             RefreshAll();
         }
@@ -147,7 +182,7 @@ public sealed class VoltageHistoryForm : Form
             MessageBox.Show(this, "Purge interrupted. Previously committed batches remain deleted; it is safe to retry.\n\n" + ex.Message,
                 "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
-        finally { button.Enabled = true; }
+        finally { button.Enabled = true; cancel.Enabled = false; _purgeCts?.Dispose(); _purgeCts = null; }
     }
 
     private sealed class VoltagePlot : Control
