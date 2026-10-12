@@ -1,0 +1,34 @@
+name: Battery Monitor Windows Validation
+
+on:
+  push:
+    branches: [battery-monitor-dev]
+    paths:
+      - 'battery-monitor/windows/**'
+      - '.github/workflows/battery-monitor-windows-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore both Windows projects
+        shell: pwsh
+        run: |
+          dotnet restore battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj
+          dotnet restore battery-monitor/windows/BatteryMonitor.FactoryService/BatteryMonitor.FactoryService.csproj
+      - name: Build both Windows projects
+        shell: pwsh
+        run: |
+          dotnet build battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release --no-restore
+          dotnet build battery-monitor/windows/BatteryMonitor.FactoryService/BatteryMonitor.FactoryService.csproj -c Release --no-restore
+      - name: Protocol security self-test
+        shell: pwsh
+        run: dotnet run --project battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release --no-build -- --protocol-self-test
