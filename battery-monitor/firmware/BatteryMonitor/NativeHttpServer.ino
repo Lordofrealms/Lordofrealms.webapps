@@ -233,6 +233,9 @@ static esp_err_t nativeConfigPostHandler(httpd_req_t* req) {
   float proposedFactor = calibrationFactor;
   float proposedOffset = calibrationOffset;
   uint32_t proposedSample = sampleIntervalSec;
+  uint32_t proposedLowSmooth = lowSmoothingSec;
+  uint32_t proposedCritSmooth = criticalSmoothingSec;
+  uint32_t proposedHistoryMin = historyIntervalMinutes;
   bool valid = true;
   String value;
 
@@ -247,12 +250,18 @@ static esp_err_t nativeConfigPostHandler(httpd_req_t* req) {
   if (nativeFormValue(body, "lowVoltage", value)) proposedLow = value.toFloat();
   if (nativeFormValue(body, "criticalVoltage", value)) proposedCritical = value.toFloat();
   if (nativeFormValue(body, "sampleIntervalSec", value)) proposedSample = (uint32_t)value.toInt();
+  if (nativeFormValue(body, "lowSmoothingSec", value)) proposedLowSmooth = (uint32_t)value.toInt();
+  if (nativeFormValue(body, "criticalSmoothingSec", value)) proposedCritSmooth = (uint32_t)value.toInt();
+  if (nativeFormValue(body, "historyIntervalMinutes", value)) proposedHistoryMin = (uint32_t)value.toInt();
   if (nativeFormValue(body, "calibrationFactor", value)) proposedFactor = value.toFloat();
   if (nativeFormValue(body, "calibrationOffset", value)) proposedOffset = value.toFloat();
 
   if (proposedSample < 1) proposedSample = 1;
   if (proposedSample > 3600) proposedSample = 3600;
-  if (!valid || proposedCritical < 6.0f || proposedCritical > 20.0f ||
+  if (!valid || proposedLowSmooth < 10 || proposedLowSmooth > 600 ||
+      proposedCritSmooth < 10 || proposedCritSmooth > 600 ||
+      proposedHistoryMin < 1 || proposedHistoryMin > 60 ||
+      proposedCritical < 6.0f || proposedCritical > 20.0f ||
       proposedLow <= proposedCritical || proposedLow > 20.0f ||
       proposedFactor < 0.5f || proposedFactor > 1.5f ||
       proposedOffset < -5.0f || proposedOffset > 5.0f) {
@@ -268,6 +277,9 @@ static esp_err_t nativeConfigPostHandler(httpd_req_t* req) {
   calibrationFactor = proposedFactor;
   calibrationOffset = proposedOffset;
   sampleIntervalSec = proposedSample;
+  lowSmoothingSec = proposedLowSmooth;
+  criticalSmoothingSec = proposedCritSmooth;
+  historyIntervalMinutes = proposedHistoryMin;
   saveDeviceSettings();
   refreshBatterySnapshotConfiguration();
   return nativeSendJson(req, 200, configJson());
@@ -496,6 +508,35 @@ static esp_err_t nativeAuthenticatedStatusHandler(httpd_req_t* req) {
   return nativeSendJson(req, 200, json);
 }
 
+static esp_err_t nativeAuthenticatedHistoryHandler(httpd_req_t* req) {
+  NativeHttpRequestScope scope;
+  String nonce;
+  if (!nativeQueryValue(req, "nonce", nonce))
+    return nativeSendJson(req, 400, "{\"error\":\"nonce required\"}");
+  nonce.toLowerCase();
+  if (!validMonitorNonce(nonce))
+    return nativeSendJson(req, 400, "{\"error\":\"invalid nonce\"}");
+  if (!monitoringIdentityReady && !loadOrCreateMonitoringIdentity())
+    return nativeSendJson(req, 500, "{\"error\":\"monitoring identity unavailable\"}");
+  String proof;
+  uint8_t suppliedProof[32] = {}, expectedProof[32] = {};
+  if (!nativeQueryValue(req, "proof", proof) || !parseManagementHex(proof, suppliedProof, sizeof(suppliedProof)) ||
+      !monitoringHmac("BATMON-HISTORY-REQUEST-V1", nonce, "", expectedProof))
+    return nativeSendJson(req, 403, "{\"error\":\"history authentication required\"}");
+  uint8_t difference = 0;
+  for (size_t i = 0; i < sizeof(suppliedProof); ++i) difference |= suppliedProof[i] ^ expectedProof[i];
+  if (difference != 0) return nativeSendJson(req, 403, "{\"error\":\"history authentication failed\"}");
+  String payload = batteryHistoryJson();
+  uint8_t mac[32] = {};
+  if (!monitoringHmac("BATMON-HISTORY-V1", nonce, payload, mac))
+    return nativeSendJson(req, 500, "{\"error\":\"history authentication failed\"}");
+  String encoded = monitorBase64Encode((const uint8_t*)payload.c_str(), payload.length());
+  String json = String("{\"protocol\":\"BATMON_HISTORY_V1\",\"nonce\":\"") + nonce +
+                "\",\"payload\":\"" + encoded +
+                "\",\"hmac\":\"" + bytesToLowerHex(mac, sizeof(mac)) + "\"}";
+  return nativeSendJson(req, 200, json);
+}
+
 static esp_err_t nativeMonitorKeyHandler(httpd_req_t* req) {
   NativeHttpRequestScope scope;
   MgmtSession* session = nativeRequireManagementWriteAuth(req);
@@ -693,6 +734,7 @@ bool startNativeHttpServer() {
     registerNativeUri("/", HTTP_GET, nativeRootHandler) &&
     registerNativeUri("/api/status", HTTP_GET, nativeStatusHandler) &&
     registerNativeUri("/api/status-auth", HTTP_GET, nativeAuthenticatedStatusHandler) &&
+    registerNativeUri("/api/history-auth", HTTP_GET, nativeAuthenticatedHistoryHandler) &&
     registerNativeUri("/api/config", HTTP_GET, nativeConfigGetHandler) &&
     registerNativeUri("/api/config", HTTP_POST, nativeConfigPostHandler) &&
     registerNativeUri("/api/wifi/scan", HTTP_GET, nativeWifiScanHandler) &&

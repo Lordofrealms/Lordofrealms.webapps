@@ -10,6 +10,7 @@
     <AssemblyName>BatteryMonitor.FactoryService</AssemblyName>
     <ApplicationManifest>../BatteryMonitor.Client/app.manifest</ApplicationManifest>
     <ApplicationIcon>../BatteryMonitor.Client/AppIcon.ico</ApplicationIcon>
+    <Version>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/../../firmware/idf/version.txt').Trim())</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,7 +21,7 @@
 
   <ItemGroup>
     <Compile Include="../BatteryMonitor.Client/*.cs"
-             Exclude="../BatteryMonitor.Client/Program.cs;../BatteryMonitor.Client/MainForm.cs;../BatteryMonitor.Client/ClientEnhancements.cs;../BatteryMonitor.Client/HelpForm.cs;../BatteryMonitor.Client/AdvancedToolsForm.cs" />
+             Exclude="../BatteryMonitor.Client/Program.cs;../BatteryMonitor.Client/MainForm.cs;../BatteryMonitor.Client/ClientEnhancements.cs;../BatteryMonitor.Client/HelpForm.cs;../BatteryMonitor.Client/AdvancedToolsForm.cs;../BatteryMonitor.Client/DeviceClient.History.cs;../BatteryMonitor.Client/VoltageHistoryStore.cs;../BatteryMonitor.Client/VoltageHistoryForm.cs" />
     <Compile Include="*.cs" />
   </ItemGroup>
 </Project>

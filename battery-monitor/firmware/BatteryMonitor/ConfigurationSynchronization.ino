@@ -25,6 +25,9 @@ struct DeviceConfigState {
   float calibrationFactor;
   float calibrationOffset;
   uint32_t sampleIntervalSec;
+  uint32_t lowSmoothingSec;
+  uint32_t criticalSmoothingSec;
+  uint32_t historyIntervalMinutes;
 };
 
 static SemaphoreHandle_t deviceConfigMutex = nullptr;
@@ -48,6 +51,9 @@ static String buildPublishedConfigJson(const DeviceConfigState& state) {
   json += "\"calibrationFactor\":" + String(state.calibrationFactor, 6) + ",";
   json += "\"calibrationOffset\":" + String(state.calibrationOffset, 4) + ",";
   json += "\"sampleIntervalSec\":" + String(state.sampleIntervalSec) + ",";
+  json += "\"lowSmoothingSec\":" + String(state.lowSmoothingSec) + ",";
+  json += "\"criticalSmoothingSec\":" + String(state.criticalSmoothingSec) + ",";
+  json += "\"historyIntervalMinutes\":" + String(state.historyIntervalMinutes) + ",";
   json += "\"configuredSsid\":\"" + jsonEscape(state.wifiSsid) + "\"";
   json += "}";
   return json;
@@ -64,6 +70,9 @@ static DeviceConfigState captureConfigGlobalsUnlocked() {
   state.calibrationFactor = calibrationFactor;
   state.calibrationOffset = calibrationOffset;
   state.sampleIntervalSec = sampleIntervalSec;
+  state.lowSmoothingSec = lowSmoothingSec;
+  state.criticalSmoothingSec = criticalSmoothingSec;
+  state.historyIntervalMinutes = historyIntervalMinutes;
   return state;
 }
 

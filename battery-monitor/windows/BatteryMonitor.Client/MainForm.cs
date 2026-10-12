@@ -8,6 +8,8 @@ namespace BatteryMonitor.Client;
 public sealed class MainForm : Form
 {
     private readonly SettingsStore _settings = new();
+    private readonly VoltageHistoryStore? _history;
+    private readonly HashSet<string> _activeNotifications = new(StringComparer.OrdinalIgnoreCase);
     private readonly DeviceCredentialStore _credentials = new();
     private readonly MonitoringIdentityStore _monitoringIdentities = new();
     private readonly DeviceClient _deviceClient = new();
@@ -27,6 +29,9 @@ public sealed class MainForm : Form
     public MainForm()
     {
         _availableFirmwareVersion = _flasher.UpdateVersion ?? "";
+        try { _history = new VoltageHistoryStore(); }
+        catch (Exception ex) { MessageBox.Show("Voltage history database is unavailable: " + ex.Message,
+            "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         _devices = _settings.Load();
         foreach (var device in _devices)
         {
@@ -84,11 +89,13 @@ public sealed class MainForm : Form
         var configure = new Button { Text = "Configure", AutoSize = true };
         var snooze = new Button { Text = "Snooze Alerts", AutoSize = true };
         var openWeb = new Button { Text = "Open Web Page", AutoSize = true };
+        var historyButton = new Button { Text = "Voltage History", AutoSize = true };
+        historyButton.Click += (_, _) => OpenHistorySelected();
         discover.Click += async (_, _) => await DiscoverNowAsync();
         configure.Click += async (_, _) => await ConfigureSelectedAsync();
         snooze.Click += (_, _) => SnoozeSelected();
         openWeb.Click += (_, _) => OpenSelectedWebPage();
-        quick.Controls.AddRange([discover, configure, snooze, openWeb]);
+        quick.Controls.AddRange([discover, configure, snooze, openWeb, historyButton]);
         root.Controls.Add(quick, 0, 1);
 
         _grid.Dock = DockStyle.Fill;
@@ -137,6 +144,7 @@ public sealed class MainForm : Form
         devices.DropDownItems.Add("&Pair / Trust", null, async (_, _) => await PairSelectedAsync());
         devices.DropDownItems.Add("&Configure", null, async (_, _) => await ConfigureSelectedAsync());
         devices.DropDownItems.Add("Snooze &Alerts", null, (_, _) => SnoozeSelected());
+        devices.DropDownItems.Add("Voltage &History...", null, (_, _) => OpenHistorySelected());
         devices.DropDownItems.Add("Change &Wi-Fi", null, async (_, _) => await ChangeWifiSelectedAsync());
         devices.DropDownItems.Add("&Open Device Web Page", null, (_, _) => OpenSelectedWebPage());
         devices.DropDownItems.Add(new ToolStripSeparator());
@@ -421,7 +429,15 @@ public sealed class MainForm : Form
         try
         {
             var status = await _deviceClient.GetAuthenticatedStatusAsync(device, key);
-            if (!IsDisposed) BeginInvoke(new Action(() => ApplyStatus(device, status)));
+            DeviceHistoryBatch? history = null;
+            if (status.HistoryIntervalMinutes > 0 && _history is not null &&
+                (DateTime.UtcNow - device.LastHistorySyncUtc).TotalMinutes >= 5)
+            {
+                try { history = await _deviceClient.GetAuthenticatedHistoryAsync(device, key); }
+                catch (HttpRequestException) { /* Older firmware may not provide history. */ }
+                catch (TaskCanceledException) { }
+            }
+            if (!IsDisposed) BeginInvoke(new Action(() => ApplyStatus(device, status, history)));
         }
         catch (MonitoringIdentityException ex)
         {
@@ -438,7 +454,7 @@ public sealed class MainForm : Form
         }
     }
 
-    private void ApplyStatus(MonitorEntry device, DeviceStatus status)
+    private void ApplyStatus(MonitorEntry device, DeviceStatus status, DeviceHistoryBatch? history = null)
     {
         var now = DateTime.UtcNow;
         var wasOffline = device.OfflineAlerted || IsOffline(device, now);
@@ -446,10 +462,17 @@ public sealed class MainForm : Form
         device.FailureStartedUtc = null;
         device.OfflineAlerted = false;
         device.LastOfflineAlertUtc = DateTime.MinValue;
+        ClearNotification(device, "offline");
         device.IdentityFailure = false;
+        ClearNotification(device, "identity");
         device.MonitoringTrustState = "Trusted";
         device.Voltage = status.Voltage;
         device.State = status.State;
+        if (history is not null && _history is not null)
+        {
+            try { _history.AddHistory(device.DeviceId, history, now); device.LastHistorySyncUtc = now; }
+            catch (Exception ex) { Debug.WriteLine("History storage failed: " + ex); }
+        }
         device.Rssi = status.Rssi;
         device.LastSeenUtc = now;
 
@@ -460,6 +483,9 @@ public sealed class MainForm : Form
             || Math.Abs(device.LowVoltage - status.LowVoltage) > 0.0001
             || Math.Abs(device.CriticalVoltage - status.CriticalVoltage) > 0.0001
             || device.SampleIntervalSec != status.SampleIntervalSec
+            || (status.LowSmoothingSec > 0 && device.LowSmoothingSec != status.LowSmoothingSec)
+            || (status.CriticalSmoothingSec > 0 && device.CriticalSmoothingSec != status.CriticalSmoothingSec)
+            || (status.HistoryIntervalMinutes > 0 && device.HistoryIntervalMinutes != status.HistoryIntervalMinutes)
             || Math.Abs(device.CalibrationFactor - status.CalibrationFactor) > 0.000001
             || Math.Abs(device.CalibrationOffset - status.CalibrationOffset) > 0.0001;
 
@@ -473,12 +499,15 @@ public sealed class MainForm : Form
         device.CalibrationFactor = status.CalibrationFactor;
         device.CalibrationOffset = status.CalibrationOffset;
 
+        if (status.LowSmoothingSec is >= 10 and <= 600) device.LowSmoothingSec = status.LowSmoothingSec;
+        if (status.CriticalSmoothingSec is >= 10 and <= 600) device.CriticalSmoothingSec = status.CriticalSmoothingSec;
+        if (status.HistoryIntervalMinutes is >= 1 and <= 60) device.HistoryIntervalMinutes = status.HistoryIntervalMinutes;
         if (persistentChanged) _settings.Save(_devices);
 
         if (wasOffline && device.RecoveryAlert.Enabled && !device.AlertsAreSnoozed(now))
         {
             AlertSoundPlayer.Play(device.RecoveryAlert);
-            ShowBalloon("Battery Monitor Online",
+            NotifyIncident(device, "recovery", "Battery Monitor Online",
                 $"{device.DisplayName} is authenticated and reachable again at {device.Voltage:0.00} V.",
                 ToolTipIcon.Info);
         }
@@ -500,7 +529,7 @@ public sealed class MainForm : Form
         if (first)
         {
             SystemSounds.Hand.Play();
-            ShowBalloon("Battery Monitor Identity Failure", $"{device.DisplayName}: {reason}", ToolTipIcon.Error);
+            NotifyIncident(device, "identity", "Battery Monitor Identity Failure", $"{device.DisplayName}: {reason}", ToolTipIcon.Error);
         }
 
         RenderGrid();
@@ -522,6 +551,7 @@ public sealed class MainForm : Form
         if (device.AlertsAreSnoozed(now)) return;
 
         var first = !device.OfflineAlerted;
+        if (first) ClearNotification(device, "recovery");
         var profile = device.OfflineAlert;
         var repeatDue = device.OfflineAlerted && profile.RepeatMinutes > 0 &&
                         (now - device.LastOfflineAlertUtc).TotalMinutes >= profile.RepeatMinutes;
@@ -533,7 +563,7 @@ public sealed class MainForm : Form
         if (!profile.Enabled) return;
 
         AlertSoundPlayer.Play(profile);
-        ShowBalloon("Battery Monitor Offline",
+        NotifyIncident(device, "offline", "Battery Monitor Offline",
             $"{device.DisplayName} has been unreachable for {FormatDuration(device.OfflineTimeoutSec)}.",
             ToolTipIcon.Warning);
     }
@@ -552,12 +582,20 @@ public sealed class MainForm : Form
         var current = device.State;
         if (current != "low" && current != "critical")
         {
+            if (device.LastAlertState is "low" or "critical") LogEvent(device, "recovered", $"Voltage recovered: {device.Voltage:0.00} V");
+            ClearNotification(device, "low");
+            ClearNotification(device, "critical");
             device.LastAlertState = current;
             device.LastAlertUtc = DateTime.MinValue;
             return;
         }
 
-        if (device.AlertsAreSnoozed(DateTime.UtcNow)) return;
+        if (current != device.LastAlertState)
+        {
+            LogEvent(device, current, $"{current.ToUpperInvariant()} at {device.Voltage:0.00} V");
+            ClearNotification(device, current == "critical" ? "low" : "critical");
+        }
+        if (device.AlertsAreSnoozed(DateTime.UtcNow)) { device.LastAlertState = current; return; }
 
         var profile = current == "critical" ? device.CriticalAlert : device.LowAlert;
         var changed = !string.Equals(current, device.LastAlertState, StringComparison.OrdinalIgnoreCase);
@@ -569,7 +607,7 @@ public sealed class MainForm : Form
         {
             AlertSoundPlayer.Play(profile);
             var title = current == "critical" ? "CRITICAL Battery" : "Low Battery";
-            ShowBalloon(title, $"{device.DisplayName}: {device.Voltage:0.00} V",
+            NotifyIncident(device, current, title, $"{device.DisplayName}: {device.Voltage:0.00} V",
                 current == "critical" ? ToolTipIcon.Error : ToolTipIcon.Warning);
             device.LastAlertUtc = DateTime.UtcNow;
         }
@@ -738,6 +776,8 @@ public sealed class MainForm : Form
         _credentials.Forget(device.DeviceId);
         _monitoringIdentities.Forget(device.DeviceId);
         _devices.Remove(device);
+        foreach (var key in _activeNotifications.Where(x => x.StartsWith(device.DeviceId + "|", StringComparison.OrdinalIgnoreCase)).ToArray())
+            _activeNotifications.Remove(key);
         _settings.Save(_devices);
         RenderGrid();
     }
@@ -880,6 +920,36 @@ public sealed class MainForm : Form
         return minutes == 0 ? $"{hours}h" : $"{hours}h {minutes}m";
     }
 
+    private void LogEvent(MonitorEntry device, string category, string message)
+    {
+        try { _history?.RecordEvent(device.DeviceId, category, message); }
+        catch (Exception ex) { Debug.WriteLine("Event history write failed: " + ex); }
+    }
+
+    private void ClearNotification(MonitorEntry device, string category) =>
+        _activeNotifications.Remove(device.DeviceId + "|" + category);
+
+    private void NotifyIncident(MonitorEntry device, string category, string title, string text, ToolTipIcon icon)
+    {
+        if (!_activeNotifications.Add(device.DeviceId + "|" + category)) return;
+        LogEvent(device, "notification:" + category, text);
+        ShowBalloon(title, text, icon);
+    }
+
+    private void OpenHistorySelected()
+    {
+        var device = SelectedDevice();
+        if (device is null) return;
+        if (_history is null)
+        {
+            MessageBox.Show(this, "History database is unavailable.", "Battery Monitor",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        using var form = new VoltageHistoryForm(_history, device);
+        form.ShowDialog(this);
+    }
+
     private void ShowBalloon(string title, string text, ToolTipIcon icon)
     {
         _tray.BalloonTipTitle = title;
@@ -916,5 +986,6 @@ public sealed class MainForm : Form
         AlertSoundPlayer.Stop();
         _tray.Visible = false;
         _tray.Dispose();
+        _history?.Dispose();
     }
 }

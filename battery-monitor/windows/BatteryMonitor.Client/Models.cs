@@ -75,6 +75,9 @@ public sealed class MonitorEntry
     public double CalibrationFactor { get; set; } = 1.0;
     public double CalibrationOffset { get; set; } = 0.0;
     public int SampleIntervalSec { get; set; } = 10;
+    public int LowSmoothingSec { get; set; } = 300;
+    public int CriticalSmoothingSec { get; set; } = 60;
+    public int HistoryIntervalMinutes { get; set; } = 60;
     public int PollIntervalSec { get; set; } = 10;
     public int OfflineTimeoutSec { get; set; } = 300;
     public DateTime? AlertsSnoozedUntilUtc { get; set; }
@@ -89,6 +92,7 @@ public sealed class MonitorEntry
     [JsonIgnore] public int Rssi { get; set; }
     [JsonIgnore] public DateTime? LastSeenUtc { get; set; }
     [JsonIgnore] public DateTime LastPollUtc { get; set; } = DateTime.MinValue;
+    [JsonIgnore] public DateTime LastHistorySyncUtc { get; set; } = DateTime.MinValue;
     [JsonIgnore] public bool PollInProgress { get; set; }
     [JsonIgnore] public DateTime? FailureStartedUtc { get; set; }
     [JsonIgnore] public bool OfflineAlerted { get; set; }
@@ -111,6 +115,9 @@ public sealed class MonitorEntry
     {
         if (OfflineTimeoutSec <= 0) OfflineTimeoutSec = 300;
         if (PollIntervalSec < 2) PollIntervalSec = 10;
+        if (LowSmoothingSec < 10 || LowSmoothingSec > 600) LowSmoothingSec = 300;
+        if (CriticalSmoothingSec < 10 || CriticalSmoothingSec > 600) CriticalSmoothingSec = 60;
+        if (HistoryIntervalMinutes < 1 || HistoryIntervalMinutes > 60) HistoryIntervalMinutes = 60;
         if (AlertsSnoozedUntilUtc.HasValue && AlertsSnoozedUntilUtc.Value <= DateTime.UtcNow)
             AlertsSnoozedUntilUtc = null;
         LowAlert ??= AlertProfile.LowDefault();
@@ -145,6 +152,11 @@ public sealed class DeviceStatus
     public double CalibrationFactor { get; set; }
     public double CalibrationOffset { get; set; }
     public int SampleIntervalSec { get; set; }
+    public int LowSmoothingSec { get; set; }
+    public int CriticalSmoothingSec { get; set; }
+    public int HistoryIntervalMinutes { get; set; }
+    public double LowAverage { get; set; }
+    public double CriticalAverage { get; set; }
     public long UptimeSec { get; set; }
     public long LastSampleAgeMs { get; set; }
 }

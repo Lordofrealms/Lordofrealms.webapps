@@ -19,12 +19,55 @@ struct BatterySnapshot {
   float calibrationFactor;
   float calibrationOffset;
   uint32_t sampleIntervalSec;
+  uint32_t lowSmoothingSec;
+  uint32_t criticalSmoothingSec;
+  uint32_t historyIntervalMinutes;
+  float lowAverage;
+  float criticalAverage;
   char state[10];
 };
 
 static SemaphoreHandle_t batterySnapshotMutex = nullptr;
 static BatterySnapshot publishedBatterySnapshot = {};
 static bool publishedBatterySnapshotReady = false;
+
+// Ten-minute bounded voltage sample ring; updated only by the sampling task
+// while batterySnapshotMutex is held. Both thresholds use the same samples.
+struct RollingVoltageSample { uint32_t atMs; float voltage; };
+static RollingVoltageSample rollingSamples[601] = {};
+static size_t rollingNext = 0;
+static size_t rollingCount = 0;
+static void clearRollingVoltage() { rollingNext = 0; rollingCount = 0; }
+static void appendRollingVoltage(uint32_t atMs, float voltage) {
+  rollingSamples[rollingNext] = {atMs, voltage};
+  rollingNext = (rollingNext + 1) % 601;
+  if (rollingCount < 601) ++rollingCount;
+}
+static bool timeWeightedVoltageAverage(uint32_t now, uint32_t windowSec, float& average) {
+  if (rollingCount < 2 || windowSec < 10 || windowSec > 600) return false;
+  uint32_t duration = windowSec * 1000UL;
+  uint32_t newestIndex = (rollingNext + 600) % 601;
+  uint32_t newestAt = rollingSamples[newestIndex].atMs;
+  if ((uint32_t)(now - newestAt) > duration) return false;
+  double weighted = 0;
+  uint32_t covered = 0;
+  uint32_t rightAge = 0;
+  for (size_t k = 0; k < rollingCount; ++k) {
+    size_t i = (rollingNext + 600 - k) % 601;
+    uint32_t age = (uint32_t)(now - rollingSamples[i].atMs);
+    if (age > duration) age = duration;
+    if (age > rightAge) {
+      weighted += (double)(age - rightAge) * (double)rollingSamples[i].voltage;
+      covered += age - rightAge;
+      rightAge = age;
+    }
+    if (covered >= duration) break;
+  }
+  if (covered < duration) return false;
+  average = (float)(weighted / duration);
+  return true;
+}
+
 
 static bool ensureBatterySnapshotMutex() {
   if (batterySnapshotMutex != nullptr) return true;
@@ -33,8 +76,17 @@ static bool ensureBatterySnapshotMutex() {
 }
 
 static void classifyBatterySnapshot(BatterySnapshot& snapshot) {
-  const char* state = snapshot.voltage <= snapshot.criticalVoltage ? "critical" :
-                      snapshot.voltage <= snapshot.lowVoltage ? "low" : "good";
+  float lowAverage = 0, criticalAverage = 0;
+  bool lowReady = timeWeightedVoltageAverage(snapshot.sampleTimeMs, snapshot.lowSmoothingSec, lowAverage);
+  bool criticalReady = timeWeightedVoltageAverage(snapshot.sampleTimeMs, snapshot.criticalSmoothingSec, criticalAverage);
+  snapshot.lowAverage = lowReady ? lowAverage : snapshot.voltage;
+  snapshot.criticalAverage = criticalReady ? criticalAverage : snapshot.voltage;
+  // Do not interpret an incomplete rolling window as a validated alert.
+  const bool wasCritical = strcmp(publishedBatterySnapshot.state, "critical") == 0;
+  const bool wasLow = strcmp(publishedBatterySnapshot.state, "low") == 0;
+  const char* state = criticalReady && criticalAverage <= snapshot.criticalVoltage + (wasCritical ? 0.10f : 0.0f)
+      ? "critical" : lowReady && lowAverage <= snapshot.lowVoltage + (wasLow ? 0.10f : 0.0f)
+      ? "low" : (!lowReady || !criticalReady) ? "warming" : "good";
   strlcpy(snapshot.state, state, sizeof(snapshot.state));
 }
 
@@ -66,6 +118,10 @@ void refreshBatterySnapshotConfiguration() {
     publishedBatterySnapshot.calibrationFactor = config.calibrationFactor;
     publishedBatterySnapshot.calibrationOffset = config.calibrationOffset;
     publishedBatterySnapshot.sampleIntervalSec = config.sampleIntervalSec;
+    publishedBatterySnapshot.lowSmoothingSec = config.lowSmoothingSec;
+    publishedBatterySnapshot.criticalSmoothingSec = config.criticalSmoothingSec;
+    publishedBatterySnapshot.historyIntervalMinutes = config.historyIntervalMinutes;
+    clearRollingVoltage(); // Calibration/threshold/window change invalidates earlier averages.
     publishedBatterySnapshot.voltage =
       (((float)publishedBatterySnapshot.adcMillivolts / 1000.0f) *
        DIVIDER_MULTIPLIER * config.calibrationFactor) + config.calibrationOffset;
@@ -134,8 +190,13 @@ void sampleBatterySnapshot() {
   next.calibrationFactor = config.calibrationFactor;
   next.calibrationOffset = config.calibrationOffset;
   next.sampleIntervalSec = config.sampleIntervalSec;
+  next.lowSmoothingSec = config.lowSmoothingSec;
+  next.criticalSmoothingSec = config.criticalSmoothingSec;
+  next.historyIntervalMinutes = config.historyIntervalMinutes;
   next.voltage = (((float)measuredMillivolts / 1000.0f) *
                   DIVIDER_MULTIPLIER * next.calibrationFactor) + next.calibrationOffset;
+  appendRollingVoltage(measuredAt, next.voltage);
+  captureHistoryVoltage(next.voltage, config.historyIntervalMinutes, measuredAt);
   classifyBatterySnapshot(next);
 
   publishedBatterySnapshot = next;
@@ -180,6 +241,9 @@ String batterySnapshotStatusJson(HttpStatusBuildTiming* timing) {
     snapshot.calibrationFactor = config.calibrationFactor;
     snapshot.calibrationOffset = config.calibrationOffset;
     snapshot.sampleIntervalSec = config.sampleIntervalSec;
+    snapshot.lowSmoothingSec = config.lowSmoothingSec;
+    snapshot.criticalSmoothingSec = config.criticalSmoothingSec;
+    snapshot.historyIntervalMinutes = config.historyIntervalMinutes;
     snapshot.sampleTimeMs = millis();
     classifyBatterySnapshot(snapshot);
   }
@@ -213,6 +277,11 @@ String batterySnapshotStatusJson(HttpStatusBuildTiming* timing) {
   json += "\"batteryType\":\"" + jsonEscape(config.batteryType) + "\",";
   json += "\"voltage\":" + String(snapshot.voltage, 3) + ",";
   json += "\"state\":\"" + String(snapshot.state) + "\",";
+  json += "\"lowAverage\":" + String(snapshot.lowAverage, 3) + ",";
+  json += "\"criticalAverage\":" + String(snapshot.criticalAverage, 3) + ",";
+  json += "\"lowSmoothingSec\":" + String(snapshot.lowSmoothingSec) + ",";
+  json += "\"criticalSmoothingSec\":" + String(snapshot.criticalSmoothingSec) + ",";
+  json += "\"historyIntervalMinutes\":" + String(snapshot.historyIntervalMinutes) + ",";
   json += "\"adcRaw\":" + String(snapshot.adcRaw) + ",";
   json += "\"adcMillivolts\":" + String(snapshot.adcMillivolts) + ",";
   json += "\"lowVoltage\":" + String(snapshot.lowVoltage, 3) + ",";

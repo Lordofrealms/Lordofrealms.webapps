@@ -14,6 +14,9 @@ public sealed class DeviceConfigForm : Form
     private readonly NumericUpDown _sample = new();
     private readonly NumericUpDown _poll = new();
     private readonly NumericUpDown _offlineTimeoutValue = new();
+    private readonly NumericUpDown _lowSmoothing = new();
+    private readonly NumericUpDown _criticalSmoothing = new();
+    private readonly NumericUpDown _historyMinutes = new();
     private readonly ComboBox _offlineTimeoutUnit = new();
     private readonly TextBox _devicePassword = new() { UseSystemPasswordChar = true };
     private readonly TextBox _newPassword = new() { UseSystemPasswordChar = true };
@@ -58,6 +61,9 @@ public sealed class DeviceConfigForm : Form
         ConfigureNumeric(_critical, 6, 20, 2, 0.01m);
         ConfigureNumeric(_sample, 1, 3600, 0, 1);
         ConfigureNumeric(_poll, 2, 3600, 0, 1);
+        ConfigureNumeric(_lowSmoothing, 10, 600, 0, 10);
+        ConfigureNumeric(_criticalSmoothing, 10, 600, 0, 10);
+        ConfigureNumeric(_historyMinutes, 1, 60, 0, 1);
         ConfigureNumeric(_offlineTimeoutValue, 1, 86400, 0, 1);
 
         _offlineTimeoutUnit.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -70,7 +76,7 @@ public sealed class DeviceConfigForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(14),
             ColumnCount = 2,
-            RowCount = 20,
+            RowCount = 23,
             AutoScroll = true
         };
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
@@ -171,7 +177,7 @@ public sealed class DeviceConfigForm : Form
         {
             AutoSize = true,
             MaximumSize = new Size(560, 0),
-            Text = "Save + Apply authenticates with the Device Password before changing the unit. Battery profile and active voltage thresholds are stored on the unit; custom profile definitions remain Windows-side. Applying profile defaults is explicit. Calibration is a factory/service function and is intentionally not changed here. Alert settings, local alias, PC poll interval, and offline timeout are Windows-only settings."
+            Text = "Save + Apply authenticates with the Device Password before changing the unit. Battery profile and active voltage thresholds are stored on the unit; custom profile definitions remain Windows-side. Applying profile defaults is explicit. Calibration is a factory/service function and is intentionally not changed here. Alert settings, local alias, PC poll interval, and offline timeout are Windows-only settings. Smoothing windows and RAM history interval require Save + Apply to Unit."
         };
         table.Controls.Add(info, 0, 17);
         table.SetColumnSpan(info, 2);
@@ -192,6 +198,10 @@ public sealed class DeviceConfigForm : Form
         buttons.Controls.Add(saveLocal);
         table.Controls.Add(buttons, 0, 18);
         table.SetColumnSpan(buttons, 2);
+
+        AddRow(table, 19, "Low alert average window (seconds)", _lowSmoothing);
+        AddRow(table, 20, "Critical average window (seconds)", _criticalSmoothing);
+        AddRow(table, 21, "Device RAM history interval (minutes)", _historyMinutes);
 
         AcceptButton = saveBoth;
         CancelButton = cancel;
@@ -270,6 +280,9 @@ public sealed class DeviceConfigForm : Form
         _critical.Value = Clamp((decimal)_device.CriticalVoltage, _critical);
         _sample.Value = Clamp(_device.SampleIntervalSec, _sample);
         _poll.Value = Clamp(_device.PollIntervalSec, _poll);
+        _lowSmoothing.Value = Clamp(_device.LowSmoothingSec, _lowSmoothing);
+        _criticalSmoothing.Value = Clamp(_device.CriticalSmoothingSec, _criticalSmoothing);
+        _historyMinutes.Value = Clamp(_device.HistoryIntervalMinutes, _historyMinutes);
         LoadOfflineTimeout(_device.OfflineTimeoutSec <= 0 ? 300 : _device.OfflineTimeoutSec);
 
         if (!string.IsNullOrEmpty(savedDevicePassword))
@@ -361,6 +374,13 @@ public sealed class DeviceConfigForm : Form
             return;
         }
 
+        if (_sample.Value > Math.Min(_lowSmoothing.Value, _criticalSmoothing.Value))
+        {
+            MessageBox.Show(this, "Unit sample interval must be no longer than either alert averaging window.",
+                "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
         if (applyToUnit)
         {
             if (!DevicePasswordRules.TryValidate(_devicePassword.Text, out var currentError))
@@ -402,6 +422,9 @@ public sealed class DeviceConfigForm : Form
         _device.LowVoltage = (double)_low.Value;
         _device.CriticalVoltage = (double)_critical.Value;
         _device.SampleIntervalSec = (int)_sample.Value;
+        _device.LowSmoothingSec = (int)_lowSmoothing.Value;
+        _device.CriticalSmoothingSec = (int)_criticalSmoothing.Value;
+        _device.HistoryIntervalMinutes = (int)_historyMinutes.Value;
         _device.PollIntervalSec = (int)_poll.Value;
         _device.OfflineTimeoutSec = timeoutSec;
         // Calibration remains untouched here; it is owned by the Factory & Service application.

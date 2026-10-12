@@ -47,6 +47,9 @@ float criticalVoltage = 11.90f;
 float calibrationFactor = 1.0f;
 float calibrationOffset = 0.0f;
 uint32_t sampleIntervalSec = 10;
+uint32_t lowSmoothingSec = 300;
+uint32_t criticalSmoothingSec = 60;
+uint32_t historyIntervalMinutes = 60;
 
 // Legacy scalar mirrors remain only for trusted USB/status compatibility. The
 // authoritative multi-field measurement is BatterySnapshot.
@@ -121,11 +124,17 @@ void loadSettings() {
   calibrationFactor = prefs.getFloat("calf", 1.0f);
   calibrationOffset = prefs.getFloat("calo", 0.0f);
   sampleIntervalSec = prefs.getUInt("sample", 10);
+  lowSmoothingSec = prefs.getUInt("lowSmooth", 300);
+  criticalSmoothingSec = prefs.getUInt("critSmooth", 60);
+  historyIntervalMinutes = prefs.getUInt("histMin", 60);
   wifiSsid = prefs.getString("ssid", "");
   wifiPassword = prefs.getString("pass", "");
   prefs.end();
 
   if (sampleIntervalSec < 1 || sampleIntervalSec > 3600) sampleIntervalSec = 10;
+  if (lowSmoothingSec < 10 || lowSmoothingSec > 600) lowSmoothingSec = 300;
+  if (criticalSmoothingSec < 10 || criticalSmoothingSec > 600) criticalSmoothingSec = 60;
+  if (historyIntervalMinutes < 1 || historyIntervalMinutes > 60) historyIntervalMinutes = 60;
   if (!isValidBatteryProfileId(batteryType)) batteryType = "lead_acid";
   if (lowVoltage <= criticalVoltage || criticalVoltage < 6.0f || criticalVoltage > 20.0f || lowVoltage > 20.0f)
     chemistryDefaults(batteryType, lowVoltage, criticalVoltage);
@@ -143,6 +152,9 @@ void saveDeviceSettings() {
   prefs.putFloat("calf", calibrationFactor);
   prefs.putFloat("calo", calibrationOffset);
   prefs.putUInt("sample", sampleIntervalSec);
+  prefs.putUInt("lowSmooth", lowSmoothingSec);
+  prefs.putUInt("critSmooth", criticalSmoothingSec);
+  prefs.putUInt("histMin", historyIntervalMinutes);
   prefs.end();
 }
 
@@ -176,6 +188,9 @@ String configJson() {
   json += "\"calibrationFactor\":" + String(calibrationFactor, 6) + ",";
   json += "\"calibrationOffset\":" + String(calibrationOffset, 4) + ",";
   json += "\"sampleIntervalSec\":" + String(sampleIntervalSec) + ",";
+  json += "\"lowSmoothingSec\":" + String(lowSmoothingSec) + ",";
+  json += "\"criticalSmoothingSec\":" + String(criticalSmoothingSec) + ",";
+  json += "\"historyIntervalMinutes\":" + String(historyIntervalMinutes) + ",";
   json += "\"configuredSsid\":\"" + jsonEscape(wifiSsid) + "\"";
   json += "}";
   return json;

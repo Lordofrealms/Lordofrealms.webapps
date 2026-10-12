@@ -206,6 +206,9 @@ public sealed partial class DeviceClient
                 ["lowVoltage"] = device.LowVoltage.ToString("0.000", CultureInfo.InvariantCulture),
                 ["criticalVoltage"] = device.CriticalVoltage.ToString("0.000", CultureInfo.InvariantCulture),
                 ["sampleIntervalSec"] = device.SampleIntervalSec.ToString(CultureInfo.InvariantCulture),
+                ["lowSmoothingSec"] = device.LowSmoothingSec.ToString(CultureInfo.InvariantCulture),
+                ["criticalSmoothingSec"] = device.CriticalSmoothingSec.ToString(CultureInfo.InvariantCulture),
+                ["historyIntervalMinutes"] = device.HistoryIntervalMinutes.ToString(CultureInfo.InvariantCulture),
                 ["calibrationFactor"] = device.CalibrationFactor.ToString("0.000000", CultureInfo.InvariantCulture),
                 ["calibrationOffset"] = device.CalibrationOffset.ToString("0.0000", CultureInfo.InvariantCulture)
             };

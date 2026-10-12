@@ -136,7 +136,9 @@ Factory provisioning, calibration, radio/HTTP service tuning, serial engineering
     {
         if (_topics.SelectedIndex < 0 || _topics.SelectedIndex >= Topics.Length) return;
         var topic = Topics[_topics.SelectedIndex];
-        _content.Text = topic.Title + Environment.NewLine + Environment.NewLine + topic.Body;
+        _content.Text = topic.Title + Environment.NewLine + Environment.NewLine + topic.Body +
+            (topic.Title == "About" ? Environment.NewLine + Environment.NewLine +
+             "Application version: " + (typeof(MainForm).Assembly.GetName().Version?.ToString(3) ?? "unknown") : "");
         _content.SelectionStart = 0;
         _content.SelectionLength = topic.Title.Length;
         _content.SelectionFont = new Font(_content.Font, FontStyle.Bold);

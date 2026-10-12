@@ -10,8 +10,8 @@ android {
         applicationId = "com.lordofrealms.batterymonitorsetup"
         minSdk = 31
         targetSdk = 36
-        versionCode = 11
-        versionName = "0.1.1"
+        versionCode = 13
+        versionName = "0.1.3"
     }
 
     buildTypes {
