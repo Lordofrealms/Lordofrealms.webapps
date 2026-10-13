@@ -66,7 +66,7 @@ internal sealed class FirmwareUpdateForm : Form
         {
             AutoSize = true,
             MaximumSize = new Size(730, 0),
-            Text = "Normal Battery Monitor updates use the signed application image in this package. Wi-Fi OTA is the convenient path once the installed firmware supports it; trusted USB remains the recovery/admin path. Both transports use the same inactive OTA slot, production RSA-PSS signature verification, release floor, 60-second health probation, and automatic rollback."
+            Text = "Signed updates automatically select the verified upgrade path, including a bundled legacy compatibility bridge when required. Each stage must boot and complete health probation before the next firmware image is transferred. Wi-Fi and trusted USB use the same anti-downgrade and signature protections."
         }, 0, 0);
 
         var usbHeader = new Label
@@ -253,18 +253,35 @@ internal sealed class FirmwareUpdateForm : Form
             return;
         }
 
-        var comparison = FirmwareVersionInfo.ComparisonLabel(_detectedStatus.FirmwareVersion, _flasher.UpdateVersion);
-        if (!ConfirmUpdate("USB", _detectedStatus.DeviceId, _detectedStatus.FirmwareVersion, comparison)) return;
-
         await RunOperationAsync(async token =>
         {
-            AppendOutput("Starting signed USB OTA. Do not disconnect USB or remove power during transfer.");
-            var result = await _flasher.UpdateFirmwareAsync(port, AppendOutput, token);
-            if (!result.Success) throw new InvalidOperationException(result.Output);
+            // Re-check identity and version immediately before choosing signed images.
+            var before = await _provisioner.ReadStatusAsync(port, AppendOutput, token);
+            if (!string.Equals(before.DeviceId, _detectedStatus.DeviceId, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("USB device identity changed since detection; no firmware was transferred.");
+            var stages = FirmwareUpgradePlanner.Resolve(before.FirmwareVersion, _flasher);
+            var comparison = FirmwareVersionInfo.ComparisonLabel(before.FirmwareVersion, _flasher.UpdateVersion);
+            if (!ConfirmUpdate("USB", before.DeviceId, before.FirmwareVersion, comparison,
+                    upgradePath: DescribeStages(stages))) return;
+
+            for (var i = 0; i < stages.Count; i++)
+            {
+                var stage = stages[i];
+                token.ThrowIfCancellationRequested();
+                AppendOutput($"USB upgrade stage {i+1}/{stages.Count}: {stage.Kind}, firmware {stage.Version}.");
+                var result = await _flasher.UpdateFirmwareAsync(port, stage.ImagePath, stage.SignaturePath, AppendOutput, token);
+                if (!result.Success) throw new InvalidOperationException(result.Output);
+                if (!string.Equals(result.Output, stage.Version, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Device acknowledged a different firmware version than the signed upgrade plan.");
+                if (i < stages.Count - 1)
+                {
+                    AppendOutput("Bridge selected. Waiting for reboot, verification and health probation before proceeding...");
+                    await AwaitUsbBootAndProbationAsync(port, before.DeviceId, stage.Version, token);
+                }
+            }
             BeginInvoke(new Action(() =>
             {
-                MessageBox.Show(this,
-                    $"Signed firmware {result.Output} was verified by the device and selected for boot. The monitor will reboot and retain its encrypted settings/NVS. The new image remains rollback-armed until its health probation passes.",
+                MessageBox.Show(this, "Signed upgrade stages transferred and verified. The final firmware is rebooting; verify its installed version once it finishes health probation.",
                     "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 _detectedStatus = null;
                 _detected.Text = "Device rebooting. Detect again after it returns to verify the installed version.";
@@ -286,9 +303,6 @@ internal sealed class FirmwareUpdateForm : Form
 
         var installedVersion = _lanStatus?.FirmwareVersion;
         if (string.IsNullOrWhiteSpace(installedVersion)) installedVersion = device.FirmwareVersion;
-        var comparison = FirmwareVersionInfo.ComparisonLabel(installedVersion, _flasher.UpdateVersion);
-        if (!ConfirmUpdate("Wi-Fi", device.DeviceId, installedVersion, comparison, device.Address)) return;
-
         var savedPassword = _credentials.Load(device.DeviceId);
         using var passwordDialog = new DevicePasswordPromptForm(device.DisplayName, savedPassword);
         if (passwordDialog.ShowDialog(this) != DialogResult.OK) return;
@@ -297,22 +311,35 @@ internal sealed class FirmwareUpdateForm : Form
         var remember = passwordDialog.Remember;
         await RunOperationAsync(async token =>
         {
+            var before = await _deviceClient.GetStatusAsync(device, token);
+            if (!string.Equals(before.DeviceId, device.DeviceId, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("LAN device identity changed since pairing; no firmware was transferred.");
+            var stages = FirmwareUpgradePlanner.Resolve(before.FirmwareVersion, _flasher);
+            var comparison = FirmwareVersionInfo.ComparisonLabel(before.FirmwareVersion, _flasher.UpdateVersion);
+            if (!ConfirmUpdate("Wi-Fi", device.DeviceId, before.FirmwareVersion, comparison, device.Address,
+                    DescribeStages(stages))) return;
             AppendOutput($"Starting signed Wi-Fi OTA to {device.DisplayName} at {device.Address}. Keep device power and LAN connectivity stable during transfer.");
-            var version = await _deviceClient.UpdateFirmwareOverLanAsync(
-                device,
-                password,
-                _flasher.UpdateFirmwarePath,
-                _flasher.UpdateSignaturePath,
-                AppendOutput,
-                token);
-
+            for (var i = 0; i < stages.Count; i++)
+            {
+                var stage = stages[i];
+                token.ThrowIfCancellationRequested();
+                AppendOutput($"Wi-Fi upgrade stage {i + 1}/{stages.Count}: {stage.Kind}, firmware {stage.Version}.");
+                var version = await _deviceClient.UpdateFirmwareOverLanAsync(
+                    device, password, stage.ImagePath, stage.SignaturePath, AppendOutput, token);
+                if (!string.Equals(version, stage.Version, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Device acknowledged a different firmware version than the signed upgrade plan.");
+                if (i < stages.Count - 1)
+                {
+                    AppendOutput("Bridge selected. Waiting for reboot, verification and health probation before continuing...");
+                    await AwaitLanBootAndProbationAsync(device, stage.Version, token);
+                }
+            }
             if (remember) _credentials.Save(device.DeviceId, password);
             else _credentials.Forget(device.DeviceId);
 
             BeginInvoke(new Action(() =>
             {
-                MessageBox.Show(this,
-                    $"Signed firmware {version} was independently verified by the monitor and selected for boot. It is rebooting now; the candidate remains rollback-armed until its health probation passes.",
+                MessageBox.Show(this, "Signed upgrade stages transferred and verified. The final firmware is rebooting; verify the installed version after health probation.",
                     "Battery Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 _lanStatus = null;
                 _lanDetected.Text = "Device rebooting. Check Wi-Fi Device after it returns to verify the installed version.";
@@ -321,17 +348,88 @@ internal sealed class FirmwareUpdateForm : Form
         });
     }
 
-    private bool ConfirmUpdate(string transport, string deviceId, string? installedVersion, string comparison, string? address = null)
+    private bool ConfirmUpdate(string transport, string deviceId, string? installedVersion, string comparison,
+        string? address = null, string? upgradePath = null)
     {
         var target = string.IsNullOrWhiteSpace(address) ? deviceId : $"{deviceId} at {address}";
         var message =
             $"Update {target} over {transport}?\n\n" +
             $"Installed: {DisplayVersion(installedVersion)}\n" +
             $"Package: {_flasher.UpdateVersion ?? "unknown"}\n" +
-            $"Status: {comparison}\n\n" +
+            $"Status: {comparison}\n" +
+            $"Upgrade path: {upgradePath ?? "Direct signed OTA"}\n\n" +
             "The PC verifies the production signature before transfer. The monitor then independently verifies the hash, RSA-PSS signature, BatteryMonitor application identity, and release sequence before selecting the inactive OTA slot. Interrupted or invalid transfers do not replace the current boot image.";
         return MessageBox.Show(this, message, "Battery Monitor Firmware Update",
             MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) == DialogResult.Yes;
+    }
+
+    private static string DescribeStages(IReadOnlyList<UpgradeStage> stages) =>
+        string.Join(" → ", stages.Select(stage => stage.Kind == UpgradeStageKind.LegacyBridge
+            ? "Legacy compatibility bridge (internal descriptor " + stage.Version + ")"
+            : "Firmware " + stage.Version));
+
+    private async Task AwaitUsbBootAndProbationAsync(string port, string expectedId, string expectedVersion, CancellationToken token)
+    {
+        var until = DateTime.UtcNow.AddMinutes(4);
+        DateTime? firstSeenUtc = null;
+        while (DateTime.UtcNow < until)
+        {
+            token.ThrowIfCancellationRequested();
+            await Task.Delay(TimeSpan.FromSeconds(3), token);
+            try
+            {
+                var status = await _provisioner.ReadStatusAsync(port, null, token);
+                if (!string.Equals(status.DeviceId, expectedId, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("USB bridge reboot resolved to a different device; stopping upgrade.");
+                if (!string.Equals(status.FirmwareVersion, expectedVersion, StringComparison.Ordinal))
+                {
+                    if (firstSeenUtc is not null)
+                        throw new InvalidOperationException("Bridge rolled back or changed version during health probation; stopping upgrade.");
+                    continue;
+                }
+                firstSeenUtc ??= DateTime.UtcNow;
+                if (DateTime.UtcNow - firstSeenUtc.Value < TimeSpan.FromSeconds(70)) continue;
+                AppendOutput("Bridge reboot and 70-second healthy-version observation passed.");
+                return;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (InvalidOperationException ex) when (ex.Message.StartsWith("USB bridge reboot resolved", StringComparison.Ordinal)
+                                                || ex.Message.StartsWith("Bridge rolled back", StringComparison.Ordinal)) { throw; }
+            catch (Exception) { /* Expected briefly while serial port re-enumerates. */ }
+        }
+        throw new TimeoutException("Bridge did not remain reachable on the original USB port for health verification. The normal image was not transferred.");
+    }
+
+    private async Task AwaitLanBootAndProbationAsync(MonitorEntry device, string expectedVersion, CancellationToken token)
+    {
+        var until = DateTime.UtcNow.AddMinutes(4);
+        DateTime? firstSeenUtc = null;
+        while (DateTime.UtcNow < until)
+        {
+            token.ThrowIfCancellationRequested();
+            await Task.Delay(TimeSpan.FromSeconds(3), token);
+            try
+            {
+                var status = await _deviceClient.GetStatusAsync(device, token);
+                if (!string.Equals(status.DeviceId, device.DeviceId, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("LAN bridge resolved to another device; stopping upgrade.");
+                if (!string.Equals(status.FirmwareVersion, expectedVersion, StringComparison.Ordinal))
+                {
+                    if (firstSeenUtc is not null)
+                        throw new InvalidOperationException("Bridge rolled back or changed version during health probation; stopping upgrade.");
+                    continue;
+                }
+                firstSeenUtc ??= DateTime.UtcNow;
+                if (DateTime.UtcNow - firstSeenUtc.Value < TimeSpan.FromSeconds(70)) continue;
+                AppendOutput("Bridge reboot and 70-second healthy-version observation passed.");
+                return;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (InvalidOperationException ex) when (ex.Message.StartsWith("LAN bridge resolved", StringComparison.Ordinal)
+                                                || ex.Message.StartsWith("Bridge rolled back", StringComparison.Ordinal)) { throw; }
+            catch (Exception) { /* Wi-Fi recovery may temporarily make the monitor unreachable. */ }
+        }
+        throw new TimeoutException("Bridge did not remain reachable at its paired LAN address for health verification. The normal image was not transferred.");
     }
 
     private void RefreshUpdateButtons()

@@ -25,6 +25,26 @@ static bool batteryMonitorParseReleaseSequence(const char* version,
                                                uint32_t& sequenceOut) {
   if (version == nullptr) return false;
 
+  // Compatibility is deliberately narrow: known historical 0.1.0.N release
+  // descriptors (N=1..11) were deployed before the three-component authority.
+  // A legacy descriptor is never produced by normal future builds. Its integer
+  // sequence still participates in the same strictly-monotonic release floor.
+  // The exception is needed by the isolated signed bridge, version 0.1.0.11.
+  const char* legacyPrefix = "0.1.0.";
+  if (strncmp(version, legacyPrefix, 6) == 0) {
+    const char* suffix = version + 6;
+    if (*suffix < '1' || *suffix > '9') return false;
+    uint32_t historicalSequence = 0;
+    for (; *suffix != '\0'; ++suffix) {
+      if (*suffix < '0' || *suffix > '9') return false;
+      historicalSequence = historicalSequence * 10U + (uint32_t)(*suffix - '0');
+      if (historicalSequence > 11) return false;
+    }
+    if (historicalSequence < 1) return false;
+    sequenceOut = historicalSequence;
+    return true;
+  }
+
   // Enforce exactly X.Y.Z where every component is one decimal digit. This is
   // intentionally stricter than ordinary semantic versioning because the
   // project-wide version rule forbids two-digit components.

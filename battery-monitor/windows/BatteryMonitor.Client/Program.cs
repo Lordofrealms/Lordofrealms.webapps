@@ -20,6 +20,11 @@ internal static class Program
             RunHistorySelfTest();
             return;
         }
+        if (args.Any(a => string.Equals(a, "--upgrade-path-self-test", StringComparison.OrdinalIgnoreCase)))
+        {
+            FirmwareUpgradePlanner.SelfTest();
+            return;
+        }
         ApplicationConfiguration.Initialize();
         var form = new MainForm();
         ClientEnhancements.Attach(form, args.Any(a => string.Equals(a, "--startup", StringComparison.OrdinalIgnoreCase)));

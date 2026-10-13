@@ -292,3 +292,21 @@ As of October 12, 2026, the implemented 0.1.3 normal-release candidate is on the
 - **Downgrade/retrofit dependency:** 0.1.3 maps to release sequence 13. A device updated to 0.1.3 cannot later install 0.1.2 (sequence 12) under the encrypted-NVS software floor. Perform the 0.1.2 retrofit first or build/qualify a newer migration candidate. Normal Secure-Boot-OFF 0.1.3 binaries also cannot be installed as post-retrofit OTA on Secure-Boot-ON units without Secure Boot v2 signatures.
 
 Release signing: the normal protected signer is now version-aware for CI artifact lookup, defaults to 0.1.3, and is mirrored byte-identically on `main` and `battery-monitor-dev`. Manual protected signing must only use the exact successfully validated 0.1.3 Toolchain run and its source SHA.
+
+
+## Legacy compatibility bridge and automatic upgrade route — 0.1.4 candidate
+
+0.1.0.9 firmware (historical four-component version scheme) rejected signed 0.1.3 at final ESP-IDF slot selection with `FW_SET_BOOT_5379`, explicitly logging `Rejecting OTA candidate with invalid release version '0.1.3'`. USB and Wi-Fi reproduced the same policy rejection after transfer and image verification. This did not write a new boot choice. The installed firmware parses only four-component candidates, so accepting legacy version formats in future firmware cannot repair the updater already running on old devices.
+
+A one-time *internally four-component* signed bridge is therefore necessary. It is not a return to four-component user-facing release versions:
+
+- Bridge app descriptor `0.1.0.11`, software sequence 11, built from the current source with an isolated pinned build flag and version authority.
+- New normal production version `0.1.4`, software sequence 14. Normal user-facing version rule remains X.Y.Z.
+- Release-floor parser recognizes only deployed legacy family `0.1.0.1` through `0.1.0.11` as backward compatibility, and modern X.Y.Z. The signed OTA gate continues to require a sequence strictly newer than both running version and stored floor.
+- Auto-upgrade planner: legacy `0.1.0.1`–`0.1.0.10` -> bridge 11 -> current normal 14; modern 0.1.1–0.1.3 -> normal 14. Unknown/version-replay/downgrade routes fail closed; legacy `0.1.0.11` cannot reuse bridge sequence 11 and needs a separately qualified higher bridge/migration route.
+- The PC must verify the exact bridge image with the production trust key before any transfer, show the multi-stage path in the user confirmation, then await the same stable BM identity and expected bridge version over the original USB/LAN transport after reboot. Require 70 seconds of healthy-version observation (longer than the 60-second post-boot OTA probation) before sending the normal update. Timeouts, identity/version mismatch, and cancellation stop subsequent stages.
+- The normal protected-signing workflow must retrieve BOTH normal and bridge images from the SAME successful CI run, validate exact build metadata, sign with the existing RSA-3072 production key, verify signatures, and bundle both image/signature pairs into both Windows release packages. The customer package includes only application-mediated OTA payloads, never esptool or a merged blank-device bridge image.
+- Neither the bridge nor normal update changes ESP32 flash encryption, NVS settings/identity, firmware public key, or secure boot policy. Secure-Boot-ON units still need Secure-Boot-v2-compatible signed normal firmware. Sequence 11 remains below the reserved sequence-12 Secure Boot retrofit.
+- No auto-stage can safely flash unverified, unsigned, unsupported, or unknown-version images.
+
+This source must pass normal Toolchain ESP-IDF/Windows/Android CI, independent Windows tests, protected signing, signed artifact checks, and real-device two-stage OTA testing before public rollout. The already protected-signed 0.1.3 package is intentionally not modified in place.

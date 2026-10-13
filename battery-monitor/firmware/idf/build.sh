@@ -16,7 +16,15 @@ EXPECTED_FW_KEY_FINGERPRINT="69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca6
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT_DIR="${1:-$PROJECT_DIR/out}"
 COMPONENT_MANIFEST="$PROJECT_DIR/main/idf_component.yml"
-VERSION_FILE="$PROJECT_DIR/version.txt"
+# The isolated bridge is the sole image permitted to carry the already-deployed
+# four-component legacy descriptor. This is NOT a new user-facing version scheme.
+if [[ "${BATMON_LEGACY_BRIDGE:-0}" == 1 ]]; then
+  VERSION_FILE="$PROJECT_DIR/version-legacy-bridge.txt"
+  export BATMON_VERSION_FILE="$VERSION_FILE"
+else
+  VERSION_FILE="$PROJECT_DIR/version.txt"
+  unset BATMON_VERSION_FILE || true
+fi
 SIGNING_PUBLIC_KEY="$PROJECT_DIR/../../signing/battery_monitor_secureboot_rsa3072_public.pem"
 FIRMWARE_UPDATE_SOURCE="$PROJECT_DIR/../BatteryMonitor/FirmwareUpdate.ino"
 FIRMWARE_RELEASE_POLICY_SOURCE="$PROJECT_DIR/../BatteryMonitor/FirmwareReleasePolicy.ino"
@@ -31,11 +39,21 @@ if [[ ! -f "$VERSION_FILE" ]]; then
   exit 3
 fi
 APP_VERSION="$(tr -d '\r\n' < "$VERSION_FILE")"
-if [[ ! "$APP_VERSION" =~ ^([0-9])\.([0-9])\.([0-9])$ ]]; then
-  echo "Battery Monitor app version must use exactly three single-digit numeric components (major.minor.patch): $APP_VERSION" >&2
-  exit 3
+if [[ "${BATMON_LEGACY_BRIDGE:-0}" == 1 ]]; then
+  if [[ "$APP_VERSION" != '0.1.0.11' ]]; then
+    echo "Legacy bridge is pinned to descriptor 0.1.0.11 (release sequence 11)." >&2
+    exit 3
+  fi
+  APP_RELEASE_SEQUENCE=11
+  SEQUENCE_DERIVATION='legacy-four-component-final-field'
+else
+  if [[ ! "$APP_VERSION" =~ ^([0-9])\.([0-9])\.([0-9])$ ]]; then
+    echo "Normal Battery Monitor version must be exactly X.Y.Z: $APP_VERSION" >&2
+    exit 3
+  fi
+  APP_RELEASE_SEQUENCE="$(( ${BASH_REMATCH[1]} * 100 + ${BASH_REMATCH[2]} * 10 + ${BASH_REMATCH[3]} ))"
+  SEQUENCE_DERIVATION='major*100+minor*10+patch'
 fi
-APP_RELEASE_SEQUENCE="$(( ${BASH_REMATCH[1]} * 100 + ${BASH_REMATCH[2]} * 10 + ${BASH_REMATCH[3]} ))"
 if (( APP_RELEASE_SEQUENCE == 0 )); then
   echo 'Battery Monitor version 0.0.0 is reserved and cannot be released.' >&2
   exit 3
@@ -189,7 +207,7 @@ PY
 
 cp sdkconfig "$OUT_DIR/sdkconfig"
 cp partitions.csv "$OUT_DIR/partitions.csv"
-cp version.txt "$OUT_DIR/version.txt"
+cp "$VERSION_FILE" "$OUT_DIR/version.txt"
 cp build/partition_table/partition-table.bin "$OUT_DIR/partition-table.bin"
 cp build/bootloader/bootloader.bin "$OUT_DIR/bootloader.bin"
 if [[ -f build/flasher_args.json ]]; then cp build/flasher_args.json "$OUT_DIR/flasher_args.json"; fi
@@ -215,7 +233,8 @@ lwip_max_sockets=30
 target=esp32
 app_version=$APP_VERSION
 software_release_sequence=$APP_RELEASE_SEQUENCE
-software_release_sequence_derivation=major*100+minor*10+patch
+upgrade_image_role=$([[ "${BATMON_LEGACY_BRIDGE:-0}" == 1 ]] && echo legacy-bridge || echo normal)
+software_release_sequence_derivation=$SEQUENCE_DERIVATION
 software_signed_release_floor=encrypted-nvs-strictly-newer
 software_release_floor_namespace=batmon
 software_release_floor_key=fwseq

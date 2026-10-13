@@ -17,6 +17,22 @@ internal sealed partial class EspFlasher
             ? Directory.EnumerateFiles(Path.Combine(_baseDirectory, "firmware"), "*.ino.bin", SearchOption.AllDirectories).FirstOrDefault(path => !path.EndsWith(".merged.bin", StringComparison.OrdinalIgnoreCase))
             : null);
 
+    public string? LegacyBridgeFirmwarePath => FindFirstExisting(
+        Path.Combine(_baseDirectory, "firmware", "legacy-bridge", "BatteryMonitor.ino.bin"));
+
+    public string? LegacyBridgeSignaturePath => LegacyBridgeFirmwarePath is { } image
+        ? FindFirstExisting(image + ".sig") : null;
+
+    public string? LegacyBridgeVersion
+    {
+        get
+        {
+            var file = Path.Combine(_baseDirectory, "firmware", "legacy-bridge", "version.txt");
+            try { return File.Exists(file) ? File.ReadAllText(file).Trim() : null; }
+            catch { return null; }
+        }
+    }
+
     public string? ReleaseMetadataPath => FindFirstExisting(
         Path.Combine(_baseDirectory, "firmware", "SIGNED_RELEASE.txt"),
         Path.Combine(_baseDirectory, "Firmware", "SIGNED_RELEASE.txt"),
@@ -64,17 +80,22 @@ internal sealed partial class EspFlasher
         string port,
         Action<string>? output,
         CancellationToken cancellationToken = default)
+        => await UpdateFirmwareAsync(port, UpdateFirmwarePath, UpdateSignaturePath, output, cancellationToken);
+
+    public async Task<(bool Success, string Output)> UpdateFirmwareAsync(
+        string port, string? firmwarePath, string? signaturePath,
+        Action<string>? output, CancellationToken cancellationToken = default)
     {
-        if (UpdateFirmwarePath is null) return (false, "Bundled Battery Monitor application firmware image was not found.");
-        if (UpdateSignaturePath is null) return (false, "Bundled Battery Monitor application firmware signature was not found. Updating was blocked.");
-        if (!VerifyFirmware(UpdateFirmwarePath, UpdateSignaturePath, output, out var verificationError))
+        if (firmwarePath is null) return (false, "Bundled Battery Monitor application firmware image was not found.");
+        if (signaturePath is null) return (false, "Bundled Battery Monitor application firmware signature was not found. Updating was blocked.");
+        if (!VerifyFirmware(firmwarePath, signaturePath, output, out var verificationError))
             return (false, verificationError);
 
         try
         {
             output?.Invoke("Production signature passed Windows verification; handing the same signed image to the running Battery Monitor for on-device verification and encrypted OTA write...");
             var updater = new UsbProvisioner();
-            var imageVersion = await updater.UpdateFirmwareAsync(port, UpdateFirmwarePath, UpdateSignaturePath, output, cancellationToken);
+            var imageVersion = await updater.UpdateFirmwareAsync(port, firmwarePath, signaturePath, output, cancellationToken);
             return (true, imageVersion);
         }
         catch (OperationCanceledException) { throw; }
