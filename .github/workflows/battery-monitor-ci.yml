@@ -5,7 +5,6 @@ on:
     branches: [battery-monitor-dev, main]
     paths:
       - 'battery-monitor/firmware/**'
-      - 'battery-monitor/windows/**'
       - 'battery-monitor/android/**'
       - 'battery-monitor/signing/**'
       - '.github/workflows/battery-monitor-ci.yml'
@@ -13,7 +12,6 @@ on:
     branches: [main]
     paths:
       - 'battery-monitor/firmware/**'
-      - 'battery-monitor/windows/**'
       - 'battery-monitor/android/**'
       - 'battery-monitor/signing/**'
       - '.github/workflows/battery-monitor-ci.yml'
