@@ -14,7 +14,7 @@ on:
       version:
         description: 'Exact firmware version from battery-monitor/firmware/idf/version.txt'
         required: true
-        default: '0.1.3'
+        default: '0.1.4'
         type: string
 
 permissions:
@@ -117,6 +117,37 @@ jobs:
           repository: ${{ github.repository }}
           run-id: ${{ inputs.ci_run_id }}
 
+      - name: Download exact-CI legacy bridge
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: battery-monitor-legacy-bridge-CI-UNSIGNED-v0.1.0.11
+          path: /tmp/battery-monitor-signed-firmware/legacy-bridge
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.ci_run_id }}
+          github-token: ${{ github.token }}
+          digest-mismatch: error
+
+      - name: Validate exact bridge provenance and hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir=/tmp/battery-monitor-signed-firmware/legacy-bridge
+          test -f "$dir/BatteryMonitor.ino.bin"
+          test -f "$dir/BUILD_AUTHORITY.txt"
+          test -f "$dir/version.txt"
+          test "$(tr -d '\r\n' < "$dir/version.txt")" = '0.1.0.11'
+          grep -qx 'app_version=0.1.0.11' "$dir/BUILD_AUTHORITY.txt"
+          grep -qx 'software_release_sequence=11' "$dir/BUILD_AUTHORITY.txt"
+          grep -qx 'software_release_sequence_derivation=legacy-four-component-final-field' "$dir/BUILD_AUTHORITY.txt"
+          grep -qx 'upgrade_image_role=legacy-bridge' "$dir/BUILD_AUTHORITY.txt"
+          grep -qx 'post_boot_ota_rollback=enabled' "$dir/BUILD_AUTHORITY.txt"
+          grep -qx 'software_signed_release_floor=encrypted-nvs-strictly-newer' "$dir/BUILD_AUTHORITY.txt"
+          grep -qx 'secure_boot=disabled-pending-post-test-activation' "$dir/BUILD_AUTHORITY.txt"
+          expected="$(awk -F= '$1=="application_sha256"{print $2}' "$dir/BUILD_AUTHORITY.txt")"
+          actual="$(sha256sum "$dir/BatteryMonitor.ino.bin" | awk '{print $1}')"
+          test -n "$expected" && test "$actual" = "$expected"
+          echo "Legacy bridge exact-CI firmware SHA-256: $actual"
+
       - name: Validate promoted firmware authority and hashes
         shell: bash
         run: |
@@ -170,7 +201,7 @@ jobs:
             exit 1
           fi
 
-          for image in BatteryMonitor.ino.bin BatteryMonitor.ino.merged.bin; do
+          for image in BatteryMonitor.ino.bin BatteryMonitor.ino.merged.bin legacy-bridge/BatteryMonitor.ino.bin; do
             file="/tmp/battery-monitor-signed-firmware/$image"
             openssl dgst -sha256 \
               -sign "$key" \
@@ -187,6 +218,20 @@ jobs:
               -sigopt rsa_pss_saltlen:-1 \
               "$file"
           done
+
+          # A signed legacy image is mandatory and must verify against the same
+          # pinned production key. The normal-image negative tests remain below.
+          bridge=/tmp/battery-monitor-signed-firmware/legacy-bridge
+          {
+            echo 'schema=BATMON_SIGNED_LEGACY_BRIDGE_V1'
+            echo 'bridge_version=0.1.0.11'
+            echo 'software_release_sequence=11'
+            echo 'promoted_ci_run_id=${{ inputs.ci_run_id }}'
+            echo 'source_sha=${{ inputs.source_sha }}'
+            echo 'algorithm=RSA-3072-PSS-SHA256'
+            echo "public_key_spki_sha256=$EXPECTED_KEY_FINGERPRINT"
+            sha256sum "$bridge/BatteryMonitor.ino.bin"
+          } > "$bridge/BRIDGE_RELEASE.txt"
 
           cp /tmp/battery-monitor-signed-firmware/BatteryMonitor.ino.bin /tmp/batmon-tampered.bin
           python - <<'PY'
@@ -366,7 +411,7 @@ jobs:
           if (-not $method) { throw 'FirmwareSignatureVerifier.VerifyOrThrow not found' }
 
           foreach ($name in @('BatteryMonitor.ino.bin','BatteryMonitor.ino.merged.bin')) {
-            $image = (Get-ChildItem battery-monitor/windows/staging/firmware -Filter $name -Recurse | Select-Object -First 1).FullName
+            $image = (Resolve-Path (Join-Path 'battery-monitor/windows/staging/firmware' $name)).Path
             $sig = "$image.sig"
             if (-not (Test-Path $image) -or -not (Test-Path $sig)) { throw "Signed firmware pair missing for $name" }
             try { $null = $method.Invoke($null, @($image, $sig)) }
@@ -382,6 +427,14 @@ jobs:
             if (-not $rejected) { throw "Production verifier accepted tampered $name" }
             Remove-Item $tampered -Force
           }
+
+          $bridge = 'battery-monitor/windows/staging/firmware/legacy-bridge/BatteryMonitor.ino.bin'
+          $bridgeSig = "$bridge.sig"
+          if (-not (Test-Path $bridge) -or -not (Test-Path $bridgeSig)) {
+            throw "Missing signed legacy-bridge application pair"
+          }
+          try { $null = $method.Invoke($null, @($bridge, $bridgeSig)) }
+          catch { throw "Production verifier rejected signed legacy bridge: $($_.Exception.InnerException?.Message ?? $_.Exception.Message)" }
 
       - name: Publish separate self-contained win-x64 applications
         shell: pwsh
@@ -401,21 +454,33 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$factory/tools/esp-provisioner" | Out-Null
 
           foreach ($name in @('BatteryMonitor.ino.bin')) {
-            $image = Get-ChildItem battery-monitor/windows/staging/firmware -Filter $name -Recurse | Select-Object -First 1
+            $image = Get-Item (Join-Path 'battery-monitor/windows/staging/firmware' $name)
             if (-not $image -or -not (Test-Path ($image.FullName + '.sig'))) { throw "Missing signed $name pair" }
             Copy-Item $image.FullName (Join-Path "$customer/firmware" $name)
             Copy-Item ($image.FullName + '.sig') (Join-Path "$customer/firmware" ($name + '.sig'))
           }
           Copy-Item battery-monitor/windows/staging/firmware/SIGNED_RELEASE.txt "$customer/firmware/SIGNED_RELEASE.txt"
+          New-Item -ItemType Directory -Force -Path "$customer/firmware/legacy-bridge" | Out-Null
+          foreach ($name in @('BatteryMonitor.ino.bin','BatteryMonitor.ino.bin.sig','version.txt','BRIDGE_RELEASE.txt')) {
+            $source = Join-Path 'battery-monitor/windows/staging/firmware/legacy-bridge' $name
+            if (-not (Test-Path $source)) { throw "Signed bridge package incomplete: $name" }
+            Copy-Item $source (Join-Path "$customer/firmware/legacy-bridge" $name)
+          }
           Copy-Item battery-monitor/windows/staging/esp-provisioner/* "$customer/tools/esp-provisioner" -Recurse -Force
 
           foreach ($name in @('BatteryMonitor.ino.bin','BatteryMonitor.ino.merged.bin')) {
-            $image = Get-ChildItem battery-monitor/windows/staging/firmware -Filter $name -Recurse | Select-Object -First 1
+            $image = Get-Item (Join-Path 'battery-monitor/windows/staging/firmware' $name)
             if (-not $image -or -not (Test-Path ($image.FullName + '.sig'))) { throw "Missing signed $name pair" }
             Copy-Item $image.FullName (Join-Path "$factory/firmware" $name)
             Copy-Item ($image.FullName + '.sig') (Join-Path "$factory/firmware" ($name + '.sig'))
           }
           Copy-Item battery-monitor/windows/staging/firmware/SIGNED_RELEASE.txt "$factory/firmware/SIGNED_RELEASE.txt"
+          New-Item -ItemType Directory -Force -Path "$factory/firmware/legacy-bridge" | Out-Null
+          foreach ($name in @('BatteryMonitor.ino.bin','BatteryMonitor.ino.bin.sig','version.txt','BRIDGE_RELEASE.txt')) {
+            $source = Join-Path 'battery-monitor/windows/staging/firmware/legacy-bridge' $name
+            if (-not (Test-Path $source)) { throw "Factory bridge package incomplete: $name" }
+            Copy-Item $source (Join-Path "$factory/firmware/legacy-bridge" $name)
+          }
           Copy-Item battery-monitor/windows/staging/esptool/* "$factory/tools/esptool" -Recurse -Force
           Copy-Item battery-monitor/windows/staging/esp-provisioner/* "$factory/tools/esp-provisioner" -Recurse -Force
 
