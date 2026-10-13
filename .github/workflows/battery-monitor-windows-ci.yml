@@ -68,6 +68,17 @@ jobs:
             Copy-Item $origin (Join-Path $fw $file)
           }
           if (Test-Path (Join-Path $fw 'BatteryMonitor.ino.merged.bin')) { throw 'Customer release contains factory image' }
+          # Keep the production-tested customer provisioning utility; rebuilding
+          # the Windows front-end must not remove first-time Wi-Fi onboarding.
+          $prior = Join-Path $env:RUNNER_TEMP 'signed-customer-0.1.4'
+          gh run download 38357730688 --repo $env:GITHUB_REPOSITORY --name 'Battery-Monitor-Windows-Customer-Signed-0.1.4' --dir $prior
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot fetch trusted prior provisioning utility' }
+          $helper = Join-Path $prior 'tools/esp-provisioner/BatteryMonitorEspProv.exe'
+          if ((Get-FileHash $helper -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'c341a85e6e7e993032dd8ad0c250a3770d8eb51a9cd8a4042a35e2ad2772fbbd') { throw 'Provisioner tool digest mismatch' }
+          $helperDest = Join-Path $dest 'tools/esp-provisioner'
+          New-Item -ItemType Directory -Force $helperDest | Out-Null
+          Copy-Item $helper (Join-Path $helperDest 'BatteryMonitorEspProv.exe')
+          Copy-Item (Join-Path $prior 'tools/esp-provisioner/APACHE-2.0.txt') (Join-Path $helperDest 'APACHE-2.0.txt')
           @('windows_app_version=0.1.5','firmware_version=0.1.4','firmware_source_run=38357730688','firmware_rebuilt=false') | Set-Content (Join-Path $dest 'WINDOWS_RELEASE.txt')
 
       - name: Upload Windows-only customer release
