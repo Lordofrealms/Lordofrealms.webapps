@@ -27,6 +27,7 @@ public sealed class MainForm : Form
     private bool _allowClose;
     private bool _historySweepRunning;
     private DateTime _lastHistorySweepUtc = DateTime.MinValue;
+    private DateTime _lastDesktopCompactionUtc = DateTime.MinValue;
     private readonly CancellationTokenSource _historySweepCancellation = new();
 
     public MainForm()
@@ -258,6 +259,12 @@ public sealed class MainForm : Form
             }
         }
         if (snoozeExpired) _settings.Save(_devices);
+        if (_history is not null && (now - _lastDesktopCompactionUtc).TotalHours >= 1)
+        {
+            _lastDesktopCompactionUtc = now;
+            try { _history.MaintainDesktopRollups(now); }
+            catch (Exception ex) { Debug.WriteLine("Desktop history rollup failed: " + ex); }
+        }
         if (_history is not null && _history.RetentionYears > 0 && !_historySweepRunning &&
             (now - _lastHistorySweepUtc).TotalHours >= 24)
         {
@@ -492,6 +499,11 @@ public sealed class MainForm : Form
         device.MonitoringTrustState = "Trusted";
         device.Voltage = status.Voltage;
         device.State = status.State;
+        if (_history is not null)
+        {
+            try { _history.RecordDesktopVoltage(device.DeviceId, now, status.Voltage); }
+            catch (Exception ex) { Debug.WriteLine("Windows voltage history capture failed: " + ex); }
+        }
         if (device.SmoothingFallback != status.SmoothingFallback)
             LogEvent(device, "configuration", status.SmoothingFallback
                 ? "Alert smoothing unavailable: unit samples less often than the configured averaging windows. Using instantaneous voltage thresholds."
