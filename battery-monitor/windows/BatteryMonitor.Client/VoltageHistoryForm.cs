@@ -11,6 +11,9 @@ public sealed class VoltageHistoryForm : Form
     private readonly VoltagePlot _plot = new() { Dock = DockStyle.Fill, BackColor = Color.White };
     private readonly ListView _events = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true };
     private readonly Label _info = new() { AutoSize = true };
+    private readonly DateTimePicker _from = new() { Format = DateTimePickerFormat.Custom, CustomFormat = "yyyy-MM-dd HH:mm", Width = 145, Enabled = false };
+    private readonly DateTimePicker _to = new() { Format = DateTimePickerFormat.Custom, CustomFormat = "yyyy-MM-dd HH:mm", Width = 145, Enabled = false };
+    private readonly System.Windows.Forms.Timer _autoRefresh = new() { Interval = 60000 };
     private CancellationTokenSource? _purgeCts;
 
     private sealed record RangeChoice(string Name, TimeSpan Period)
@@ -47,9 +50,22 @@ public sealed class VoltageHistoryForm : Form
             new RangeChoice("10 years", TimeSpan.FromDays(3652)),
             new RangeChoice("All history", TimeSpan.FromDays(36500)) })
             _range.Items.Add(choice);
-        _range.SelectedIndexChanged += (_, _) => RefreshPlot();
+        _range.Items.Add(new RangeChoice("Custom range", TimeSpan.Zero));
+        _range.SelectedIndexChanged += (_, _) =>
+        {
+            _from.Enabled = _to.Enabled = _range.SelectedItem is RangeChoice c && c.Period == TimeSpan.Zero;
+            RefreshPlot();
+        };
         _range.SelectedIndex = 1;
         controls.Controls.Add(_range);
+        _from.Value = DateTime.Now.AddDays(-7);
+        _to.Value = DateTime.Now;
+        _from.ValueChanged += (_, _) => { if (_from.Enabled) RefreshPlot(); };
+        _to.ValueChanged += (_, _) => { if (_to.Enabled) RefreshPlot(); };
+        controls.Controls.Add(new Label { Text = "From", AutoSize = true, Margin = new Padding(6, 9, 2, 0) });
+        controls.Controls.Add(_from);
+        controls.Controls.Add(new Label { Text = "To", AutoSize = true, Margin = new Padding(6, 9, 2, 0) });
+        controls.Controls.Add(_to);
         var reload = new Button { Text = "Refresh", AutoSize = true };
         reload.Click += (_, _) => RefreshAll();
         controls.Controls.Add(reload);
@@ -91,6 +107,10 @@ public sealed class VoltageHistoryForm : Form
         root.Controls.Add(tabs, 0, 1);
         root.Controls.Add(_info, 0, 2);
         FormClosing += (_, _) => _purgeCts?.Cancel();
+        _autoRefresh.Tick += (_, _) => RefreshAll();
+        Shown += (_, _) => _autoRefresh.Start();
+        Activated += (_, _) => RefreshAll();
+        FormClosed += (_, _) => _autoRefresh.Dispose();
         RefreshAll();
     }
 
@@ -108,10 +128,17 @@ public sealed class VoltageHistoryForm : Form
     private void RefreshPlot()
     {
         if (_range.SelectedItem is not RangeChoice range) return;
-        var since = DateTime.UtcNow - range.Period;
-        var points = _store.Query(_device.DeviceId, since);
+        var end = range.Period == TimeSpan.Zero ? _to.Value.ToUniversalTime() : DateTime.UtcNow;
+        var since = range.Period == TimeSpan.Zero ? _from.Value.ToUniversalTime() : end - range.Period;
+        if (end <= since)
+        {
+            _plot.SetData(new List<VoltageHistoryPoint>());
+            _info.Text = " Choose a To date later than the From date.";
+            return;
+        }
+        var points = _store.Query(_device.DeviceId, since, latestUtc: end);
         _plot.SetData(points);
-        _info.Text = $" {points.Count} graph buckets · local database {_store.DatabaseBytes / 1024.0 / 1024.0:0.0} MiB (WAL may add temporary space).";
+        _info.Text = $" {points.Count} graph buckets · auto-refresh every 60 seconds · local database {_store.DatabaseBytes / 1024.0 / 1024.0:0.0} MiB (WAL may add temporary space).";
     }
 
     private void ExportCsv()
@@ -201,7 +228,7 @@ public sealed class VoltageHistoryForm : Form
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             if (_points.Count == 0)
             {
-                TextRenderer.DrawText(e.Graphics, "No stored history for this range. Records become available after the first complete logging interval.", Font,
+                TextRenderer.DrawText(e.Graphics, "No history for this range. Windows stores each successful authenticated voltage poll.", Font,
                     ClientRectangle, Color.DimGray, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
                 return;
             }
