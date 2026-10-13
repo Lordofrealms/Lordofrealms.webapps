@@ -68,6 +68,34 @@ internal static class Program
                 now.AddMinutes(-30), null, CancellationToken.None).GetAwaiter().GetResult();
             if (deleted != 1 || history.Query("BM-TEST", now.AddHours(-2)).Count != 1)
                 throw new InvalidOperationException("PK-batched history retention self-test failed.");
+            // Direct Windows capture must work before an ESP hourly interval closes.
+            history.RecordDesktopVoltage("BM-LIVE", now.AddSeconds(-40), 10.0);
+            history.RecordDesktopVoltage("BM-LIVE", now.AddSeconds(-20), 14.0);
+            var live = history.Query("BM-LIVE", now.AddMinutes(-1), maxBuckets: 1);
+            if (live.Count != 1 || live[0].Samples != 2 ||
+                Math.Abs(live[0].Average - 12.0) > 0.00001 ||
+                Math.Abs(live[0].Minimum - 10.0) > 0.00001 ||
+                Math.Abs(live[0].Maximum - 14.0) > 0.00001)
+                throw new InvalidOperationException("Windows-primary persisted sampling/weighted graph failed.");
+
+            // An old batch must compact to 5-minute and then hourly summaries,
+            // preserving the min, max, number of observations and weighted mean.
+            var historical = now.AddDays(-40).AddMinutes(-25);
+            history.RecordDesktopVoltage("BM-ROLLUP", historical, 11);
+            history.RecordDesktopVoltage("BM-ROLLUP", historical.AddSeconds(10), 13);
+            history.RecordDesktopVoltage("BM-ROLLUP", historical.AddSeconds(20), 18);
+            history.MaintainDesktopRollups(now);
+            var rolled = history.Query("BM-ROLLUP", now.AddDays(-41), maxBuckets: 1);
+            if (rolled.Count != 1 || rolled[0].Samples != 3 ||
+                Math.Abs(rolled[0].Average - 14) > 0.00001 ||
+                Math.Abs(rolled[0].Minimum - 11) > 0.00001 ||
+                Math.Abs(rolled[0].Maximum - 18) > 0.00001)
+                throw new InvalidOperationException("Tiered retention weighted rollup failed.");
+            // Repeating compaction must never duplicate aggregate data.
+            history.MaintainDesktopRollups(now);
+            if (history.Query("BM-ROLLUP", now.AddDays(-41), maxBuckets: 1)[0].Samples != 3)
+                throw new InvalidOperationException("History rollup was not idempotent.");
+
         }
         finally
         {
