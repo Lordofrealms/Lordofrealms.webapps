@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   windows:
@@ -38,3 +39,40 @@ jobs:
       - name: Voltage history SQLite self-test
         shell: pwsh
         run: dotnet run --project battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release --no-build -- --history-self-test
+
+      # Firmware is promoted and signed separately. Windows releases reuse the
+      # exact previously signed images; the ESP32 firmware is never rebuilt here.
+      - name: Publish independent Windows 0.1.5 customer release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $appVersion = (Get-Content 'battery-monitor/windows/version.txt' -Raw).Trim()
+          if ($appVersion -ne '0.1.5') { throw 'Unexpected Windows version authority' }
+          $dest = 'battery-monitor/windows/publish/customer'
+          dotnet publish battery-monitor/windows/BatteryMonitor.Client/BatteryMonitor.Client.csproj -c Release -r win-x64 --self-contained true -o $dest
+          if ($LASTEXITCODE -ne 0) { throw 'Windows client publish failed' }
+          $source = Join-Path $env:RUNNER_TEMP 'signed-firmware-0.1.4'
+          gh run download 38357730688 --repo $env:GITHUB_REPOSITORY --name 'Battery-Monitor-Signed-Firmware-0.1.4' --dir $source
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot fetch signed 0.1.4 firmware' }
+          $appBin = Join-Path $source 'BatteryMonitor.ino.bin'
+          $bridgeBin = Join-Path $source 'legacy-bridge/BatteryMonitor.ino.bin'
+          if ((Get-FileHash $appBin -Algorithm SHA256).Hash.ToLowerInvariant() -ne '83386ec9102e5fcb0b47afe7f4eb9391035d8fda11e90a60c9ef32bfb8bfe9cf') { throw 'Signed firmware digest mismatch' }
+          if ((Get-FileHash $bridgeBin -Algorithm SHA256).Hash.ToLowerInvariant() -ne '42030c9b8d301947f0ac7e36e55a3d627a22deb8da46fb91499764cd515a8ef8') { throw 'Signed bridge digest mismatch' }
+          if ((Get-Content (Join-Path $source 'version.txt') -Raw).Trim() -ne '0.1.4') { throw 'Firmware version changed' }
+          $fw = Join-Path $dest 'firmware'
+          New-Item -ItemType Directory -Force (Join-Path $fw 'legacy-bridge') | Out-Null
+          foreach ($file in @('BatteryMonitor.ino.bin','BatteryMonitor.ino.bin.sig','SIGNED_RELEASE.txt','version.txt','legacy-bridge/BatteryMonitor.ino.bin','legacy-bridge/BatteryMonitor.ino.bin.sig','legacy-bridge/BRIDGE_RELEASE.txt','legacy-bridge/version.txt')) {
+            $origin = Join-Path $source $file
+            if (-not (Test-Path $origin)) { throw "Required signed component missing: $file" }
+            Copy-Item $origin (Join-Path $fw $file)
+          }
+          if (Test-Path (Join-Path $fw 'BatteryMonitor.ino.merged.bin')) { throw 'Customer release contains factory image' }
+          @('windows_app_version=0.1.5','firmware_version=0.1.4','firmware_source_run=38357730688','firmware_rebuilt=false') | Set-Content (Join-Path $dest 'WINDOWS_RELEASE.txt')
+
+      - name: Upload Windows-only customer release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Battery-Monitor-Windows-Customer-v0.1.5-Firmware-v0.1.4
+          path: battery-monitor/windows/publish/customer
+          if-no-files-found: error
