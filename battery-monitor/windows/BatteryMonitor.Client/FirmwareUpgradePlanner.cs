@@ -93,13 +93,13 @@ internal static class FirmwareUpgradePlanner
             if (route.Count != 2 || route[0] != UpgradeStageKind.LegacyBridge || route[1] != UpgradeStageKind.Normal)
                 throw new InvalidOperationException("Legacy bridge route self-test failed: " + version);
         }
-        foreach (var version in new[] { "0.1.1", "0.1.2", "0.1.3" })
+        foreach (var version in new[] { "0.1.0", "0.1.1", "0.1.2", "0.1.3" })
         {
             var route = PlanKinds(version, "0.1.4");
             if (route.Count != 1 || route[0] != UpgradeStageKind.Normal)
                 throw new InvalidOperationException("Direct OTA route self-test failed: " + version);
         }
-        foreach (var version in new[] { "0.1.0.11", "0.1.0.99", "0.1.4", "0.1.5", "garbage", "0.1.0" })
+        foreach (var version in new[] { "0.1.0.11", "0.1.0.99", "0.1.4", "0.1.5", "garbage" })
         {
             try { PlanKinds(version, "0.1.4"); }
             catch (InvalidOperationException) { continue; }

@@ -12,10 +12,7 @@ internal sealed partial class EspFlasher
     private readonly string _baseDirectory = AppContext.BaseDirectory;
 
     public string? UpdateFirmwarePath => FindFirstExisting(
-        Path.Combine(_baseDirectory, "firmware", "BatteryMonitor.ino.bin"),
-        Directory.Exists(Path.Combine(_baseDirectory, "firmware"))
-            ? Directory.EnumerateFiles(Path.Combine(_baseDirectory, "firmware"), "*.ino.bin", SearchOption.AllDirectories).FirstOrDefault(path => !path.EndsWith(".merged.bin", StringComparison.OrdinalIgnoreCase))
-            : null);
+        Path.Combine(_baseDirectory, "firmware", "BatteryMonitor.ino.bin"));
 
     public string? LegacyBridgeFirmwarePath => FindFirstExisting(
         Path.Combine(_baseDirectory, "firmware", "legacy-bridge", "BatteryMonitor.ino.bin"));
