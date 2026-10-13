@@ -12,12 +12,15 @@ internal static class FirmwareUpgradePlanner
     internal const string BridgeVersion = "0.1.0.11";
     internal const int BridgeSequence = 11;
 
-    internal static IReadOnlyList<UpgradeStageKind> PlanKinds(string installed, string target)
+    internal static IReadOnlyList<UpgradeStageKind> PlanKinds(string installed, string target,
+        bool dualVersionUpgradeCapable = false)
     {
         if (!TryModernSequence(target, out var targetSequence))
             throw new InvalidOperationException("Unsupported target firmware version. The package must use X.Y.Z.");
         if (TryLegacySequence(installed, out var installedLegacy))
         {
+            if (installedLegacy == BridgeSequence && dualVersionUpgradeCapable)
+                return [UpgradeStageKind.Normal]; // Already on our signed bridge; resume after interruption.
             if (installedLegacy >= BridgeSequence)
                 throw new InvalidOperationException(
                     $"Installed legacy {installed} is at sequence {installedLegacy}; the packaged sequence-11 bridge is not newer. " +
@@ -35,10 +38,11 @@ internal static class FirmwareUpgradePlanner
         return [UpgradeStageKind.Normal];
     }
 
-    internal static IReadOnlyList<UpgradeStage> Resolve(string installed, EspFlasher flasher)
+    internal static IReadOnlyList<UpgradeStage> Resolve(string installed, EspFlasher flasher,
+        bool dualVersionUpgradeCapable = false)
     {
         var target = flasher.UpdateVersion ?? throw new InvalidOperationException("The packaged firmware version is unavailable.");
-        var kinds = PlanKinds(installed, target);
+        var kinds = PlanKinds(installed, target, dualVersionUpgradeCapable);
         var normal = flasher.UpdateFirmwarePath;
         var normalSignature = flasher.UpdateSignaturePath;
         if (normal is null || normalSignature is null)
@@ -99,6 +103,8 @@ internal static class FirmwareUpgradePlanner
             if (route.Count != 1 || route[0] != UpgradeStageKind.Normal)
                 throw new InvalidOperationException("Direct OTA route self-test failed: " + version);
         }
+        if (PlanKinds("0.1.0.11", "0.1.4", true) is not [UpgradeStageKind.Normal])
+            throw new InvalidOperationException("Resume directly after validated bridge installation was rejected.");
         foreach (var version in new[] { "0.1.0.11", "0.1.0.99", "0.1.4", "0.1.5", "garbage" })
         {
             try { PlanKinds(version, "0.1.4"); }

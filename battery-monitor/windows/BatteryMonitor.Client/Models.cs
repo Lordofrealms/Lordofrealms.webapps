@@ -135,6 +135,7 @@ public sealed class MonitorEntry
 public sealed class DeviceStatus
 {
     public int ApiVersion { get; set; }
+    public bool DualVersionUpgradeCapable { get; set; }
     public string FirmwareVersion { get; set; } = "";
     public string DeviceId { get; set; } = "";
     public string Name { get; set; } = "";

@@ -259,11 +259,16 @@ internal sealed class FirmwareUpdateForm : Form
             var before = await _provisioner.ReadStatusAsync(port, AppendOutput, token);
             if (!string.Equals(before.DeviceId, _detectedStatus.DeviceId, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("USB device identity changed since detection; no firmware was transferred.");
-            var stages = FirmwareUpgradePlanner.Resolve(before.FirmwareVersion, _flasher);
+            var stages = FirmwareUpgradePlanner.Resolve(before.FirmwareVersion, _flasher, before.DualVersionUpgradeCapable);
             var comparison = FirmwareVersionInfo.ComparisonLabel(before.FirmwareVersion, _flasher.UpdateVersion);
             if (!ConfirmUpdate("USB", before.DeviceId, before.FirmwareVersion, comparison,
                     upgradePath: DescribeStages(stages))) return;
 
+            if (before.FirmwareVersion == FirmwareUpgradePlanner.BridgeVersion && before.DualVersionUpgradeCapable)
+            {
+                AppendOutput("Resuming a previously installed bridge. Checking health probation before final OTA...");
+                await AwaitUsbBootAndProbationAsync(port, before.DeviceId, before.FirmwareVersion, token);
+            }
             for (var i = 0; i < stages.Count; i++)
             {
                 var stage = stages[i];
@@ -314,11 +319,16 @@ internal sealed class FirmwareUpdateForm : Form
             var before = await _deviceClient.GetStatusAsync(device, token);
             if (!string.Equals(before.DeviceId, device.DeviceId, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("LAN device identity changed since pairing; no firmware was transferred.");
-            var stages = FirmwareUpgradePlanner.Resolve(before.FirmwareVersion, _flasher);
+            var stages = FirmwareUpgradePlanner.Resolve(before.FirmwareVersion, _flasher, before.DualVersionUpgradeCapable);
             var comparison = FirmwareVersionInfo.ComparisonLabel(before.FirmwareVersion, _flasher.UpdateVersion);
             if (!ConfirmUpdate("Wi-Fi", device.DeviceId, before.FirmwareVersion, comparison, device.Address,
                     DescribeStages(stages))) return;
             AppendOutput($"Starting signed Wi-Fi OTA to {device.DisplayName} at {device.Address}. Keep device power and LAN connectivity stable during transfer.");
+            if (before.FirmwareVersion == FirmwareUpgradePlanner.BridgeVersion && before.DualVersionUpgradeCapable)
+            {
+                AppendOutput("Resuming a previously installed bridge. Checking health probation before final OTA...");
+                await AwaitLanBootAndProbationAsync(device, before.FirmwareVersion, token);
+            }
             for (var i = 0; i < stages.Count; i++)
             {
                 var stage = stages[i];
@@ -387,6 +397,9 @@ internal sealed class FirmwareUpdateForm : Form
                         throw new InvalidOperationException("Bridge rolled back or changed version during health probation; stopping upgrade.");
                     continue;
                 }
+                if (!status.DualVersionUpgradeCapable)
+                    throw new InvalidOperationException("Bridge rebooted without dual-version update capability; stopping.");
+                if (status.UptimeSec < 70) continue;
                 firstSeenUtc ??= DateTime.UtcNow;
                 if (DateTime.UtcNow - firstSeenUtc.Value < TimeSpan.FromSeconds(70)) continue;
                 AppendOutput("Bridge reboot and 70-second healthy-version observation passed.");
@@ -394,7 +407,8 @@ internal sealed class FirmwareUpdateForm : Form
             }
             catch (OperationCanceledException) { throw; }
             catch (InvalidOperationException ex) when (ex.Message.StartsWith("USB bridge reboot resolved", StringComparison.Ordinal)
-                                                || ex.Message.StartsWith("Bridge rolled back", StringComparison.Ordinal)) { throw; }
+                                                || ex.Message.StartsWith("Bridge rolled back", StringComparison.Ordinal) ||
+                                                 ex.Message.StartsWith("Bridge rebooted without dual-version", StringComparison.Ordinal)) { throw; }
             catch (Exception) { /* Expected briefly while serial port re-enumerates. */ }
         }
         throw new TimeoutException("Bridge did not remain reachable on the original USB port for health verification. The normal image was not transferred.");
@@ -419,6 +433,9 @@ internal sealed class FirmwareUpdateForm : Form
                         throw new InvalidOperationException("Bridge rolled back or changed version during health probation; stopping upgrade.");
                     continue;
                 }
+                if (!status.DualVersionUpgradeCapable)
+                    throw new InvalidOperationException("Bridge rebooted without dual-version update capability; stopping.");
+                if (status.UptimeSec < 70) continue;
                 firstSeenUtc ??= DateTime.UtcNow;
                 if (DateTime.UtcNow - firstSeenUtc.Value < TimeSpan.FromSeconds(70)) continue;
                 AppendOutput("Bridge reboot and 70-second healthy-version observation passed.");
@@ -426,7 +443,8 @@ internal sealed class FirmwareUpdateForm : Form
             }
             catch (OperationCanceledException) { throw; }
             catch (InvalidOperationException ex) when (ex.Message.StartsWith("LAN bridge resolved", StringComparison.Ordinal)
-                                                || ex.Message.StartsWith("Bridge rolled back", StringComparison.Ordinal)) { throw; }
+                                                || ex.Message.StartsWith("Bridge rolled back", StringComparison.Ordinal) ||
+                                                 ex.Message.StartsWith("Bridge rebooted without dual-version", StringComparison.Ordinal)) { throw; }
             catch (Exception) { /* Wi-Fi recovery may temporarily make the monitor unreachable. */ }
         }
         throw new TimeoutException("Bridge did not remain reachable at its paired LAN address for health verification. The normal image was not transferred.");

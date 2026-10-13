@@ -338,7 +338,12 @@ internal sealed class UsbProvisioner
             Voltage = ParseDouble(parts[7]),
             CalibrationFactor = parts.Length >= 9 ? ParseDouble(parts[8]) : 1.0,
             CalibrationOffset = parts.Length >= 10 ? ParseDouble(parts[9]) : 0.0,
-            FirmwareVersion = parts.Length >= 11 ? Decode(parts[10]) : ""
+            FirmwareVersion = parts.Length >= 11 ? Decode(parts[10]) : "",
+            DualVersionUpgradeCapable = parts.Length >= 12 &&
+                string.Equals(parts[11], "DUAL_VERSION_UPDATER_V1", StringComparison.Ordinal),
+            UptimeSec = parts.Length >= 13 &&
+                long.TryParse(parts[12], NumberStyles.Integer, CultureInfo.InvariantCulture, out var seconds)
+                ? seconds : 0
         };
     }
 
@@ -398,6 +403,8 @@ internal sealed class UsbProvisioner
 internal sealed class UsbMonitorStatus
 {
     public string DeviceId { get; set; } = "";
+    public bool DualVersionUpgradeCapable { get; set; }
+    public long UptimeSec { get; set; }
     public string DeviceName { get; set; } = "";
     public string FirmwareVersion { get; set; } = "";
     public string BatteryType { get; set; } = "lead_acid";

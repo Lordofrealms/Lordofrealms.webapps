@@ -151,6 +151,9 @@ static void processSerialProvisioningCommand(String line) {
     reply += String(config.calibrationFactor, 6) + " ";
     reply += String(config.calibrationOffset, 4) + " ";
     reply += String(FW_VERSION);
+    // A recoverable legacy bridge must be distinguishable from earlier images
+    // that coincidentally used the same four-component descriptor.
+    reply += " DUAL_VERSION_UPDATER_V1 " + String((uint32_t)(millis() / 1000UL));
     serialOk(reply);
     return;
   }

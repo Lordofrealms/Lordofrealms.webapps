@@ -280,6 +280,7 @@ String batterySnapshotStatusJson(HttpStatusBuildTiming* timing) {
   String json = "{";
   json += "\"apiVersion\":" + String(API_VERSION) + ",";
   json += "\"firmwareVersion\":\"" + String(FW_VERSION) + "\",";
+  json += "\"dualVersionUpgradeCapable\":true,";
   json += "\"deviceId\":\"" + jsonEscape(deviceId) + "\",";
   json += "\"name\":\"" + jsonEscape(config.deviceName) + "\",";
   json += "\"hostname\":\"" + jsonEscape(hostName) + "\",";
