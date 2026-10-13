@@ -21,7 +21,7 @@
 
   <ItemGroup>
     <Compile Include="../BatteryMonitor.Client/*.cs"
-             Exclude="../BatteryMonitor.Client/Program.cs;../BatteryMonitor.Client/MainForm.cs;../BatteryMonitor.Client/ClientEnhancements.cs;../BatteryMonitor.Client/HelpForm.cs;../BatteryMonitor.Client/AdvancedToolsForm.cs;../BatteryMonitor.Client/DeviceClient.History.cs;../BatteryMonitor.Client/VoltageHistoryStore.cs;../BatteryMonitor.Client/VoltageHistoryForm.cs" />
+             Exclude="../BatteryMonitor.Client/Program.cs;../BatteryMonitor.Client/MainForm.cs;../BatteryMonitor.Client/ClientEnhancements.cs;../BatteryMonitor.Client/HelpForm.cs;../BatteryMonitor.Client/AdvancedToolsForm.cs;../BatteryMonitor.Client/DeviceClient.History.cs;../BatteryMonitor.Client/VoltageHistoryStore.cs;../BatteryMonitor.Client/VoltageHistoryStore.Desktop.cs;../BatteryMonitor.Client/VoltageHistoryForm.cs" />
     <Compile Include="*.cs" />
   </ItemGroup>
 </Project>
