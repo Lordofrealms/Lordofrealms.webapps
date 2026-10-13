@@ -226,3 +226,26 @@ This source must pass normal Toolchain ESP-IDF/Windows/Android CI, independent W
 
 
 Recovery invariant: include the signed legacy bridge in the same customer/factory release bundle, but never reflash a bridge when a device already proves it is running our dual-version bridge. The bridge emits the `DUAL_VERSION_UPDATER_V1` marker via trusted USB STATUS and `dualVersionUpgradeCapable` in LAN status, plus uptime. Confirm stable BM identity, exact version and a completed 70-second minimum uptime/observation before sending the next image. A historical build reporting the same version without the marker must fail closed. This distinguishes interrupted upgrade recovery from a different legacy 0.1.0.11 image.
+
+## October 13, 2026 — 0.1.4 protected signed release VERIFIED (hardware qualification outstanding)
+
+This addendum supersedes earlier 0.1.4 *candidate/not-yet-signed* statements above. It is a record of **completed production OTA signing and independent signed-package verification**, not of an ESP32 field installation or a Secure Boot migration.
+
+- Exact *functional* source: `b16bb4fa486feea7a44056c8278927bc592322c5` (dev branch HEAD at signing review). Later documentation-only commits do not change the signed binary authority.
+- Exact successful Battery Monitor Toolchain CI run: `38355372386` (firmware/legacy bridge, Android provisioning, Windows/Factory packaging passed). Independent Windows Validation `38355372423` passed.
+- Protected signing workflow on `main`: `38357730688`, **SUCCESS**, 2026-10-13 06:39 UTC. Signing downloaded BOTH firmware variants from the same exact CI run, confirmed SHA/manifest authority, and verified production RSA-3072-PSS-SHA256 signatures. Signing execution source branch was `main` at `efd9e88818e55cf184218856d5f2d74a1295a952`, but the **firmware source checked out by the workflow was the explicitly pinned functional SHA above**.
+- Signed GitHub Actions artifacts (do not confuse with unsigned CI or Authenticode EXE signatures):
+  - `Battery-Monitor-Signed-Firmware-0.1.4` — artifact ID `11794300110`, ZIP SHA-256 `53d25aae3646f0eb7b93c94dfbf2490b023f4b44307999b577c53f1383a1ff6e`.
+  - `Battery-Monitor-Windows-Customer-Signed-0.1.4` — ID `11793910907`, ZIP SHA-256 `52e51f3133a6248f2b47a57927da9f26c4ea094520831ecf3ce12f5a185eb244`.
+  - `Battery-Monitor-Factory-Service-Signed-0.1.4` — ID `11793221729`, ZIP SHA-256 `8666d33eecc9c0d71fdfed1b90eff091453bd0ad2f17e1895975b21cbc3f3bb6`.
+- Independently downloaded **all three ZIPs** and verified actual ZIP SHA-256 against GitHub digests; archive integrity; production RSA signatures over the exact normal OTA, legacy bridge OTA, and (where bundled) factory merged-image bytes; signature equivalence across packages; app version bytes; normal and bridge signing manifests and provenance; Customer excludes esptool/merged image; Factory includes them. **All PASS.** Signed image SHA-256 values:
+  - Normal 0.1.4 app: `83386ec9102e5fcb0b47afe7f4eb9391035d8fda11e90a60c9ef32bfb8bfe9cf`.
+  - Internal legacy bridge 0.1.0.11: `42030c9b8d301947f0ac7e36e55a3d627a22deb8da46fb91499764cd515a8ef8`.
+  - Factory normal merged image: `34a96caa3a86ae0117e9bede7415d49769b8ddfa52401ef9a72cece5720d9724`.
+  - RSA public-key SPKI SHA-256: `69d6d94b706c57e783c6e2e4ad17e781e84d1e4e32addbcfca68976483be5e6e`.
+- Automatic Windows path for original BM-470968 (running `0.1.0.9`) remains `0.1.0.9 -> internal bridge 0.1.0.11 -> normal 0.1.4` (signed pair checked PC-side, on-device verification, reboot + same immutable device identity + dual-version capability marker + uptime and 70s observed stable bridge probation before final OTA). Stage-resume is supported; unknown/unverifiable/rollback routes fail closed.
+- **NOT YET DONE:** live two-stage signed OTA qualification on physical `BM-470968` over USB and then LAN; final installed firmware/health/settings/alerts verification. Protect the old working device and use stable power. Do not treat passing CI or cryptographic verification as proof this multi-reboot hardware path works.
+- **Critical recovery planning:** completing normal 0.1.4 advances the encrypted NVS software release floor to sequence 14. This blocks subsequent old sequence-12 Secure Boot migration. If a Secure Boot retrofit is desired on that device, do the separately qualified migration before a floor-14 upgrade, or develop/sign/qualify a new migration release of sequence >14; do NOT clear encrypted NVS, ROM-flash plaintext over release encryption, or bypass downgrade checks. Existing Secure-Boot-ON devices additionally need Secure-Boot-v2-compatible normal OTA images.
+- Existing verified signed 0.1.3 artifacts are unchanged. Android build was the separate CI provisioning APK; the production signing workflow issued firmware-signed Windows/Factory deliverables, not an Authenticode-signed EXE nor a production-signed Android APK.
+
+Protected signing run: https://github.com/Lordofrealms/Lordofrealms.webapps/actions/runs/38357730688
