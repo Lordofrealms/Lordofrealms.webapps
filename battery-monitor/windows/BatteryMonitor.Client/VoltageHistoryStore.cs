@@ -9,7 +9,7 @@ public sealed record BatteryHistoryEvent(DateTime Utc, string Category, string M
 
 // The long-lived data belongs to this Windows account, never to the ESP32 flash.
 // WAL and indexed, PK-limited purge transactions keep graphs available during cleanup.
-public sealed class VoltageHistoryStore : IDisposable
+public sealed partial class VoltageHistoryStore : IDisposable
 {
     private readonly SqliteConnection _db;
     public int RetentionYears { get; private set; }
@@ -47,6 +47,7 @@ public sealed class VoltageHistoryStore : IDisposable
         Execute("CREATE INDEX IF NOT EXISTS idx_events_device_date ON battery_events(device_id,utc_ticks);");
         Execute("CREATE INDEX IF NOT EXISTS idx_events_age ON battery_events(utc_ticks,id);");
         Execute("CREATE TABLE IF NOT EXISTS history_settings(key TEXT PRIMARY KEY,value INTEGER NOT NULL);");
+        InitializeDesktopSchema();
         using var retention = _db.CreateCommand();
         retention.CommandText = "SELECT value FROM history_settings WHERE key = 'retention_years'";
         var raw = retention.ExecuteScalar();
@@ -111,27 +112,61 @@ public sealed class VoltageHistoryStore : IDisposable
         command.ExecuteNonQuery();
     }
 
-    public List<VoltageHistoryPoint> Query(string deviceId, DateTime earliestUtc, int maxBuckets = 1200)
+    public List<VoltageHistoryPoint> Query(string deviceId, DateTime earliestUtc,
+        int maxBuckets = 1200, DateTime? latestUtc = null)
     {
-        var results = new List<VoltageHistoryPoint>();
-        var bucket = Math.Max(TimeSpan.FromMinutes(1).Ticks,
-            (DateTime.UtcNow.Ticks - earliestUtc.Ticks) / Math.Max(1, maxBuckets));
-        using var command = _db.CreateCommand();
-        command.CommandText = @"SELECT MIN(utc_ticks), MIN(minimum), MAX(maximum), AVG(average), SUM(sample_count)
-          FROM voltage_samples WHERE device_id=$d AND utc_ticks >= $start
-          GROUP BY (utc_ticks / $bucket) ORDER BY MIN(utc_ticks)";
-        command.Parameters.AddWithValue("$d", deviceId);
-        command.Parameters.AddWithValue("$start", earliestUtc.Ticks);
-        command.Parameters.AddWithValue("$bucket", bucket);
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
+        var until = latestUtc ?? DateTime.UtcNow;
+        if (until <= earliestUtc) return new List<VoltageHistoryPoint>();
+        var window = Math.Max(TimeSpan.TicksPerSecond * 10,
+            (until.Ticks - earliestUtc.Ticks) / Math.Max(1, maxBuckets));
+        var readFrom = Math.Max(1, earliestUtc.Ticks - TimeSpan.TicksPerHour);
+        var data = new List<(long Utc, double Min, double Max, double Avg, long Count, bool Desktop)>();
+        using (var cmd = _db.CreateCommand())
         {
-            results.Add(new VoltageHistoryPoint(
-                new DateTime(reader.GetInt64(0), DateTimeKind.Utc),
-                reader.GetDouble(1), reader.GetDouble(2), reader.GetDouble(3),
-                (int)Math.Min(int.MaxValue, reader.GetInt64(4))));
+            cmd.CommandText = @"SELECT utc_ticks,voltage,voltage,voltage,1,1
+                FROM desktop_raw WHERE device_id=$d AND utc_ticks >= $from AND utc_ticks <= $to
+                UNION ALL SELECT utc_ticks,minimum,maximum,average,sample_count,1
+                FROM desktop_5min WHERE device_id=$d AND utc_ticks >= $from AND utc_ticks <= $to
+                UNION ALL SELECT utc_ticks,minimum,maximum,average,sample_count,1
+                FROM desktop_hourly WHERE device_id=$d AND utc_ticks >= $from AND utc_ticks <= $to
+                UNION ALL SELECT utc_ticks,minimum,maximum,average,sample_count,0
+                FROM voltage_samples WHERE device_id=$d AND utc_ticks >= $from AND utc_ticks <= $to
+                ORDER BY 1";
+            cmd.Parameters.AddWithValue("$d", deviceId);
+            cmd.Parameters.AddWithValue("$from", readFrom);
+            cmd.Parameters.AddWithValue("$to", until.Ticks);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+                data.Add((reader.GetInt64(0), reader.GetDouble(1), reader.GetDouble(2),
+                    reader.GetDouble(3), reader.GetInt64(4), reader.GetInt32(5) == 1));
         }
-        return results;
+
+        // The ESP32 summary is an hourly gap-recovery record, never a second
+        // vote for an interval Windows already covered. Partial-hour outages
+        // cannot be reconstructed at 10-second resolution from ESP summaries.
+        var desktopHours = data.Where(x => x.Desktop)
+            .Select(x => x.Utc / TimeSpan.TicksPerHour).ToHashSet();
+        var buckets = new SortedDictionary<long,
+            (long First, double Min, double Max, double WeightedSum, long Samples)>();
+        foreach (var record in data)
+        {
+            if (record.Count < 1 ||
+                (!record.Desktop && desktopHours.Contains(record.Utc / TimeSpan.TicksPerHour)))
+                continue;
+            var index = Math.Max(0, (record.Utc - earliestUtc.Ticks) / window);
+            if (buckets.TryGetValue(index, out var existing))
+                buckets[index] = (Math.Min(existing.First, record.Utc),
+                    Math.Min(existing.Min, record.Min), Math.Max(existing.Max, record.Max),
+                    existing.WeightedSum + record.Avg * record.Count,
+                    existing.Samples + record.Count);
+            else
+                buckets[index] = (record.Utc, record.Min, record.Max,
+                    record.Avg * record.Count, record.Count);
+        }
+        return buckets.Values.Select(v => new VoltageHistoryPoint(
+            new DateTime(Math.Max(earliestUtc.Ticks, v.First), DateTimeKind.Utc),
+            v.Min, v.Max, v.WeightedSum / v.Samples,
+            (int)Math.Min(int.MaxValue, v.Samples))).ToList();
     }
 
     public List<BatteryHistoryEvent> Events(string deviceId, int max = 1000)
@@ -173,7 +208,7 @@ public sealed class VoltageHistoryStore : IDisposable
         await db.OpenAsync(cancellation);
         using (var pragma = db.CreateCommand()) { pragma.CommandText = "PRAGMA busy_timeout=3000;"; await pragma.ExecuteNonQueryAsync(cancellation); }
         var removed = 0;
-        foreach (var table in new[] { "voltage_samples", "battery_events" })
+        foreach (var table in new[] { "voltage_samples", "battery_events", "desktop_raw", "desktop_5min", "desktop_hourly" })
         {
             while (true)
             {
