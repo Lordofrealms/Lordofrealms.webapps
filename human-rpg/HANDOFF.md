@@ -4,6 +4,8 @@ Read root/app `AGENTS.md`, `PROJECT_STATE.md`, `docs/PLAN.md`, `docs/DESIGN.md`,
 
 The app is implemented as **0.1.0** under `human-rpg/` on `human-rpg-dev`, tracked by [draft PR #109](https://github.com/Lordofrealms/Lordofrealms.webapps/pull/109). The separate design-only commit is `e0a56efee379e066ad1c084f9ab4ef19870f732d`, created before source implementation. Confirm the remote head and inspect newer work before editing. There is no deployment or merge to main.
 
+The working implementation was pushed and verified at `0f74d14a4114b17fea9c1bb6fd49ed5b5b9ce645`; this later documentation checkpoint records delivery. All 32 PR paths are inside the app directory. The PR body has been rewritten around the implemented app and actual validation limits.
+
 ## Accepted rules
 
 Fifty ranks; 20s accomplished amateur, 30 expert/local wins, 40 national leaders, 50 sustained historic world-best regardless of age group. XP doubles and character thresholds are 50× skill thresholds. Promotions need XP and a challenge; reveal the rubric after first claimed completion. Passed gateways persist. Current XP decays at the minimum current-rank task award, with the next-lower-rank floor and one demotion per three inactive calendar months, caught up through long absences. Character XP/credits do not decay. Late entries earn half base XP with no bonuses.

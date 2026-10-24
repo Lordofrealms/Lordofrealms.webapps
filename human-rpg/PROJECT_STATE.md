@@ -6,6 +6,7 @@ Updated: 2026-10-23 (America/Chicago).
 - Branch: `human-rpg-dev`; [draft PR #109](https://github.com/Lordofrealms/Lordofrealms.webapps/pull/109).
 - Base main: `efd9e88818e55cf184218856d5f2d74a1295a952`.
 - Design-before-code checkpoint: `e0a56efee379e066ad1c084f9ab4ef19870f732d`.
+- Verified implementation checkpoint: `0f74d14a4114b17fea9c1bb6fd49ed5b5b9ce645` (32 changed files, all within `human-rpg/`).
 - Version: **0.1.0**. Initial implementation complete for review; publication is separate.
 - Deployment: none. Other webapps and their storage are unchanged.
 
@@ -27,4 +28,4 @@ Validation: **35 tests pass, zero failures**; production modules pass syntax che
 
 ## Delivery checkpoint
 
-The implementation commit and subsequent documentation checkpoint on `human-rpg-dev` are the source of truth. Confirm PR head before continuing; never force-push over an unreviewed newer head. Keep this PR draft while release verification remains outstanding. No live Pages URL is claimed.
+Implementation commit `0f74d14a4114b17fea9c1bb6fd49ed5b5b9ce645` was pushed and verified remotely. PR #109 is open, draft, mergeable and unmerged; its description records the implemented behavior, passing checks and limitations. This follow-up documentation checkpoint records that delivery. Confirm the current PR head before continuing; never force-push over an unreviewed newer head. Keep the PR draft while release verification remains outstanding. No live Pages URL is claimed.

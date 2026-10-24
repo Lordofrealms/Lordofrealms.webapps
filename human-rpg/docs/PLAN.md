@@ -58,9 +58,9 @@ Implementation checks above describe source included in the development branch, 
 - [x] Verification evidence and limits recorded in `docs/VERIFICATION.md`, `PROJECT_STATE.md` and `HANDOFF.md`.
 
 ## P6 — Repository delivery
-- [ ] Commit working source and updated documents to isolated development branch.
-- [x] Create draft PR #109; replace its design-only description when the implementation commit is verified.
-- [ ] Confirm remote tree/commit and provide repository links.
+- [x] Commit working source and updated documents to isolated development branch: `0f74d14a4114b17fea9c1bb6fd49ed5b5b9ce645`.
+- [x] Update draft PR #109 with implemented behavior, validation and limits.
+- [x] Verify remote head, package version and all 32 changed paths; repository links recorded in README/state/handoff.
 - [x] Publication state recorded accurately: draft branch/PR only, no merge or live deployment.
 
 ## Future phases (not initial delivery)
