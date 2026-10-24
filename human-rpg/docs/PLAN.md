@@ -6,62 +6,68 @@ Update this file after each meaningful checkpoint. Do not mark a phase complete 
 - [x] Inspect existing repository and root instructions.
 - [x] Record the accepted rules, superseded proposals, and adjustable defaults.
 - [x] Create ordered implementation plan, project state, and future-chat handoff.
-- [ ] Commit this documentation alone to the development branch before application code.
+- [x] Commit this documentation alone to the development branch before application code.
 
 ## P1 — Exact progression and accounting engine
-- [ ] Exact 50-level XP thresholds, activity difficulty, class/equipment multipliers, half-XP late logs.
-- [ ] Assessment baseline, gateway progression/recovery, composite character progression and attribute points.
-- [ ] Calendar-based daily decay, XP floor, chronological three-month demotions and history.
-- [ ] Income reward interpolation at accepted anchors, integer credits and separate purchase permissions.
-- [ ] Unique reward ledger, non-stacking legendary resolution, finite cascade handling.
-- [ ] Equipment effects/locked slots, cooldowns, conditional same-day bonuses.
-- [ ] Open/timed/commitment quests, stakes, deadlines and idempotent completion.
-- [ ] Meaningful invariant tests with boundary and adversarial cases.
+- [x] Exact 50-level XP thresholds, activity difficulty, class/equipment multipliers, half-XP late logs.
+- [x] Assessment baseline, gateway progression/recovery, composite character progression and attribute points.
+- [x] Calendar-based daily decay, XP floor, chronological three-month demotions and history.
+- [x] Income reward interpolation at accepted anchors, integer credits and separate purchase permissions.
+- [x] Unique reward ledger, non-stacking legendary resolution, finite cascade handling.
+- [x] Equipment effects/locked slots, cooldowns, conditional same-day bonuses.
+- [x] Open/timed/commitment quests, stakes, deadlines and idempotent completion.
+- [x] Meaningful invariant tests with boundary and adversarial cases.
 
 ## P2 — Data and persistence
-- [ ] App-scoped IndexedDB, full catalog records, transaction/error handling, revision conflict protection.
-- [ ] Backup export/import validation, staged restore, recovery snapshot, photos included.
-- [ ] Activity/measurement/attempt ledger and reversible corrections.
-- [ ] Profile/date/units, save/backup indicators, persistence request.
+- [x] App-scoped IndexedDB, full catalog records, transaction/error handling, revision conflict protection.
+- [x] Backup export/import validation, staged restore, recovery snapshot, photos included.
+- [x] Activity/measurement/attempt ledger and reversible corrections.
+- [x] Profile/date/units, save/backup indicators, persistence request.
 
 ## P3 — Content and benchmarks
-- [ ] Broad skill/category catalog with specialties, attributes, classes, and meaningful practice tasks.
-- [ ] Fifty-rank challenge framework with choices, concealed rubrics, high-rank achievement constraints.
-- [ ] Curated representative challenge ladders and honest editorial coverage labels.
-- [ ] Gear variants, active effects, shop inventory, milestone purchase suggestions.
-- [ ] Goal templates for strengths/weaknesses/balance and user-created quests.
-- [ ] Source registry with implemented comparisons, cohort/method limitations and data gaps.
-- [ ] Benchmark data checks; unsupported population ranks stay unavailable.
+- [x] Broad skill/category catalog with specialties, attributes, classes, and meaningful practice tasks.
+- [x] Fifty-rank challenge framework with choices, concealed rubrics, high-rank achievement constraints.
+- [x] Curated representative challenge ladders and honest editorial coverage labels.
+- [x] Gear variants, active effects, shop inventory, milestone purchase suggestions.
+- [x] Goal templates for strengths/weaknesses/balance and user-created quests.
+- [x] Source registry with implemented comparisons, cohort/method limitations and data gaps.
+- [x] Benchmark data checks; unsupported population ranks stay unavailable.
 
 ## P4 — Responsive application
-- [ ] Quick Start / Full Assessment / later assessment / editable interests and class.
-- [ ] Character dashboard, attributes, progress, current/peak/effective rank distinction.
-- [ ] Searchable full skill catalog, details, activity logging and promotion attempt flow.
-- [ ] Quest board, goals, deadlines, commitment acceptance and completion.
-- [ ] Equipment paper doll, inventory choices, buffs, locks and confirmation.
-- [ ] Credit shop, extra purchase permissions and redemption history.
-- [ ] Measurement trends, supported comparisons and transparent source details.
-- [ ] Milestone journal with photos and history/backup settings.
-- [ ] Responsive/mobile navigation, accessible dialogs/forms, app install/offline assets.
+- [x] Quick Start / Full Assessment / later assessment / editable interests and class.
+- [x] Character dashboard, attributes, progress, current/peak/effective rank distinction.
+- [x] Searchable full skill catalog, details, activity logging and promotion attempt flow.
+- [x] Quest board, goals, deadlines, commitment acceptance and completion.
+- [x] Equipment paper doll, inventory choices, buffs, locks and confirmation.
+- [x] Credit shop, extra purchase permissions and redemption history.
+- [x] Measurement trends, supported comparisons and transparent source details.
+- [x] Milestone journal with photos and history/backup settings.
+- [x] Responsive/mobile navigation, accessible dialogs/forms, app install/offline assets.
+
+Implementation checks above describe source included in the development branch, not a live deployment. Browser verification is tracked separately below. P0 documentation commit: e0a56efee379e066ad1c084f9ab4ef19870f732d.
 
 ## P5 — Verify and review
-- [ ] Engine/accounting tests and source/syntax checks pass.
-- [ ] Browser desktop/mobile checks: onboarding, log, promotion rubric, rewards, gear, quests.
-- [ ] Reload and export/restore including photo data; invalid backup leaves original untouched.
-- [ ] Lock and stake warnings visible before actions; multi-tab conflict/save failures handled.
-- [ ] Source data and labels reviewed; no invented percentiles or hidden personal uploads.
-- [ ] Record verification evidence and known limitations in `PROJECT_STATE.md`/`HANDOFF.md`.
+- [x] Engine/accounting tests and syntax checks pass: 35 tests, zero failures.
+- [x] Desktop workflows: onboarding, assessment, log, promotion/rubric, gear rewards, activation lock, quests, comparisons and backup download.
+- [x] Mobile-width navigation, skills search and interests form at 390 px; no horizontal overflow in checked views.
+- [x] Reload and backup checksum verified; isolated browser photo-byte restore/recovery and invalid-backup rejection passed.
+- [x] Lock/stake warnings observed; stale writes rejected in persistence harness and multi-tab conflict notice observed in UI.
+- [ ] Actual photo/file-picker attachment and import UI: deliberately pending; do not repeat upload permission requests.
+- [ ] HTTPS PWA install/offline/update lifecycle, physical mobile devices, accessibility audit and quota-exhaustion tests.
+- [x] Source data and labels reviewed; no invented percentiles or hidden personal uploads.
+- [x] Verification evidence and limits recorded in `docs/VERIFICATION.md`, `PROJECT_STATE.md` and `HANDOFF.md`.
 
 ## P6 — Repository delivery
 - [ ] Commit working source and updated documents to isolated development branch.
-- [ ] Create reviewable PR with changes, validation and limits.
+- [x] Create draft PR #109; replace its design-only description when the implementation commit is verified.
 - [ ] Confirm remote tree/commit and provide repository links.
-- [ ] Record publication state accurately; do not call an unmerged branch a live Pages deployment.
+- [x] Publication state recorded accurately: draft branch/PR only, no merge or live deployment.
 
 ## Future phases (not initial delivery)
 - Expand independently reviewed high-level discipline-specific standards and datasets.
 - Import/test representative weighted SCF/Census distributions for defensible detailed percentiles.
-- Expand training/outcome integrations, custom catalog authoring and optional export formats.
+- Expand training/outcome integrations, custom catalog editing and optional export formats.
+- Add media management or a larger/streamed archive format for photo collections beyond the initial 100 MB backup cap.
 - Partner agreements, accounts/consent, verified tracking, server-side redemption and anti-duplication.
 - Optional multi-device synchronization if explicitly requested later.
 

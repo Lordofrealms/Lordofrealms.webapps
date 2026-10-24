@@ -45,6 +45,12 @@ Baseline date: 2026-10-22. `Accepted` means explicitly decided by the owner; `De
 | D39 | Default | Attributes: Strength, Dexterity, Endurance, Intellect, Wisdom, Charisma, Discipline. |
 | D40 | Default | Backdated work cannot reclaim expired quest bonuses/stakes; corrections leave an audit record. |
 | D41 | Default | Every rule/data catalog version is retained in events/backups where needed; no recalculating old rewards under a new price silently. |
+| D42 | Accepted | Research ranking evidence across the entire skill catalog, not only net worth and BMI. |
+| D43 | Default | Distinguish population studies, participant ranks, competition results, qualifications, records and related context; publish a per-skill source/gap register. |
+| D44 | Default | Begin with 204 skills in 14 categories; 53 researched skill sources, plus body/wealth tables. Only explicitly listed calculators produce numerical comparisons. |
+| D45 | Default | Character gear affects all skill activities; ordinary skill gear affects its named skill. Active duration 24 hours, item/slot lock 30 days. |
+| D46 | Default | Audited quest-completion correction returns bonus credits and removes bonus XP; insufficient available credits blocks correction without debt. Previously returned stakes remain returned. |
+| D47 | Default | New quests require activity difficulty of at least quest rank minus one; accepted older quests preserve their recorded terms. |
 
 ## Superseded proposals (do not reintroduce)
 

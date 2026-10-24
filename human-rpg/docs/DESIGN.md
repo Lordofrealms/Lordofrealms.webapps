@@ -119,3 +119,7 @@ Eventually support company/device tracking, verified activity, challenge campaig
 Document decisions and implementation plan in the repository BEFORE source implementation. Keep project state and handoff current after each checkpoint. Build without disturbing existing apps. Keep software version 0.1.0 initially, then follow single-digit X.Y.Z rules.
 
 Validate exact XP arithmetic, late-entry accounting, monthly decay through long absences, changing rates/floors, reward idempotence, non-stacking legendary fixed points, ability locks, stake reservation/forfeiture, backup roundtrip with photos, invalid import rejection, and multi-tab/save failure behavior. Check desktop/mobile layout, keyboard use, reload persistence, offline assets, and main workflows. Record any unverified source coverage or browser limitation honestly. Protect data before migrations/restores and provide a recoverable snapshot.
+
+## 14. Ranking research expansion (2026-10-22)
+
+The owner explicitly required research for every skill with available ranking data. docs/RANKINGS.md records the complete catalog, source types, cohort limits, implemented calculations, and remaining research gaps. Rankings include sports, mind games, languages, technical fields, professional standards, trades, arts, and outdoors. A related framework is not evidence of a population percentile. Keep this register synchronized using node scripts/write-ranking-register.mjs.
