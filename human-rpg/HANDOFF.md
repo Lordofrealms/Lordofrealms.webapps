@@ -4,7 +4,7 @@ Read root/app `AGENTS.md`, `PROJECT_STATE.md`, `docs/PLAN.md`, `docs/DESIGN.md`,
 
 The app is implemented as **0.1.1** under `human-rpg/` on `human-rpg-dev`, tracked by [draft PR #109](https://github.com/Lordofrealms/Lordofrealms.webapps/pull/109). The separate design-only commit is `e0a56efee379e066ad1c084f9ab4ef19870f732d`, created before source implementation. Confirm the remote head and inspect newer work before editing. There is no deployment or merge to main.
 
-The working implementation was pushed and verified at `0f74d14a4114b17fea9c1bb6fd49ed5b5b9ce645`; this later documentation checkpoint records delivery. All 32 PR paths are inside the app directory. The PR body has been rewritten around the implemented app and actual validation limits.
+The 0.1.1 implementation was pushed as `9aa71706f2a1b8c04d333c842000b79d49359e36`; this later documentation checkpoint records delivery. All 37 PR paths are inside the app directory. The PR body describes the implemented app, compatibility and actual validation limits. The earlier 0.1.0 implementation was `0f74d14a4114b17fea9c1bb6fd49ed5b5b9ce645`.
 
 ## Accepted rules
 
@@ -25,7 +25,7 @@ Ten gear slots; full cooldown item/slot locks with warnings. Every five characte
 
 ## 0.1.1 continuation
 
-The ZIP/media checkpoint is prepared locally and must be committed to this same PR. After pushing, record the verified source SHA in this handoff and `PROJECT_STATE.md`. Follow `docs/BACKUPS.md` for compatibility: old data-URL photos are untouched; new Blob records and their journal references share one transaction. ZIP/Blob readers require 0.1.1+. Downgrade through a saved legacy JSON export/restore within 100 MiB; do not directly downgrade a database with new photos.
+The ZIP/media checkpoint is committed at `9aa71706f2a1b8c04d333c842000b79d49359e36` on the existing draft PR. Confirm the remote head before starting new work; this documentation checkpoint follows the implementation commit. Follow `docs/BACKUPS.md` for compatibility: old data-URL photos are untouched; new Blob records and their journal references share one transaction. ZIP/Blob readers require 0.1.1+. Downgrade through a saved legacy JSON export/restore within 100 MiB; do not directly downgrade a database with new photos.
 
 Raw repair ZIP includes both current and pre-restore states/photos (2 GiB / 20,000 records) and maps original IDs. It is intentionally not accepted by normal restore. No automatic reset or photo deletion is implemented.
 

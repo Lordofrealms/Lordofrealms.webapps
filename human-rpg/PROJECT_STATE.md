@@ -6,7 +6,8 @@ Updated: 2026-10-25 (America/Chicago).
 - Branch: `human-rpg-dev`; [draft PR #109](https://github.com/Lordofrealms/Lordofrealms.webapps/pull/109).
 - Base main: `efd9e88818e55cf184218856d5f2d74a1295a952`.
 - Design-before-code checkpoint: `e0a56efee379e066ad1c084f9ab4ef19870f732d`.
-- Verified implementation checkpoint: `0f74d14a4114b17fea9c1bb6fd49ed5b5b9ce645` (32 changed files, all within `human-rpg/`).
+- Latest implementation checkpoint: `9aa71706f2a1b8c04d333c842000b79d49359e36` (0.1.1; 37 total PR paths, all within `human-rpg/`).
+- Initial 0.1.0 implementation: `0f74d14a4114b17fea9c1bb6fd49ed5b5b9ce645`.
 - Version: **0.1.1**. Larger photo backups and atomic photo saves are ready for draft review; release verification is still incomplete.
 - Deployment: none. Other webapps and their storage are unchanged.
 
@@ -33,7 +34,7 @@ Full ZIP backups preserve original photo bytes and use per-entry CRC/SHA validat
 
 Thirteen isolated browser checks and two large-collection checks passed, including 108 MiB of original photo bytes, failed-save rollback, atomic restore and recovery. Python independently read the ZIP and checked all hashes. The actual 0.1.0 reader accepted a generated legacy export. The photo viewer and 390 px backup controls worked. Download completion is unverified after Cloud Browser timeouts. The UI now says ready/prepared and offers an explicit file link. `docs/VERIFICATION.md` distinguishes these results from 0.1.0 evidence.
 
-Source and documentation are prepared locally for the next commit on the existing PR. Record the verified 0.1.1 implementation SHA here after pushing; do not infer deployment from the PR.
+Source and documentation were pushed as `9aa71706f2a1b8c04d333c842000b79d49359e36`. The branch comparison confirms the app-only 0.1.1 changes; the remote package is 0.1.1. The PR now has 37 app paths. This later documentation commit records that checkpoint. PR #109 remains draft and unmerged; no deployment is claimed.
 
 ## Earlier delivery checkpoint
 

@@ -71,7 +71,7 @@ Implementation checks above describe source included in the development branch, 
 - [x] Reject corrupt, truncated, unsafe, unsupported or incomplete archives before replacement.
 - [x] Verify archives above 100 MB, ZIP interoperability, legacy recovery and failed-save rollback.
 - [x] Update backup UI, version authorities, verification evidence and durable handoff.
-- [ ] Push 0.1.1 to the existing draft PR and verify remote files.
+- [x] Push 0.1.1 to the existing draft PR and verify remote package/branch changes: `9aa71706f2a1b8c04d333c842000b79d49359e36`; 37 app-only PR paths.
 - [ ] Confirm actual OS file saving on target desktop/mobile browsers; Cloud Browser download waits timed out. Preparation, checksums and storage roundtrips passed independently.
 
 ### Later work
