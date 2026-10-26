@@ -1,4 +1,4 @@
-# Human RPG 0.1.0
+# Human RPG 0.1.1
 
 A local-first life RPG for desktop and mobile browsers, built under `human-rpg/` in `Lordofrealms/Lordofrealms.webapps`. Development is on `human-rpg-dev` in [draft PR #109](https://github.com/Lordofrealms/Lordofrealms.webapps/pull/109). It has not been merged or deployed.
 
@@ -11,7 +11,7 @@ A local-first life RPG for desktop and mobile browsers, built under `human-rpg/`
 - Open, timed and commitment quests, meaningful task difficulty, credit stakes and audited corrections.
 - A credit shop and extra promotion purchase permissions scaled to total annual personal income. These record self-funded rewards; no payment is made.
 - Life measurements, sourced comparisons, ranking evidence records and a complete source/gap register.
-- IndexedDB persistence, revision conflict protection, full JSON backups including photos, validation before restore and a recoverable pre-restore copy.
+- IndexedDB persistence, revision conflict protection, full ZIP backups including original photos, optional legacy JSON export, validation before restore and a recoverable pre-restore copy.
 
 ## Run and verify
 
@@ -25,7 +25,7 @@ npm test
 node scripts/write-ranking-register.mjs
 ```
 
-The suite currently has **35 passing tests**. Actual browser checks and remaining limits are in [docs/VERIFICATION.md](docs/VERIFICATION.md). The `scripts/prepare-browser-tests.mjs` helper prepares an isolated persistence harness in an existing `dist/` preview; it does not change the app's database.
+The suite currently has **45 passing tests**. Actual browser checks and remaining limits are in [docs/VERIFICATION.md](docs/VERIFICATION.md). The `scripts/prepare-browser-tests.mjs` helper prepares an isolated persistence harness in an existing `dist/` preview; it does not change the app's database.
 
 ## Ranking coverage
 
@@ -37,10 +37,14 @@ Local calculations support published CDC BMI/waist percentile bands by available
 
 The app uses no account, analytics, external fonts or CDN and makes no automatic external requests for personal data. Reference links open only when selected. Export backups regularly and before moving devices or clearing site data. Persistent storage is a browser request, not protection against device loss.
 
-Restore replaces the character, previews what will change and retains one pre-restore recovery copy. `Undo last restore` can switch back; export an independent copy beforehand if newer progress matters. Invalid backups leave the current character intact. The checksum detects corruption, not deliberate tampering. Photos are limited to 12 MB each and full backups to 100 MB in this initial version.
+Restore replaces the character, previews what will change and retains one pre-restore recovery copy. `Undo last restore` can switch back; export an independent copy beforehand if newer progress matters. Invalid backups leave the current character intact. The checksum detects corruption, not deliberate tampering. Photos are limited to 12 MiB each; normal ZIP backups to 1 GiB; legacy JSON to 100 MiB. The largest collection tested in the browser is 108 MiB, not the full limit. Browser quota and device memory also apply. See [docs/BACKUPS.md](docs/BACKUPS.md) for formats and recovery.
+
+Version 0.1.1 reads existing JSON backups without rewriting old photo records. New photos use binary storage and require 0.1.1 or later. Before downgrading to 0.1.0, save a legacy JSON backup and restore that file in the older version; do not expect the older app to read new binary photo records directly. Collections above the legacy limit cannot downgrade with all photos. Export prepares a visible **Download file** link. “Last backup prepared” does not claim the operating system saved a file; check the downloads folder. Cloud Browser file-saving verification remains pending after download timeouts.
 
 ## Continue development
 
 Read root/app `AGENTS.md`, [PROJECT_STATE.md](PROJECT_STATE.md), [HANDOFF.md](HANDOFF.md), [docs/PLAN.md](docs/PLAN.md), [docs/DESIGN.md](docs/DESIGN.md), and [docs/DECISIONS.md](docs/DECISIONS.md). The accepted design was committed before implementation in `e0a56efee379e066ad1c084f9ab4ef19870f732d`. Actual character backups and personal photos do not belong in GitHub. This preview contains synthetic test data only.
 
 ![Human RPG desktop preview with synthetic test data](docs/preview-desktop.jpg)
+
+![Human RPG 0.1.1 backup settings with synthetic data](docs/preview-backups-0.1.1.jpg)

@@ -47,7 +47,7 @@ Update this file after each meaningful checkpoint. Do not mark a phase complete 
 Implementation checks above describe source included in the development branch, not a live deployment. Browser verification is tracked separately below. P0 documentation commit: e0a56efee379e066ad1c084f9ab4ef19870f732d.
 
 ## P5 — Verify and review
-- [x] Engine/accounting tests and syntax checks pass: 35 tests, zero failures.
+- [x] Engine/accounting tests and syntax checks pass: 45 tests, zero failures.
 - [x] Desktop workflows: onboarding, assessment, log, promotion/rubric, gear rewards, activation lock, quests, comparisons and backup download.
 - [x] Mobile-width navigation, skills search and interests form at 390 px; no horizontal overflow in checked views.
 - [x] Reload and backup checksum verified; isolated browser photo-byte restore/recovery and invalid-backup rejection passed.
@@ -63,11 +63,22 @@ Implementation checks above describe source included in the development branch, 
 - [x] Verify remote head, package version and all 32 changed paths; repository links recorded in README/state/handoff.
 - [x] Publication state recorded accurately: draft branch/PR only, no merge or live deployment.
 
-## Future phases (not initial delivery)
+## Follow-up delivery
+### 0.1.1 — Larger photo backups and atomic media saves
+- [x] Add standard, uncompressed ZIP backups with per-photo integrity and bounded reads.
+- [x] Read existing JSON backups and retain a legacy export for rollback.
+- [x] Save new photo blobs and their activity/attempt references in one transaction.
+- [x] Reject corrupt, truncated, unsafe, unsupported or incomplete archives before replacement.
+- [x] Verify archives above 100 MB, ZIP interoperability, legacy recovery and failed-save rollback.
+- [x] Update backup UI, version authorities, verification evidence and durable handoff.
+- [ ] Push 0.1.1 to the existing draft PR and verify remote files.
+- [ ] Confirm actual OS file saving on target desktop/mobile browsers; Cloud Browser download waits timed out. Preparation, checksums and storage roundtrips passed independently.
+
+### Later work
 - Expand independently reviewed high-level discipline-specific standards and datasets.
 - Import/test representative weighted SCF/Census distributions for defensible detailed percentiles.
 - Expand training/outcome integrations, custom catalog editing and optional export formats.
-- Add media management or a larger/streamed archive format for photo collections beyond the initial 100 MB backup cap.
+- Add media management and further device-scale archive testing beyond the 108 MiB validated browser collection and 1 GiB format limit.
 - Partner agreements, accounts/consent, verified tracking, server-side redemption and anti-duplication.
 - Optional multi-device synchronization if explicitly requested later.
 

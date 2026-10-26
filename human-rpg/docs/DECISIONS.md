@@ -51,6 +51,11 @@ Baseline date: 2026-10-22. `Accepted` means explicitly decided by the owner; `De
 | D45 | Default | Character gear affects all skill activities; ordinary skill gear affects its named skill. Active duration 24 hours, item/slot lock 30 days. |
 | D46 | Default | Audited quest-completion correction returns bonus credits and removes bonus XP; insufficient available credits blocks correction without debt. Previously returned stakes remain returned. |
 | D47 | Default | New quests require activity difficulty of at least quest rank minus one; accepted older quests preserve their recorded terms. |
+| D48 | Default, 0.1.1 | Normal full backups use uncompressed, unencrypted ZIP with original photo bytes, a JSON manifest, per-photo SHA-256 and a manifest checksum. Archive format version is 1, separate from app/schema versions. |
+| D49 | Default, 0.1.1 | Normal limits: 1 GiB ZIP, 64 MiB metadata, 10,000 photos, 12 MiB per photo. Reserve 66 MiB for metadata/ZIP structure when adding photos. Browser quota and memory can impose lower limits. |
+| D50 | Default, 0.1.1 | Read 0.1.0 JSON backups and retain 100 MiB legacy JSON export for rollback. Existing photo records are untouched; new immutable Blob records and their references save in one transaction. Downgrading requires a legacy export/restore, not direct use of new Blob records. |
+| D51 | Default, 0.1.1 | Raw emergency recovery ZIP preserves current and pre-restore records with original-ID mappings, up to 2 GiB / 20,000 photos / 128 MiB metadata. It is a repair bundle, not a normal import. No automatic reset, compression or photo deletion. |
+| D52 | Default, 0.1.1 | Prepared exports expose a persistent explicit download link. Status says ready/prepared; the browser cannot confirm OS-level file saving. Original-photo downloads use the same mechanism. |
 
 ## Superseded proposals (do not reintroduce)
 

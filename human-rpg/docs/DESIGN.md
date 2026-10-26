@@ -123,3 +123,11 @@ Validate exact XP arithmetic, late-entry accounting, monthly decay through long 
 ## 14. Ranking research expansion (2026-10-22)
 
 The owner explicitly required research for every skill with available ranking data. docs/RANKINGS.md records the complete catalog, source types, cohort limits, implemented calculations, and remaining research gaps. Rankings include sports, mind games, languages, technical fields, professional standards, trades, arts, and outdoors. A related framework is not evidence of a population percentile. Keep this register synchronized using node scripts/write-ranking-register.mjs.
+
+## 15. Photo backup implementation checkpoint (0.1.1, 2026-10-25)
+
+Original photo bytes are kept in IndexedDB as Blob records for new attachments. Existing data-URL records remain readable and unchanged. Save an activity/attempt and all its new photos atomically; a stale revision or failed transaction must leave neither partial state nor orphaned media.
+
+Full backups use a standard uncompressed ZIP containing the character manifest and individual original photos. Per-entry CRC and SHA-256 checks precede state/photo validation and atomic replacement. The pre-restore copy remains recoverable. Old JSON backups are accepted, and a legacy JSON export supports downgrade through restore within its size limit. ZIP files and new binary photo records need 0.1.1 or later. Do not downgrade an active database without a tested compatible backup. See `BACKUPS.md` for exact limits, file layout and recovery steps.
+
+Exports prepare a visible download link and label the timestamp “Last backup prepared.” The app cannot confirm the OS actually saved the file. The user must retain the downloaded file independently before clearing local data. No collection is silently compressed or deleted to fit a backup.

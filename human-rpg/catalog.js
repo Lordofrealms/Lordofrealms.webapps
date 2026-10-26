@@ -1,4 +1,4 @@
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.1';
 export const ATTRIBUTES = ['Strength','Dexterity','Endurance','Intellect','Wisdom','Charisma','Discipline'];
 export const SLOTS = ['head','torso','hands','feet','waist','neck','ring1','ring2','main','off'];
 export const SLOT_LABELS = {head:'Head',torso:'Torso',hands:'Hands',feet:'Feet',waist:'Waist',neck:'Neck',ring1:'Ring I',ring2:'Ring II',main:'Main hand',off:'Off hand'};

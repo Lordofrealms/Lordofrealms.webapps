@@ -11,8 +11,9 @@ const K=new Uint32Array([
  0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
 ]);
 const rotate=(x,n)=>(x>>>n)|(x<<(32-n));
+function bytes(value){return typeof value==='string'?new TextEncoder().encode(value):value instanceof Uint8Array?value:new Uint8Array(value);}
 export function sha256Fallback(text){
- const input=new TextEncoder().encode(text),data=new Uint8Array(Math.ceil((input.length+9)/64)*64);
+ const input=bytes(text),data=new Uint8Array(Math.ceil((input.length+9)/64)*64);
  data.set(input);data[input.length]=0x80;const view=new DataView(data.buffer),bits=input.length*8;
  view.setUint32(data.length-8,Math.floor(bits/4294967296));view.setUint32(data.length-4,bits>>>0);
  const hash=new Uint32Array([0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19]),words=new Uint32Array(64);
@@ -31,6 +32,6 @@ export function sha256Fallback(text){
 }
 export async function sha256(text){
  if(!globalThis.crypto?.subtle)return sha256Fallback(text);
- const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text));
+ const digest=await crypto.subtle.digest('SHA-256',bytes(text));
  return [...new Uint8Array(digest)].map(n=>n.toString(16).padStart(2,'0')).join('');
 }
