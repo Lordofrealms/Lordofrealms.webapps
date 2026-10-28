@@ -2,7 +2,9 @@
 
 Read root/app `AGENTS.md`, `PROJECT_STATE.md`, `docs/PLAN.md`, `docs/DESIGN.md`, `docs/DECISIONS.md`, `docs/VERIFICATION.md`, `docs/RANKINGS.md` and `docs/CHALLENGES.md`. The owner finished an extensive design discussion; do not ask them to repeat it.
 
-The app is implemented as **0.1.2** under `human-rpg/` on `human-rpg-dev`, tracked by [draft PR #109](https://github.com/Lordofrealms/Lordofrealms.webapps/pull/109). The separate design-only commit is `e0a56efee379e066ad1c084f9ab4ef19870f732d`, created before source implementation. Confirm the remote head and inspect newer work before editing. There is no deployment or merge to main.
+The app is published as **0.1.2** for early review at **[Human RPG on GitHub Pages](https://lordofrealms.github.io/Lordofrealms.webapps/human-rpg/)**. [PR #109](https://github.com/Lordofrealms/Lordofrealms.webapps/pull/109) merged into `main` as `c7ba445328029e81ec4913ee70de28652ca76721`. Existing Pages [run 40609886604](https://github.com/Lordofrealms/Lordofrealms.webapps/actions/runs/40609886604) succeeded, and the public onboarding screen showed 0.1.2. The separate design-only commit is `e0a56efee379e066ad1c084f9ab4ef19870f732d`, created before source implementation. Confirm remote heads and inspect newer work before editing. Future implementation needs a new PR; preserve app-only scope.
+
+The repository is public and Pages deploys from `main`; no new hosting project or setting was needed. Temporary-preview data does not automatically transfer to the live origin. Leave any user-entered preview progress available for export and restore. `docs/preview-live-0.1.2.jpg` shows the public empty onboarding screen. An online HTTPS load is not an offline/update-lifecycle test; remaining verification below still applies.
 
 The 0.1.2 implementation was pushed and verified as `bc9212c3646772ff379285dd63c50089ea16f788`: all 22 changed file blobs matched locally and all 44 PR paths stayed inside the app. This documentation checkpoint follows it. Prior implementation checkpoints: 0.1.1 `9aa71706f2a1b8c04d333c842000b79d49359e36`; 0.1.0 `0f74d14a4114b17fea9c1bb6fd49ed5b5b9ce645`.
 
@@ -26,7 +28,7 @@ Ten gear slots; full cooldown item/slot locks with warnings. Every five characte
 
 ## 0.1.2 continuation
 
-The expanded challenge checkpoint is committed at `bc9212c3646772ff379285dd63c50089ea16f788` on the existing draft PR. Read the current remote head before new work; this documentation checkpoint follows the source commit. Keep future work on the same branch/PR and preserve app-only scope.
+The expanded challenge checkpoint is committed at `bc9212c3646772ff379285dd63c50089ea16f788` and was included in merged PR #109. Read the current remote heads before new work. Continue from published `main` or a development branch synchronized with it, and open a new PR for future implementation.
 
 `startAttempt` saves a format-1 challenge snapshot. Always use `attemptChallenge` for existing attempts; never regenerate them with the current catalog. Pre-0.1.2 attempts have no snapshot and must keep the exact legacy generator. The read-only roadmap uses the current catalog and never includes the scoring rubric. Do not change `legacyChallengeFor` or its original starter arrays. Snapshot validation is part of backup validation. Review/score new attempts in 0.1.2+; older builds may display the wrong challenge terms. No migration/reset is required.
 
@@ -36,7 +38,7 @@ Browser fixture `qa/challenge-ui.html` uses production UI/storage copies with fi
 
 ## Earlier 0.1.1 checkpoint
 
-The ZIP/media checkpoint is committed at `9aa71706f2a1b8c04d333c842000b79d49359e36` on the existing draft PR. Confirm the remote head before starting new work; this documentation checkpoint follows the implementation commit. Follow `docs/BACKUPS.md` for compatibility: old data-URL photos are untouched; new Blob records and their journal references share one transaction. ZIP/Blob readers require 0.1.1+. Downgrade through a saved legacy JSON export/restore within 100 MiB; do not directly downgrade a database with new photos.
+The ZIP/media checkpoint is committed at `9aa71706f2a1b8c04d333c842000b79d49359e36` and was included in merged PR #109. Follow `docs/BACKUPS.md` for compatibility: old data-URL photos are untouched; new Blob records and their journal references share one transaction. ZIP/Blob readers require 0.1.1+. Downgrade through a saved legacy JSON export/restore within 100 MiB; do not directly downgrade a database with new photos.
 
 Raw repair ZIP includes both current and pre-restore states/photos (2 GiB / 20,000 records) and maps original IDs. It is intentionally not accepted by normal restore. No automatic reset or photo deletion is implemented.
 

@@ -2,6 +2,14 @@
 
 Checked 2026-10-26, America/Chicago. Synthetic fixtures only. This section records new checks; the earlier records below remain historical evidence, not claims that every browser flow was repeated.
 
+## Public hosting — 2026-10-27, America/Chicago
+
+[PR #109](https://github.com/Lordofrealms/Lordofrealms.webapps/pull/109) merged into `main` as `c7ba445328029e81ec4913ee70de28652ca76721`. Existing GitHub Pages [run 40609886604](https://github.com/Lordofrealms/Lordofrealms.webapps/actions/runs/40609886604) completed successfully. No hosting settings or application code changed for publication.
+
+The browser opened **https://lordofrealms.github.io/Lordofrealms.webapps/human-rpg/** and rendered the complete onboarding form, 204-skill count, Quick Start and assessment actions, and footer v0.1.2. `preview-live-0.1.2.jpg` records this live empty onboarding screen; no personal character data was entered. No file-picker, upload or download operation was attempted.
+
+This verifies public online loading, not HTTPS offline/update lifecycle, physical devices, accessibility or actual OS file saving. Those checks remain pending. The separate pre-existing APK publishing workflow failed; the Pages deployment itself succeeded. Preview-origin data remains separate and requires explicit backup/restore to transfer.
+
 ## Automated checks
 
 `npm run check` passed for ten production modules. `npm test` passed **55 tests, zero failures** under Node 24. Ten new tests cover:
@@ -63,7 +71,7 @@ The generated photo UI fixture exercised production rendering: a thumbnail opene
 
 Cloud Browser operations waiting for downloads timed out for both automatic and explicit small-file links, including its `downloadMedia` operation. No completed 0.1.1 browser file save was observed. The failure has not been isolated to the app or the browser test environment. File generation, validation and IndexedDB restore passed independently; **actual OS file saving is still a release check**, including original-photo downloads and large archives.
 
-The file-picker attachment/import UI is deliberately pending; the owner objected to repeated upload permission requests. Do not repeat them. No upload permission was requested in this checkpoint. HTTPS service-worker install/offline/update lifecycle, physical iOS/Android, assistive technology and quota exhaustion remain unverified. The draft PR is not merged or deployed.
+The file-picker attachment/import UI is deliberately pending; the owner objected to repeated upload permission requests. Do not repeat them. No upload permission was requested in this checkpoint. HTTPS service-worker install/offline/update lifecycle, physical iOS/Android, assistive technology and quota exhaustion remain unverified. The PR was still draft at this historical checkpoint; later publication is recorded above.
 
 ## Reproduction
 

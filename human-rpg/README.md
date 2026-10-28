@@ -1,6 +1,6 @@
 # Human RPG 0.1.2
 
-A local-first life RPG for desktop and mobile browsers, built under `human-rpg/` in `Lordofrealms/Lordofrealms.webapps`. Development is on `human-rpg-dev` in [draft PR #109](https://github.com/Lordofrealms/Lordofrealms.webapps/pull/109). It has not been merged or deployed.
+A local-first life RPG for desktop and mobile browsers, built under `human-rpg/` in the public `Lordofrealms/Lordofrealms.webapps` repository. **[Open Human RPG](https://lordofrealms.github.io/Lordofrealms.webapps/human-rpg/)** on GitHub Pages. Version 0.1.2 is published for early review; [PR #109](https://github.com/Lordofrealms/Lordofrealms.webapps/pull/109) is merged into `main`.
 
 ## Implemented
 
@@ -39,6 +39,8 @@ Local calculations support published CDC BMI/waist percentile bands by available
 ## Local data and recovery
 
 The app uses no account, analytics, external fonts or CDN and makes no automatic external requests for personal data. Reference links open only when selected. Export backups regularly and before moving devices or clearing site data. Persistent storage is a browser request, not protection against device loss.
+
+The temporary preview and GitHub Pages use separate browser storage. To move preview progress, save a backup from the preview and restore it on GitHub Pages. Progress does not transfer automatically; retain the original until the restored character is verified.
 
 Restore replaces the character, previews what will change and retains one pre-restore recovery copy. `Undo last restore` can switch back; export an independent copy beforehand if newer progress matters. Invalid backups leave the current character intact. The checksum detects corruption, not deliberate tampering. Photos are limited to 12 MiB each; normal ZIP backups to 1 GiB; legacy JSON to 100 MiB. The largest collection tested in the browser is 108 MiB, not the full limit. Browser quota and device memory also apply. See [docs/BACKUPS.md](docs/BACKUPS.md) for formats and recovery.
 

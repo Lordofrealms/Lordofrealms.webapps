@@ -3,14 +3,20 @@
 Updated: 2026-10-27 (America/Chicago).
 
 - Repository: `Lordofrealms/Lordofrealms.webapps`; path `human-rpg/`.
-- Branch: `human-rpg-dev`; [draft PR #109](https://github.com/Lordofrealms/Lordofrealms.webapps/pull/109).
-- Base main: `efd9e88818e55cf184218856d5f2d74a1295a952`.
+- Published branch: `main`; [PR #109](https://github.com/Lordofrealms/Lordofrealms.webapps/pull/109) merged as `c7ba445328029e81ec4913ee70de28652ca76721`. Development branch: `human-rpg-dev`.
+- Original base main: `efd9e88818e55cf184218856d5f2d74a1295a952`.
 - Design-before-code checkpoint: `e0a56efee379e066ad1c084f9ab4ef19870f732d`.
 - Latest implementation checkpoint: `bc9212c3646772ff379285dd63c50089ea16f788` (0.1.2; 44 total PR paths, all within `human-rpg/`).
 - Previous implementation checkpoint: `9aa71706f2a1b8c04d333c842000b79d49359e36` (0.1.1; 37 total PR paths, all within `human-rpg/`).
 - Initial 0.1.0 implementation: `0f74d14a4114b17fea9c1bb6fd49ed5b5b9ce645`.
-- Version: **0.1.2**. Challenge paths, immutable attempts and the roadmap are pushed and verified on the draft PR. Release verification remains incomplete.
-- Deployment: none. Other webapps and their storage are unchanged.
+- Version: **0.1.2**, published for early review. Remaining verification is listed below.
+- Deployment: **[GitHub Pages](https://lordofrealms.github.io/Lordofrealms.webapps/human-rpg/)**. The existing Pages deployment from `main` succeeded in [run 40609886604](https://github.com/Lordofrealms/Lordofrealms.webapps/actions/runs/40609886604). Other webapps and their storage are unchanged.
+
+## Public review checkpoint
+
+On 2026-10-27 (America/Chicago), PR #109 was made ready and merged at its verified head `d3a6746c7be1a604e34619756321e041c248c184`. The resulting merge is `c7ba445328029e81ec4913ee70de28652ca76721`. GitHub Pages completed successfully; the public HTTPS URL rendered the onboarding screen, 204-skill count, Quick Start and assessment actions, and version 0.1.2. `docs/preview-live-0.1.2.jpg` records that empty onboarding screen. No personal character data was entered.
+
+No application code, hosting settings or storage format changed for publication. The successful online load does not establish offline/update lifecycle or the other pending checks. Temporary-preview progress stays at its original browser origin until explicitly exported/restored. Future implementation needs a new PR; #109 is closed and merged.
 
 ## Implemented and checked
 
@@ -37,7 +43,7 @@ New attempts snapshot their full definition; old attempts keep the unchanged leg
 
 All 55 Node tests and ten production syntax checks pass. Desktop checks covered roadmap/reward anchors, read-only browsing, reference disclosure, live approach preview, reload persistence and the first-claim/pass flow. A 390 px iframe covered legacy rubric continuity, full-width selectors, no horizontal overflow and Escape/focus return. Screenshots and exact limits are in `docs/VERIFICATION.md`.
 
-Source and documentation were pushed as `bc9212c3646772ff379285dd63c50089ea16f788`. All 22 changed file blobs match the local source/screenshots, and the branch comparison confirms app-only scope. The PR now contains 44 app files. This later documentation checkpoint records delivery; no merge or deployment is claimed.
+Source and documentation were pushed as `bc9212c3646772ff379285dd63c50089ea16f788`. All 22 changed file blobs matched the local source/screenshots, and the branch comparison confirmed app-only scope. PR #109 contained 44 app files before publication. The public review checkpoint above supersedes its earlier draft-only delivery status.
 
 ## 0.1.1 checkpoint
 
@@ -45,8 +51,8 @@ Full ZIP backups preserve original photo bytes and use per-entry CRC/SHA validat
 
 Thirteen isolated browser checks and two large-collection checks passed, including 108 MiB of original photo bytes, failed-save rollback, atomic restore and recovery. Python independently read the ZIP and checked all hashes. The actual 0.1.0 reader accepted a generated legacy export. The photo viewer and 390 px backup controls worked. Download completion is unverified after Cloud Browser timeouts. The UI now says ready/prepared and offers an explicit file link. `docs/VERIFICATION.md` distinguishes these results from 0.1.0 evidence.
 
-Source and documentation were pushed as `9aa71706f2a1b8c04d333c842000b79d49359e36`. The branch comparison confirms the app-only 0.1.1 changes; the remote package is 0.1.1. At that checkpoint the PR had 37 app paths. This later documentation commit records that checkpoint. PR #109 remains draft and unmerged; no deployment is claimed.
+Source and documentation were pushed as `9aa71706f2a1b8c04d333c842000b79d49359e36`. The branch comparison confirmed the app-only 0.1.1 changes and remote package 0.1.1. At that checkpoint the PR had 37 app paths and was draft and unmerged. Publication is recorded above.
 
 ## Earlier delivery checkpoint
 
-Implementation commit `0f74d14a4114b17fea9c1bb6fd49ed5b5b9ce645` was pushed and verified remotely. PR #109 is open, draft, mergeable and unmerged; its description records the implemented behavior, passing checks and limitations. This follow-up documentation checkpoint records that delivery. Confirm the current PR head before continuing; never force-push over an unreviewed newer head. Keep the PR draft while release verification remains outstanding. No live Pages URL is claimed.
+Implementation commit `0f74d14a4114b17fea9c1bb6fd49ed5b5b9ce645` was pushed and verified remotely. PR #109 was then open, draft, mergeable and unmerged; its description recorded implemented behavior, passing checks and limitations. That initial delivery was not a Pages deployment. Confirm current remote heads before continuing; never force-push over an unreviewed newer head.

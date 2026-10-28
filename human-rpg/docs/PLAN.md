@@ -44,7 +44,7 @@ Update this file after each meaningful checkpoint. Do not mark a phase complete 
 - [x] Milestone journal with photos and history/backup settings.
 - [x] Responsive/mobile navigation, accessible dialogs/forms, app install/offline assets.
 
-Implementation checks above describe source included in the development branch, not a live deployment. Browser verification is tracked separately below. P0 documentation commit: e0a56efee379e066ad1c084f9ab4ef19870f732d.
+Implementation checks above describe source behavior. Browser verification and the later GitHub Pages publication are tracked separately below. P0 documentation commit: e0a56efee379e066ad1c084f9ab4ef19870f732d.
 
 ## P5 — Verify and review
 - [x] Engine/accounting tests and syntax checks pass: 55 tests, zero failures.
@@ -61,7 +61,7 @@ Implementation checks above describe source included in the development branch, 
 - [x] Commit working source and updated documents to isolated development branch: `0f74d14a4114b17fea9c1bb6fd49ed5b5b9ce645`.
 - [x] Update draft PR #109 with implemented behavior, validation and limits.
 - [x] Verify remote head, package version and all 32 changed paths; repository links recorded in README/state/handoff.
-- [x] Publication state recorded accurately: draft branch/PR only, no merge or live deployment.
+- [x] Initial delivery state recorded: draft branch/PR only at that checkpoint; later publication is recorded below.
 
 ## Follow-up delivery
 ### 0.1.1 — Larger photo backups and atomic media saves
@@ -82,6 +82,12 @@ Implementation checks above describe source included in the development branch, 
 - [x] Test old/new attempts, snapshot validation, archive retention, catalog coverage, variant previews and desktop/mobile flows.
 - [x] Update version, source register, verification and handoff.
 - [x] Push 0.1.2 and verify the existing draft PR: `bc9212c3646772ff379285dd63c50089ea16f788`; all 22 changed blobs match, 44 total app-only PR files.
+
+### 0.1.2 — GitHub Pages public review, 2026-10-27
+- [x] Make PR #109 ready and merge verified head `d3a6746c7be1a604e34619756321e041c248c184` into `main`: merge `c7ba445328029e81ec4913ee70de28652ca76721`.
+- [x] Verify existing Pages deployment [run 40609886604](https://github.com/Lordofrealms/Lordofrealms.webapps/actions/runs/40609886604) completed successfully.
+- [x] Open [the public app](https://lordofrealms.github.io/Lordofrealms.webapps/human-rpg/) in the browser; verify complete onboarding, 204 skills and v0.1.2. Save `preview-live-0.1.2.jpg`.
+- [x] Record the live URL, merged status, manual preview-data transfer and remaining verification in README/state/handoff.
 
 ### Later work
 - Expand independently reviewed high-level discipline-specific standards and datasets.
