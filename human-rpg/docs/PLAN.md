@@ -74,14 +74,14 @@ Implementation checks above describe source included in the development branch, 
 - [x] Push 0.1.1 to the existing draft PR and verify remote package/branch changes: `9aa71706f2a1b8c04d333c842000b79d49359e36`; 37 app-only PR paths.
 - [ ] Confirm actual OS file saving on target desktop/mobile browsers; Cloud Browser download waits timed out. Preparation, checksums and storage roundtrips passed independently.
 
-### 0.1.2 — Skill-specific challenge paths and stable milestone records 
+### 0.1.2 — Skill-specific challenge paths and stable milestone records
 - [x] Research primary reference context for twenty skill paths spanning all fourteen categories.
 - [x] Add 29 concrete pre-expert objectives per path, with discipline-specific rubrics, visible safety guidance and source context; keep upper ranks explicitly editorial and world-best at 50.
 - [x] Freeze new attempt wording/rubrics at start and preserve the exact legacy definition for older attempts, including saved milestones and backups.
 - [x] Add a read-only fifty-level challenge/reward browser without revealing concealed rubrics or granting rewards.
 - [x] Test old/new attempts, snapshot validation, archive retention, catalog coverage, variant previews and desktop/mobile flows.
 - [x] Update version, source register, verification and handoff.
-- [ ] Push 0.1.2 and verify the existing draft PR head and app-only scope.
+- [x] Push 0.1.2 and verify the existing draft PR: `bc9212c3646772ff379285dd63c50089ea16f788`; all 22 changed blobs match, 44 total app-only PR files.
 
 ### Later work
 - Expand independently reviewed high-level discipline-specific standards and datasets.

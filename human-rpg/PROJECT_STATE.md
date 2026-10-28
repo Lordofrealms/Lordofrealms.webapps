@@ -1,14 +1,15 @@
 # Human RPG project state
 
-Updated: 2026-10-26 (America/Chicago).
+Updated: 2026-10-27 (America/Chicago).
 
 - Repository: `Lordofrealms/Lordofrealms.webapps`; path `human-rpg/`.
 - Branch: `human-rpg-dev`; [draft PR #109](https://github.com/Lordofrealms/Lordofrealms.webapps/pull/109).
 - Base main: `efd9e88818e55cf184218856d5f2d74a1295a952`.
 - Design-before-code checkpoint: `e0a56efee379e066ad1c084f9ab4ef19870f732d`.
+- Latest implementation checkpoint: `bc9212c3646772ff379285dd63c50089ea16f788` (0.1.2; 44 total PR paths, all within `human-rpg/`).
 - Previous implementation checkpoint: `9aa71706f2a1b8c04d333c842000b79d49359e36` (0.1.1; 37 total PR paths, all within `human-rpg/`).
 - Initial 0.1.0 implementation: `0f74d14a4114b17fea9c1bb6fd49ed5b5b9ce645`.
-- Version: **0.1.2**. Challenge paths, immutable attempts and the roadmap are verified locally; push checkpoint pending. Release verification remains incomplete.
+- Version: **0.1.2**. Challenge paths, immutable attempts and the roadmap are pushed and verified on the draft PR. Release verification remains incomplete.
 - Deployment: none. Other webapps and their storage are unchanged.
 
 ## Implemented and checked
@@ -36,7 +37,7 @@ New attempts snapshot their full definition; old attempts keep the unchanged leg
 
 All 55 Node tests and ten production syntax checks pass. Desktop checks covered roadmap/reward anchors, read-only browsing, reference disclosure, live approach preview, reload persistence and the first-claim/pass flow. A 390 px iframe covered legacy rubric continuity, full-width selectors, no horizontal overflow and Escape/focus return. Screenshots and exact limits are in `docs/VERIFICATION.md`.
 
-Source and documentation are ready for the existing draft PR. Record the verified implementation SHA after pushing. Do not infer merge or deployment from delivery.
+Source and documentation were pushed as `bc9212c3646772ff379285dd63c50089ea16f788`. All 22 changed file blobs match the local source/screenshots, and the branch comparison confirms app-only scope. The PR now contains 44 app files. This later documentation checkpoint records delivery; no merge or deployment is claimed.
 
 ## 0.1.1 checkpoint
 
