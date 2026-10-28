@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+ <meta charset="utf-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+ <meta name="theme-color" content="#11191d">
+ <meta name="description" content="Turn practice into progress. A private, local-first RPG for a life well lived.">
+ <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+ <title>Human RPG · A life in progress</title>
+ <link rel="icon" href="./icon.svg" type="image/svg+xml">
+ <link rel="manifest" href="./manifest.webmanifest">
+ <link rel="stylesheet" href="./style.css">
+ <script type="module" src="./app.js"></script>
+</head>
+<body>
+ <a class="skip-link" href="#main">Skip to content</a>
+ <div id="app"><main id="main" class="loading"><span class="brand-mark">H</span><h1>Gathering your story…</h1><p>Your character stays on this device.</p></main></div>
+ <dialog id="modal" aria-labelledby="dialog-title"></dialog>
+ <div id="toast" role="status" aria-live="polite"></div>
+ <input id="restore-file" type="file" accept="application/zip,.zip,application/json,.json" hidden>
+ <noscript>This app needs JavaScript to save and manage your local character.</noscript>
+</body>
+</html>
