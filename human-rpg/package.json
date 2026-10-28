@@ -1,7 +1,7 @@
 {
   "name": "human-rpg",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
-  "scripts": { "test": "node --test tests/*.test.mjs", "check": "node --check app.js && node --check engine.js && node --check storage.js && node --check catalog.js && node --check rankings.js && node --check benchmarks.js && node --check sw.js && node --check checksum.js && node --check archive.js" }
+  "scripts": { "test": "node --test tests/*.test.mjs", "check": "node --check app.js && node --check engine.js && node --check storage.js && node --check catalog.js && node --check challenges.js && node --check rankings.js && node --check benchmarks.js && node --check sw.js && node --check checksum.js && node --check archive.js" }
 }

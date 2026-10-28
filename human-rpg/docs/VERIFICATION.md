@@ -1,4 +1,44 @@
-# Verification record — 0.1.1
+# Verification — 0.1.2
+
+Checked 2026-10-26, America/Chicago. Synthetic fixtures only. This section records new checks; the earlier records below remain historical evidence, not claims that every browser flow was repeated.
+
+## Automated checks
+
+`npm run check` passed for ten production modules. `npm test` passed **55 tests, zero failures** under Node 24. Ten new tests cover:
+
+- Twenty paths / 580 unique within-path objectives / all fourteen categories and valid source IDs; valid gateways for every built-in and custom skill.
+- Three distinct approach briefs with unchanged rank standing and visible safety.
+- Immutable new snapshots despite later catalog edits or mutation of a returned display copy.
+- Legacy in-progress and passed milestones retain exact original wording without migration. A golden SHA-256 digest of all 30,600 legacy definitions matches the actual 0.1.1 catalog fetched at commit `1d1398786675ebd99e00c52088e0d9dd9f4dd350`; legacy rank labels/descriptions are isolated from future display changes.
+- Rejection of malformed, oversized or mismatched snapshots; future supported edition strings and source IDs remain readable.
+- First completion claim and four explicit true criteria before passing; prerequisite rewards once.
+- Existing permission prices/titles stay frozen after income or catalog changes.
+- ZIP and legacy JSON preserve old/new attempts and first-claim state; invalid snapshot rejected before restore.
+
+Existing XP, decay, legendary cascade, quest, photo/archive and ranking tests also passed. Large archive tests ran as part of that suite. Storage/photo implementation is unchanged in this checkpoint.
+
+## Browser checks
+
+Production UI/storage copies use a dedicated synthetic database/channel in `qa/challenge-ui.html`, prepared by `scripts/prepare-browser-tests.mjs`. The fixture contains assessed cooking/baking/Spanish, one legacy baking attempt, and no uploaded photos. Reload retains this fixture's state.
+
+| Check | Observed result |
+|---|---|
+| Roadmap | Levels 1, 20, 30, 40 and 50 displayed the correct rank scope and income anchors; 50 showed $100,000 at $100,000 annual income and sustained open-age historic standing. |
+| Read-only behavior | No criterion checkboxes were present in the roadmap. After browsing, reward permissions remained zero and credits/character XP were unchanged. |
+| Sources | WorldSkills evidence disclosure showed type, cohort and limits; it explicitly denied automatic RPG level conversion. No external data was fetched by the app. |
+| Approach | Changing core to practical brief changed the visible objective before beginning. The selected wording remained after starting and reloading. |
+| New attempt | The edition-0.1.2 rubric stayed concealed before the first claim. Claiming completion exposed four cooking-specific criteria. Passing level-5 validation granted five prerequisite gear choices; the next gateway required more XP. |
+| Legacy attempt | Mobile skill card/dialog retained “Bake a yeast-raised loaf and explain the fermentation” and edition 0.1.1. First claim revealed the four legacy criteria; browsing current-edition level 3 separately showed its new title. |
+| Mobile | A 390 px iframe (375 px document width) showed no page or dialog horizontal overflow, including the longest level-50 wording. Dialog width/scroll width both 338 px. Stacked selectors were 296 px wide and displayed their full selected labels. |
+| Keyboard | Escape closed the mobile roadmap and returned focus to its opening button. |
+
+`preview-challenges-0.1.2.jpg` and `preview-challenges-mobile-0.1.2.jpg` show the desktop and narrow layouts with synthetic data. This is not a physical iOS/Android or assistive-technology audit. The final console check showed extension metadata errors, with no app-origin error observed.
+
+No file-picker, upload or download test was attempted in this checkpoint. Actual OS file saving, picker flows, HTTPS service-worker lifecycle and physical-device testing remain release gates. The earlier 108 MiB browser storage evidence remains the largest tested collection. Expanded objectives are original editorial content, not independently certified progression standards.
+
+---
+
+## Historical verification — 0.1.1
 
 Checked 2026-10-25, America/Chicago. Synthetic records only. This section is the current checkpoint; the 0.1.0 record below is retained as historical evidence.
 

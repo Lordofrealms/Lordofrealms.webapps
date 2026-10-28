@@ -1,4 +1,4 @@
-# Backups and photo recovery — 0.1.1
+# Backups and photo recovery — 0.1.2
 
 All character data and photos remain in this browser. Clearing site data, private browsing cleanup or losing the device can remove them. A prepared backup is not a saved file: select **Download file**, check the device's downloads folder, and keep an independent copy before clearing data or moving devices.
 
@@ -6,7 +6,7 @@ All character data and photos remain in this browser. Clearing site data, privat
 
 1. Open **Character & data → Export full backup**. Keep the page open while the archive is prepared.
 2. Select the visible **Download file** link. The ZIP contains the character and every referenced original photo. No photo is resized or compressed.
-3. On the receiving device, use Human RPG **0.1.1 or later**, then **Restore from file** and select the unchanged ZIP.
+3. On the receiving device, use Human RPG **0.1.2 or later**, then **Restore from file** and select the unchanged ZIP.
 4. Review the incoming character, counts and replacement warning. Confirm only when ready to replace the receiving character. Existing progress moves to one local recovery slot.
 5. Use **Undo last restore** to switch back to that previous state. Each restore replaces the single recovery slot, so save independent copies when several versions matter.
 
@@ -58,3 +58,9 @@ A raw recovery bundle is not accepted by normal restore. Retain it for repair, a
 ## Verification boundary
 
 See `VERIFICATION.md` for actual checks. Generated photos exercised browser save, failure rollback, large ZIP restore, old JSON restore, raw recovery and the photo viewer without opening a file picker. Actual file-picker testing is deliberately pending; do not repeat the owner's rejected upload-permission requests. This Cloud Browser also timed out waiting for downloads, so OS file-saving completion remains a target-browser release check. A ready status or visible link is not recorded as a completed download.
+
+## Challenge-definition compatibility in 0.1.2
+
+New attempt records include their original objective, safety text, approach, rubric and edition. ZIP and legacy JSON backups preserve these fields; schema and archive format remain version 1. Existing attempts without them keep the original 0.1.0/0.1.1 generator, and no record migration is performed.
+
+Use **0.1.2 or later to review or score new attempts**. Version 0.1.1 can parse the new fields but ignores them when displaying a challenge, so its wording may differ. A legacy JSON export is a photo compatibility format, not a downgrade of challenge terms. Keep an independent backup before switching builds, and use the newer app for snapshot-bearing milestones. Existing earned permissions retain their saved value and suggestion.

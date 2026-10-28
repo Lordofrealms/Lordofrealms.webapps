@@ -57,6 +57,11 @@ Baseline date: 2026-10-22. `Accepted` means explicitly decided by the owner; `De
 | D51 | Default, 0.1.1 | Raw emergency recovery ZIP preserves current and pre-restore records with original-ID mappings, up to 2 GiB / 20,000 photos / 128 MiB metadata. It is a repair bundle, not a normal import. No automatic reset, compression or photo deletion. |
 | D52 | Default, 0.1.1 | Prepared exports expose a persistent explicit download link. Status says ready/prepared; the browser cannot confirm OS-level file saving. Original-photo downloads use the same mechanism. |
 
+| D53 | Default, 0.1.2 | Twenty skills across fourteen categories have 29 concrete objectives each; upper ranks use discipline-specific evidence context with editorial achievement milestones. The other 184 built-in skills retain general frameworks. Publish full coverage and reference limitations. |
+| D54 | Default, 0.1.2 | Freeze the complete challenge definition, selected approach and edition when a new attempt starts. Pending/passed attempts read their saved definition. Attempts without snapshots retain the exact legacy generator; no migration or rewritten terms. |
+| D55 | Default, 0.1.2 | A read-only fifty-level roadmap shows objectives, safety, evidence scope and prospective XP/gear/purchase permissions. It grants nothing and does not reveal scoring criteria. Existing reward values and suggestions stay frozen. |
+| D56 | Default, 0.1.2 | Three approaches retain equal rank standing: core demonstration, practical brief, changed conditions without added hazard. External qualifications/rankings inform context, never automatic RPG levels. New snapshot-bearing attempts should be reviewed in 0.1.2+; backups remain schema/archive version 1. |
+
 ## Superseded proposals (do not reintroduce)
 
 - 1.12x level scaling -> 2x.

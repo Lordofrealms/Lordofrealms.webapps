@@ -1,4 +1,6 @@
-export const VERSION = '0.1.1';
+import {curatedChallengeFor,pathRewardSuggestion,CHALLENGE_EDITION} from './challenges.js';
+export {CHALLENGE_PATHS,CHALLENGE_EDITION,APPROACHES,challengePathSummary} from './challenges.js';
+export const VERSION = '0.1.2';
 export const ATTRIBUTES = ['Strength','Dexterity','Endurance','Intellect','Wisdom','Charisma','Discipline'];
 export const SLOTS = ['head','torso','hands','feet','waist','neck','ring1','ring2','main','off'];
 export const SLOT_LABELS = {head:'Head',torso:'Torso',hands:'Hands',feet:'Feet',waist:'Waist',neck:'Neck',ring1:'Ring I',ring2:'Ring II',main:'Main hand',off:'Off hand'};
@@ -49,23 +51,31 @@ const concrete={
  sales:['Document a customer discovery conversation','Match a customer need to a suitable offer','Handle an objection and record the outcome','Complete a sale and document the full process','Deliver several sales with consistent customer follow-through'],
  hiking:['Plan and complete an appropriate short route','Follow a route with a clear return plan','Complete a hike using your own navigation plan','Document a longer route with pacing and equipment choices','Lead a suitable outing with a complete preparation plan']
 };
-export function challengeFor(skill,rank,variant=0){
+// Immutable legacy wording: saved attempts without a snapshot must keep these terms.
+// Keep these copies independent of future display names/standards.
+const legacyRankName=level=>level===50?'Historic mastery':level>=40?'World class':level>=30?'Expert':level>=20?'Accomplished':level>=10?'Practitioner':level>0?'Foundation':'Unassessed';
+const LEGACY_RANK_DESCRIPTIONS=Object.freeze(['Develop foundations through guided practice.','Work independently and consistently in familiar situations.','Demonstrate broad, reliable capability in demanding real situations.','Show recognized expertise and substantive local or regional achievement.','Demonstrate national or international leadership in the discipline.','Document sustained open-age world-best achievement or an equivalent historic contribution.']);
+export function legacyChallengeFor(skill,rank,variant=0){
  const band=Math.min(5,Math.floor(rank/10));
  const example=concrete[skill.id];
- let title=rank<=5&&example?example[rank-1]:`${['Demonstrate','Apply','Extend'][variant%3]} ${skill.name.toLowerCase()} at ${rankName(rank).toLowerCase()} rank ${rank}`;
+ let title=rank<=5&&example?example[rank-1]:`${['Demonstrate','Apply','Extend'][variant%3]} ${skill.name.toLowerCase()} at ${legacyRankName(rank).toLowerCase()} rank ${rank}`;
  if(rank>=30)title=`Document ${rank>=50?'historic open-age world-best':rank>=40?'national or international':'expert / local or regional'} achievement in ${skill.name.toLowerCase()}`;
  const standards=rank>=30?[
    'Describe the specific achievement and your personal contribution.',
-   `Provide a dated result, publication, portfolio, or independent recognition appropriate to ${rankName(rank).toLowerCase()} standing.`,
+   `Provide a dated result, publication, portfolio, or independent recognition appropriate to ${legacyRankName(rank).toLowerCase()} standing.`,
    rank===50?'Evidence reflects sustained best-in-world achievement beyond an age-group title.':'Explain why the scope and standard meet this rank, beyond routine practice.',
    'Identify the discipline, competitive division or professional context, and the limits of the evidence.'
  ]:[
    'The intended result was completed and can be demonstrated or documented.',
-   `The work meets the ${rankName(rank).toLowerCase()} standard described in the objective.`,
+   `The work meets the ${legacyRankName(rank).toLowerCase()} standard described in the objective.`,
    'You can explain your choices, identify errors, and repeat the essential process.',
    rank>=20?'The result demonstrates breadth, independence, and reliable quality.':'The result demonstrates the intended technique with appropriate care.'
  ];
- return {title,objective:RANK_DESCRIPTIONS[band],instructions:'Choose an appropriate setting, tools, and scope. Follow applicable safety instructions and your own limitations. Record what you actually did; a suggested objective is not professional training or permission to perform hazardous work.',rubric:standards,coverage:rank<=5&&example?'Curated starter objective; self-assessed':'Editorial rank framework; self-assessed',variant};
+ return {title,objective:LEGACY_RANK_DESCRIPTIONS[band],instructions:'Choose an appropriate setting, tools, and scope. Follow applicable safety instructions and your own limitations. Record what you actually did; a suggested objective is not professional training or permission to perform hazardous work.',rubric:standards,coverage:rank<=5&&example?'Curated starter objective; self-assessed':'Editorial rank framework; self-assessed',variant};
+}
+export function challengeFor(skill,rank,variant=0){
+ if(!skill||!Number.isInteger(rank)||rank<1||rank>50||!Number.isInteger(variant)||variant<0||variant>2)throw Error('Choose a skill, level 1–50 and a supported approach.');
+ return curatedChallengeFor(skill,rank,variant)||{...legacyChallengeFor(skill,rank,variant),edition:CHALLENGE_EDITION,sourceIds:[],scope:skill.name,evidence:'Editorial framework; no independently validated rank conversion is implied.'};
 }
 export const GEAR_NAMES={head:['Focus Headphones','Trail Cap'],torso:['Field Jacket','Studio Apron'],hands:['Precision Gloves','Work Gloves'],feet:['Training Shoes','Quality Hiking Boots'],waist:['Utility Belt','Trail Belt'],neck:['Mentor Pendant','Explorer Badge'],ring1:['Focus Ring','Resolve Ring'],ring2:['Practice Ring','Patience Ring'],main:['Signature Tool','Field Camera'],off:['Field Notebook','Reference Kit']};
 export function gearOffer(skill,rank,key){
@@ -87,6 +97,7 @@ const STARTER_REWARDS={
  sales:['a favorite treat','a sales notebook','a useful reference','a presentation accessory','a professional-learning resource']
 };
 export function rewardSuggestion(skill,rank){
+ const pathSuggestion=pathRewardSuggestion(skill,rank);if(pathSuggestion)return pathSuggestion;
  const choices=REWARD_SUGGESTIONS[skill.category]||REWARD_SUGGESTIONS.thinking;
  if(rank<10)return STARTER_REWARDS[skill.id]?.[Math.min(4,rank-1)]||(rank===1?choices[0]:choices[1]);
  return choices[Math.min(5,Math.floor(rank/10))];

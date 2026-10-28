@@ -47,7 +47,7 @@ Update this file after each meaningful checkpoint. Do not mark a phase complete 
 Implementation checks above describe source included in the development branch, not a live deployment. Browser verification is tracked separately below. P0 documentation commit: e0a56efee379e066ad1c084f9ab4ef19870f732d.
 
 ## P5 — Verify and review
-- [x] Engine/accounting tests and syntax checks pass: 45 tests, zero failures.
+- [x] Engine/accounting tests and syntax checks pass: 55 tests, zero failures.
 - [x] Desktop workflows: onboarding, assessment, log, promotion/rubric, gear rewards, activation lock, quests, comparisons and backup download.
 - [x] Mobile-width navigation, skills search and interests form at 390 px; no horizontal overflow in checked views.
 - [x] Reload and backup checksum verified; isolated browser photo-byte restore/recovery and invalid-backup rejection passed.
@@ -73,6 +73,15 @@ Implementation checks above describe source included in the development branch, 
 - [x] Update backup UI, version authorities, verification evidence and durable handoff.
 - [x] Push 0.1.1 to the existing draft PR and verify remote package/branch changes: `9aa71706f2a1b8c04d333c842000b79d49359e36`; 37 app-only PR paths.
 - [ ] Confirm actual OS file saving on target desktop/mobile browsers; Cloud Browser download waits timed out. Preparation, checksums and storage roundtrips passed independently.
+
+### 0.1.2 — Skill-specific challenge paths and stable milestone records 
+- [x] Research primary reference context for twenty skill paths spanning all fourteen categories.
+- [x] Add 29 concrete pre-expert objectives per path, with discipline-specific rubrics, visible safety guidance and source context; keep upper ranks explicitly editorial and world-best at 50.
+- [x] Freeze new attempt wording/rubrics at start and preserve the exact legacy definition for older attempts, including saved milestones and backups.
+- [x] Add a read-only fifty-level challenge/reward browser without revealing concealed rubrics or granting rewards.
+- [x] Test old/new attempts, snapshot validation, archive retention, catalog coverage, variant previews and desktop/mobile flows.
+- [x] Update version, source register, verification and handoff.
+- [ ] Push 0.1.2 and verify the existing draft PR head and app-only scope.
 
 ### Later work
 - Expand independently reviewed high-level discipline-specific standards and datasets.

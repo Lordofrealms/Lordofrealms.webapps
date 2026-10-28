@@ -1,5 +1,5 @@
 import {METRICS} from './benchmarks.js';
-import {VERSION,SKILLS,ATTRIBUTES,SLOTS,CLASSES,CATEGORIES,PRACTICE_TYPES,allSkills,skillById,minTaskXP,gearOffer,makeGear,LEGENDARY_TARGET,rewardSuggestion} from './catalog.js';
+import {VERSION,SKILLS,ATTRIBUTES,SLOTS,CLASSES,CATEGORIES,PRACTICE_TYPES,allSkills,skillById,minTaskXP,gearOffer,makeGear,LEGENDARY_TARGET,rewardSuggestion,challengeFor,legacyChallengeFor} from './catalog.js';
 
 export const SCHEMA=1;
 export const MAX_LEVEL=50;
@@ -136,11 +136,17 @@ export function resolveRewards(state,now=new Date().toISOString()){
  if(hike&&!claimed.has('feat:hiking-20')){state.rewardClaims.push('feat:hiking-20');state.inventory.push({id:'gear:hiking-20',key:'feat:hiking-20',name:'Quality Hiking Boots',slot:'feet',rank:10,skillId:'hiking',variant:0,effect:'hiking-day',bps:500,active:true,activeName:'Trail Focus'});count++;}
  return {count,rounds};
 }
+export function attemptChallenge(state,attempt){
+ if(attempt.challenge)return clone(attempt.challenge);
+ const skill=skillById(state,attempt.skillId);if(!skill)throw Error('Unknown challenge skill.');
+ return {...legacyChallengeFor(skill,attempt.rank,attempt.variant),edition:'0.1.1',sourceIds:[],scope:skill.name,evidence:'Preserved legacy challenge wording; self-assessed.'};
+}
 export function startAttempt(state,skillId,rank,variant=0,now=new Date().toISOString()){
+ if(!Number.isInteger(variant)||variant<0||variant>2)throw Error('Choose a supported challenge approach.');
  const p=project(state,now),k=p.skills[skillId];if(!k)throw Error('Unknown skill.');
  if(!Number.isInteger(rank)||rank<1||rank>50||rank>Math.max(k.level+1,k.assessed)||xp(k.xp)<threshold(rank))throw Error('Earn the required XP before this promotion challenge.');
  const old=state.attempts.find(a=>a.skillId===skillId&&a.rank===rank&&!a.passed);if(old)return old;
- const a={id:uid(),skillId,rank,variant,startedAt:now,submittedAt:null,checks:[],photos:[],notes:'',passed:false};state.attempts.push(a);return a;
+ const a={id:uid(),skillId,rank,variant,startedAt:now,submittedAt:null,checks:[],photos:[],notes:'',passed:false,challenge:{format:1,skillId,rank,...clone(challengeFor(skillById(state,skillId),rank,variant))}};state.attempts.push(a);return a;
 }
 export function submitAttempt(state,id,input={},now=new Date().toISOString()){
  const a=state.attempts.find(a=>a.id===id);if(!a||a.passed)throw Error('Attempt unavailable.');
@@ -148,7 +154,7 @@ export function submitAttempt(state,id,input={},now=new Date().toISOString()){
 }
 export function passAttempt(state,id,checks,now=new Date().toISOString()){
  const a=state.attempts.find(a=>a.id===id);if(!a?.submittedAt)throw Error('Complete the attempt before revealing and scoring the rubric.');
- if(a.passed)return false;if(checks.length!==4||!checks.every(Boolean))throw Error('Meet every rubric criterion or record another attempt.');
+ if(a.passed)return false;const definition=attemptChallenge(state,a);if(!Array.isArray(checks)||checks.length!==definition.rubric.length||!checks.every(v=>v===true))throw Error('Meet every rubric criterion or record another attempt.');
  const p=project(state,now),k=p.skills[a.skillId];if(xp(k.xp)<threshold(a.rank))throw Error('Rebuild the required XP before confirming this promotion.');
  a.passed=true;a.checks=checks;a.passedAt=now;
  state.promotions.push({id:`promotion:${a.id}`,attemptId:a.id,skillId:a.skillId,rank:a.rank,date:dayKey(now,state.profile.timeZone)});resolveRewards(state,now);return true;
@@ -264,6 +270,10 @@ export function validateState(s){
  for(const key of ['promotions','gearOffers','abilities','measurements','audit']){const seen=new Set();for(const entry of s[key]){if(!entry||!text(entry.id,200)||seen.has(entry.id))fail(`invalid or duplicate ${key} ID.`);seen.add(entry.id);}}
  for(const a of s.activities)if(!rank(a.tier)||!['practice','outcome','project','work','quest'].includes(a.kind)||!text(a.notes,8000)||!refs(a.photos)||typeof a.voided!=='boolean')fail('invalid activity details.');
  for(const a of s.attempts)if(!ids.has(a.skillId)||!rank(a.rank)||a.rank<1||!Number.isInteger(a.variant)||a.variant<0||a.variant>2||!timestamp(a.startedAt)||(a.submittedAt&&!timestamp(a.submittedAt))||!text(a.notes)||!refs(a.photos)||!Array.isArray(a.checks)||a.checks.some(v=>typeof v!=='boolean')||typeof a.passed!=='boolean'||(a.passed&&(!timestamp(a.passedAt)||a.checks.length!==4||!a.checks.every(Boolean))))fail('invalid milestone attempt.');
+ for(const a of s.attempts)if(a.challenge!==undefined){
+  const c=a.challenge,nonempty=(value,max)=>text(value,max)&&value.trim().length>0;
+  if(!c||Array.isArray(c)||c.format!==1||c.skillId!==a.skillId||c.rank!==a.rank||c.variant!==a.variant||typeof c.edition!=='string'||!/^\d\.\d\.\d$/.test(c.edition)||!nonempty(c.title,500)||!nonempty(c.objective,8000)||!nonempty(c.instructions,4000)||!nonempty(c.coverage,500)||!nonempty(c.scope,1000)||!nonempty(c.evidence,4000)||!Array.isArray(c.rubric)||c.rubric.length!==4||!c.rubric.every(v=>nonempty(v,2000))||!Array.isArray(c.sourceIds)||c.sourceIds.length>10||c.sourceIds.some(id=>typeof id!=='string'||!/^[a-z][a-z0-9-]{0,60}$/.test(id)))fail('invalid saved challenge definition.');
+ }
  for(const q of s.quests){
   if((q.minTier!==undefined&&!rank(q.minTier))||!rank(q.rank)||q.rank<1||!['open','timed','commitment'].includes(q.mode)||!['active','paused','completed','expired','abandoned','voided'].includes(q.status)||!['sessions','minutes','miles','units'].includes(q.metric)||!text(q.title,200)||(q.mode!=='open'&&!q.deadline))fail('invalid quest details.');
   if(q.pauses&&(!Array.isArray(q.pauses)||q.pauses.some(p=>!timestamp(p.start)||(p.end&&(!timestamp(p.end)||p.end<p.start)))))fail('invalid quest pauses.');

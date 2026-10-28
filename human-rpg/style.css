@@ -7,3 +7,7 @@
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}.skill-card:hover{transform:none}}
 
 .download-panel{position:fixed;right:24px;bottom:24px;z-index:80;width:min(360px,calc(100vw - 32px));padding:20px;border:1px solid var(--gold);border-radius:14px;background:var(--panel,#162226);box-shadow:0 15px 60px #0008}.download-panel p{overflow-wrap:anywhere;margin:10px 0}.download-panel .source-note{margin-bottom:0}dialog .download-panel{position:static;width:100%;margin-top:20px;box-shadow:none}@media(max-width:700px){.download-panel{right:16px;bottom:88px}}
+
+/* Keep the roadmap controls and coverage labels readable on narrow screens. */
+#roadmap-controls{margin-bottom:20px}.challenge-meta .pill{white-space:normal;line-height:1.5;font-size:11px;max-width:100%}
+@media(max-width:600px){#roadmap-controls{grid-template-columns:1fr;gap:12px}}
