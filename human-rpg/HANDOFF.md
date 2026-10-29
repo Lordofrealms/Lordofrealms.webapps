@@ -2,6 +2,12 @@
 
 Read root/app `AGENTS.md`, `PROJECT_STATE.md`, `docs/PLAN.md`, `docs/DESIGN.md`, `docs/DECISIONS.md`, `docs/VERIFICATION.md`, `docs/RANKINGS.md` and `docs/CHALLENGES.md`. The owner finished an extensive design discussion; do not ask them to repeat it.
 
+## Pause instruction — 2026-10-28
+
+**Stop app implementation until the owner returns after finishing the 1000 Steps book.** The book has its own GitHub repository and must not be worked on here. Later use its completed results as input for relevant RPG skills, prerequisites, tasks, assessments and milestones. Preserve source chapter/step IDs and distinguish book-derived content from areas the book does not cover; XP/reward balance and outside ranking evidence still need their own validation.
+
+`human-rpg-dev` contains an unfinished **0.1.3** checkpoint based on `719062bd56c3e9697032a11243072a4cfd713fa3`. It adds `skill-profiles.js` (204 profiles, six capabilities each), `curriculum.js` (prototype presets, assessment estimates and anchor-based challenges), and partial engine integration. `app.js` still has the old assessment/logging forms. New logic, balance, imports and browser behavior are not validated by the historical 55-test result. Do not merge or publish this checkpoint. See `docs/CONTENT-REVISION.md` before resuming. There are no new built-in skill IDs and no database reset/migration.
+
 The app is published as **0.1.2** for early review at **[Human RPG on GitHub Pages](https://lordofrealms.github.io/Lordofrealms.webapps/human-rpg/)**. [PR #109](https://github.com/Lordofrealms/Lordofrealms.webapps/pull/109) merged into `main` as `c7ba445328029e81ec4913ee70de28652ca76721`. Existing Pages [run 40609886604](https://github.com/Lordofrealms/Lordofrealms.webapps/actions/runs/40609886604) succeeded, and the public onboarding screen showed 0.1.2. The separate design-only commit is `e0a56efee379e066ad1c084f9ab4ef19870f732d`, created before source implementation. Confirm remote heads and inspect newer work before editing. Future implementation needs a new PR; preserve app-only scope.
 
 The repository is public and Pages deploys from `main`; no new hosting project or setting was needed. Temporary-preview data does not automatically transfer to the live origin. Leave any user-entered preview progress available for export and restore. `docs/preview-live-0.1.2.jpg` shows the public empty onboarding screen. An online HTTPS load is not an offline/update-lifecycle test; remaining verification below still applies.
@@ -46,7 +52,9 @@ Current browser evidence: 13 small persistence checks plus two 108 MiB checks; p
 
 The UI photo fixture uses production app/storage copies with isolated DB/channel imports. It generates its own photo; no upload or real character data is involved. The `$$` collection selector in `hydratePhotos` matters: using `$` there throws instead of rendering photos.
 
-## Next work
+## When the owner resumes
+
+First read the completed book's own status and outputs in its repository. Map applicable steps to stable RPG skills and specialties, prerequisites, concrete tasks, gateway evidence and assessment questions. Audit coverage and gaps before continuing the prototype. Do not assume the book covers every sport, art, language or personal-life skill.
 
 Run `npm run check` and `npm test` from the app folder; last result 55/55 pass. See the verification log for browser evidence. Preserve the form dispatch fix using `getAttribute('id')`: an input named `id` shadows the form's ID property. Stale writes are blocked and damaged stored state is never replaced by a blank character. Backups preserve photos and a pre-restore recovery copy.
 

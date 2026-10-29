@@ -1,6 +1,12 @@
 # Human RPG project state
 
-Updated: 2026-10-27 (America/Chicago).
+Updated: 2026-10-28 (America/Chicago).
+
+## Paused by owner — book first
+
+The owner chose to finish the **1000 Steps book** in its own repository, then return to Human RPG and use the book's results as input for relevant skill content. Do not work on that book here. Do not continue RPG implementation until the owner resumes it. No book repository was opened or changed for this checkpoint.
+
+Published app: **0.1.2**. Development branch: **unfinished 0.1.3**, based on `719062bd56c3e9697032a11243072a4cfd713fa3`. This checkpoint preserves work in progress only; it is not merged or deployed. Read `docs/CONTENT-REVISION.md` for exact completed/remaining work. The 55-test result below applies to 0.1.2, not this partial revision.
 
 - Repository: `Lordofrealms/Lordofrealms.webapps`; path `human-rpg/`.
 - Published branch: `main`; [PR #109](https://github.com/Lordofrealms/Lordofrealms.webapps/pull/109) merged as `c7ba445328029e81ec4913ee70de28652ca76721`. Development branch: `human-rpg-dev`.
@@ -18,7 +24,7 @@ On 2026-10-27 (America/Chicago), PR #109 was made ready and merged at its verifi
 
 No application code, hosting settings or storage format changed for publication. The successful online load does not establish offline/update lifecycle or the other pending checks. Temporary-preview progress stays at its original browser origin until explicitly exported/restored. Future implementation needs a new PR; #109 is closed and merged.
 
-## Implemented and checked
+## Published 0.1.2 — implemented and checked
 
 P1–P4 are implemented: exact XP/progression, decay, assessments/gateway rewards, attributes, classes, quests/stakes, equipment/cooldown locks, legendary cascades, credit shop, income-scaled purchase permissions, local database, photos/recoverable backups, responsive UI, measurements and ranking evidence. See `docs/PLAN.md` for the checklist.
 

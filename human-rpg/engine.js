@@ -1,4 +1,5 @@
 import {METRICS} from './benchmarks.js';
+import {taskFor,taskBaseXP,estimateAssessment,assessmentDefinition} from './curriculum.js';
 import {VERSION,SKILLS,ATTRIBUTES,SLOTS,CLASSES,CATEGORIES,PRACTICE_TYPES,allSkills,skillById,minTaskXP,gearOffer,makeGear,LEGENDARY_TARGET,rewardSuggestion,challengeFor,legacyChallengeFor} from './catalog.js';
 
 export const SCHEMA=1;
@@ -39,6 +40,18 @@ export function assessSkill(state,skillId,level,date=dayKey(new Date(),state.pro
  if(state.activities.some(a=>!a.voided&&a.skillId===skillId)||state.promotions.some(p=>p.skillId===skillId)||(state.baseline.skills[skillId]?.level||0)>0)throw Error('This skill already has progress. Use its next challenge or log practice.');
  state.baseline.skills[skillId]={level,date,assessed:true};state.audit.push({id:uid(),type:'assessment',skillId,level,date});
 }
+export function recordAssessment(state,input,now=new Date().toISOString()){
+ const skill=skillById(state,input.skillId);if(!skill)throw Error('Choose a known skill.');
+ const answers=input.answers,recognition=Number(input.recognition||0),result=estimateAssessment(skill,answers,recognition);
+ const evidence=String(input.evidence||'').trim(),recognitionEvidence=String(input.recognitionEvidence||'').trim();
+ if(result.recognitionBlocked)throw Error('Expert recognition requires independent capability across all six areas. Review the gaps before claiming an expert baseline.');
+ if(evidence.length<20)throw Error('Describe a specific example supporting these answers (at least 20 characters).');
+ if(recognition&&(evidence.length<80||recognitionEvidence.length<30))throw Error('For an expert baseline, describe the achievement, dates, your contribution and independently checkable recognition.');
+ if(evidence.length>4000||recognitionEvidence.length>2000)throw Error('Keep assessment evidence within the stated limits.');
+ assessSkill(state,skill.id,result.level,dayKey(now,state.profile.timeZone));
+ state.audit.at(-1).assessment={...assessmentDefinition(skill),answers:[...answers],recognition,evidence,recognitionEvidence,level:result.level,inconsistent:result.inconsistent,recordedAt:now};
+ return result;
+}
 export function creditBalance(state){return state.creditLedger.reduce((sum,e)=>sum+e.amountCents,0);}
 export function addCredit(state,id,amountCents,reason,now=new Date().toISOString()){
  if(state.creditLedger.some(e=>e.id===id))return false;
@@ -54,14 +67,28 @@ export function logActivity(state,input,now=new Date().toISOString()){
  const skill=skillById(state,input.skillId);if(!skill)throw Error('Choose a known skill.');
  const today=dayKey(now,state.profile.timeZone),date=input.date||today;
  if(!validDay(date)||date>today||date<dayKey(state.createdAt,state.profile.timeZone))throw Error('Activity date must be between character creation and today.');
- const type=PRACTICE_TYPES.find(t=>t.id===input.kind)||PRACTICE_TYPES[0];
+ const preset=input.taskId&&!['custom','work'].includes(input.taskId)?taskFor(skill,input.taskId):null;
+ if(input.taskId&&!['custom','work'].includes(input.taskId)&&!preset)throw Error('This task is not available for the selected skill. Choose it again.');
+ const kind=preset?.kind||(input.taskId==='work'?'work':input.kind);
+ const type=PRACTICE_TYPES.find(t=>t.id===kind)||PRACTICE_TYPES[0];
  let tier=Number(input.tier??0),units=Number(input.units??1),minutes=Number(input.minutes??0),distanceMiles=Number(input.distanceMiles??0);
+ if(preset)tier=preset.tier;
  if(!Number.isInteger(tier)||tier<0||tier>50||!Number.isInteger(units)||units<1||units>10000||!Number.isFinite(minutes)||minutes<0||minutes>1440||!Number.isFinite(distanceMiles)||distanceMiles<0||distanceMiles>1000)throw Error('Check the activity difficulty, units, duration, and distance.');
+ if(preset){
+  if(input.taskConfirmed!==true&&input.taskConfirmed!=='on')throw Error('Confirm that the task requirements were completed and this work is not already logged.');
+  if(units>preset.maxUnits||minutes<preset.minMinutes*units)throw Error(`This task allows ${preset.maxUnits} unit(s) per entry and needs at least ${preset.minMinutes} minutes per unit.`);
+  if(String(input.notes||'').trim().length<20)throw Error('Record a specific result, technique or evidence for this task (at least 20 characters).');
+  const existing=state.activities.filter(a=>!a.voided&&a.date===date&&a.task?.id===preset.id).reduce((n,a)=>n+a.units,0);
+  if(existing+units>preset.maxDailyUnits)throw Error(`This task allows ${preset.maxDailyUnits} distinct unit(s) per day. Do not relog the same work.`);
+  if(preset.id.startsWith('strength-training:bench-')&&state.activities.some(a=>!a.voided&&a.date===date&&a.task?.id.startsWith('strength-training:bench-')))throw Error('Use one bench-press result per day, at the highest applicable preset. Do not award the same lift again at lower weights.');
+ }
+ if(input.taskId==='custom'&&(String(input.notes||'').trim().length<20||(tier>=30&&String(input.notes||'').trim().length<80)))throw Error('Explain the custom task, completed unit and difficulty evidence; expert tasks need at least 80 characters of evidence.');
  if(type.id==='work'){
   if(state.activities.some(a=>!a.voided&&a.kind==='work'&&a.date===date))throw Error('The modest routine workday award is available once per day. Log meaningful outcomes separately.');
   tier=0;units=1;
  }
- const a={id:uid(),skillId:skill.id,title:String(input.title||type.name).slice(0,200),notes:String(input.notes||'').slice(0,4000),date,loggedAt:now,kind:type.id,tier,units,minutes,distanceMiles,baseXp:(minTaskXP(tier)*BigInt(type.factor)*BigInt(units)).toString(),late:date<today,context:type.id==='work'?{classBps:10000,gearBps:0,activeBps:0,boots:false}:equipContext(state,skill,now),photos:input.photos||[],voided:false};
+ const a={id:uid(),skillId:skill.id,title:String(preset?.title||input.title||type.name).slice(0,200),notes:String(input.notes||'').slice(0,4000),date,loggedAt:now,kind:type.id,tier,units,minutes,distanceMiles,baseXp:(preset?taskBaseXP(preset,units):minTaskXP(tier)*BigInt(type.factor)*BigInt(units)).toString(),late:date<today,context:type.id==='work'?{classBps:10000,gearBps:0,activeBps:0,boots:false}:equipContext(state,skill,now),photos:input.photos||[],voided:false};
+ if(preset)a.task={format:1,...clone(preset),basePerUnit:taskBaseXP(preset).toString()};
  state.activities.push(a);return a;
 }
 export function activityAwards(state){
@@ -269,6 +296,15 @@ export function validateState(s){
  if(!s.baseline.skills||typeof s.baseline.skills!=='object'||Array.isArray(s.baseline.skills)||!timestamp(s.updatedAt))fail('invalid baseline or save date.');
  for(const key of ['promotions','gearOffers','abilities','measurements','audit']){const seen=new Set();for(const entry of s[key]){if(!entry||!text(entry.id,200)||seen.has(entry.id))fail(`invalid or duplicate ${key} ID.`);seen.add(entry.id);}}
  for(const a of s.activities)if(!rank(a.tier)||!['practice','outcome','project','work','quest'].includes(a.kind)||!text(a.notes,8000)||!refs(a.photos)||typeof a.voided!=='boolean')fail('invalid activity details.');
+ for(const a of s.activities)if(a.task!==undefined){
+  const t=a.task;
+  if(!t||Array.isArray(t)||t.format!==1||!text(t.id,200)||!/^\d\.\d\.\d$/.test(t.edition)||t.skillId!==a.skillId||t.kind!==a.kind||t.tier!==a.tier||!text(t.title,500)||!t.title.trim()||!text(t.requirements,4000)||!t.requirements.trim()||!text(t.unit,100)||!t.unit.trim()||!Number.isInteger(t.factor)||t.factor<1||t.factor>8||!Number.isInteger(t.minMinutes)||t.minMinutes<0||t.minMinutes>1440||!Number.isInteger(t.maxUnits)||t.maxUnits<1||t.maxUnits>10000||!Number.isInteger(t.maxDailyUnits)||t.maxDailyUnits<1||t.maxDailyUnits>10000||a.units>t.maxUnits||a.minutes<t.minMinutes*a.units)fail('invalid saved task definition.');
+  try{if(xp(t.basePerUnit)!==taskBaseXP(t)||xp(a.baseXp)!==xp(t.basePerUnit)*BigInt(a.units))fail('saved task XP mismatch.');}catch{fail('saved task XP mismatch.');}
+ }
+ for(const entry of s.audit)if(entry.assessment!==undefined){
+  const a=entry.assessment;
+  if(!a||Array.isArray(a)||a.format!==1||!/^\d\.\d\.\d$/.test(a.edition)||a.skillId!==entry.skillId||!ids.has(a.skillId)||!Array.isArray(a.questions)||a.questions.length!==6||!a.questions.every(v=>text(v,500)&&v.trim())||!Array.isArray(a.answers)||a.answers.length!==6||a.answers.some(v=>!Number.isInteger(v)||v<0||v>3)||!Array.isArray(a.levels)||a.levels.length!==6||!a.levels.every(rank)||!Array.isArray(a.answerLabels)||a.answerLabels.length!==4||!a.answerLabels.every(v=>text(v,200))||!rank(a.recognition)||!rank(a.level)||a.level!==entry.level||!text(a.evidence,4000)||!text(a.recognitionEvidence,2000)||typeof a.inconsistent!=='boolean'||!timestamp(a.recordedAt))fail('invalid saved assessment.');
+ }
  for(const a of s.attempts)if(!ids.has(a.skillId)||!rank(a.rank)||a.rank<1||!Number.isInteger(a.variant)||a.variant<0||a.variant>2||!timestamp(a.startedAt)||(a.submittedAt&&!timestamp(a.submittedAt))||!text(a.notes)||!refs(a.photos)||!Array.isArray(a.checks)||a.checks.some(v=>typeof v!=='boolean')||typeof a.passed!=='boolean'||(a.passed&&(!timestamp(a.passedAt)||a.checks.length!==4||!a.checks.every(Boolean))))fail('invalid milestone attempt.');
  for(const a of s.attempts)if(a.challenge!==undefined){
   const c=a.challenge,nonempty=(value,max)=>text(value,max)&&value.trim().length>0;

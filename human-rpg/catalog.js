@@ -1,6 +1,8 @@
 import {curatedChallengeFor,pathRewardSuggestion,CHALLENGE_EDITION} from './challenges.js';
+import {SKILL_PROFILES} from './skill-profiles.js';
+import {anchoredChallengeFor} from './curriculum.js';
 export {CHALLENGE_PATHS,CHALLENGE_EDITION,APPROACHES,challengePathSummary} from './challenges.js';
-export const VERSION = '0.1.2';
+export const VERSION = '0.1.3';
 export const ATTRIBUTES = ['Strength','Dexterity','Endurance','Intellect','Wisdom','Charisma','Discipline'];
 export const SLOTS = ['head','torso','hands','feet','waist','neck','ring1','ring2','main','off'];
 export const SLOT_LABELS = {head:'Head',torso:'Torso',hands:'Hands',feet:'Feet',waist:'Waist',neck:'Neck',ring1:'Ring I',ring2:'Ring II',main:'Main hand',off:'Off hand'};
@@ -24,7 +26,7 @@ export const CATEGORIES = definitions.map(([id,name,attribute])=>({id,name,attri
 export const slug = name => name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
 const attributeOverrides={running:'Endurance',hiking:'Endurance',swimming:'Endurance',cycling:'Endurance',climbing:'Strength',balance:'Dexterity',mobility:'Dexterity',gymnastics:'Dexterity',cooking:'Wisdom',baking:'Dexterity',writing:'Intellect',listening:'Wisdom',sales:'Charisma','public-speaking':'Charisma',programming:'Intellect','strength-training':'Strength','distance-walking':'Endurance',meditation:'Wisdom'};
 const specialties={cooking:['Heat control','Sauces','Regional cuisines','Menu planning'],baking:['Bread','Pastry','Cakes','Fermentation'],running:['Track','Road','Trail','Distance'],programming:['Algorithms','Systems','Applications','Architecture'],photography:['Portrait','Landscape','Documentary','Studio'],sales:['Discovery','Negotiation','Closing','Account growth'],carpentry:['Framing','Joinery','Finish work'],hiking:['Day hikes','Navigation','Expeditions']};
-export const SKILLS = definitions.flatMap(([category,,attribute,names])=>names.split('|').map(name=>({id:slug(name),name,category,attribute:attributeOverrides[slug(name)]||attribute,specialties:specialties[slug(name)]||['Foundations','Applied practice','Advanced practice','Contribution'],custom:false})));
+export const SKILLS = definitions.flatMap(([category,,attribute,names])=>names.split('|').map(name=>({id:slug(name),name,category,attribute:attributeOverrides[slug(name)]||attribute,specialties:SKILL_PROFILES[slug(name)]?.specialties||specialties[slug(name)]||['Foundations','Applied practice','Advanced practice','Contribution'],custom:false})));
 export const CLASSES = [
  {id:'explorer',name:'Explorer',subtitle:'A little of everything',categories:[],multiplier:15000},
  {id:'technologist',name:'Technologist',subtitle:'Build, analyze, solve',categories:['computing','science'],multiplier:30000},
@@ -75,7 +77,7 @@ export function legacyChallengeFor(skill,rank,variant=0){
 }
 export function challengeFor(skill,rank,variant=0){
  if(!skill||!Number.isInteger(rank)||rank<1||rank>50||!Number.isInteger(variant)||variant<0||variant>2)throw Error('Choose a skill, level 1–50 and a supported approach.');
- return curatedChallengeFor(skill,rank,variant)||{...legacyChallengeFor(skill,rank,variant),edition:CHALLENGE_EDITION,sourceIds:[],scope:skill.name,evidence:'Editorial framework; no independently validated rank conversion is implied.'};
+ return curatedChallengeFor(skill,rank,variant)||anchoredChallengeFor(skill,rank,variant)||{...legacyChallengeFor(skill,rank,variant),edition:CHALLENGE_EDITION,sourceIds:[],scope:skill.name,evidence:'Custom-skill editorial framework; no independently validated rank conversion is implied.'};
 }
 export const GEAR_NAMES={head:['Focus Headphones','Trail Cap'],torso:['Field Jacket','Studio Apron'],hands:['Precision Gloves','Work Gloves'],feet:['Training Shoes','Quality Hiking Boots'],waist:['Utility Belt','Trail Belt'],neck:['Mentor Pendant','Explorer Badge'],ring1:['Focus Ring','Resolve Ring'],ring2:['Practice Ring','Patience Ring'],main:['Signature Tool','Field Camera'],off:['Field Notebook','Reference Kit']};
 export function gearOffer(skill,rank,key){

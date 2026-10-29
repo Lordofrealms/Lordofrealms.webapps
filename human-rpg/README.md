@@ -1,8 +1,14 @@
-# Human RPG 0.1.2
+# Human RPG — published 0.1.2 / paused development 0.1.3
 
 A local-first life RPG for desktop and mobile browsers, built under `human-rpg/` in the public `Lordofrealms/Lordofrealms.webapps` repository. **[Open Human RPG](https://lordofrealms.github.io/Lordofrealms.webapps/human-rpg/)** on GitHub Pages. Version 0.1.2 is published for early review; [PR #109](https://github.com/Lordofrealms/Lordofrealms.webapps/pull/109) is merged into `main`.
 
-## Implemented
+## Development paused
+
+On 2026-10-28 the owner chose to finish the **1000 Steps book** first, then return and use its results as input for relevant RPG skills. Do not work on the book from this project or continue app implementation until the owner resumes it. The development branch contains an **unfinished, unpublished 0.1.3 checkpoint**; the public app remains 0.1.2. See [HANDOFF.md](HANDOFF.md) and [docs/CONTENT-REVISION.md](docs/CONTENT-REVISION.md).
+
+The checkpoint has original capability profiles for all 204 existing skills and partial assessment/task-engine integration. The new forms are **not connected**, scoring and XP balance are unvalidated, and updated automated/browser tests remain to be written and run. Do not publish this branch as a finished revision.
+
+## Implemented in published 0.1.2
 
 - 204 skills in 14 categories, custom skills, editable interests/classes, Quick Start and optional assessment.
 - Fifty ranks per skill, exact doubling XP thresholds, promotion challenges with rubrics revealed after the attempt, and a milestone journal with optional local photos.
@@ -28,7 +34,7 @@ node scripts/write-ranking-register.mjs
 node scripts/write-challenge-register.mjs
 ```
 
-The suite currently has **55 passing tests**. Actual browser checks and remaining limits are in [docs/VERIFICATION.md](docs/VERIFICATION.md). The `scripts/prepare-browser-tests.mjs` helper prepares an isolated persistence harness in an existing `dist/` preview; it does not change the app's database.
+The published 0.1.2 checkpoint had **55 passing tests**. That result does not validate the unfinished 0.1.3 changes. Actual browser checks and remaining limits are in [docs/VERIFICATION.md](docs/VERIFICATION.md). The `scripts/prepare-browser-tests.mjs` helper prepares an isolated persistence harness in an existing `dist/` preview; it does not change the app's database.
 
 ## Ranking coverage
 

@@ -1,4 +1,14 @@
-# Verification — 0.1.2
+# Verification — published 0.1.2 / paused 0.1.3
+
+## Unfinished 0.1.3 checkpoint — 2026-10-28
+
+Implementation stopped at the owner's request to finish the 1000 Steps book first. `skill-profiles.js` structurally contains 204 matching existing IDs and 1,224 capabilities, with no missing or extra IDs. This count does not establish curriculum quality or calibration. New task, assessment and challenge-fallback logic is only partially integrated; UI work and new automated/browser verification are pending. The 55 passing tests recorded below apply to the published 0.1.2 source and must not be attributed to this draft.
+
+No app-data migration, file upload, new browser exercise or publication was performed for this checkpoint. The book's repository was not opened or modified.
+
+`npm run check` passed syntax checks for twelve production modules at the pause checkpoint. Syntax checks do not establish functional correctness; the full test suite was not rerun on this unfinished revision.
+
+## Published 0.1.2 evidence
 
 Checked 2026-10-26, America/Chicago. Synthetic fixtures only. This section records new checks; the earlier records below remain historical evidence, not claims that every browser flow was repeated.
 

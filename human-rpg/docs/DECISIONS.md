@@ -61,6 +61,10 @@ Baseline date: 2026-10-22. `Accepted` means explicitly decided by the owner; `De
 | D55 | Default, 0.1.2 | A read-only fifty-level roadmap shows objectives, safety, evidence scope and prospective XP/gear/purchase permissions. It grants nothing and does not reveal scoring criteria. Existing reward values and suggestions stay frozen. |
 | D56 | Default, 0.1.2 | Three approaches retain equal rank standing: core demonstration, practical brief, changed conditions without added hazard. External qualifications/rankings inform context, never automatic RPG levels. New snapshot-bearing attempts should be reviewed in 0.1.2+; backups remain schema/archive version 1. |
 
+## Work sequencing
+
+Sequencing decision, 2026-10-28: pause Human RPG after preserving the unfinished 0.1.3 content revision. The owner will finish the 1000 Steps book in its separate repository, then return to use its results as input for relevant skill trees. Do not work on the book here. This changes work order, not the accepted progression, preservation or ranking rules.
+
 ## Superseded proposals (do not reintroduce)
 
 - 1.12x level scaling -> 2x.

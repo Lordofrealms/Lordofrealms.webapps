@@ -2,6 +2,8 @@
 
 Update this file after each meaningful checkpoint. Do not mark a phase complete merely because files exist.
 
+**Paused 2026-10-28 by the owner:** finish the 1000 Steps book in its own repository first; return later to use its results for relevant RPG skill content. Do not work on the book here or continue app implementation until resumed. The public 0.1.2 app remains available; unfinished 0.1.3 source is checkpointed on the development branch only.
+
 ## P0 — Preserve the design before coding
 - [x] Inspect existing repository and root instructions.
 - [x] Record the accepted rules, superseded proposals, and adjustable defaults.
@@ -90,6 +92,11 @@ Implementation checks above describe source behavior. Browser verification and t
 - [x] Record the live URL, merged status, manual preview-data transfer and remaining verification in README/state/handoff.
 
 ### Later work
+- [ ] **0.1.3 content revision (paused, 2026-10-28):** profiles for all 204 existing skills and prototype presets/scoring have been written; new assessment/task forms and validation are still incomplete. Reconcile this draft with the completed book before resuming.
+- [ ] Lock preset difficulty/type/unit definitions, show base/class/late XP arithmetic, and save task definitions with new activity records. Preserve every previously recorded award and assessment.
+- [ ] Replace general low-rank challenge fallbacks with the skill's actual capabilities and explicit progression stages. Keep the twenty individually authored paths, saved attempts and immutable legacy generator. Clearly distinguish anchor-based paths from individually authored ladders.
+- [ ] Audit catalog breadth and overlap; show the full catalog by default and improve specialty search. Record omitted disciplines rather than padding the total with empty entries.
+- [ ] Validate the new content coverage, assessment boundaries/contradictions, fixed preset awards, legacy retention, backup roundtrip and desktop/mobile UI before publication.
 - Expand independently reviewed high-level discipline-specific standards and datasets.
 - Import/test representative weighted SCF/Census distributions for defensible detailed percentiles.
 - Expand training/outcome integrations, custom catalog editing and optional export formats.
